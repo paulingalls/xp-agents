@@ -32,7 +32,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Minimal completion status
     event = _common.make_event(
-        "status",
+        _common.STATUS,
         agent_id,
         f"Subagent {agent_id} completed",
         working_on=[],

@@ -28,6 +28,7 @@ TIER_RED_ONLY = "red-only"
 VALID_TIERS = frozenset({TIER_FULL, TIER_BLOCKING, TIER_RED_ONLY})
 
 PRIORITY_RED = "\U0001f534"
+_MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +164,8 @@ def _read_with_lock(path: Path) -> str:
             signal.signal(signal.SIGALRM, old_handler)
 
         try:
+            if path.stat().st_size > _MAX_EVENTS_FILE_SIZE:
+                return ""
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""

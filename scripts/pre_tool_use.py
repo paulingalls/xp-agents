@@ -93,7 +93,7 @@ def check_working_on_overlap(
     # Build map: agent_id -> latest status event's working_on files
     agent_files: dict[str, list[str]] = {}
     for event in events:
-        if event.get("type") == "status" and event.get("working_on"):
+        if event.get("type") == _common.STATUS and event.get("working_on"):
             aid = event.get("agent_id", "")
             agent_files[aid] = event["working_on"]
 

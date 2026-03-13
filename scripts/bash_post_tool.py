@@ -186,7 +186,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
             # Auto-draft decision
             topic = msg[:50].lower().replace(" ", "-")
             decision = _make_event(
-                "decision",
+                _common.DECISION,
                 agent_id,
                 msg,
                 topic=topic,
@@ -199,7 +199,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
             file_count = count_commit_files(cwd)
             if file_count >= threshold:
                 concern = _make_event(
-                    "concern",
+                    _common.CONCERN,
                     agent_id,
                     f"Commit touches {file_count} files — consider smaller commits.",
                     severity="medium",
@@ -216,7 +216,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         failed = results["failed"]
 
         status = _make_event(
-            "status",
+            _common.STATUS,
             agent_id,
             f"Tests: {passed} passed, {failed} failed ({framework})",
             working_on=[],
@@ -225,7 +225,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
         if failed > 0:
             concern = _make_event(
-                "concern",
+                _common.CONCERN,
                 agent_id,
                 f"Test failures detected: {failed} failed ({framework})",
                 severity="high",

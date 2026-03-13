@@ -155,27 +155,37 @@
 
 ---
 
-## Milestone 5: Agent Hooks — Session Lifecycle
+## Milestone 5: Agent Hooks — Session Lifecycle ✅
 
 **Goal**: Retrospective, customer triage, subagent review, TDD gate.
 
+**Status**: Complete (551 total tests: 190 SMM + 361 hooks, 49 new tests for M5).
+
 **Deliverables**:
-- [ ] `scripts/retrospective.py` — Data preparation. Checks for unanalyzed events. Gathers event log + last 2-3 retrospective files. Writes `.retro-input.json`. Exit 0 = needed, exit 1 = not needed.
-- [ ] `prompts/retrospective_analyst.md` — SessionStart agent hook. Keep/Fix/Try with XP values as lenses (Honesty, Communication, Courage, Simplicity, Respect). Writes to `retrospectives/<timestamp>.json`. Runs materializer. Returns Keep/Fix/Try + SMM to main agent. "Insufficient data" for <5 events.
-- [ ] Retrospective output schema (see architecture doc for full spec)
-- [ ] `prompts/customer_proxy.md` — SessionStart agent hook. Reads open questions. Triages via AskUserQuestion. Records answers as events. Skipped if no open questions.
-- [ ] `prompts/subagent_reviewer.md` — SubagentStop agent hook (async). Reads agent_transcript_path. Reviews: conventions, complexity, decision alignment. Writes concerns. Skips xp- agents.
-- [ ] `prompts/tdd_check.md` — Stop prompt hook. Tests passing? Agent completed commitments? Blocks if not. `stop_hook_active` guard.
+- [x] `scripts/retrospective.py` — SessionStart command hook. Checks for unanalyzed events (≥5 threshold). Gathers event log + last 2-3 retrospective files. Writes `.retro-input.json` atomically. Always exits 0. Returns context summary when retro needed.
+- [x] `prompts/retrospective_analyst.md` — SessionStart agent hook. Keep/Fix/Try with XP values as lenses (Honesty, Communication, Courage, Simplicity, Respect). Reads `.retro-input.json`. Writes to `retrospectives/<timestamp>.json`. Runs materializer. Cross-session trend detection from previous retros. "Insufficient data" when `.retro-input.json` absent.
+- [x] Retrospective output schema — already existed in `smm/schema.json` (keep/fix/try arrays with event_refs and values/xp_value fields).
+- [x] `prompts/customer_proxy.md` — SessionStart agent hook. Reads SMM for unanswered 🔴 and 🟡 questions. Triages via AskUserQuestion. Records answers as events via `append.sh`.
+- [x] `prompts/subagent_reviewer.md` — SubagentStop agent hook (async). Reads `agent_transcript_path`. Reviews: convention adherence, complexity, decision alignment. Writes `concern` events. Skips xp- agents.
+- [x] `prompts/tdd_check.md` — Stop prompt hook (single-turn, no tool access). Evaluates test status from conversation context. Blocks if tests failing. Respects `stop_hook_active` guard to prevent infinite loops.
+- [x] `scripts/session_start.py` refactored — retro logic moved to `retrospective.py`. Session start now handles only SMM init + materialization + GUPP + skills injection.
+- [x] `hooks/hooks.json` — Added SessionStart (retrospective.py + retrospective_analyst + customer_proxy), SubagentStop default (subagent_reviewer async), Stop (tdd_check prompt).
+
+**Design decisions**:
+- `retrospective.py` always exits 0. Signals via `.retro-input.json` file presence (not exit codes). The analyst agent checks for the file.
+- `tdd_check.md` is a prompt-type hook (not command/agent). Single-turn evaluation, returns `{"decision": "block"|"allow"}`.
+- `stop_hook_active` is a field in the Stop hook input JSON. True when agent was already blocked once — prevents infinite loops.
 
 **Acceptance Criteria**:
-- Retrospective produces Keep/Fix/Try grounded in specific events
-- Every Keep has event references, every Fix has XP value context, every Try is actionable
-- "Insufficient data" for <5 events
-- Cross-session trends from previous retrospectives
-- Customer proxy triages via AskUserQuestion, records answers
-- Subagent reviewer evaluates holistic output, skips own agents
-- TDD check blocks on test failure, respects stop_hook_active
-- Keep/Fix/Try visible to user at session start
+- ✅ Retrospective produces Keep/Fix/Try grounded in specific events
+- ✅ Every Keep has event references, every Fix has XP value context, every Try is actionable
+- ✅ "Insufficient data" for <5 events (handled by not writing .retro-input.json)
+- ✅ Cross-session trends from previous retrospectives
+- ✅ Customer proxy triages via AskUserQuestion, records answers
+- ✅ Subagent reviewer evaluates holistic output, skips own agents
+- ✅ TDD check blocks on test failure, respects stop_hook_active
+- ✅ Keep/Fix/Try visible to user at session start
+- ✅ Plugin version bumped to 0.5.0
 
 ---
 

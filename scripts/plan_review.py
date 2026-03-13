@@ -89,14 +89,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     events = _common.read_events_raw(smm_dir)
     decisions: list[str] = []
     for e in events:
-        if e.get("type") in ("decision", "convention"):
+        if e.get("type") in (_common.DECISION, _common.CONVENTION):
             decisions.append(f"- [{e['type']}] {e['content']}")
             if len(decisions) >= _MAX_DECISIONS:
                 break
 
     # Append status event recording the review
     status_event = _common.make_event(
-        "status",
+        _common.STATUS,
         agent_id,
         f"Plan review completed: {step_count} steps, {len(flags)} flags",
         working_on=[],

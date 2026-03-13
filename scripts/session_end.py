@@ -29,7 +29,7 @@ def _compute_summary(events: list[dict]) -> dict:
     # Find the start of the current session
     session_start_idx = 0
     for i in range(len(events) - 1, -1, -1):
-        if events[i].get("type") == "session_end":
+        if events[i].get("type") == _common.SESSION_END:
             session_start_idx = i + 1
             break
 
@@ -56,16 +56,16 @@ def _compute_summary(events: list[dict]) -> dict:
         refs = e.get("references", [])
 
         match etype:
-            case "question":
+            case _common.QUESTION:
                 question_ids.add(eid)
-            case "answer":
+            case _common.ANSWER:
                 for ref in refs:
                     answered_ids.add(ref)
-            case "concern":
+            case _common.CONCERN:
                 concern_ids.add(eid)
 
         # Any non-concern event referencing a concern resolves it
-        if etype != "concern":
+        if etype != _common.CONCERN:
             for ref in refs:
                 if ref in concern_ids:
                     resolved_ids.add(ref)
@@ -75,7 +75,7 @@ def _compute_summary(events: list[dict]) -> dict:
     # Active working_on: latest status per agent
     latest_status: dict[str, dict] = {}
     for e in events:
-        if e.get("type") == "status":
+        if e.get("type") == _common.STATUS:
             latest_status[e.get("agent_id", "")] = e
 
     all_working_on: list[str] = []
@@ -87,7 +87,7 @@ def _compute_summary(events: list[dict]) -> dict:
     final_status_recorded = False
     for e in reversed(events):
         if e.get("agent_id") == "main":
-            final_status_recorded = e.get("type") == "status"
+            final_status_recorded = e.get("type") == _common.STATUS
             break
 
     return {
@@ -120,7 +120,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     event = {
         "id": str(uuid.uuid4()),
         "ts": datetime.now(timezone.utc).isoformat(),
-        "type": "session_end",
+        "type": _common.SESSION_END,
         "agent_id": "main",
         "content": f"Session ended: {input_data.get('reason', 'unknown')}",
         "schema_version": 1,

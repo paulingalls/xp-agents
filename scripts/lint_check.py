@@ -166,7 +166,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
             )
             os.close(fd)
             concern = _common.make_event(
-                "concern",
+                _common.CONCERN,
                 agent_id,
                 "No linter configuration detected in project. "
                 "Consider adding one for coding standards enforcement.",
@@ -188,7 +188,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     lint_output = run_linter(linter_name, normalized)
     if lint_output:
         concern = _common.make_event(
-            "concern",
+            _common.CONCERN,
             agent_id,
             f"Lint errors in {normalized}:\n{lint_output}",
             severity="medium",

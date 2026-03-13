@@ -171,7 +171,8 @@ class TestSessionStartIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
 
-    def test_retro_triggered_with_enough_events(self):
+    def test_no_retro_in_session_start_output(self):
+        """Retro logic moved to retrospective.py."""
         self._seed_events([make_event(content=f"e{i}") for i in range(6)])
         result = self._run_script(
             "session_start.py",
@@ -182,7 +183,8 @@ class TestSessionStartIntegration(_IntegrationTestCase):
         )
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("retrospective", ctx.lower())
+        self.assertNotIn("Run a retrospective", ctx)
+        self.assertNotIn("Action Required", ctx)
 
 
 class TestSessionEndIntegration(_IntegrationTestCase):
@@ -962,6 +964,92 @@ class TestPlanReviewIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
+
+
+# ===========================================================================
+# Retrospective (Milestone 5)
+# ===========================================================================
+
+
+class TestRetrospectiveIntegration(_IntegrationTestCase):
+    def test_sufficient_events_writes_retro_input(self):
+        """≥5 events → .retro-input.json written, exit 0, context in stdout."""
+        self._seed_events([make_event(content=f"e{i}") for i in range(6)])
+        result = self._run_script(
+            "retrospective.py",
+            {
+                "session_id": "int-test",
+                "source": "startup",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("6", ctx)
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["unanalyzed_count"], 6)
+
+    def test_insufficient_events_no_output(self):
+        """<5 events → no output, no file, exit 0."""
+        self._seed_events([make_event(content=f"e{i}") for i in range(3)])
+        result = self._run_script(
+            "retrospective.py",
+            {
+                "session_id": "int-test",
+                "source": "startup",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+    def test_xp_agent_no_output(self):
+        """xp- agents → exit 0, no output."""
+        self._seed_events([make_event(content=f"e{i}") for i in range(10)])
+        result = self._run_script(
+            "retrospective.py",
+            {
+                "session_id": "int-test",
+                "source": "startup",
+                "agent_type": "xp-test",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_compact_source_no_output(self):
+        """compact source → exit 0, no output."""
+        self._seed_events([make_event(content=f"e{i}") for i in range(10)])
+        result = self._run_script(
+            "retrospective.py",
+            {
+                "session_id": "int-test",
+                "source": "compact",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_retro_input_includes_history(self):
+        """Previous retro files included in .retro-input.json."""
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_data = {"keep": [{"content": "good TDD"}], "fix": [], "try": []}
+        (retro_dir / "2026-03-10T00-00-00.json").write_text(json.dumps(retro_data))
+
+        self._seed_events([make_event(content=f"e{i}") for i in range(6)])
+        result = self._run_script(
+            "retrospective.py",
+            {
+                "session_id": "int-test",
+                "source": "startup",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(len(data["previous_retros"]), 1)
 
 
 if __name__ == "__main__":

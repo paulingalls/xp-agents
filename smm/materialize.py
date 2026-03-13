@@ -25,6 +25,7 @@ from pathlib import Path
 
 STALE_THRESHOLD = 50
 PRIORITY_RED = "\U0001f534"
+_MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 
 
 def _validate_smm_dir(smm_dir: Path) -> None:
@@ -128,6 +129,8 @@ def _read_with_lock(path: Path) -> str:
             signal.signal(signal.SIGALRM, old_handler)
 
         try:
+            if path.stat().st_size > _MAX_EVENTS_FILE_SIZE:
+                return ""
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""

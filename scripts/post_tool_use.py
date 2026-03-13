@@ -55,7 +55,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if refs:
         extra["references"] = refs
     status_event = _common.make_event(
-        "status",
+        _common.STATUS,
         agent_id,
         f"Wrote to {normalized}",
         **extra,

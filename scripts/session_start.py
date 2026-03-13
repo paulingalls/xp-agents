@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""SessionStart hook: initialize SMM, inject context, trigger retro.
+"""SessionStart hook: initialize SMM, inject context.
 
 Runs on startup, resume, and compact. Ensures SMM exists, materializes
-the current view, and injects it as additionalContext. Triggers retro
-instruction when enough unanalyzed events have accumulated.
+the current view, and injects it as additionalContext with GUPP and skills.
+Retrospective triggering is handled separately by retrospective.py.
 """
 
 import os
@@ -20,8 +20,6 @@ import materialize
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-RETRO_THRESHOLD = 5
 
 GUPP_TEXT = (
     "\n\n---\n"
@@ -40,27 +38,10 @@ SKILLS_TEXT = (
     "engage pair programming with navigator review"
 )
 
-RETRO_INSTRUCTION = (
-    "**Action Required: Run a retrospective before starting new work.**\n"
-    "There are {count} unanalyzed events since the last retrospective. "
-    "Use the Keep/Fix/Try framework with XP values as analytical lenses.\n\n"
-)
-
 
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
-
-
-def _count_unanalyzed_events(events: list[dict]) -> int:
-    """Count events after the last retrospective event."""
-    last_retro_idx = -1
-    for i, e in enumerate(events):
-        if e.get("type") == "retrospective":
-            last_retro_idx = i
-    if last_retro_idx == -1:
-        return len(events)
-    return len(events) - last_retro_idx - 1
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -97,7 +78,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Graceful: return GUPP + skills even without SMM
         return GUPP_TEXT + SKILLS_TEXT
 
-    # Parse events once — used for both rendering and retro check
+    # Materialize events into SMM markdown
     events, skipped = materialize.parse_events(smm_dir)
     if not events and skipped == 0:
         smm_content = ""
@@ -106,20 +87,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         conflicts = materialize.detect_conflicts(events, indices)
         smm_content = materialize.render_markdown(events, indices, conflicts, skipped)
 
-    # Build context
+    # Build context: SMM + GUPP + skills
     parts: list[str] = []
 
-    # Check for retro trigger (only on startup/resume, not compact)
-    if source != "compact":
-        unanalyzed = _count_unanalyzed_events(events)
-        if unanalyzed >= RETRO_THRESHOLD:
-            parts.append(RETRO_INSTRUCTION.format(count=unanalyzed))
-
-    # Full SMM
     if smm_content:
         parts.append(smm_content)
 
-    # GUPP + skills
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
 

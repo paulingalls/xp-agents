@@ -25,6 +25,33 @@ from test_engine import _SMMTestCase, make_event
 _HookTestCase = _SMMTestCase
 
 
+def _make_write_input(**overrides) -> dict:
+    """Build a canonical Write tool hook input dict."""
+    data = {
+        "session_id": "t",
+        "tool_name": "Write",
+        "tool_input": {"file_path": "src/app.ts", "content": "x"},
+        "cwd": "/tmp",
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
+def _make_bash_input(command: str = "echo hi", stdout: str = "", **overrides) -> dict:
+    """Build a canonical Bash tool hook input dict."""
+    data = {
+        "session_id": "t",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_response": {"stdout": stdout},
+        "cwd": "/tmp",
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
 # ===========================================================================
 # _common.py tests
 # ===========================================================================
@@ -315,41 +342,19 @@ class TestSessionStart(_HookTestCase):
         self.assertIn("xp-values", result)
         self.assertIn("pair-programming", result)
 
-    def test_retro_triggered_when_enough_events(self):
+    def test_no_retro_instruction_in_output(self):
         import session_start
 
-        # Write 6 events (>= 5 threshold), none are retrospective
+        # Retro logic moved to retrospective.py — session_start should not
+        # include retro instructions regardless of event count
         events = [make_event(content=f"event {i}") for i in range(6)]
         self._write_events(events)
         result = session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("retrospective", result.lower())
-
-    def test_retro_not_triggered_with_few_events(self):
-        import session_start
-
-        # Write 3 events (< 5 threshold)
-        events = [make_event(content=f"event {i}") for i in range(3)]
-        self._write_events(events)
-        result = session_start.run(
-            {"session_id": "test", "source": "startup"},
-            smm_dir=self.smm_dir,
-        )
-        # Should not contain retro instruction (but still has SMM)
         self.assertNotIn("Run a retrospective", result)
-
-    def test_retro_not_triggered_on_compact(self):
-        import session_start
-
-        events = [make_event(content=f"event {i}") for i in range(6)]
-        self._write_events(events)
-        result = session_start.run(
-            {"session_id": "test", "source": "compact"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertNotIn("Run a retrospective", result)
+        self.assertNotIn("Action Required", result)
 
     def test_graceful_no_smm_dir(self):
         import session_start
@@ -375,20 +380,203 @@ class TestSessionStart(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Resume immediately", result)
 
-    def test_retro_reset_after_retrospective_event(self):
+    def test_multiple_events_returns_smm(self):
         import session_start
 
-        # 10 events, but a retrospective at position 7
-        events = [make_event(content=f"event {i}") for i in range(7)]
-        events.append(make_event("retrospective", content="retro done"))
-        events.extend([make_event(content=f"post {i}") for i in range(2)])
+        events = [make_event(content=f"event {i}") for i in range(10)]
         self._write_events(events)
         result = session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        # Only 2 events after the last retrospective, so no retro trigger
-        self.assertNotIn("Run a retrospective", result)
+        self.assertIn("Shared Mental Model", result)
+        self.assertIn("Resume immediately", result)
+
+
+# ===========================================================================
+# retrospective.py tests
+# ===========================================================================
+
+
+class TestRetrospective(_HookTestCase):
+    def setUp(self):
+        super().setUp()
+        # Create retrospectives/ directory
+        self.retro_dir = self.smm_dir / "retrospectives"
+        self.retro_dir.mkdir()
+
+    def test_xp_agent_skips(self):
+        import retrospective
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup", "agent_type": "xp-retro"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_compact_source_skips(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(10)]
+        self._write_events(events)
+        result = retrospective.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_insufficient_events_no_file(self):
+        import retrospective
+
+        # Only 3 events — below threshold of 5
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        self._write_events(events)
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+    def test_sufficient_events_writes_file(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+
+    def test_retro_input_json_structure(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("unanalyzed_count", data)
+        self.assertIn("events_since_last_retro", data)
+        self.assertIn("previous_retros", data)
+        self.assertIn("event_type_counts", data)
+        self.assertEqual(data["unanalyzed_count"], 6)
+        self.assertEqual(len(data["events_since_last_retro"]), 6)
+
+    def test_counts_events_after_last_retro(self):
+        import retrospective
+
+        # 10 events, retro at position 7, then 2 more — only 2 unanalyzed
+        events = [make_event(content=f"event {i}") for i in range(7)]
+        events.append(make_event("retrospective", content="retro done"))
+        events.extend([make_event(content=f"post {i}") for i in range(2)])
+        self._write_events(events)
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        # Only 2 events after retro — below threshold
+        self.assertIsNone(result)
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+    def test_retro_history_gathered(self):
+        import retrospective
+
+        # Write a previous retro file
+        retro_data = {"keep": [{"content": "good TDD"}], "fix": [], "try": []}
+        (self.retro_dir / "2026-03-10T00-00-00.json").write_text(json.dumps(retro_data))
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(len(data["previous_retros"]), 1)
+        self.assertEqual(data["previous_retros"][0]["keep"][0]["content"], "good TDD")
+
+    def test_retro_history_limited_to_3(self):
+        import retrospective
+
+        # Write 5 retro files
+        for i in range(5):
+            retro_data = {"keep": [{"content": f"retro {i}"}], "fix": [], "try": []}
+            (self.retro_dir / f"2026-03-0{i + 1}T00-00-00.json").write_text(
+                json.dumps(retro_data)
+            )
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(len(data["previous_retros"]), 3)
+
+    def test_retro_history_empty_dir(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["previous_retros"], [])
+
+    def test_graceful_no_smm_dir(self):
+        import retrospective
+
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=fake_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_context_returned_when_needed(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        # Context should mention the event count
+        self.assertIn("6", result)
+
+    def test_event_type_counts(self):
+        import retrospective
+
+        events = [
+            make_event("decision", content="decided X", topic="arch"),
+            make_event("decision", content="decided Y", topic="api"),
+            make_event("concern", content="issue A", severity="high"),
+            make_event(content="input 1"),
+            make_event(content="input 2"),
+            make_event(content="input 3"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["event_type_counts"]["decision"], 2)
+        self.assertEqual(data["event_type_counts"]["concern"], 1)
+        self.assertEqual(data["event_type_counts"]["customer_input"], 3)
 
 
 # ===========================================================================
@@ -1010,7 +1198,7 @@ class TestCheckTddOrder(_HookTestCase):
 class TestPreToolUseRun(_HookTestCase):
     def test_xp_agent_skips(self):
         result = pre_tool_use.run(
-            {"session_id": "t", "tool_name": "Write", "agent_type": "xp-navigator"},
+            _make_write_input(agent_type="xp-navigator"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
@@ -1020,13 +1208,7 @@ class TestPreToolUseRun(_HookTestCase):
         events = [make_event("question", priority="\U0001f534", content="blocker?")]
         self._write_events(events)
         result = pre_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/new.ts"},
-                "agent_id": "main",
-                "cwd": "/tmp",
-            },
+            _make_write_input(tool_input={"file_path": "src/new.ts"}),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
@@ -1056,13 +1238,7 @@ class TestPreToolUseRun(_HookTestCase):
         self._write_events(events)
         with self.assertRaises(_common.BlockedError) as cm:
             pre_tool_use.run(
-                {
-                    "session_id": "t",
-                    "tool_name": "Write",
-                    "tool_input": {"file_path": "src/app.ts"},
-                    "agent_id": "main",
-                    "cwd": "/tmp",
-                },
+                _make_write_input(),
                 smm_dir=self.smm_dir,
             )
         self.assertIn("other-agent", str(cm.exception))
@@ -1070,13 +1246,7 @@ class TestPreToolUseRun(_HookTestCase):
     def test_no_smm_dir_degrades_gracefully(self):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         result = pre_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts"},
-                "agent_id": "main",
-                "cwd": "/tmp",
-            },
+            _make_write_input(),
             smm_dir=fake_dir,
         )
         self.assertIsNone(result)
@@ -1085,13 +1255,7 @@ class TestPreToolUseRun(_HookTestCase):
         events = [make_event("pair_guidance", content="Use --dry-run")]
         self._write_events(events)
         result = pre_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "npm test"},
-                "agent_id": "main",
-                "cwd": "/tmp",
-            },
+            _make_bash_input(command="npm test"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
@@ -1101,13 +1265,7 @@ class TestPreToolUseRun(_HookTestCase):
         events = [make_event("status", content="busy")]
         self._write_events(events)
         result = pre_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "npm test"},
-                "agent_id": "main",
-                "cwd": "/tmp",
-            },
+            _make_bash_input(command="npm test"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
@@ -1139,6 +1297,10 @@ class TestStdlibOnly(unittest.TestCase):
                 "session_end",
                 "pre_compact",
                 "subagent_start",
+                "subagent_stop",
+                "user_prompt_log",
+                "plan_review",
+                "retrospective",
             }
         )
 
@@ -1209,13 +1371,7 @@ class TestPreToolUsePerformance(_HookTestCase):
         """xp-agent bypass should be near-zero cost."""
         import time
 
-        input_data = {
-            "session_id": "perf",
-            "tool_name": "Write",
-            "tool_input": {"file_path": "src/app.ts"},
-            "agent_type": "xp-navigator",
-            "cwd": "/tmp",
-        }
+        input_data = _make_write_input(session_id="perf", agent_type="xp-navigator")
 
         start = time.monotonic()
         for _ in range(1000):
@@ -1263,14 +1419,7 @@ import post_tool_use  # noqa: E402
 class TestPostToolUse(_HookTestCase):
     def test_auto_status_from_write(self):
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "tool_response": {"success": True},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(tool_response={"success": True}),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1313,14 +1462,7 @@ class TestPostToolUse(_HookTestCase):
 
     def test_normalizes_relative_path(self):
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "tool_response": {"success": True},
-                "cwd": "/home/user",
-                "agent_id": "main",
-            },
+            _make_write_input(tool_response={"success": True}, cwd="/home/user"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1329,14 +1471,7 @@ class TestPostToolUse(_HookTestCase):
 
     def test_xp_agent_skips(self):
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts"},
-                "agent_type": "xp-navigator",
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(agent_type="xp-navigator"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1346,13 +1481,7 @@ class TestPostToolUse(_HookTestCase):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         # Should not crash
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=fake_dir,
         )
 
@@ -1364,13 +1493,7 @@ class TestPostToolUse(_HookTestCase):
             ]
         )
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1383,13 +1506,7 @@ class TestPostToolUse(_HookTestCase):
         filler = [make_event(content=f"filler {i}") for i in range(21)]
         self._write_events([q, *filler])
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1404,13 +1521,7 @@ class TestPostToolUse(_HookTestCase):
             ]
         )
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1422,13 +1533,7 @@ class TestPostToolUse(_HookTestCase):
         d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
         self._write_events([a, d])
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1443,13 +1548,7 @@ class TestPostToolUse(_HookTestCase):
             ]
         )
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1465,13 +1564,7 @@ class TestPostToolUse(_HookTestCase):
             ]
         )
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/b.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(tool_input={"file_path": "src/b.ts", "content": "x"}),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1488,13 +1581,7 @@ class TestPostToolUse(_HookTestCase):
         )
         self._write_events([d])
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/auth.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(tool_input={"file_path": "src/auth.ts", "content": "x"}),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1512,13 +1599,7 @@ class TestPostToolUse(_HookTestCase):
         )
         self._write_events([d])
         post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1569,13 +1650,7 @@ class TestDetectLinterConfig(unittest.TestCase):
 class TestLintCheck(_HookTestCase):
     def test_no_config_warns_once(self):
         lint_check.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1588,13 +1663,7 @@ class TestLintCheck(_HookTestCase):
     def test_no_config_second_time_silent(self):
         (self.smm_dir / ".lint-warned").touch()
         lint_check.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1608,13 +1677,10 @@ class TestLintCheck(_HookTestCase):
         try:
             with patch("lint_check.shutil.which", return_value=None):
                 lint_check.run(
-                    {
-                        "session_id": "t",
-                        "tool_name": "Write",
-                        "tool_input": {"file_path": "src/app.py", "content": "x"},
-                        "cwd": str(tmpdir),
-                        "agent_id": "main",
-                    },
+                    _make_write_input(
+                        tool_input={"file_path": "src/app.py", "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
@@ -1637,13 +1703,10 @@ class TestLintCheck(_HookTestCase):
                     "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
                 )()
                 lint_check.run(
-                    {
-                        "session_id": "t",
-                        "tool_name": "Write",
-                        "tool_input": {"file_path": "src/app.py", "content": "x"},
-                        "cwd": str(tmpdir),
-                        "agent_id": "main",
-                    },
+                    _make_write_input(
+                        tool_input={"file_path": "src/app.py", "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
@@ -1672,13 +1735,10 @@ class TestLintCheck(_HookTestCase):
                     },
                 )()
                 lint_check.run(
-                    {
-                        "session_id": "t",
-                        "tool_name": "Write",
-                        "tool_input": {"file_path": "src/app.py", "content": "x"},
-                        "cwd": str(tmpdir),
-                        "agent_id": "main",
-                    },
+                    _make_write_input(
+                        tool_input={"file_path": "src/app.py", "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
@@ -1699,13 +1759,10 @@ class TestLintCheck(_HookTestCase):
                 patch("lint_check.run_linter", return_value=None),
             ):
                 lint_check.run(
-                    {
-                        "session_id": "t",
-                        "tool_name": "Write",
-                        "tool_input": {"file_path": "src/app.py", "content": "x"},
-                        "cwd": str(tmpdir),
-                        "agent_id": "main",
-                    },
+                    _make_write_input(
+                        tool_input={"file_path": "src/app.py", "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
@@ -1718,14 +1775,7 @@ class TestLintCheck(_HookTestCase):
 
     def test_xp_agent_skips(self):
         lint_check.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts"},
-                "agent_type": "xp-navigator",
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(agent_type="xp-navigator"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1734,13 +1784,7 @@ class TestLintCheck(_HookTestCase):
     def test_graceful_no_smm_dir(self):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         lint_check.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_write_input(),
             smm_dir=fake_dir,
         )
 
@@ -1850,16 +1894,10 @@ class TestBashPostTool(_HookTestCase):
     def test_git_commit_auto_drafts_decision(self):
         with patch("bash_post_tool.count_commit_files", return_value=3):
             bash_post_tool.run(
-                {
-                    "session_id": "t",
-                    "tool_name": "Bash",
-                    "tool_input": {"command": "git commit -m 'Add auth'"},
-                    "tool_response": {
-                        "stdout": "[main abc123] Add auth\n 3 files changed"
-                    },
-                    "cwd": "/tmp",
-                    "agent_id": "main",
-                },
+                _make_bash_input(
+                    command="git commit -m 'Add auth'",
+                    stdout="[main abc123] Add auth\n 3 files changed",
+                ),
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
@@ -1871,16 +1909,10 @@ class TestBashPostTool(_HookTestCase):
     def test_git_commit_small_no_concern(self):
         with patch("bash_post_tool.count_commit_files", return_value=3):
             bash_post_tool.run(
-                {
-                    "session_id": "t",
-                    "tool_name": "Bash",
-                    "tool_input": {"command": "git commit -m 'Fix bug'"},
-                    "tool_response": {
-                        "stdout": "[main abc123] Fix bug\n 3 files changed"
-                    },
-                    "cwd": "/tmp",
-                    "agent_id": "main",
-                },
+                _make_bash_input(
+                    command="git commit -m 'Fix bug'",
+                    stdout="[main abc123] Fix bug\n 3 files changed",
+                ),
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
@@ -1890,16 +1922,10 @@ class TestBashPostTool(_HookTestCase):
     def test_git_commit_large_appends_concern(self):
         with patch("bash_post_tool.count_commit_files", return_value=12):
             bash_post_tool.run(
-                {
-                    "session_id": "t",
-                    "tool_name": "Bash",
-                    "tool_input": {"command": "git commit -m 'Big change'"},
-                    "tool_response": {
-                        "stdout": "[main abc123] Big change\n 12 files changed"
-                    },
-                    "cwd": "/tmp",
-                    "agent_id": "main",
-                },
+                _make_bash_input(
+                    command="git commit -m 'Big change'",
+                    stdout="[main abc123] Big change\n 12 files changed",
+                ),
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
@@ -1914,14 +1940,10 @@ class TestBashPostTool(_HookTestCase):
             settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
             with patch("bash_post_tool.count_commit_files", return_value=6):
                 bash_post_tool.run(
-                    {
-                        "session_id": "t",
-                        "tool_name": "Bash",
-                        "tool_input": {"command": "git commit -m 'x'"},
-                        "tool_response": {"stdout": "[main a] x\n 6 files changed"},
-                        "cwd": "/tmp",
-                        "agent_id": "main",
-                    },
+                    _make_bash_input(
+                        command="git commit -m 'x'",
+                        stdout="[main a] x\n 6 files changed",
+                    ),
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
@@ -1935,14 +1957,10 @@ class TestBashPostTool(_HookTestCase):
 
     def test_pytest_pass(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "python3 -m pytest tests/"},
-                "tool_response": {"stdout": "===== 5 passed in 0.3s ====="},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(
+                command="python3 -m pytest tests/",
+                stdout="===== 5 passed in 0.3s =====",
+            ),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1952,14 +1970,10 @@ class TestBashPostTool(_HookTestCase):
 
     def test_pytest_fail(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "pytest"},
-                "tool_response": {"stdout": "===== 3 passed, 2 failed in 1.2s ====="},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(
+                command="pytest",
+                stdout="===== 3 passed, 2 failed in 1.2s =====",
+            ),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1969,14 +1983,7 @@ class TestBashPostTool(_HookTestCase):
 
     def test_jest_pass(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "npx jest"},
-                "tool_response": {"stdout": "Tests:  5 passed, 5 total"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(command="npx jest", stdout="Tests:  5 passed, 5 total"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -1985,14 +1992,10 @@ class TestBashPostTool(_HookTestCase):
 
     def test_jest_fail(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "npx jest"},
-                "tool_response": {"stdout": "Tests:  2 failed, 3 passed, 5 total"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(
+                command="npx jest",
+                stdout="Tests:  2 failed, 3 passed, 5 total",
+            ),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -2001,14 +2004,10 @@ class TestBashPostTool(_HookTestCase):
 
     def test_go_test_pass(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "go test ./..."},
-                "tool_response": {"stdout": "ok  \tgithub.com/user/pkg\t0.3s"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(
+                command="go test ./...",
+                stdout="ok  \tgithub.com/user/pkg\t0.3s",
+            ),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -2017,16 +2016,10 @@ class TestBashPostTool(_HookTestCase):
 
     def test_go_test_fail(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "go test ./..."},
-                "tool_response": {
-                    "stdout": "--- FAIL: TestSomething (0.00s)\nFAIL\tpkg\t0.3s"
-                },
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(
+                command="go test ./...",
+                stdout="--- FAIL: TestSomething (0.00s)\nFAIL\tpkg\t0.3s",
+            ),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -2035,14 +2028,7 @@ class TestBashPostTool(_HookTestCase):
 
     def test_non_git_non_test_ignored(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "ls -la"},
-                "tool_response": {"stdout": "total 0"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(command="ls -la", stdout="total 0"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -2050,15 +2036,11 @@ class TestBashPostTool(_HookTestCase):
 
     def test_xp_agent_skips(self):
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'x'"},
-                "tool_response": {"stdout": "[main a] x"},
-                "agent_type": "xp-navigator",
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(
+                command="git commit -m 'x'",
+                stdout="[main a] x",
+                agent_type="xp-navigator",
+            ),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -2067,14 +2049,7 @@ class TestBashPostTool(_HookTestCase):
     def test_graceful_no_smm_dir(self):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         bash_post_tool.run(
-            {
-                "session_id": "t",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'x'"},
-                "tool_response": {"stdout": "[main a] x"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
+            _make_bash_input(command="git commit -m 'x'", stdout="[main a] x"),
             smm_dir=fake_dir,
         )
 
@@ -2334,13 +2309,10 @@ class TestFindRelatedDecisions(unittest.TestCase):
         import post_tool_use
 
         result = post_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "x.py", "content": "x"},
-                "cwd": "/tmp",
-                "agent_id": "bad;agent",
-            },
+            _make_write_input(
+                tool_input={"file_path": "x.py", "content": "x"},
+                agent_id="bad;agent",
+            ),
         )
         self.assertIsNone(result)
 
@@ -2721,12 +2693,12 @@ class TestPromptFiles(unittest.TestCase):
 
 
 # ===========================================================================
-# hooks.json M4 registration tests
+# hooks.json test base class
 # ===========================================================================
 
 
-class TestHooksJsonM4(unittest.TestCase):
-    """Verify hooks.json has all M4 agent hook registrations."""
+class _HooksJsonTestCase(unittest.TestCase):
+    """Base class for hooks.json registration tests."""
 
     def setUp(self):
         hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
@@ -2739,6 +2711,22 @@ class TestHooksJsonM4(unittest.TestCase):
             if entry.get("matcher") == matcher:
                 return entry
         return None
+
+    def _find_default_entry(self, hook_event: str) -> dict | None:
+        """Find an entry without a matcher (default) in a hook event list."""
+        for entry in self.data["hooks"].get(hook_event, []):
+            if "matcher" not in entry:
+                return entry
+        return None
+
+
+# ===========================================================================
+# hooks.json M4 registration tests
+# ===========================================================================
+
+
+class TestHooksJsonM4(_HooksJsonTestCase):
+    """Verify hooks.json has all M4 agent hook registrations."""
 
     # --- PreToolUse: navigator ---
 
@@ -2790,7 +2778,175 @@ class TestHooksJsonM4(unittest.TestCase):
         plugin_path = Path(__file__).parent.parent / ".claude-plugin" / "plugin.json"
         with open(plugin_path) as f:
             plugin = json.load(f)
-        self.assertEqual(plugin["version"], "0.4.0")
+        # Updated to 0.5.0 in M5
+        self.assertEqual(plugin["version"], "0.5.0")
+
+
+# ===========================================================================
+# Prompt file tests (Milestone 5)
+# ===========================================================================
+
+
+class TestPromptFilesM5(unittest.TestCase):
+    """Verify all M5 agent/prompt hook files exist and contain key content."""
+
+    def setUp(self):
+        self.prompts_dir = Path(__file__).parent.parent / "prompts"
+
+    # --- retrospective_analyst.md ---
+
+    def test_retrospective_analyst_md_exists(self):
+        self.assertTrue((self.prompts_dir / "retrospective_analyst.md").exists())
+
+    def test_retrospective_analyst_md_contains_keep_fix_try(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn("Keep", content)
+        self.assertIn("Fix", content)
+        self.assertIn("Try", content)
+
+    def test_retrospective_analyst_md_references_append_sh(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn("append.sh", content)
+
+    def test_retrospective_analyst_md_mentions_recursion_prevention(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn("xp-retrospective-analyst", content)
+
+    def test_retrospective_analyst_md_mentions_retro_input(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn(".retro-input.json", content)
+
+    def test_retrospective_analyst_md_mentions_xp_values(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        for value in ["Honesty", "Communication", "Courage", "Simplicity", "Respect"]:
+            self.assertIn(value, content)
+
+    # --- customer_proxy.md ---
+
+    def test_customer_proxy_md_exists(self):
+        self.assertTrue((self.prompts_dir / "customer_proxy.md").exists())
+
+    def test_customer_proxy_md_contains_ask_user_question(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("AskUserQuestion", content)
+
+    def test_customer_proxy_md_references_append_sh(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("append.sh", content)
+
+    def test_customer_proxy_md_mentions_recursion_prevention(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("xp-customer-proxy", content)
+
+    def test_customer_proxy_md_mentions_questions(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("question", content.lower())
+
+    # --- subagent_reviewer.md ---
+
+    def test_subagent_reviewer_md_exists(self):
+        self.assertTrue((self.prompts_dir / "subagent_reviewer.md").exists())
+
+    def test_subagent_reviewer_md_contains_concern(self):
+        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
+        self.assertIn("concern", content)
+
+    def test_subagent_reviewer_md_references_append_sh(self):
+        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
+        self.assertIn("append.sh", content)
+
+    def test_subagent_reviewer_md_mentions_recursion_prevention(self):
+        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
+        self.assertIn("xp-subagent-reviewer", content)
+
+    def test_subagent_reviewer_md_mentions_transcript(self):
+        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
+        self.assertIn("transcript", content.lower())
+
+    # --- tdd_check.md ---
+
+    def test_tdd_check_md_exists(self):
+        self.assertTrue((self.prompts_dir / "tdd_check.md").exists())
+
+    def test_tdd_check_md_mentions_tests(self):
+        content = (self.prompts_dir / "tdd_check.md").read_text()
+        self.assertIn("test", content.lower())
+
+    def test_tdd_check_md_mentions_stop_hook_active(self):
+        content = (self.prompts_dir / "tdd_check.md").read_text()
+        self.assertIn("stop_hook_active", content)
+
+    def test_tdd_check_md_mentions_block(self):
+        content = (self.prompts_dir / "tdd_check.md").read_text()
+        self.assertIn("block", content.lower())
+
+
+# ===========================================================================
+# hooks.json M5 registration tests
+# ===========================================================================
+
+
+class TestHooksJsonM5(_HooksJsonTestCase):
+    """Verify hooks.json has all M5 hook registrations."""
+
+    # --- SessionStart: retrospective.py command ---
+
+    def test_session_start_has_retrospective_command(self):
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact")
+        commands = [h for h in entry["hooks"] if h.get("type") == "command"]
+        self.assertTrue(
+            any("retrospective.py" in h["command"] for h in commands),
+            "retrospective.py command hook missing from SessionStart",
+        )
+
+    # --- SessionStart: retrospective_analyst agent ---
+
+    def test_session_start_has_retro_analyst_agent(self):
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact")
+        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
+        retro_agents = [
+            a for a in agents if a.get("agent_type") == "xp-retrospective-analyst"
+        ]
+        self.assertEqual(len(retro_agents), 1)
+        self.assertIn("retrospective_analyst.md", retro_agents[0]["prompt"])
+
+    # --- SessionStart: customer_proxy agent ---
+
+    def test_session_start_has_customer_proxy_agent(self):
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact")
+        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
+        proxy_agents = [a for a in agents if a.get("agent_type") == "xp-customer-proxy"]
+        self.assertEqual(len(proxy_agents), 1)
+        self.assertIn("customer_proxy.md", proxy_agents[0]["prompt"])
+
+    # --- SubagentStop: subagent_reviewer agent (async) ---
+
+    def test_subagentstop_default_has_reviewer_agent(self):
+        entry = self._find_default_entry("SubagentStop")
+        self.assertIsNotNone(entry, "SubagentStop default entry missing")
+        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
+        self.assertEqual(len(agents), 1)
+        self.assertEqual(agents[0]["agent_type"], "xp-subagent-reviewer")
+        self.assertIn("subagent_reviewer.md", agents[0]["prompt"])
+
+    def test_subagentstop_reviewer_is_async(self):
+        entry = self._find_default_entry("SubagentStop")
+        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
+        self.assertTrue(agents[0].get("async"), "subagent_reviewer should be async")
+
+    # --- Stop: tdd_check prompt ---
+
+    def test_stop_hook_exists(self):
+        self.assertIn("Stop", self.data["hooks"], "Stop hook section missing")
+
+    def test_stop_hook_has_tdd_check_prompt(self):
+        entries = self.data["hooks"]["Stop"]
+        all_hooks = []
+        for entry in entries:
+            all_hooks.extend(entry.get("hooks", []))
+        prompt_hooks = [h for h in all_hooks if h.get("type") == "prompt"]
+        self.assertEqual(len(prompt_hooks), 1)
+        self.assertIn("tdd_check.md", prompt_hooks[0]["prompt"])
 
 
 if __name__ == "__main__":

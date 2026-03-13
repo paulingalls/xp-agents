@@ -28,6 +28,20 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/retrospective.py"
+          },
+          {
+            "type": "agent",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/retrospective_analyst.md",
+            "agent_type": "xp-retrospective-analyst"
+          },
+          {
+            "type": "agent",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/customer_proxy.md",
+            "agent_type": "xp-customer-proxy"
           }
         ]
       }
@@ -95,6 +109,12 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/subagent_stop.py",
             "timeout": 5000
+          },
+          {
+            "type": "agent",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/subagent_reviewer.md",
+            "agent_type": "xp-subagent-reviewer",
+            "async": true
           }
         ]
       }
@@ -128,6 +148,16 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bash_post_tool.py",
             "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/tdd_check.md"
           }
         ]
       }

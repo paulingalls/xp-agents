@@ -27,6 +27,30 @@ class BlockedError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Event type and priority constants
+# ---------------------------------------------------------------------------
+
+# Event types — mirrors smm/schema.json enum
+CUSTOMER_INPUT = "customer_input"
+STATUS = "status"
+DECISION = "decision"
+CONVENTION = "convention"
+CONCERN = "concern"
+DISCOVERY = "discovery"
+QUESTION = "question"
+ANSWER = "answer"
+ASSUMPTION = "assumption"
+PAIR_GUIDANCE = "pair_guidance"
+SESSION_END = "session_end"
+RETROSPECTIVE = "retrospective"
+
+# Question priorities
+PRIORITY_BLOCKING = "\U0001f534"  # 🔴
+PRIORITY_ASSUMED = "\U0001f7e1"  # 🟡
+PRIORITY_INFO = "\U0001f7e2"  # 🟢
+
+
+# ---------------------------------------------------------------------------
 # SMM path resolution
 # ---------------------------------------------------------------------------
 
@@ -230,7 +254,7 @@ def append_safe(smm_dir: Path, event: dict) -> None:
 
 def make_concern(content: str, severity: str, agent_id: str) -> dict:
     """Build a concern event dict."""
-    return make_event("concern", agent_id, content, severity=severity)
+    return make_event(CONCERN, agent_id, content, severity=severity)
 
 
 def detect_conflicts(
@@ -250,7 +274,7 @@ def detect_conflicts(
         normalized = normalize_path(file_path, cwd)
         agent_files: dict[str, list[str]] = {}
         for e in events:
-            if e.get("type") == "status" and e.get("working_on"):
+            if e.get("type") == STATUS and e.get("working_on"):
                 agent_files[e.get("agent_id", "")] = e["working_on"]
 
         for aid, files in agent_files.items():
@@ -270,9 +294,9 @@ def detect_conflicts(
     # 2. Assumption contradicted by discovery
     assumptions: dict[str, dict] = {}
     for e in events:
-        if e.get("type") == "assumption":
+        if e.get("type") == ASSUMPTION:
             assumptions[e.get("id", "")] = e
-        elif e.get("type") == "discovery":
+        elif e.get("type") == DISCOVERY:
             for ref in e.get("references", []):
                 if ref in assumptions:
                     concerns.append(
@@ -287,12 +311,12 @@ def detect_conflicts(
     # 3. Convention violation — decision diverges from convention on same topic
     conventions_by_topic: dict[str, list[dict]] = {}
     for e in events:
-        if e.get("type") == "convention":
+        if e.get("type") == CONVENTION:
             topic = e.get("topic", "")
             conventions_by_topic.setdefault(topic, []).append(e)
 
     for e in events:
-        if e.get("type") == "decision":
+        if e.get("type") == DECISION:
             topic = e.get("topic", "")
             if topic in conventions_by_topic:
                 refs = set(e.get("references", []))
@@ -311,9 +335,9 @@ def detect_conflicts(
     question_positions: dict[str, int] = {}
     answered_ids: set[str] = set()
     for i, e in enumerate(events):
-        if e.get("type") == "question" and e.get("priority") == "\U0001f534":
+        if e.get("type") == QUESTION and e.get("priority") == PRIORITY_BLOCKING:
             question_positions[e.get("id", "")] = i
-        elif e.get("type") == "answer":
+        elif e.get("type") == ANSWER:
             for ref in e.get("references", []):
                 answered_ids.add(ref)
 
@@ -333,10 +357,10 @@ def detect_conflicts(
     decisions_by_topic: dict[str, list[tuple[int, dict]]] = {}
     concern_pos_list: list[int] = []
     for i, e in enumerate(events):
-        if e.get("type") == "decision":
+        if e.get("type") == DECISION:
             topic = e.get("topic", "")
             decisions_by_topic.setdefault(topic, []).append((i, e))
-        elif e.get("type") == "concern":
+        elif e.get("type") == CONCERN:
             concern_pos_list.append(i)
 
     # concern_pos_list is already sorted (built in event order)
@@ -375,7 +399,7 @@ def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list
     related: list[str] = []
 
     for e in events:
-        if e.get("type") not in ("decision", "convention"):
+        if e.get("type") not in (DECISION, CONVENTION):
             continue
         # Check working_on field
         working_on = e.get("working_on", [])

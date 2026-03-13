@@ -30,7 +30,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if isinstance(prompt, str) and len(prompt) > _MAX_PROMPT_LENGTH:
         prompt = prompt[:_MAX_PROMPT_LENGTH]
 
-    event = _common.make_event("customer_input", "customer", prompt)
+    event = _common.make_event(_common.CUSTOMER_INPUT, "customer", prompt)
     _common.append_safe(smm_dir, event)
 
     return None
