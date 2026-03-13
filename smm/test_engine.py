@@ -696,6 +696,28 @@ class TestWatermark(_SMMTestCase):
         with self.assertRaises(ValueError):
             read_delta.read_watermark(self.smm_dir, "../escape")
 
+    def test_rejects_space(self):
+        with self.assertRaises(ValueError):
+            read_delta.write_watermark(self.smm_dir, "agent name", 10)
+
+    def test_rejects_semicolon(self):
+        with self.assertRaises(ValueError):
+            read_delta.write_watermark(self.smm_dir, "agent;cmd", 10)
+
+    def test_rejects_backtick(self):
+        with self.assertRaises(ValueError):
+            read_delta.write_watermark(self.smm_dir, "agent`cmd`", 10)
+
+    def test_accepts_colon(self):
+        read_delta.write_watermark(self.smm_dir, "xp-quality:reviewer", 10)
+        wm = read_delta.read_watermark(self.smm_dir, "xp-quality:reviewer")
+        self.assertEqual(wm, 10)
+
+    def test_accepts_hyphen(self):
+        read_delta.write_watermark(self.smm_dir, "xp-navigator", 5)
+        wm = read_delta.read_watermark(self.smm_dir, "xp-navigator")
+        self.assertEqual(wm, 5)
+
 
 # ===========================================================================
 # Read Delta — Event Reading

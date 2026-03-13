@@ -11,6 +11,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -74,11 +75,14 @@ def _on_alarm(signum: int, frame: object) -> None:
 # ---------------------------------------------------------------------------
 
 
+_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
+
+
 def _validate_agent_id(agent_id: str) -> None:
-    """Reject agent IDs that could cause path traversal or other issues."""
+    """Reject agent IDs that don't match the allowlist pattern."""
     if not agent_id:
         raise ValueError("agent_id must not be empty")
-    if "/" in agent_id or "\x00" in agent_id or ".." in agent_id:
+    if not _AGENT_ID_RE.match(agent_id):
         raise ValueError(f"Invalid agent_id: {agent_id!r}")
 
 

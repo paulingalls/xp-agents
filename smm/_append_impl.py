@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import re
 import signal
 import subprocess
 import sys
@@ -40,6 +41,21 @@ def resolve_smm_dir() -> Path:
 
     project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
     return Path.home() / ".claude" / "xp-agents" / project_id / "smm"
+
+
+# ---------------------------------------------------------------------------
+# Agent ID validation
+# ---------------------------------------------------------------------------
+
+_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
+
+
+def _validate_agent_id(agent_id: str) -> None:
+    """Reject agent IDs that don't match the allowlist pattern."""
+    if not agent_id:
+        raise ValueError("agent_id must not be empty")
+    if not _AGENT_ID_RE.match(agent_id):
+        raise ValueError(f"Invalid agent_id: {agent_id!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +371,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    # Validate agent_id
+    try:
+        _validate_agent_id(args.agent)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Resolve SMM directory
     smm_dir = resolve_smm_dir()

@@ -555,6 +555,57 @@ class TestConcurrentWrites(unittest.TestCase):
         )
 
 
+class TestAgentIdValidation(unittest.TestCase):
+    """Tests for _append_impl._validate_agent_id allowlist."""
+
+    def test_accepts_simple_name(self):
+        _append_impl._validate_agent_id("main")
+
+    def test_accepts_hyphenated(self):
+        _append_impl._validate_agent_id("xp-navigator")
+
+    def test_accepts_colon_separator(self):
+        _append_impl._validate_agent_id("xp-quality:reviewer")
+
+    def test_accepts_underscore(self):
+        _append_impl._validate_agent_id("test_agent")
+
+    def test_accepts_digits(self):
+        _append_impl._validate_agent_id("agent123")
+
+    def test_rejects_semicolon(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("agent;rm -rf")
+
+    def test_rejects_backtick(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("agent`cmd`")
+
+    def test_rejects_pipe(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("agent|cat")
+
+    def test_rejects_dollar(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("agent$HOME")
+
+    def test_rejects_space(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("agent name")
+
+    def test_rejects_slash(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("../escape")
+
+    def test_rejects_null(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("agent\x00id")
+
+    def test_rejects_empty(self):
+        with self.assertRaises(ValueError):
+            _append_impl._validate_agent_id("")
+
+
 class TestSchemaJson(unittest.TestCase):
     """Validate schema.json structure itself."""
 
