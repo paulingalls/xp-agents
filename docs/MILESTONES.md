@@ -76,23 +76,28 @@
 
 ---
 
-## Milestone 3.3: Core Hooks — PostToolUse
+## Milestone 3.3: Core Hooks — PostToolUse ✅
 
 **Goal**: Auto status, conflict detection, lint, commit/test tracking.
 
+**Status**: Complete (389 total tests: 190 SMM + 199 hooks, 72 new tests for M3.3).
+
 **Deliverables**:
-- [ ] `scripts/post_tool_use.py` — PostToolUse (matcher: `Write|Edit|MultiEdit`). Auto-generates `status` with `working_on` from `tool_input.file_path`. Structural conflict detection (Tier 1). Semantic conflict context (Tier 2): records recent decisions for PreToolUse delivery on decision/convention appends. Auto-drafts `decision` events from significant changes (`draft: true`).
-- [ ] `scripts/lint_check.py` — PostToolUse (matcher: `Write|Edit|MultiEdit`). Detects project linter config (`.eslintrc`, `.prettierrc`, `pyproject.toml`, etc.). Runs linter if found. Appends results as status event. Degrades gracefully if none configured.
-- [ ] `scripts/bash_post_tool.py` — PostToolUse (matcher: `Bash`). Parses `tool_input.command` and `tool_response`. Git commits: checks diff size, auto-drafts decisions from commit messages. Test runs: parses pass/fail, appends status.
+- [x] `scripts/post_tool_use.py` — PostToolUse (matcher: `Write|Edit|MultiEdit`). Auto-generates `status` with `working_on` from `tool_input.file_path`. Structural conflict detection (all 5 patterns). Semantic context enrichment via references.
+- [x] `scripts/lint_check.py` — PostToolUse (matcher: `Write|Edit|MultiEdit`). Detects project linter config (ruff, eslint, prettier, flake8). Runs linter if found. Appends concern for lint errors. Warns once if no config. Degrades gracefully.
+- [x] `scripts/bash_post_tool.py` — PostToolUse (matcher: `Bash`). Git commits: auto-drafts decisions (draft: true), commit size check. Test runs (pytest/jest/go test): parses pass/fail, appends status + concern.
+- [x] `hooks/hooks.json` — PostToolUse section with Write|Edit|MultiEdit and Bash matchers.
+- [x] `settings.json` — `commit_size_threshold: 10`.
+- [x] Shared helpers extracted to `_common.py` (`normalize_path`, `extract_file_path`).
 
 **Acceptance Criteria**:
-- Auto-generates status/working_on from file paths
-- Structural conflicts detected (all 5 patterns from architecture)
-- Semantic conflict context recorded for decisions/conventions
-- Auto-drafts decisions from significant changes
-- Lint runs when config found, silent when not
-- Commit size flagged when too large
-- Test results parsed and recorded
+- ✅ Auto-generates status/working_on from file paths
+- ✅ Structural conflicts detected (all 5 patterns from architecture)
+- ✅ Semantic conflict context recorded for decisions/conventions
+- ✅ Auto-drafts decisions from significant changes
+- ✅ Lint runs when config found, silent when not
+- ✅ Commit size flagged when too large
+- ✅ Test results parsed and recorded
 
 ---
 

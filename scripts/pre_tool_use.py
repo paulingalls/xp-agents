@@ -45,9 +45,7 @@ def classify_tier(tool_name: str, tool_input: dict) -> str:
 
 def get_target_file(tool_name: str, tool_input: dict) -> str | None:
     """Extract the target file path from tool_input, if applicable."""
-    if tool_name in _FULL_TOOLS:
-        return tool_input.get("file_path")
-    return None
+    return _common.extract_file_path(tool_name, tool_input)
 
 
 # ---------------------------------------------------------------------------
@@ -82,20 +80,6 @@ def is_test_file(path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Path normalization
-# ---------------------------------------------------------------------------
-
-
-def _normalize_path(file_path: str, cwd: str) -> str:
-    """Resolve a file path against cwd, return normalized string."""
-    p = Path(file_path)
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    # Use os.path.normpath for .. resolution without touching filesystem
-    return os.path.normpath(str(p))
-
-
-# ---------------------------------------------------------------------------
 # working_on overlap detection
 # ---------------------------------------------------------------------------
 
@@ -104,7 +88,7 @@ def check_working_on_overlap(
     events: list[dict], agent_id: str, file_path: str, cwd: str
 ) -> str | None:
     """Check if another agent is working on the same file. Returns message or None."""
-    normalized_target = _normalize_path(file_path, cwd)
+    normalized_target = _common.normalize_path(file_path, cwd)
 
     # Build map: agent_id -> latest status event's working_on files
     agent_files: dict[str, list[str]] = {}
@@ -116,11 +100,11 @@ def check_working_on_overlap(
     for aid, files in agent_files.items():
         if aid == agent_id:
             continue
-        normalized_files = {_normalize_path(f, cwd) for f in files}
+        normalized_files = {_common.normalize_path(f, cwd) for f in files}
         if normalized_target in normalized_files:
             # Find the original path for the message
             conflicting = next(
-                f for f in files if _normalize_path(f, cwd) == normalized_target
+                f for f in files if _common.normalize_path(f, cwd) == normalized_target
             )
             return (
                 f"CONFLICT: Agent '{aid}' is currently working on '{conflicting}'. "

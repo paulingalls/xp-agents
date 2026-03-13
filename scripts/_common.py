@@ -113,12 +113,17 @@ def resolve_plugin_root() -> Path:
 # ---------------------------------------------------------------------------
 
 
+_MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
+
+
 def read_events_raw(smm_dir: Path) -> list[dict]:
     """Parse events.jsonl, skip malformed lines, no locking."""
     events_file = smm_dir / "events.jsonl"
     try:
+        if events_file.stat().st_size > _MAX_EVENTS_FILE_SIZE:
+            return []
         raw = events_file.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    except (FileNotFoundError, OSError):
         return []
 
     events: list[dict] = []
@@ -172,6 +177,49 @@ def _validate_agent_id(agent_id: str) -> None:
         raise ValueError("agent_id must not be empty")
     if not _AGENT_ID_RE.match(agent_id):
         raise ValueError(f"Invalid agent_id: {agent_id!r}")
+
+
+def normalize_path(file_path: str, cwd: str) -> str:
+    """Resolve a file path against cwd, return normalized string."""
+    p = Path(file_path)
+    if not p.is_absolute():
+        p = Path(cwd) / p
+    return os.path.normpath(str(p))
+
+
+def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
+    """Extract file_path from tool_input for write tools."""
+    if tool_name in ("Write", "Edit", "MultiEdit"):
+        return tool_input.get("file_path")
+    return None
+
+
+def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
+    """Build a minimal SMM event dict with standard fields."""
+    import uuid
+    from datetime import datetime, timezone
+
+    event = {
+        "id": str(uuid.uuid4()),
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "type": event_type,
+        "agent_id": agent_id,
+        "content": content,
+        "schema_version": 1,
+    }
+    event.update(extra)
+    return event
+
+
+def append_safe(smm_dir: Path, event: dict) -> None:
+    """Validate and append event, swallowing lock errors."""
+    sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+    import _append_impl
+
+    errors = _append_impl.validate_event(event)
+    if not errors:
+        with contextlib.suppress(_append_impl.LockTimeoutError):
+            _append_impl.append_event(smm_dir, event)
 
 
 def write_watermark(smm_dir: Path, agent_id: str, count: int) -> None:

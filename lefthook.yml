@@ -16,3 +16,9 @@ pre-commit:
       run: python3 -m unittest smm/test_engine.py
     tests-hooks:
       run: python3 -m unittest scripts/test_hooks.py
+
+pre-push:
+  parallel: true
+  commands:
+    integration:
+      run: python3 -m unittest scripts/test_integration.py

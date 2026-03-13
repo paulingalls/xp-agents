@@ -628,6 +628,7 @@ class TestPluginConfig(unittest.TestCase):
         self.assertIn("PreCompact", data["hooks"])
         self.assertIn("SubagentStart", data["hooks"])
         self.assertIn("PreToolUse", data["hooks"])
+        self.assertIn("PostToolUse", data["hooks"])
 
     def test_hooks_use_plugin_root_var(self):
         hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
@@ -895,15 +896,15 @@ class TestGetTargetFile(unittest.TestCase):
 
 class TestNormalizePath(unittest.TestCase):
     def test_absolute_unchanged(self):
-        result = pre_tool_use._normalize_path("/home/user/src/app.ts", "/tmp")
+        result = _common.normalize_path("/home/user/src/app.ts", "/tmp")
         self.assertEqual(result, "/home/user/src/app.ts")
 
     def test_relative_resolved(self):
-        result = pre_tool_use._normalize_path("src/app.ts", "/home/user")
+        result = _common.normalize_path("src/app.ts", "/home/user")
         self.assertEqual(result, "/home/user/src/app.ts")
 
     def test_dotdot_resolved(self):
-        result = pre_tool_use._normalize_path("../app.ts", "/home/user/src")
+        result = _common.normalize_path("../app.ts", "/home/user/src")
         self.assertEqual(result, "/home/user/app.ts")
 
 
@@ -1117,6 +1118,9 @@ class TestStdlibOnly(unittest.TestCase):
                 "read_delta",
                 "materialize",
                 "pre_tool_use",
+                "post_tool_use",
+                "lint_check",
+                "bash_post_tool",
                 "session_start",
                 "session_end",
                 "pre_compact",
@@ -1206,6 +1210,897 @@ class TestPreToolUsePerformance(_HookTestCase):
 
         # 1000 no-op runs should be well under 1 second
         self.assertLess(elapsed, 1.0, f"1000 xp-agent skips took {elapsed:.2f}s")
+
+
+# ===========================================================================
+# post_tool_use.py tests — Milestone 3.3
+# ===========================================================================
+
+
+class TestExtractFilePath(unittest.TestCase):
+    def test_write(self):
+        self.assertEqual(
+            _common.extract_file_path("Write", {"file_path": "src/app.ts"}),
+            "src/app.ts",
+        )
+
+    def test_edit(self):
+        self.assertEqual(
+            _common.extract_file_path("Edit", {"file_path": "src/app.ts"}),
+            "src/app.ts",
+        )
+
+    def test_multi_edit(self):
+        self.assertEqual(
+            _common.extract_file_path("MultiEdit", {"file_path": "src/app.ts"}),
+            "src/app.ts",
+        )
+
+    def test_bash_returns_none(self):
+        self.assertIsNone(_common.extract_file_path("Bash", {"command": "ls"}))
+
+    def test_missing_file_path(self):
+        self.assertIsNone(_common.extract_file_path("Write", {}))
+
+
+import post_tool_use  # noqa: E402
+
+
+class TestPostToolUse(_HookTestCase):
+    def test_auto_status_from_write(self):
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "tool_response": {"success": True},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        # Path is normalized against cwd
+        self.assertIn("/tmp/src/app.ts", statuses[0]["working_on"])
+
+    def test_auto_status_from_edit(self):
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Edit",
+                "tool_input": {"file_path": "src/app.ts"},
+                "tool_response": {"success": True},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+
+    def test_auto_status_from_multiedit(self):
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "MultiEdit",
+                "tool_input": {"file_path": "src/app.ts"},
+                "tool_response": {"success": True},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+
+    def test_normalizes_relative_path(self):
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "tool_response": {"success": True},
+                "cwd": "/home/user",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(statuses[0]["working_on"], ["/home/user/src/app.ts"])
+
+    def test_xp_agent_skips(self):
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts"},
+                "agent_type": "xp-navigator",
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_graceful_no_smm_dir(self):
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        # Should not crash
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=fake_dir,
+        )
+
+    def test_conflict_working_on_overlap(self):
+        # Another agent claims the same file
+        self._write_events(
+            [
+                make_event("status", agent_id="other", working_on=["src/app.ts"]),
+            ]
+        )
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(concerns) >= 1)
+        self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
+
+    def test_conflict_stale_question(self):
+        q = make_event("question", priority="\U0001f534", content="Blocking?")
+        filler = [make_event(content=f"filler {i}") for i in range(21)]
+        self._write_events([q, *filler])
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(any("stale" in c["content"].lower() for c in concerns))
+
+    def test_conflict_superseded_decision(self):
+        self._write_events(
+            [
+                make_event("decision", topic="db", content="Use Postgres"),
+                make_event("decision", topic="db", content="Use MySQL"),
+            ]
+        )
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
+
+    def test_conflict_assumption_contradicted(self):
+        a = make_event("assumption", content="API is REST")
+        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        self._write_events([a, d])
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
+
+    def test_conflict_convention_violation(self):
+        self._write_events(
+            [
+                make_event("convention", topic="naming", content="Use camelCase"),
+                make_event("decision", topic="naming", content="Use snake_case"),
+            ]
+        )
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
+
+    def test_no_false_positive_conflicts(self):
+        # Clean log with no conflicts
+        self._write_events(
+            [
+                make_event("status", agent_id="main", working_on=["src/a.ts"]),
+                make_event("decision", topic="db", content="Use Postgres"),
+            ]
+        )
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/b.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0)
+
+    def test_semantic_references(self):
+        # Decision references our file
+        d = make_event(
+            "decision",
+            topic="auth",
+            content="Use JWT",
+            working_on=["src/auth.ts"],
+        )
+        self._write_events([d])
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/auth.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+        refs = statuses[0].get("references", [])
+        self.assertIn(d["id"], refs)
+
+    def test_no_semantic_refs_unrelated(self):
+        d = make_event(
+            "decision",
+            topic="auth",
+            content="Use JWT",
+            working_on=["src/other.ts"],
+        )
+        self._write_events([d])
+        post_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        refs = statuses[0].get("references", [])
+        self.assertNotIn(d["id"], refs)
+
+
+# ===========================================================================
+# lint_check.py tests — Milestone 3.3
+# ===========================================================================
+
+import lint_check  # noqa: E402
+
+
+class TestDetectLinterConfig(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir)
+
+    def test_detects_ruff_config(self):
+        (self.tmpdir / "ruff.toml").touch()
+        result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "ruff")
+
+    def test_detects_eslint_config(self):
+        (self.tmpdir / ".eslintrc.json").touch()
+        result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "eslint")
+
+    def test_detects_pyproject_ruff(self):
+        (self.tmpdir / "pyproject.toml").write_text("[tool.ruff]\nline-length = 88\n")
+        result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "ruff")
+
+    def test_no_config_returns_none(self):
+        result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
+        self.assertIsNone(result)
+
+
+class TestLintCheck(_HookTestCase):
+    def test_no_config_warns_once(self):
+        lint_check.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+        self.assertIn("linter", concerns[0]["content"].lower())
+        # Flag file should exist
+        self.assertTrue((self.smm_dir / ".lint-warned").exists())
+
+    def test_no_config_second_time_silent(self):
+        (self.smm_dir / ".lint-warned").touch()
+        lint_check.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0)
+
+    def test_linter_binary_missing(self):
+        # Create a ruff.toml in a temp dir but ruff isn't on PATH
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            with patch("lint_check.shutil.which", return_value=None):
+                lint_check.run(
+                    {
+                        "session_id": "t",
+                        "tool_name": "Write",
+                        "tool_input": {"file_path": "src/app.py", "content": "x"},
+                        "cwd": str(tmpdir),
+                        "agent_id": "main",
+                    },
+                    smm_dir=self.smm_dir,
+                )
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = [e for e in events if e.get("type") == "concern"]
+            self.assertEqual(len(concerns), 0)
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_clean_lint_no_event(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = type(
+                    "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+                )()
+                lint_check.run(
+                    {
+                        "session_id": "t",
+                        "tool_name": "Write",
+                        "tool_input": {"file_path": "src/app.py", "content": "x"},
+                        "cwd": str(tmpdir),
+                        "agent_id": "main",
+                    },
+                    smm_dir=self.smm_dir,
+                )
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = [e for e in events if e.get("type") == "concern"]
+            self.assertEqual(len(concerns), 0)
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_lint_errors_appends_concern(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = type(
+                    "R",
+                    (),
+                    {
+                        "returncode": 1,
+                        "stdout": "src/app.py:1:1: E302 expected 2 blank lines",
+                        "stderr": "",
+                    },
+                )()
+                lint_check.run(
+                    {
+                        "session_id": "t",
+                        "tool_name": "Write",
+                        "tool_input": {"file_path": "src/app.py", "content": "x"},
+                        "cwd": str(tmpdir),
+                        "agent_id": "main",
+                    },
+                    smm_dir=self.smm_dir,
+                )
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = [e for e in events if e.get("type") == "concern"]
+            self.assertEqual(len(concerns), 1)
+            self.assertEqual(concerns[0].get("severity"), "medium")
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_lint_timeout(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.run_linter", return_value=None),
+            ):
+                lint_check.run(
+                    {
+                        "session_id": "t",
+                        "tool_name": "Write",
+                        "tool_input": {"file_path": "src/app.py", "content": "x"},
+                        "cwd": str(tmpdir),
+                        "agent_id": "main",
+                    },
+                    smm_dir=self.smm_dir,
+                )
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = [e for e in events if e.get("type") == "concern"]
+            self.assertEqual(len(concerns), 0)
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_xp_agent_skips(self):
+        lint_check.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts"},
+                "agent_type": "xp-navigator",
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_graceful_no_smm_dir(self):
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        lint_check.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=fake_dir,
+        )
+
+
+# ===========================================================================
+# bash_post_tool.py tests — Milestone 3.3
+# ===========================================================================
+
+import bash_post_tool  # noqa: E402
+
+
+class TestIsGitCommit(unittest.TestCase):
+    def test_git_commit_m(self):
+        self.assertTrue(bash_post_tool.is_git_commit("git commit -m 'msg'"))
+
+    def test_git_commit_am(self):
+        self.assertTrue(bash_post_tool.is_git_commit("git commit -am 'msg'"))
+
+    def test_git_commit_with_path(self):
+        self.assertTrue(bash_post_tool.is_git_commit("cd /tmp && git commit -m 'x'"))
+
+    def test_not_git_status(self):
+        self.assertFalse(bash_post_tool.is_git_commit("git status"))
+
+    def test_not_ls(self):
+        self.assertFalse(bash_post_tool.is_git_commit("ls -la"))
+
+    def test_git_commit_no_message(self):
+        self.assertTrue(bash_post_tool.is_git_commit("git commit"))
+
+
+class TestIsTestRun(unittest.TestCase):
+    def test_pytest(self):
+        self.assertEqual(bash_post_tool.is_test_run("pytest"), "pytest")
+
+    def test_python_m_pytest(self):
+        self.assertEqual(bash_post_tool.is_test_run("python -m pytest"), "pytest")
+
+    def test_python3_m_pytest(self):
+        self.assertEqual(bash_post_tool.is_test_run("python3 -m pytest"), "pytest")
+
+    def test_jest(self):
+        self.assertEqual(bash_post_tool.is_test_run("npx jest"), "jest")
+
+    def test_jest_bare(self):
+        self.assertEqual(bash_post_tool.is_test_run("jest"), "jest")
+
+    def test_go_test(self):
+        self.assertEqual(bash_post_tool.is_test_run("go test ./..."), "go")
+
+    def test_not_test(self):
+        self.assertIsNone(bash_post_tool.is_test_run("ls -la"))
+
+    def test_npm_test(self):
+        self.assertEqual(bash_post_tool.is_test_run("npm test"), "jest")
+
+
+class TestParseCommitMessage(unittest.TestCase):
+    def test_standard_output(self):
+        response = "[main abc123] Add auth module\n 3 files changed, 45 insertions(+)"
+        result = bash_post_tool.parse_commit_message(response)
+        self.assertEqual(result, "Add auth module")
+
+    def test_no_match(self):
+        result = bash_post_tool.parse_commit_message("error: something went wrong")
+        self.assertIsNone(result)
+
+
+class TestParseTestResults(unittest.TestCase):
+    def test_pytest_pass(self):
+        output = "===== 5 passed in 0.3s ====="
+        result = bash_post_tool.parse_test_results(output, "pytest")
+        self.assertEqual(result["passed"], 5)
+        self.assertEqual(result["failed"], 0)
+
+    def test_pytest_fail(self):
+        output = "===== 3 passed, 2 failed in 1.2s ====="
+        result = bash_post_tool.parse_test_results(output, "pytest")
+        self.assertEqual(result["passed"], 3)
+        self.assertEqual(result["failed"], 2)
+
+    def test_jest_pass(self):
+        output = "Tests:  5 passed, 5 total"
+        result = bash_post_tool.parse_test_results(output, "jest")
+        self.assertEqual(result["passed"], 5)
+        self.assertEqual(result["failed"], 0)
+
+    def test_jest_fail(self):
+        output = "Tests:  2 failed, 3 passed, 5 total"
+        result = bash_post_tool.parse_test_results(output, "jest")
+        self.assertEqual(result["passed"], 3)
+        self.assertEqual(result["failed"], 2)
+
+    def test_go_pass(self):
+        output = "ok  \tgithub.com/user/pkg\t0.3s"
+        result = bash_post_tool.parse_test_results(output, "go")
+        self.assertEqual(result["passed"], 1)
+        self.assertEqual(result["failed"], 0)
+
+    def test_go_fail(self):
+        output = "--- FAIL: TestSomething (0.00s)\nFAIL\tgithub.com/user/pkg\t0.3s"
+        result = bash_post_tool.parse_test_results(output, "go")
+        self.assertEqual(result["failed"], 1)
+
+
+class TestBashPostTool(_HookTestCase):
+    def test_git_commit_auto_drafts_decision(self):
+        with patch("bash_post_tool.count_commit_files", return_value=3):
+            bash_post_tool.run(
+                {
+                    "session_id": "t",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git commit -m 'Add auth'"},
+                    "tool_response": {
+                        "stdout": "[main abc123] Add auth\n 3 files changed"
+                    },
+                    "cwd": "/tmp",
+                    "agent_id": "main",
+                },
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        decisions = [e for e in events if e.get("type") == "decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertTrue(decisions[0].get("metadata", {}).get("draft"))
+        self.assertIn("Add auth", decisions[0]["content"])
+
+    def test_git_commit_small_no_concern(self):
+        with patch("bash_post_tool.count_commit_files", return_value=3):
+            bash_post_tool.run(
+                {
+                    "session_id": "t",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git commit -m 'Fix bug'"},
+                    "tool_response": {
+                        "stdout": "[main abc123] Fix bug\n 3 files changed"
+                    },
+                    "cwd": "/tmp",
+                    "agent_id": "main",
+                },
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0)
+
+    def test_git_commit_large_appends_concern(self):
+        with patch("bash_post_tool.count_commit_files", return_value=12):
+            bash_post_tool.run(
+                {
+                    "session_id": "t",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git commit -m 'Big change'"},
+                    "tool_response": {
+                        "stdout": "[main abc123] Big change\n 12 files changed"
+                    },
+                    "cwd": "/tmp",
+                    "agent_id": "main",
+                },
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(concerns) >= 1)
+        self.assertTrue(any("12 files" in c["content"] for c in concerns))
+
+    def test_commit_threshold_from_settings(self):
+        settings_path = Path(__file__).parent.parent / "settings.json"
+        original = settings_path.read_text()
+        try:
+            settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
+            with patch("bash_post_tool.count_commit_files", return_value=6):
+                bash_post_tool.run(
+                    {
+                        "session_id": "t",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "git commit -m 'x'"},
+                        "tool_response": {"stdout": "[main a] x\n 6 files changed"},
+                        "cwd": "/tmp",
+                        "agent_id": "main",
+                    },
+                    smm_dir=self.smm_dir,
+                )
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = [e for e in events if e.get("type") == "concern"]
+            self.assertTrue(len(concerns) >= 1)
+        finally:
+            settings_path.write_text(original)
+
+    def test_commit_threshold_default(self):
+        self.assertEqual(bash_post_tool.load_commit_threshold(), 10)
+
+    def test_pytest_pass(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 -m pytest tests/"},
+                "tool_response": {"stdout": "===== 5 passed in 0.3s ====="},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+        self.assertTrue(any("5 passed" in s["content"] for s in statuses))
+
+    def test_pytest_fail(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pytest"},
+                "tool_response": {"stdout": "===== 3 passed, 2 failed in 1.2s ====="},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(concerns) >= 1)
+        self.assertTrue(any("fail" in c["content"].lower() for c in concerns))
+
+    def test_jest_pass(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "npx jest"},
+                "tool_response": {"stdout": "Tests:  5 passed, 5 total"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+
+    def test_jest_fail(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "npx jest"},
+                "tool_response": {"stdout": "Tests:  2 failed, 3 passed, 5 total"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(concerns) >= 1)
+
+    def test_go_test_pass(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "go test ./..."},
+                "tool_response": {"stdout": "ok  \tgithub.com/user/pkg\t0.3s"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+
+    def test_go_test_fail(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "go test ./..."},
+                "tool_response": {
+                    "stdout": "--- FAIL: TestSomething (0.00s)\nFAIL\tpkg\t0.3s"
+                },
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(concerns) >= 1)
+
+    def test_non_git_non_test_ignored(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls -la"},
+                "tool_response": {"stdout": "total 0"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_xp_agent_skips(self):
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m 'x'"},
+                "tool_response": {"stdout": "[main a] x"},
+                "agent_type": "xp-navigator",
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_graceful_no_smm_dir(self):
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        bash_post_tool.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m 'x'"},
+                "tool_response": {"stdout": "[main a] x"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=fake_dir,
+        )
+
+    def test_git_commit_parse_message(self):
+        response = "[main abc123] Fix login bug\n 1 file changed"
+        self.assertEqual(bash_post_tool.parse_commit_message(response), "Fix login bug")
+
+
+# ===========================================================================
+# hooks.json PostToolUse registration — Milestone 3.3
+# ===========================================================================
+
+
+class TestPostToolUseHooksConfig(unittest.TestCase):
+    def test_hooks_json_has_post_tool_use(self):
+        hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
+        with open(hooks_path) as f:
+            data = json.load(f)
+        self.assertIn("PostToolUse", data["hooks"])
+
+    def test_post_tool_use_write_matcher(self):
+        hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
+        with open(hooks_path) as f:
+            data = json.load(f)
+        matchers = [entry.get("matcher") for entry in data["hooks"]["PostToolUse"]]
+        self.assertIn("Write|Edit|MultiEdit", matchers)
+
+    def test_post_tool_use_bash_matcher(self):
+        hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
+        with open(hooks_path) as f:
+            data = json.load(f)
+        matchers = [entry.get("matcher") for entry in data["hooks"]["PostToolUse"]]
+        self.assertIn("Bash", matchers)
+
+    def test_settings_has_commit_threshold(self):
+        settings_path = Path(__file__).parent.parent / "settings.json"
+        with open(settings_path) as f:
+            data = json.load(f)
+        self.assertIn("commit_size_threshold", data)
+        self.assertEqual(data["commit_size_threshold"], 10)
 
 
 if __name__ == "__main__":
