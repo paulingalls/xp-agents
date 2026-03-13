@@ -126,7 +126,7 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _validate_smm_dir(smm_dir: Path) -> None:
+def validate_smm_dir(smm_dir: Path) -> None:
     """Validate SMM directory exists, is owned by us, not world-writable."""
     if not smm_dir.exists():
         raise ValueError(f"SMM directory does not exist: {smm_dir}")
@@ -135,6 +135,17 @@ def _validate_smm_dir(smm_dir: Path) -> None:
         raise ValueError(f"SMM directory not owned by current user: {smm_dir}")
     if st.st_mode & 0o002:
         raise ValueError(f"SMM directory is world-writable: {smm_dir}")
+
+
+def try_validate_smm_dir(smm_dir: Path | None) -> Path | None:
+    """Validate SMM dir, returning None on failure instead of raising."""
+    if smm_dir is None:
+        return None
+    try:
+        validate_smm_dir(smm_dir)
+        return smm_dir
+    except ValueError:
+        return None
 
 
 _AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")

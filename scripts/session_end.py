@@ -108,12 +108,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     # Resolve SMM dir
     if smm_dir is None:
         smm_dir = _common.resolve_smm_dir()
-    try:
-        if smm_dir is not None:
-            _common._validate_smm_dir(smm_dir)
-        else:
-            return None
-    except ValueError:
+    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    if smm_dir is None:
         return None
 
     # Read events and compute summary

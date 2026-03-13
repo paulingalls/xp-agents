@@ -92,24 +92,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 pass
 
-    try:
-        if smm_dir is not None:
-            _common._validate_smm_dir(smm_dir)
-        else:
-            raise ValueError("No SMM dir")
-    except ValueError:
+    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    if smm_dir is None:
         # Graceful: return GUPP + skills even without SMM
         return GUPP_TEXT + SKILLS_TEXT
 
-    # Materialize current view (in-memory, no write-then-read-back)
-    smm_content = materialize.materialize(smm_dir)
+    # Parse events once — used for both rendering and retro check
+    events, skipped = materialize.parse_events(smm_dir)
+    if not events and skipped == 0:
+        smm_content = ""
+    else:
+        indices = materialize.build_indices(events)
+        conflicts = materialize.detect_conflicts(events, indices)
+        smm_content = materialize.render_markdown(events, indices, conflicts, skipped)
 
     # Build context
     parts: list[str] = []
 
     # Check for retro trigger (only on startup/resume, not compact)
     if source != "compact":
-        events = _common.read_events_raw(smm_dir)
         unanalyzed = _count_unanalyzed_events(events)
         if unanalyzed >= RETRO_THRESHOLD:
             parts.append(RETRO_INSTRUCTION.format(count=unanalyzed))

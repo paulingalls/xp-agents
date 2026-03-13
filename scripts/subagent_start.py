@@ -29,21 +29,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Resolve SMM dir
     if smm_dir is None:
         smm_dir = _common.resolve_smm_dir()
-    try:
-        if smm_dir is not None:
-            _common._validate_smm_dir(smm_dir)
-        else:
-            return None
-    except ValueError:
+    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    if smm_dir is None:
         return None
 
     agent_id = input_data.get("agent_id", "subagent")
 
-    # Read events once — used for watermark count
-    events = _common.read_events_raw(smm_dir)
-
-    # Materialize in-memory (avoids write-then-read-back round-trip)
-    smm_content = materialize.materialize(smm_dir)
+    # Parse events once — used for both watermark count and rendering
+    events, skipped = materialize.parse_events(smm_dir)
+    if not events and skipped == 0:
+        smm_content = ""
+    else:
+        indices = materialize.build_indices(events)
+        conflicts = materialize.detect_conflicts(events, indices)
+        smm_content = materialize.render_markdown(events, indices, conflicts, skipped)
 
     # Write watermark at current event count
     _common.write_watermark(smm_dir, agent_id, len(events))

@@ -217,24 +217,24 @@ class TestSessionStartPathValidation(_HookTestCase):
 
 
 class TestSmmDirValidation(_HookTestCase):
-    """Tests for _common._validate_smm_dir."""
+    """Tests for _common.validate_smm_dir."""
 
     def test_rejects_nonexistent(self):
         fake = Path(tempfile.mkdtemp()) / "nonexistent"
         with self.assertRaises(ValueError):
-            _common._validate_smm_dir(fake)
+            _common.validate_smm_dir(fake)
 
     def test_rejects_world_writable(self):
         self.smm_dir.chmod(0o777)
         try:
             with self.assertRaises(ValueError):
-                _common._validate_smm_dir(self.smm_dir)
+                _common.validate_smm_dir(self.smm_dir)
         finally:
             self.smm_dir.chmod(0o700)
 
     def test_accepts_valid_dir(self):
         self.smm_dir.chmod(0o700)
-        _common._validate_smm_dir(self.smm_dir)
+        _common.validate_smm_dir(self.smm_dir)
 
 
 # ===========================================================================
