@@ -27,8 +27,10 @@ PROJECT_ID=$(printf '%s' "$GIT_COMMON_DIR" | python3 -c "import hashlib,sys; pri
 
 SMM_DIR="${HOME}/.claude/xp-agents/${PROJECT_ID}/smm"
 
-# Create directory structure (owner-only permissions)
+# Create directory structure (owner-only permissions on all levels)
 mkdir -p "${SMM_DIR}/retrospectives"
+chmod 700 "${HOME}/.claude/xp-agents"
+chmod 700 "${HOME}/.claude/xp-agents/${PROJECT_ID}"
 chmod 700 "${SMM_DIR}"
 chmod 700 "${SMM_DIR}/retrospectives"
 

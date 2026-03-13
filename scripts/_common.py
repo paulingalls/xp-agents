@@ -17,6 +17,15 @@ import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class BlockedError(Exception):
+    """Raised when a tool call should be blocked (exit 2 with stderr message)."""
+
+
+# ---------------------------------------------------------------------------
 # SMM path resolution
 # ---------------------------------------------------------------------------
 
@@ -50,10 +59,16 @@ def resolve_smm_dir() -> Path | None:
 # ---------------------------------------------------------------------------
 
 
+_MAX_STDIN_SIZE = 1_048_576  # 1 MB
+
+
 def read_hook_input() -> dict:
-    """Read JSON from stdin. On error: exit 0 (graceful)."""
+    """Read JSON from stdin with size limit. On error: exit 0 (graceful)."""
     try:
-        return json.load(sys.stdin)
+        raw = sys.stdin.read(_MAX_STDIN_SIZE + 1)
+        if len(raw) > _MAX_STDIN_SIZE:
+            sys.exit(0)
+        return json.loads(raw)
     except (json.JSONDecodeError, ValueError):
         sys.exit(0)
 
@@ -168,8 +183,8 @@ def write_watermark(smm_dir: Path, agent_id: str, count: int) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             f.write(str(count))
+        os.chmod(tmp, 0o600)
         os.rename(tmp, wm_file)
-        os.chmod(wm_file, 0o600)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)

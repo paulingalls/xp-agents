@@ -622,11 +622,12 @@ class TestPluginConfig(unittest.TestCase):
         with open(hooks_path) as f:
             data = json.load(f)
         self.assertIn("hooks", data)
-        # All 4 lifecycle hooks registered
+        # All lifecycle + core hooks registered
         self.assertIn("SessionStart", data["hooks"])
         self.assertIn("SessionEnd", data["hooks"])
         self.assertIn("PreCompact", data["hooks"])
         self.assertIn("SubagentStart", data["hooks"])
+        self.assertIn("PreToolUse", data["hooks"])
 
     def test_hooks_use_plugin_root_var(self):
         hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
@@ -788,6 +789,423 @@ class TestSubagentStart(_HookTestCase):
         # Should use "subagent" as default
         wm_file = self.smm_dir / ".watermark-subagent"
         self.assertTrue(wm_file.exists())
+
+
+# ===========================================================================
+# pre_tool_use.py tests — Milestone 3.2
+# ===========================================================================
+
+import pre_tool_use  # noqa: E402
+
+
+class TestClassifyTier(unittest.TestCase):
+    def test_write_is_full(self):
+        self.assertEqual(pre_tool_use.classify_tier("Write", {}), "full")
+
+    def test_edit_is_full(self):
+        self.assertEqual(pre_tool_use.classify_tier("Edit", {}), "full")
+
+    def test_multi_edit_is_full(self):
+        self.assertEqual(pre_tool_use.classify_tier("MultiEdit", {}), "full")
+
+    def test_bash_git_commit_is_full(self):
+        self.assertEqual(
+            pre_tool_use.classify_tier("Bash", {"command": "git commit -m 'msg'"}),
+            "full",
+        )
+
+    def test_bash_other_is_blocking(self):
+        self.assertEqual(
+            pre_tool_use.classify_tier("Bash", {"command": "ls -la"}),
+            "blocking",
+        )
+
+    def test_read_is_red_only(self):
+        self.assertEqual(pre_tool_use.classify_tier("Read", {}), "red-only")
+
+    def test_grep_is_red_only(self):
+        self.assertEqual(pre_tool_use.classify_tier("Grep", {}), "red-only")
+
+    def test_glob_is_red_only(self):
+        self.assertEqual(pre_tool_use.classify_tier("Glob", {}), "red-only")
+
+    def test_unknown_tool_is_red_only(self):
+        self.assertEqual(pre_tool_use.classify_tier("Agent", {}), "red-only")
+
+
+class TestIsTestFile(unittest.TestCase):
+    def test_python_test_prefix(self):
+        self.assertTrue(pre_tool_use.is_test_file("test_foo.py"))
+
+    def test_python_test_suffix(self):
+        self.assertTrue(pre_tool_use.is_test_file("foo_test.py"))
+
+    def test_js_test(self):
+        self.assertTrue(pre_tool_use.is_test_file("app.test.js"))
+
+    def test_ts_spec(self):
+        self.assertTrue(pre_tool_use.is_test_file("app.spec.ts"))
+
+    def test_go_test(self):
+        self.assertTrue(pre_tool_use.is_test_file("handler_test.go"))
+
+    def test_java_test(self):
+        self.assertTrue(pre_tool_use.is_test_file("UserTest.java"))
+
+    def test_ruby_spec(self):
+        self.assertTrue(pre_tool_use.is_test_file("user_spec.rb"))
+
+    def test_tests_directory(self):
+        self.assertTrue(pre_tool_use.is_test_file("tests/conftest.py"))
+
+    def test_dunder_tests_directory(self):
+        self.assertTrue(pre_tool_use.is_test_file("__tests__/Button.tsx"))
+
+    def test_impl_file(self):
+        self.assertFalse(pre_tool_use.is_test_file("src/app.ts"))
+
+    def test_python_impl(self):
+        self.assertFalse(pre_tool_use.is_test_file("models.py"))
+
+
+class TestGetTargetFile(unittest.TestCase):
+    def test_write_returns_file_path(self):
+        self.assertEqual(
+            pre_tool_use.get_target_file("Write", {"file_path": "src/app.ts"}),
+            "src/app.ts",
+        )
+
+    def test_edit_returns_file_path(self):
+        self.assertEqual(
+            pre_tool_use.get_target_file("Edit", {"file_path": "src/app.ts"}),
+            "src/app.ts",
+        )
+
+    def test_bash_returns_none(self):
+        self.assertIsNone(pre_tool_use.get_target_file("Bash", {"command": "ls"}))
+
+    def test_read_returns_none(self):
+        self.assertIsNone(
+            pre_tool_use.get_target_file("Read", {"file_path": "src/app.ts"})
+        )
+
+    def test_missing_file_path(self):
+        self.assertIsNone(pre_tool_use.get_target_file("Write", {}))
+
+
+class TestNormalizePath(unittest.TestCase):
+    def test_absolute_unchanged(self):
+        result = pre_tool_use._normalize_path("/home/user/src/app.ts", "/tmp")
+        self.assertEqual(result, "/home/user/src/app.ts")
+
+    def test_relative_resolved(self):
+        result = pre_tool_use._normalize_path("src/app.ts", "/home/user")
+        self.assertEqual(result, "/home/user/src/app.ts")
+
+    def test_dotdot_resolved(self):
+        result = pre_tool_use._normalize_path("../app.ts", "/home/user/src")
+        self.assertEqual(result, "/home/user/app.ts")
+
+
+class TestCheckWorkingOnOverlap(_HookTestCase):
+    def test_no_overlap(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["src/b.ts"]),
+        ]
+        result = pre_tool_use.check_working_on_overlap(
+            events, "main", "src/a.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+    def test_overlap_detected(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["src/app.ts"]),
+        ]
+        result = pre_tool_use.check_working_on_overlap(
+            events, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("other", result)
+
+    def test_self_overlap_ignored(self):
+        events = [
+            make_event("status", agent_id="main", working_on=["src/app.ts"]),
+        ]
+        result = pre_tool_use.check_working_on_overlap(
+            events, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+    def test_normalized_path_overlap(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["./src/../src/app.ts"]),
+        ]
+        result = pre_tool_use.check_working_on_overlap(
+            events, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNotNone(result)
+
+    def test_latest_status_wins(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["src/app.ts"]),
+            make_event("status", agent_id="other", working_on=["src/b.ts"]),
+        ]
+        result = pre_tool_use.check_working_on_overlap(
+            events, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
+
+class TestCheckTddOrder(_HookTestCase):
+    def test_first_impl_no_nudge(self):
+        result = pre_tool_use.check_tdd_order(
+            self.smm_dir, "main", "src/app.ts", "Write"
+        )
+        self.assertIsNone(result)
+
+    def test_second_impl_nudge(self):
+        # First write
+        pre_tool_use.check_tdd_order(self.smm_dir, "main", "src/app.ts", "Write")
+        # Second write
+        result = pre_tool_use.check_tdd_order(
+            self.smm_dir, "main", "src/utils.ts", "Write"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("TDD", result)
+
+    def test_test_file_clears_nudge(self):
+        pre_tool_use.check_tdd_order(self.smm_dir, "main", "src/app.ts", "Write")
+        pre_tool_use.check_tdd_order(self.smm_dir, "main", "tests/test_app.py", "Write")
+        result = pre_tool_use.check_tdd_order(
+            self.smm_dir, "main", "src/utils.ts", "Write"
+        )
+        self.assertIsNone(result)
+
+    def test_non_write_tool_no_tracking(self):
+        result = pre_tool_use.check_tdd_order(
+            self.smm_dir, "main", "src/app.ts", "Read"
+        )
+        self.assertIsNone(result)
+
+    def test_none_file_path(self):
+        result = pre_tool_use.check_tdd_order(self.smm_dir, "main", None, "Write")
+        self.assertIsNone(result)
+
+
+class TestPreToolUseRun(_HookTestCase):
+    def test_xp_agent_skips(self):
+        result = pre_tool_use.run(
+            {"session_id": "t", "tool_name": "Write", "agent_type": "xp-navigator"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_write_gets_full_delta(self):
+        # Write a red question event, then check that Write gets it
+        events = [make_event("question", priority="\U0001f534", content="blocker?")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/new.ts"},
+                "agent_id": "main",
+                "cwd": "/tmp",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("SMM Delta", result)
+
+    def test_read_gets_red_only(self):
+        # Write a status event (not red) — Read should NOT get it
+        events = [make_event("status", content="working")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "src/app.ts"},
+                "agent_id": "main",
+                "cwd": "/tmp",
+            },
+            smm_dir=self.smm_dir,
+        )
+        # Red-only tier filters out status events, so no delta
+        self.assertIsNone(result)
+
+    def test_conflict_raises_blocked(self):
+        events = [
+            make_event("status", agent_id="other-agent", working_on=["src/app.ts"]),
+        ]
+        self._write_events(events)
+        with self.assertRaises(_common.BlockedError) as cm:
+            pre_tool_use.run(
+                {
+                    "session_id": "t",
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "src/app.ts"},
+                    "agent_id": "main",
+                    "cwd": "/tmp",
+                },
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("other-agent", str(cm.exception))
+
+    def test_no_smm_dir_degrades_gracefully(self):
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts"},
+                "agent_id": "main",
+                "cwd": "/tmp",
+            },
+            smm_dir=fake_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_bash_blocking_tier_gets_pair_guidance(self):
+        events = [make_event("pair_guidance", content="Use --dry-run")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "npm test"},
+                "agent_id": "main",
+                "cwd": "/tmp",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("NAVIGATOR", result)
+
+    def test_bash_blocking_tier_skips_status(self):
+        events = [make_event("status", content="busy")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Bash",
+                "tool_input": {"command": "npm test"},
+                "agent_id": "main",
+                "cwd": "/tmp",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
+# ===========================================================================
+# Cross-cutting acceptance criteria
+# ===========================================================================
+
+
+class TestStdlibOnly(unittest.TestCase):
+    """AC (M1): Python stdlib only — no external packages."""
+
+    def test_no_external_imports(self):
+        """Scan all .py files for non-stdlib imports."""
+        import pkgutil
+
+        project_modules = frozenset(
+            {
+                "_common",
+                "_append_impl",
+                "read_delta",
+                "materialize",
+                "pre_tool_use",
+                "session_start",
+                "session_end",
+                "pre_compact",
+                "subagent_start",
+            }
+        )
+
+        stdlib_names = {m.name for m in pkgutil.iter_modules()}
+        stdlib_names |= set(sys.stdlib_module_names)
+
+        project_root = Path(__file__).parent.parent
+        py_files = list(project_root.glob("scripts/*.py")) + list(
+            project_root.glob("smm/*.py")
+        )
+
+        violations = []
+        for py_file in py_files:
+            if py_file.name.startswith("test_"):
+                continue
+            source = py_file.read_text()
+            in_docstring = False
+            for line in source.splitlines():
+                stripped = line.strip()
+                if '"""' in stripped or "'''" in stripped:
+                    count = stripped.count('"""') + stripped.count("'''")
+                    if count == 1:
+                        in_docstring = not in_docstring
+                    continue
+                if in_docstring or stripped.startswith("#"):
+                    continue
+                if not (stripped.startswith("import ") or stripped.startswith("from ")):
+                    continue
+                if stripped.startswith("from "):
+                    module = stripped.split()[1].split(".")[0]
+                else:
+                    module = stripped.split()[1].split(".")[0]
+                if module not in stdlib_names and module not in project_modules:
+                    violations.append(f"{py_file.name}: {stripped}")
+
+        msg = "Non-stdlib imports found:\n" + "\n".join(violations)
+        self.assertEqual(violations, [], msg)
+
+
+class TestPreToolUsePerformance(_HookTestCase):
+    """AC (M3.2): Fast — minimal overhead on every tool call."""
+
+    def test_run_completes_within_budget(self):
+        """100 invocations should complete well under 2 seconds."""
+        import time
+
+        # Seed some events so delta reading has work to do
+        events = [make_event("status", content=f"s{i}") for i in range(10)]
+        self._write_events(events)
+
+        input_data = {
+            "session_id": "perf",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "src/app.ts"},
+            "agent_id": "perf-agent",
+            "cwd": "/tmp",
+        }
+
+        start = time.monotonic()
+        for _ in range(100):
+            pre_tool_use.run(input_data, smm_dir=self.smm_dir)
+        elapsed = time.monotonic() - start
+
+        # 100 runs should complete in under 2 seconds on any reasonable machine
+        self.assertLess(elapsed, 2.0, f"100 runs took {elapsed:.2f}s — too slow")
+
+    def test_xp_agent_skip_is_instant(self):
+        """xp-agent bypass should be near-zero cost."""
+        import time
+
+        input_data = {
+            "session_id": "perf",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/app.ts"},
+            "agent_type": "xp-navigator",
+            "cwd": "/tmp",
+        }
+
+        start = time.monotonic()
+        for _ in range(1000):
+            pre_tool_use.run(input_data, smm_dir=self.smm_dir)
+        elapsed = time.monotonic() - start
+
+        # 1000 no-op runs should be well under 1 second
+        self.assertLess(elapsed, 1.0, f"1000 xp-agent skips took {elapsed:.2f}s")
 
 
 if __name__ == "__main__":
