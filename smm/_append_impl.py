@@ -250,22 +250,26 @@ def validate_event(event: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-class _LockTimeout(Exception):
+class LockTimeoutError(Exception):
+    """Raised when flock cannot be acquired within the timeout."""
+
     pass
 
 
 def _on_alarm(signum: int, frame: object) -> None:
-    raise _LockTimeout
+    raise LockTimeoutError("Could not acquire lock within 2 seconds")
 
 
 def append_event(smm_dir: Path, event: dict) -> None:
-    """Append event as a single JSON line to events.jsonl with flock."""
+    """Append event as a single JSON line to events.jsonl with flock.
+
+    Raises LockTimeoutError if the lock cannot be acquired within 2 seconds.
+    """
     events_file = smm_dir / "events.jsonl"
     lock_file = smm_dir / "events.lock"
     line = json.dumps(event, ensure_ascii=False) + "\n"
 
     lock_fd = None
-    locked = False
 
     try:
         lock_fd = open(lock_file, "a")  # noqa: SIM115
@@ -275,10 +279,7 @@ def append_event(smm_dir: Path, event: dict) -> None:
         try:
             signal.alarm(2)
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            locked = True
             signal.alarm(0)
-        except _LockTimeout:
-            print("Warning: Lock timeout, appending without lock", file=sys.stderr)
         finally:
             signal.signal(signal.SIGALRM, old_handler)
 
@@ -287,8 +288,7 @@ def append_event(smm_dir: Path, event: dict) -> None:
 
     finally:
         if lock_fd is not None:
-            if locked:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
 
 
@@ -377,7 +377,11 @@ def main() -> None:
         sys.exit(1)
 
     # Append
-    append_event(smm_dir, event)
+    try:
+        append_event(smm_dir, event)
+    except LockTimeoutError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

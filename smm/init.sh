@@ -27,8 +27,9 @@ PROJECT_ID=$(printf '%s' "$GIT_COMMON_DIR" | python3 -c "import hashlib,sys; pri
 
 SMM_DIR="${HOME}/.claude/xp-agents/${PROJECT_ID}/smm"
 
-# Create directory structure
+# Create directory structure (owner-only permissions)
 mkdir -p "${SMM_DIR}/retrospectives"
+chmod 700 "${SMM_DIR}"
 
 # Touch event files (touch never truncates, safe to call unconditionally)
 touch "${SMM_DIR}/events.jsonl"

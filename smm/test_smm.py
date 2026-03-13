@@ -6,6 +6,7 @@ Run with: python3 -m pytest smm/test_smm.py -v  (or just python3 smm/test_smm.py
 """
 
 import concurrent.futures
+import fcntl
 import json
 import os
 import subprocess
@@ -469,6 +470,44 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertEqual(e["keep"][0]["content"], "Good TDD")
         self.assertEqual(e["fix"][0]["xp_value"], "communication")
         self.assertEqual(e["try"][0]["content"], "Mob")
+
+
+class TestLockTimeout(unittest.TestCase):
+    """Test that lock timeout raises instead of degrading."""
+
+    def test_append_fails_on_lock_timeout(self):
+        """If the lock can't be acquired, append should raise, not silently continue."""
+        import tempfile
+
+        smm_dir = Path(tempfile.mkdtemp())
+        events_file = smm_dir / "events.jsonl"
+        lock_file = smm_dir / "events.lock"
+        events_file.touch()
+        lock_file.touch()
+
+        event = {
+            "id": "12345678-1234-4123-8123-123456789abc",
+            "ts": "2026-03-12T00:00:00+00:00",
+            "type": "customer_input",
+            "agent_id": "main",
+            "content": "test",
+            "schema_version": 1,
+        }
+
+        # Hold an exclusive lock so append_event can't acquire it
+        lock_fd = open(lock_file, "a")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            with self.assertRaises(_append_impl.LockTimeoutError):
+                _append_impl.append_event(smm_dir, event)
+            # File should be unchanged — no write without lock
+            self.assertEqual(events_file.read_text(), "")
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+            import shutil
+
+            shutil.rmtree(smm_dir)
 
 
 class TestConcurrentWrites(unittest.TestCase):
