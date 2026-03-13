@@ -222,6 +222,144 @@ def append_safe(smm_dir: Path, event: dict) -> None:
             _append_impl.append_event(smm_dir, event)
 
 
+# ---------------------------------------------------------------------------
+# Conflict detection (shared by post_tool_use.py and subagent_stop.py)
+# ---------------------------------------------------------------------------
+
+
+def make_concern(content: str, severity: str, agent_id: str) -> dict:
+    """Build a concern event dict."""
+    return make_event("concern", agent_id, content, severity=severity)
+
+
+def detect_conflicts(
+    events: list[dict],
+    agent_id: str,
+    file_path: str | None = None,
+    cwd: str | None = None,
+) -> list[dict]:
+    """Detect structural conflicts in the event log. Returns concern event dicts.
+
+    When file_path/cwd are None, skip pattern 1 (overlapping working_on).
+    """
+    concerns: list[dict] = []
+
+    # 1. Overlapping working_on — another agent claims same file
+    if file_path is not None and cwd is not None:
+        normalized = normalize_path(file_path, cwd)
+        agent_files: dict[str, list[str]] = {}
+        for e in events:
+            if e.get("type") == "status" and e.get("working_on"):
+                agent_files[e.get("agent_id", "")] = e["working_on"]
+
+        for aid, files in agent_files.items():
+            if aid == agent_id:
+                continue
+            norm_files = {normalize_path(f, cwd) for f in files}
+            if normalized in norm_files:
+                concerns.append(
+                    make_concern(
+                        f"Overlapping working_on: agent '{aid}' is also working on "
+                        f"'{file_path}'. Coordinate to avoid conflicts.",
+                        "medium",
+                        agent_id,
+                    )
+                )
+
+    # 2. Assumption contradicted by discovery
+    assumptions: dict[str, dict] = {}
+    for e in events:
+        if e.get("type") == "assumption":
+            assumptions[e.get("id", "")] = e
+        elif e.get("type") == "discovery":
+            for ref in e.get("references", []):
+                if ref in assumptions:
+                    concerns.append(
+                        make_concern(
+                            f"Assumption contradicted: '{assumptions[ref]['content']}' "
+                            f"contradicted by discovery '{e['content']}'.",
+                            "high",
+                            agent_id,
+                        )
+                    )
+
+    # 3. Convention violation — decision diverges from convention on same topic
+    conventions_by_topic: dict[str, list[dict]] = {}
+    for e in events:
+        if e.get("type") == "convention":
+            topic = e.get("topic", "")
+            conventions_by_topic.setdefault(topic, []).append(e)
+
+    for e in events:
+        if e.get("type") == "decision":
+            topic = e.get("topic", "")
+            if topic in conventions_by_topic:
+                refs = set(e.get("references", []))
+                conv_ids = {c["id"] for c in conventions_by_topic[topic]}
+                if not refs & conv_ids:
+                    concerns.append(
+                        make_concern(
+                            f"Convention violation: decision on '{topic}' "
+                            "diverges from established convention.",
+                            "medium",
+                            agent_id,
+                        )
+                    )
+
+    # 4. Stale question — 🔴 question with no answer after 20+ subsequent events
+    question_positions: dict[str, int] = {}
+    answered_ids: set[str] = set()
+    for i, e in enumerate(events):
+        if e.get("type") == "question" and e.get("priority") == "\U0001f534":
+            question_positions[e.get("id", "")] = i
+        elif e.get("type") == "answer":
+            for ref in e.get("references", []):
+                answered_ids.add(ref)
+
+    total = len(events)
+    for qid, pos in question_positions.items():
+        if qid not in answered_ids and (total - pos - 1) >= 20:
+            concerns.append(
+                make_concern(
+                    f"Stale question: blocking question (id {qid[:8]}) has had "
+                    f"{total - pos - 1} events without an answer.",
+                    "medium",
+                    agent_id,
+                )
+            )
+
+    # 5. Superseded decision — two decisions on same topic with no concern between
+    decisions_by_topic: dict[str, list[tuple[int, dict]]] = {}
+    concern_positions: set[int] = set()
+    for i, e in enumerate(events):
+        if e.get("type") == "decision":
+            topic = e.get("topic", "")
+            decisions_by_topic.setdefault(topic, []).append((i, e))
+        elif e.get("type") == "concern":
+            concern_positions.add(i)
+
+    for topic, decs in decisions_by_topic.items():
+        if len(decs) < 2:
+            continue
+        for j in range(1, len(decs)):
+            prev_pos = decs[j - 1][0]
+            curr_pos = decs[j][0]
+            has_concern_between = any(
+                prev_pos < cp < curr_pos for cp in concern_positions
+            )
+            if not has_concern_between:
+                concerns.append(
+                    make_concern(
+                        f"Superseded decision: topic '{topic}' has multiple decisions "
+                        f"without an intervening concern.",
+                        "low",
+                        agent_id,
+                    )
+                )
+
+    return concerns
+
+
 def write_watermark(smm_dir: Path, agent_id: str, count: int) -> None:
     """Atomic watermark write via tempfile + rename. Validates agent_id."""
     _validate_agent_id(agent_id)

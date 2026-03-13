@@ -163,21 +163,41 @@ Fail loud, never corrupt, always recoverable. Every script follows:
 
 ## Testing
 
-Each milestone has acceptance criteria. Test them. For hook scripts, test by piping sample JSON to stdin:
+All tests run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel:
 
 ```bash
-echo '{"session_id":"test","tool_name":"Write","tool_input":{"file_path":"src/app.ts"},"cwd":"/tmp"}' | python3 scripts/post_tool_use.py
-echo $?
+# Run everything (what pre-commit does):
+python3 -m unittest smm/test_smm.py smm/test_engine.py scripts/test_hooks.py scripts/test_integration.py -v
+
+# Run a single suite:
+python3 -m unittest scripts/test_hooks.py -v
+
+# Run a single test class:
+python3 -m unittest scripts/test_hooks.py -k TestUserPromptLog -v
 ```
 
-For concurrent write testing:
-```bash
-for i in $(seq 1 20); do
-  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --type status --agent "test-$i" --content "concurrent test $i" &
-done
-wait
-wc -l ~/.claude/xp-agents/test-project/smm/events.jsonl  # should be 20
-```
+### Test suites
+
+| Suite | File | What it tests |
+|-------|------|---------------|
+| SMM Foundation | `smm/test_smm.py` | init.sh, append.sh, `_append_impl.py`, schema, concurrency, notifications |
+| SMM Engine | `smm/test_engine.py` | materialize.py, read_delta.py. Provides `_SMMTestCase` base class and `make_event()` helper used by all other suites |
+| Hook unit tests | `scripts/test_hooks.py` | `_common.py` and all command hook `run()` functions with temp SMM dirs (no subprocess) |
+| Integration tests | `scripts/test_integration.py` | Full subprocess pipeline: creates temp git repo, runs init.sh, pipes JSON to each script, verifies events on disk and stdout/stderr/exit codes |
+
+### Writing new tests
+
+- **Unit tests** go in `scripts/test_hooks.py`. Import the module, call `run(input_data, smm_dir=self.smm_dir)` directly. Extend `_HookTestCase` (alias for `_SMMTestCase`) for a temp SMM dir with `events.jsonl` and `events.lock`.
+- **Integration tests** go in `scripts/test_integration.py`. Extend `_IntegrationTestCase` which creates a temp git repo with init.sh. Use `self._run_script("script.py", {...})` to pipe JSON via subprocess, `self._read_events()` to check results, `self._seed_events([...])` to pre-populate.
+- **SMM/engine tests** go in `smm/test_smm.py` or `smm/test_engine.py`.
+- Follow TDD: write the test first, watch it fail, then implement.
+
+### Test helpers
+
+- `make_event(type, **kwargs)` — creates a valid event dict with defaults (from `test_engine.py`, imported everywhere)
+- `_SMMTestCase` / `_HookTestCase` — `setUp` creates temp dir with `events.jsonl` + `events.lock`, `tearDown` cleans up
+- `self._write_events([...])` — seed events into the temp SMM
+- `self._read_events()` — parse events back from disk
 
 ## Key Decisions (Don't Revisit)
 

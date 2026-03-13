@@ -620,6 +620,146 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
 
 
 # ===========================================================================
+# Customer & Subagent Tracking (Milestone 3.4)
+# ===========================================================================
+
+
+class TestUserPromptLogIntegration(_IntegrationTestCase):
+    def test_logs_prompt_as_customer_input(self):
+        result = self._run_script(
+            "user_prompt_log.py", {"session_id": "int-test", "prompt": "hello world"}
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+        events = self._read_events()
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci), 1)
+        self.assertEqual(ci[0]["content"], "hello world")
+        self.assertEqual(ci[0]["agent_id"], "customer")
+
+    def test_truncates_long_prompt(self):
+        long = "x" * 15000
+        self._run_script(
+            "user_prompt_log.py", {"session_id": "int-test", "prompt": long}
+        )
+        events = self._read_events()
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci[0]["content"]), 10000)
+
+    def test_empty_prompt_still_logs(self):
+        result = self._run_script(
+            "user_prompt_log.py", {"session_id": "int-test", "prompt": ""}
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci), 1)
+
+    def test_xp_agent_skips(self):
+        result = self._run_script(
+            "user_prompt_log.py",
+            {"session_id": "int-test", "prompt": "hi", "agent_type": "xp-nav"},
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+    def test_invalid_json_exits_zero(self):
+        script = self.scripts_dir / "user_prompt_log.py"
+        r = subprocess.run(
+            ["python3", str(script)],
+            input="not json",
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+        self.assertEqual(r.returncode, 0)
+
+
+class TestSubagentStopIntegration(_IntegrationTestCase):
+    def test_records_minimal_status(self):
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("task-1", statuses[0]["content"])
+        self.assertEqual(statuses[0]["working_on"], [])
+
+    def test_default_agent_id(self):
+        self._run_script(
+            "subagent_stop.py",
+            {"session_id": "int-test", "last_assistant_message": "Done"},
+        )
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertIn("subagent", statuses[0]["content"])
+        self.assertEqual(statuses[0]["agent_id"], "subagent")
+
+    def test_conflict_detection_appends_concern(self):
+        a = make_event("assumption", content="API is REST")
+        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        self._seed_events([a, d])
+
+        self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+        )
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
+
+    def test_xp_agent_skips(self):
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "task-1",
+                "agent_type": "xp-reviewer",
+                "last_assistant_message": "Done",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+    def test_missing_last_message(self):
+        result = self._run_script(
+            "subagent_stop.py",
+            {"session_id": "int-test", "agent_id": "task-1"},
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+
+    def test_invalid_json_exits_zero(self):
+        script = self.scripts_dir / "subagent_stop.py"
+        r = subprocess.run(
+            ["python3", str(script)],
+            input="not json",
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+        self.assertEqual(r.returncode, 0)
+
+
+# ===========================================================================
 # Round-trip: full session lifecycle
 # ===========================================================================
 
@@ -676,6 +816,66 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertIn("src/feature.ts", se[0]["working_on"][0])
         self.assertTrue(se[0]["final_status_recorded"])
         self.assertIn("task_complete", se[0]["content"])
+
+    def test_prompt_subagent_roundtrip(self):
+        """UserPromptSubmit → SubagentStart → SubagentStop → SessionEnd.
+
+        Verifies the full M3.4 hooks integrate with existing lifecycle:
+        - user_prompt_log records customer_input
+        - subagent_start injects SMM and creates watermark
+        - subagent_stop records completion status
+        - session_end captures final state
+        """
+        # 1. User prompt
+        r1 = self._run_script(
+            "user_prompt_log.py",
+            {"session_id": "round-trip-2", "prompt": "Please refactor auth"},
+        )
+        self.assertEqual(r1.returncode, 0)
+
+        # 2. Subagent start
+        r2 = self._run_script(
+            "subagent_start.py",
+            {"session_id": "round-trip-2", "agent_id": "task-1"},
+        )
+        self.assertEqual(r2.returncode, 0)
+        output = json.loads(r2.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Shared Mental Model", ctx)
+
+        # 3. Subagent stop
+        r3 = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "round-trip-2",
+                "agent_id": "task-1",
+                "last_assistant_message": "Refactored auth module",
+            },
+        )
+        self.assertEqual(r3.returncode, 0)
+
+        # 4. Session end
+        r4 = self._run_script(
+            "session_end.py",
+            {"session_id": "round-trip-2", "reason": "done"},
+        )
+        self.assertEqual(r4.returncode, 0)
+
+        # Verify full event chain
+        events = self._read_events()
+        types = [e["type"] for e in events]
+        self.assertIn("customer_input", types)
+        self.assertIn("status", types)
+        self.assertIn("session_end", types)
+
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(ci[0]["content"], "Please refactor auth")
+        self.assertEqual(ci[0]["agent_id"], "customer")
+
+        statuses = [e for e in events if e.get("type") == "status"]
+        task_status = [s for s in statuses if s.get("agent_id") == "task-1"]
+        self.assertTrue(len(task_status) >= 1)
+        self.assertIn("task-1", task_status[0]["content"])
 
 
 if __name__ == "__main__":

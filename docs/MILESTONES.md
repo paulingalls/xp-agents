@@ -101,20 +101,29 @@
 
 ---
 
-## Milestone 3.4: Core Hooks — Customer & Subagent Tracking
+## Milestone 3.4: Core Hooks — Customer & Subagent Tracking ✅
 
 **Goal**: Customer voice, notifications, subagent bookkeeping.
 
+**Status**: Complete (439 total tests: 190 SMM + 249 hooks, 50 new tests for M3.4).
+
 **Deliverables**:
-- [ ] `scripts/user_prompt_log.py` — UserPromptSubmit. Reads `prompt` from input. Appends as `customer_input` event.
-- [ ] `scripts/customer_notify.py` — Notification. OS detection (macOS `osascript` / Linux `notify-send`). Desktop notification for 🔴 questions.
-- [ ] `scripts/subagent_stop.py` — SubagentStop. Reads `last_assistant_message`, `agent_id`. Appends `status` summarizing subagent work. Structural conflict detection.
+- [x] `scripts/user_prompt_log.py` — UserPromptSubmit. Reads `prompt` from input. Appends as `customer_input` event with `agent_id="customer"`. Truncates to 10,000 chars.
+- [x] Notification inline in `smm/_append_impl.py` — `_detect_platform()`, `_sanitize_notification()`, `_notify_blocking_question()`. Fires at the choke point (`append_event()`) so every 🔴 question gets notified regardless of source. macOS `osascript` / Linux `notify-send`.
+- [x] `scripts/subagent_stop.py` — SubagentStop. Reads `agent_id` (default "subagent"). Appends minimal `status` event. Runs conflict detection (patterns 2-5, no file_path).
+- [x] `detect_conflicts()` and `make_concern()` extracted to `scripts/_common.py` with optional `file_path`/`cwd` (skips pattern 1 when None). `post_tool_use.py` imports from `_common`.
+- [x] `hooks/hooks.json` — Added UserPromptSubmit + SubagentStop sections (5s timeout on SubagentStop).
+- [x] Integration tests — subprocess-based tests for both new scripts (exit codes, event content, edge cases).
+
+**Design change from plan**: No separate `scripts/customer_notify.py` — notification logic lives inline in `_append_impl.py` at the `append_event()` choke point. This ensures every 🔴 question gets notified immediately regardless of whether it comes from a command hook or agent hook via `append.sh`.
 
 **Acceptance Criteria**:
-- Every user prompt logged as customer_input event
-- Desktop notification on macOS and Linux for 🔴 questions
-- Subagent work recorded, conflicts detected
-- All hooks skip xp- prefixed agents
+- ✅ Every user prompt logged as customer_input event
+- ✅ Desktop notification on macOS and Linux for 🔴 questions
+- ✅ Subagent work recorded, conflicts detected (patterns 2-5)
+- ✅ All hooks skip xp- prefixed agents
+- ✅ Graceful degradation when SMM missing
+- ✅ Integration tests verify scripts work end-to-end as subprocesses
 
 ---
 

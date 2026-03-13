@@ -2103,5 +2103,275 @@ class TestPostToolUseHooksConfig(unittest.TestCase):
         self.assertEqual(data["commit_size_threshold"], 10)
 
 
+# ===========================================================================
+# user_prompt_log.py tests — Milestone 3.4
+# ===========================================================================
+
+import user_prompt_log  # noqa: E402
+
+
+class TestUserPromptLog(_HookTestCase):
+    def test_logs_prompt_as_customer_input(self):
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "Hello world"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci), 1)
+        self.assertEqual(ci[0]["content"], "Hello world")
+
+    def test_agent_id_is_customer(self):
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "Hi"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(ci[0]["agent_id"], "customer")
+
+    def test_xp_agent_skips(self):
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "Hi", "agent_type": "xp-navigator"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_graceful_no_smm_dir(self):
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        # Should not crash
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "Hi"},
+            smm_dir=fake_dir,
+        )
+
+    def test_empty_prompt_still_logs(self):
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": ""},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci), 1)
+        self.assertEqual(ci[0]["content"], "")
+
+    def test_long_prompt_truncated(self):
+        long_prompt = "x" * 15000
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": long_prompt},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci[0]["content"]), 10000)
+
+
+# ===========================================================================
+# subagent_stop.py tests — Milestone 3.4
+# ===========================================================================
+
+import subagent_stop  # noqa: E402
+
+
+class TestSubagentStop(_HookTestCase):
+    def test_records_minimal_status(self):
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("task-1", statuses[0]["content"])
+        self.assertEqual(statuses[0]["working_on"], [])
+
+    def test_xp_agent_skips(self):
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "agent_type": "xp-navigator",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_graceful_no_smm_dir(self):
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=fake_dir,
+        )
+
+    def test_default_agent_id(self):
+        subagent_stop.run(
+            {"session_id": "t", "last_assistant_message": "Done"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("subagent", statuses[0]["content"])
+
+    def test_missing_last_message(self):
+        subagent_stop.run(
+            {"session_id": "t", "agent_id": "task-1"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+
+    def test_conflict_detection_runs(self):
+        # Set up a contradiction in the log
+        a = make_event("assumption", content="API is REST")
+        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        self._write_events([a, d])
+
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
+
+    def test_no_false_positive_conflicts(self):
+        # Clean log with no conflicts
+        self._write_events(
+            [make_event("status", agent_id="main", working_on=["src/a.ts"])]
+        )
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0)
+
+
+# ===========================================================================
+# detect_conflicts in _common.py — Milestone 3.4 extraction
+# ===========================================================================
+
+
+class TestDetectConflictsCommon(_HookTestCase):
+    """Test detect_conflicts after extraction to _common.py."""
+
+    def test_import_from_common(self):
+        self.assertTrue(hasattr(_common, "detect_conflicts"))
+        self.assertTrue(hasattr(_common, "make_concern"))
+
+    def test_overlapping_working_on(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
+        ]
+        concerns = _common.detect_conflicts(
+            events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+        )
+        self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
+
+    def test_no_overlap_different_file(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["/tmp/src/other.ts"]),
+        ]
+        concerns = _common.detect_conflicts(
+            events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+        )
+        overlap_concerns = [c for c in concerns if "overlap" in c["content"].lower()]
+        self.assertEqual(len(overlap_concerns), 0)
+
+    def test_stale_question_detected(self):
+        q = make_event("question", priority="\U0001f534", content="Blocking?")
+        filler = [make_event(content=f"filler {i}") for i in range(21)]
+        concerns = _common.detect_conflicts(
+            [q, *filler], "main", file_path="/tmp/x.ts", cwd="/tmp"
+        )
+        self.assertTrue(any("stale" in c["content"].lower() for c in concerns))
+
+    def test_without_file_path_skips_pattern_1(self):
+        """When file_path=None, skip overlapping working_on check."""
+        events = [
+            make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
+        ]
+        concerns = _common.detect_conflicts(events, "main")
+        overlap_concerns = [c for c in concerns if "overlap" in c["content"].lower()]
+        self.assertEqual(len(overlap_concerns), 0)
+
+    def test_without_file_path_runs_other_patterns(self):
+        """Patterns 2-5 still run when file_path=None."""
+        a = make_event("assumption", content="API is REST")
+        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        concerns = _common.detect_conflicts([a, d], "main")
+        self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
+
+    def test_superseded_decision(self):
+        events = [
+            make_event("decision", topic="db", content="Use Postgres"),
+            make_event("decision", topic="db", content="Use MySQL"),
+        ]
+        concerns = _common.detect_conflicts(events, "main")
+        self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
+
+    def test_convention_violation(self):
+        events = [
+            make_event("convention", topic="naming", content="Use camelCase"),
+            make_event("decision", topic="naming", content="Use snake_case"),
+        ]
+        concerns = _common.detect_conflicts(events, "main")
+        self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
+
+
+# ===========================================================================
+# hooks.json M3.4 registration tests
+# ===========================================================================
+
+
+class TestM34HooksConfig(unittest.TestCase):
+    def setUp(self):
+        hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
+        with open(hooks_path) as f:
+            self.data = json.load(f)
+
+    def test_hooks_json_has_user_prompt_submit(self):
+        self.assertIn("UserPromptSubmit", self.data["hooks"])
+
+    def test_user_prompt_submit_command(self):
+        hooks = self.data["hooks"]["UserPromptSubmit"][0]["hooks"]
+        cmds = [h["command"] for h in hooks]
+        self.assertTrue(any("user_prompt_log.py" in c for c in cmds))
+
+    def test_hooks_json_has_subagent_stop(self):
+        self.assertIn("SubagentStop", self.data["hooks"])
+
+    def test_subagent_stop_command(self):
+        hooks = self.data["hooks"]["SubagentStop"][0]["hooks"]
+        cmds = [h["command"] for h in hooks]
+        self.assertTrue(any("subagent_stop.py" in c for c in cmds))
+
+    def test_subagent_stop_has_timeout(self):
+        hooks = self.data["hooks"]["SubagentStop"][0]["hooks"]
+        self.assertEqual(hooks[0]["timeout"], 5000)
+
+
 if __name__ == "__main__":
     unittest.main()

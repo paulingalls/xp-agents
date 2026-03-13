@@ -284,6 +284,59 @@ def validate_event(event: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Desktop notification for blocking questions
+# ---------------------------------------------------------------------------
+
+
+def _detect_platform() -> str:
+    """Return 'macos', 'linux', or 'unknown'."""
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "unknown"
+
+
+def _sanitize_notification(text: str) -> str:
+    """Allow only safe characters and limit to 200 chars for shell use."""
+    import re
+
+    text = re.sub(r"[^a-zA-Z0-9 .,!?:;\-_()\n]", "", text)
+    return text[:200]
+
+
+def _notify_blocking_question(event: dict) -> None:
+    """Send a desktop notification for 🔴 priority questions. Swallows all errors."""
+    try:
+        if event.get("type") != "question":
+            return
+        if event.get("priority") != "\U0001f534":
+            return
+
+        message = _sanitize_notification(event.get("content", "Blocking question"))
+        platform = _detect_platform()
+
+        if platform == "macos":
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'display notification "{message}" with title "XP Agents"',
+                ],
+                timeout=5,
+                capture_output=True,
+            )
+        elif platform == "linux":
+            subprocess.run(
+                ["notify-send", "XP Agents", message],
+                timeout=5,
+                capture_output=True,
+            )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Locked atomic append
 # ---------------------------------------------------------------------------
 
@@ -346,6 +399,9 @@ def append_event(smm_dir: Path, event: dict) -> None:
         if lock_fd is not None:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
+
+    # Notify on blocking questions — after write succeeds, never fails the write
+    _notify_blocking_question(event)
 
 
 # ---------------------------------------------------------------------------

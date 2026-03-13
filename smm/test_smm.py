@@ -13,6 +13,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # Allow importing _append_impl from the same directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -804,6 +805,126 @@ class TestSchemaJson(unittest.TestCase):
         self.assertIn("topic", conditional_reqs.get("convention", []))
         self.assertIn("priority", conditional_reqs.get("question", []))
         self.assertIn("tool_name", conditional_reqs.get("pair_guidance", []))
+
+
+# ===========================================================================
+# Notification tests — Milestone 3.4
+# ===========================================================================
+
+
+class TestNotificationHelpers(unittest.TestCase):
+    """Test _detect_platform, _sanitize_notification, _notify_blocking_question."""
+
+    def test_detect_platform_macos(self):
+        with patch("_append_impl.sys") as mock_sys:
+            mock_sys.platform = "darwin"
+            self.assertEqual(_append_impl._detect_platform(), "macos")
+
+    def test_detect_platform_linux(self):
+        with patch("_append_impl.sys") as mock_sys:
+            mock_sys.platform = "linux"
+            self.assertEqual(_append_impl._detect_platform(), "linux")
+
+    def test_detect_platform_unknown(self):
+        with patch("_append_impl.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            self.assertEqual(_append_impl._detect_platform(), "unknown")
+
+    def test_sanitize_strips_quotes(self):
+        result = _append_impl._sanitize_notification('He said "hello"')
+        self.assertNotIn('"', result)
+
+    def test_sanitize_strips_backslashes(self):
+        result = _append_impl._sanitize_notification("path\\to\\file")
+        self.assertNotIn("\\", result)
+
+    def test_sanitize_limits_length(self):
+        result = _append_impl._sanitize_notification("x" * 300)
+        self.assertLessEqual(len(result), 200)
+
+    def test_macos_notification_command(self):
+        event = {
+            "type": "question",
+            "priority": "\U0001f534",
+            "content": "Which DB?",
+        }
+        with (
+            patch("_append_impl._detect_platform", return_value="macos"),
+            patch("_append_impl.subprocess.run") as mock_run,
+        ):
+            _append_impl._notify_blocking_question(event)
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            self.assertEqual(args[0], "osascript")
+
+    def test_linux_notification_command(self):
+        event = {
+            "type": "question",
+            "priority": "\U0001f534",
+            "content": "Which DB?",
+        }
+        with (
+            patch("_append_impl._detect_platform", return_value="linux"),
+            patch("_append_impl.subprocess.run") as mock_run,
+        ):
+            _append_impl._notify_blocking_question(event)
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            self.assertEqual(args[0], "notify-send")
+
+    def test_non_red_question_no_notification(self):
+        event = {
+            "type": "question",
+            "priority": "\U0001f7e1",
+            "content": "Minor question",
+        }
+        with patch("_append_impl.subprocess.run") as mock_run:
+            _append_impl._notify_blocking_question(event)
+            mock_run.assert_not_called()
+
+    def test_non_question_no_notification(self):
+        event = {
+            "type": "status",
+            "working_on": ["file.py"],
+            "content": "Working",
+        }
+        with patch("_append_impl.subprocess.run") as mock_run:
+            _append_impl._notify_blocking_question(event)
+            mock_run.assert_not_called()
+
+    def test_notification_failure_doesnt_crash(self):
+        event = {
+            "type": "question",
+            "priority": "\U0001f534",
+            "content": "Which DB?",
+        }
+        with (
+            patch("_append_impl._detect_platform", return_value="macos"),
+            patch(
+                "_append_impl.subprocess.run",
+                side_effect=OSError("no osascript"),
+            ),
+        ):
+            # Should not raise
+            _append_impl._notify_blocking_question(event)
+
+    def test_message_sanitized(self):
+        event = {
+            "type": "question",
+            "priority": "\U0001f534",
+            "content": 'He said "drop tables\\n"',
+        }
+        with (
+            patch("_append_impl._detect_platform", return_value="macos"),
+            patch("_append_impl.subprocess.run") as mock_run,
+        ):
+            _append_impl._notify_blocking_question(event)
+            # The notification message should not contain quotes or backslashes
+            args = mock_run.call_args[0][0]
+            # osascript -e 'display notification "..." with title "XP Agents"'
+            script = args[2]  # the -e argument value
+            # Should not contain raw quotes in the notification text
+            self.assertNotIn("drop tables\\n", script)
 
 
 if __name__ == "__main__":
