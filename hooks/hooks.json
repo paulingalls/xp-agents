@@ -9,6 +9,16 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/navigator.md",
+            "agent_type": "xp-navigator"
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -65,6 +75,21 @@
     ],
     "SubagentStop": [
       {
+        "matcher": "Plan",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/plan_review.py",
+            "timeout": 5000
+          },
+          {
+            "type": "agent",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/plan_reviewer.md",
+            "agent_type": "xp-plan-reviewer"
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
@@ -87,6 +112,12 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint_check.py",
             "timeout": 10000
+          },
+          {
+            "type": "agent",
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/quality_reviewer.md",
+            "agent_type": "xp-quality-reviewer",
+            "async": true
           }
         ]
       },

@@ -96,6 +96,8 @@ VALID_SEVERITIES = frozenset({"high", "medium", "low"})
 
 
 MAX_JSON_ARG_SIZE = 65536
+MAX_CONTENT_LENGTH = 50_000
+MAX_EVENT_BYTES = 100_000
 
 
 def parse_json_arg(value: str, name: str) -> list | dict:
@@ -199,6 +201,13 @@ def validate_event(event: dict) -> list[str]:
 
     if errors:
         return errors  # Can't validate further without basics
+
+    # Content length limit — prevent unbounded event growth
+    if len(event["content"]) > MAX_CONTENT_LENGTH:
+        errors.append(
+            f"Field 'content' exceeds maximum length "
+            f"({len(event['content'])} > {MAX_CONTENT_LENGTH})"
+        )
 
     event_type = event["type"]
     if event_type not in VALID_TYPES:
@@ -365,6 +374,12 @@ def append_event(smm_dir: Path, event: dict) -> None:
     events_file = smm_dir / "events.jsonl"
     lock_file = smm_dir / "events.lock"
     line = json.dumps(event, ensure_ascii=False) + "\n"
+
+    if len(line.encode("utf-8")) > MAX_EVENT_BYTES:
+        raise ValueError(
+            f"Serialized event too large "
+            f"({len(line.encode('utf-8'))} > {MAX_EVENT_BYTES} bytes)"
+        )
 
     lock_fd = None
     raw_fd = None

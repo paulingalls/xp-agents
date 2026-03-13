@@ -878,5 +878,91 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertIn("task-1", task_status[0]["content"])
 
 
+# ===========================================================================
+# Plan Review (Milestone 4)
+# ===========================================================================
+
+
+class TestPlanReviewIntegration(_IntegrationTestCase):
+    def test_large_plan_returns_context(self):
+        """Large plan → stdout with hookSpecificOutput containing flags."""
+        plan = "\n".join(f"{i + 1}. Step {i + 1}" for i in range(15))
+        result = self._run_script(
+            "plan_review.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-1",
+                "last_assistant_message": plan,
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("15 steps", ctx)
+        self.assertIn("large plan", ctx.lower())
+
+    def test_xp_agent_no_output(self):
+        """xp- agent_type → no stdout, no events."""
+        result = self._run_script(
+            "plan_review.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-1",
+                "agent_type": "xp-plan-reviewer",
+                "last_assistant_message": "1. Do stuff",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+    def test_plan_review_appends_event(self):
+        """plan_review.py appends a status event to the SMM."""
+        result = self._run_script(
+            "plan_review.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-1",
+                "last_assistant_message": "1. Write tests\n2. Implement feature",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+        self.assertTrue(any("plan review" in s["content"].lower() for s in statuses))
+
+    def test_small_plan_with_tests_clean(self):
+        """Small plan with test keywords → context but no flags."""
+        result = self._run_script(
+            "plan_review.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-1",
+                "last_assistant_message": (
+                    "1. Write unit tests\n2. Implement auth\n3. Run tests"
+                ),
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("No test/TDD strategy", ctx)
+        self.assertNotIn("large plan", ctx.lower())
+
+    def test_missing_message_no_output(self):
+        """No last_assistant_message → no output."""
+        result = self._run_script(
+            "plan_review.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-1",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

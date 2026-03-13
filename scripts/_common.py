@@ -5,6 +5,7 @@ DRY module providing SMM resolution, hook I/O, recursion prevention,
 event reading, and watermark management.
 """
 
+import bisect
 import contextlib
 import functools
 import hashlib
@@ -330,22 +331,25 @@ def detect_conflicts(
 
     # 5. Superseded decision — two decisions on same topic with no concern between
     decisions_by_topic: dict[str, list[tuple[int, dict]]] = {}
-    concern_positions: set[int] = set()
+    concern_pos_list: list[int] = []
     for i, e in enumerate(events):
         if e.get("type") == "decision":
             topic = e.get("topic", "")
             decisions_by_topic.setdefault(topic, []).append((i, e))
         elif e.get("type") == "concern":
-            concern_positions.add(i)
+            concern_pos_list.append(i)
 
+    # concern_pos_list is already sorted (built in event order)
     for topic, decs in decisions_by_topic.items():
         if len(decs) < 2:
             continue
         for j in range(1, len(decs)):
             prev_pos = decs[j - 1][0]
             curr_pos = decs[j][0]
-            has_concern_between = any(
-                prev_pos < cp < curr_pos for cp in concern_positions
+            # Binary search: any concern position in (prev_pos, curr_pos)?
+            lo = bisect.bisect_right(concern_pos_list, prev_pos)
+            has_concern_between = (
+                lo < len(concern_pos_list) and concern_pos_list[lo] < curr_pos
             )
             if not has_concern_between:
                 concerns.append(
@@ -358,6 +362,41 @@ def detect_conflicts(
                 )
 
     return concerns
+
+
+# ---------------------------------------------------------------------------
+# Semantic reference enrichment (shared by post_tool_use.py and plan_review.py)
+# ---------------------------------------------------------------------------
+
+
+def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list[str]:
+    """Find event IDs of decisions/conventions that reference this file."""
+    normalized = normalize_path(file_path, cwd)
+    related: list[str] = []
+
+    for e in events:
+        if e.get("type") not in ("decision", "convention"):
+            continue
+        # Check working_on field
+        working_on = e.get("working_on", [])
+        if isinstance(working_on, list):
+            norm_wo = {normalize_path(f, cwd) for f in working_on}
+            if normalized in norm_wo:
+                related.append(e["id"])
+                continue
+        # Check references field for normalized path matches
+        refs = e.get("references", [])
+        if isinstance(refs, list):
+            for ref in refs:
+                if isinstance(ref, str):
+                    try:
+                        if normalize_path(ref, cwd) == normalized:
+                            related.append(e["id"])
+                            break
+                    except (ValueError, OSError):
+                        continue
+
+    return related
 
 
 def write_watermark(smm_dir: Path, agent_id: str, count: int) -> None:

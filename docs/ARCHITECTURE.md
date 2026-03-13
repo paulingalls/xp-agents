@@ -116,8 +116,7 @@ Sections with no content are omitted. Resolved/answered items use ✅ prefix. Un
 | Event | Matcher | Handler | Script/Prompt | What It Does |
 |---|---|---|---|---|
 | **PreToolUse** | `*` | command | `pre_tool_use.py` | Delta injection (tiered), 🔴 question injection, `working_on` conflict blocking, TDD order check |
-| **PreToolUse** | `Write\|Edit\|MultiEdit` | command | `navigator_gate.py` | Significance filter for navigator agent hook |
-| **PreToolUse** | `Write\|Edit\|MultiEdit` | agent | `navigator.md` | Strategic guidance. Can block if change contradicts decisions. Gated for significant changes only. |
+| **PreToolUse** | `Write\|Edit\|MultiEdit` | agent | `navigator.md` | Strategic guidance. Can block if change contradicts decisions. Self-filters trivial changes (whitespace, comments, renames). |
 
 ### PostToolUse (After Action)
 
@@ -176,13 +175,13 @@ All injection via `additionalContext` in hook JSON output. Never in system promp
 |---|---|---|---|
 | PreToolUse delta (full) | 50–500 tokens | Every Write/Edit/Commit | Watermarks ensure no duplicates; only new events |
 | PreToolUse delta (minimal) | 10–50 tokens | Every other Bash/Read/Grep | 🔴 questions only — nearly free |
-| Navigator agent hook | 5,000–10,000 tokens (subagent) | Significant Write/Edit only | Navigator gate filters trivial changes |
+| Navigator agent hook | 5,000–10,000 tokens (subagent) | Every Write/Edit | Self-filters trivial changes in prompt (fast exit, minimal tokens) |
 | Quality reviewer agent hook | 5,000–10,000 tokens (subagent) | Every Write/Edit (async) | Async — doesn't block; cost is real |
 | SessionStart full SMM | 2,000–5,000 tokens | Once per session | One-time cost |
 | Retrospective analyst | 10,000–20,000 tokens (subagent) | Once per session | Only when unanalyzed events exist |
 | Customer proxy | 5,000–10,000 tokens (subagent) | Once per session | Only when open questions exist |
 
-**Cost control levers:** Navigator gate (reduces navigator invocations), tiered injection (reduces delta size for non-write tools), async PostToolUse hooks (no latency cost, only token cost), watermarks (no duplicate events).
+**Cost control levers:** Navigator self-filtering (trivial changes get fast exit with minimal tokens), tiered injection (reduces delta size for non-write tools), async PostToolUse hooks (no latency cost, only token cost), watermarks (no duplicate events).
 
 ### Tiered Injection
 
@@ -228,8 +227,7 @@ SessionStart → command: init, retro check, SMM injection, GUPP, skills
 ### Mid-Session
 ```
 PreToolUse  → command: delta injection, conflict blocking, TDD order check
-            → command: navigator gate (Write/Edit only)
-            → agent: navigator (significant changes only)
+            → agent: navigator (Write/Edit only, self-filters trivial changes)
 Tool executes
 PostToolUse → command: auto status, conflicts, lint
             → agent (async): quality reviewer (Write/Edit)
@@ -330,9 +328,9 @@ Fail loud, never corrupt, always recoverable.
 ## Implementation Notes
 
 - **PostToolUse agent hooks should run async** — feedback goes through event log anyway
-- **Navigator gate** — define "significant" conservatively: new files + files in SMM decisions. Expand with experience.
+- **Navigator self-filtering** — command hooks cannot gate/skip subsequent agent hooks in the same matcher array, so significance filtering is done in the navigator prompt itself. Trivial changes (whitespace, comments, single-line renames) get an immediate empty response.
 - **Navigator writes `pair_guidance` events** to event log for retrospective analysis, not just ephemeral additionalContext
-- **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Gate navigator for trivial changes.
+- **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
 
 ## Plugin Structure
 
@@ -350,7 +348,6 @@ plugins/xp-agents/
 │   ├── session_start.py
 │   ├── session_end.py
 │   ├── pre_tool_use.py
-│   ├── navigator_gate.py
 │   ├── post_tool_use.py
 │   ├── lint_check.py
 │   ├── bash_post_tool.py

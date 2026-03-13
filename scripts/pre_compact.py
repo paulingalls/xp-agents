@@ -5,17 +5,18 @@ Creates timestamped copies of events.jsonl and SHARED_MENTAL_MODEL.md
 in a backups/ subdirectory of the SMM directory.
 """
 
+import contextlib
 import os
 import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+_MAX_BACKUPS = 10
+
 sys.path.insert(0, str(Path(__file__).parent))
 
-import contextlib
-
-import _common
+import _common  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -55,6 +56,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     with contextlib.suppress(FileNotFoundError):
         shutil.copy2(smm_file, smm_backup)
         os.chmod(smm_backup, 0o600)
+
+    # Rotate old backups — keep only the most recent _MAX_BACKUPS of each type
+    for pattern in ("events-*.jsonl", "SMM-*.md"):
+        old = sorted(backups_dir.glob(pattern))[:-_MAX_BACKUPS]
+        for f in old:
+            with contextlib.suppress(OSError):
+                f.unlink()
 
     return None
 

@@ -113,12 +113,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/navigator_gate.py"
-          },
-          {
             "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/navigator.md"
+            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/navigator.md",
+            "agent_type": "xp-navigator"
           }
         ]
       }

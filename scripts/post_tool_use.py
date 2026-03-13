@@ -14,37 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 
 # ---------------------------------------------------------------------------
-# Semantic reference enrichment
-# ---------------------------------------------------------------------------
-
-
-def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list[str]:
-    """Find event IDs of decisions/conventions that reference this file."""
-    normalized = _common.normalize_path(file_path, cwd)
-    related: list[str] = []
-
-    for e in events:
-        if e.get("type") not in ("decision", "convention"):
-            continue
-        # Check working_on field
-        working_on = e.get("working_on", [])
-        if isinstance(working_on, list):
-            norm_wo = {_common.normalize_path(f, cwd) for f in working_on}
-            if normalized in norm_wo:
-                related.append(e["id"])
-                continue
-        # Check references field for file mentions
-        refs = e.get("references", [])
-        if isinstance(refs, list):
-            for ref in refs:
-                if isinstance(ref, str) and file_path in ref:
-                    related.append(e["id"])
-                    break
-
-    return related
-
-
-# ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
 
@@ -63,7 +32,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     agent_id = input_data.get("agent_id", "main")
-    _common._validate_agent_id(agent_id)
+    try:
+        _common._validate_agent_id(agent_id)
+    except ValueError:
+        return None
     cwd = input_data.get("cwd", ".")
 
     file_path = _common.extract_file_path(tool_name, tool_input)
@@ -76,7 +48,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     events = _common.read_events_raw(smm_dir)
 
     # Semantic references
-    refs = find_related_decisions(events, file_path, cwd)
+    refs = _common.find_related_decisions(events, file_path, cwd)
 
     # Auto-status event
     extra: dict = {"working_on": [normalized]}

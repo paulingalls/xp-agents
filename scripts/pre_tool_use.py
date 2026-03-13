@@ -128,7 +128,10 @@ def check_tdd_order(
     if file_path is None:
         return None
 
-    _common._validate_agent_id(agent_id)
+    try:
+        _common._validate_agent_id(agent_id)
+    except ValueError:
+        return None
     tracker_file = smm_dir / f".tdd-{agent_id}.json"
 
     # Load existing tracker

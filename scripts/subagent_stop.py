@@ -25,7 +25,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     agent_id = input_data.get("agent_id", "subagent")
-    _common._validate_agent_id(agent_id)
+    try:
+        _common._validate_agent_id(agent_id)
+    except ValueError:
+        return None
 
     # Minimal completion status
     event = _common.make_event(

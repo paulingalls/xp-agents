@@ -127,25 +127,31 @@
 
 ---
 
-## Milestone 4: Agent Hooks — Quality & Navigation
+## Milestone 4: Agent Hooks — Quality & Navigation ✅
 
 **Goal**: XP practice enforcement on every code change.
 
+**Status**: Complete (502 total tests: 190 SMM + 312 hooks, 39 new tests for M4).
+
 **Deliverables**:
-- [ ] `scripts/navigator_gate.py` — PreToolUse command hook (matcher: `Write|Edit|MultiEdit`). Significance filter: new file, large edit, file in SMM decisions/conventions. Start conservative.
-- [ ] `prompts/navigator.md` — PreToolUse agent hook. Reads tool_input + SMM. Strategic guidance. Can block (exit 2) if change contradicts decisions. Writes `pair_guidance` events to log.
-- [ ] `prompts/quality_reviewer.md` — PostToolUse agent hook (async, matcher: `Write|Edit|MultiEdit`). Courage + simplicity. Flags: empty catch, missing error handling, unnecessary complexity, premature abstraction, growing file size. Writes `concern` events. Clean code gets clean review.
-- [ ] `scripts/plan_review.py` — SubagentStop command hook (matcher: `Plan`). Passes plan to plan_reviewer agent hook.
-- [ ] `prompts/plan_reviewer.md` — Highest-leverage review in the system. Must check: (1) respects milestone boundaries — flag work pulled from future milestones, (2) TDD-ordered — test files before implementation files, (3) small enough — flag plans with >10 steps, (4) surfaces assumptions — extract as `assumption` events to SMM, (5) conflicts with existing decisions/conventions in the materialized SMM. Extracts `decision` and `assumption` events.
+- [x] `prompts/navigator.md` — PreToolUse agent hook (matcher: `Write|Edit|MultiEdit`). Reads tool_input + SMM. Strategic guidance. Can block (exit 2) if change contradicts decisions. Self-filters trivial changes (whitespace, comments, renames). Writes `pair_guidance` events to log.
+- [x] `prompts/quality_reviewer.md` — PostToolUse agent hook (async, matcher: `Write|Edit|MultiEdit`). Courage + simplicity. Flags: empty catch, missing error handling, unnecessary complexity, premature abstraction, growing file size. Writes `concern` events. Clean code gets clean review.
+- [x] `scripts/plan_review.py` — SubagentStop command hook (matcher: `Plan`). Deterministic plan analysis: step counting, TDD strategy detection, size flags, decision/convention lookup. Returns context for plan_reviewer agent hook via `additionalContext`.
+- [x] `prompts/plan_reviewer.md` — Highest-leverage review in the system. Must check: (1) respects milestone boundaries — flag work pulled from future milestones, (2) TDD-ordered — test files before implementation files, (3) small enough — flag plans with >10 steps, (4) surfaces assumptions — extract as `assumption` events to SMM, (5) conflicts with existing decisions/conventions in the materialized SMM. Extracts `decision` and `assumption` events.
+- [x] `hooks/hooks.json` — Added PreToolUse navigator agent, PostToolUse async quality_reviewer agent, SubagentStop Plan matcher with plan_review.py + plan_reviewer agent.
+- [x] `find_related_decisions()` extracted from `post_tool_use.py` to `_common.py` for reuse by `plan_review.py`.
+
+**Design change from plan**: No separate `scripts/navigator_gate.py` — command hooks cannot gate/skip subsequent agent hooks in the same matcher array (they always fire). Significance filtering moved into the navigator prompt itself: trivial changes (whitespace, comments, single-line renames) get an immediate empty response. This eliminates one deliverable and simplifies hook registration.
 
 **Acceptance Criteria**:
-- Navigator gate fires for significant changes, skips trivial
-- Navigator provides strategic guidance, blocks on decision contradictions
-- Navigator writes pair_guidance events
-- Quality reviewer flags real issues, approves clean code
-- Quality reviewer runs async, writes concerns to SMM
-- Plan reviewer flags oversized plans, extracts decisions/assumptions
-- All agent hooks skip xp- prefixed agents
+- ✅ Navigator self-filters trivial changes, provides strategic guidance for significant ones
+- ✅ Navigator can block on decision contradictions, writes pair_guidance events
+- ✅ Quality reviewer flags real issues, approves clean code (no false positives)
+- ✅ Quality reviewer runs async, writes concerns to SMM
+- ✅ Plan reviewer flags oversized plans (>10 steps), detects missing TDD strategy
+- ✅ Plan review extracts decisions/conventions for plan_reviewer context
+- ✅ All agent hooks skip xp- prefixed agents (recursion prevention in prompts)
+- ✅ Plugin version bumped to 0.4.0
 
 ---
 
