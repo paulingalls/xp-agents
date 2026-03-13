@@ -147,6 +147,7 @@ def write_watermark(smm_dir: Path, agent_id: str, count: int) -> None:
         with os.fdopen(fd, "w") as f:
             f.write(str(count))
         os.rename(tmp, wm_file)
+        os.chmod(wm_file, 0o600)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)

@@ -75,6 +75,18 @@ class TestInit(unittest.TestCase):
         self.assertTrue((smm_dir / "events.lock").exists())
         self.assertTrue((smm_dir / "retrospectives").is_dir())
 
+    def test_init_events_file_permissions(self):
+        smm_dir = Path(get_smm_dir())
+        events_file = smm_dir / "events.jsonl"
+        mode = events_file.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600, f"events.jsonl mode is {oct(mode)}")
+
+    def test_init_lock_file_permissions(self):
+        smm_dir = Path(get_smm_dir())
+        lock_file = smm_dir / "events.lock"
+        mode = lock_file.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600, f"events.lock mode is {oct(mode)}")
+
     def test_init_does_not_truncate_existing(self):
         smm_dir = get_smm_dir()
         events_file = Path(smm_dir) / "events.jsonl"

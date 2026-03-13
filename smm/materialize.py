@@ -575,6 +575,7 @@ def materialize_to_file(smm_dir: Path) -> Path:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(md)
         os.rename(tmp, target)
+        os.chmod(target, 0o600)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)

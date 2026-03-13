@@ -629,6 +629,12 @@ class TestMaterializeToFile(_SMMTestCase):
         self.assertTrue(path.exists())
         self.assertEqual(path.read_text(), "")
 
+    def test_output_file_permissions(self):
+        self._write_events([make_event()])
+        path = materialize.materialize_to_file(self.smm_dir)
+        mode = path.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600, f"SMM file mode is {oct(mode)}")
+
     def test_no_temp_files_left(self):
         self._write_events([make_event()])
         materialize.materialize_to_file(self.smm_dir)
@@ -717,6 +723,12 @@ class TestWatermark(_SMMTestCase):
         read_delta.write_watermark(self.smm_dir, "xp-navigator", 5)
         wm = read_delta.read_watermark(self.smm_dir, "xp-navigator")
         self.assertEqual(wm, 5)
+
+    def test_watermark_file_permissions(self):
+        read_delta.write_watermark(self.smm_dir, "main", 10)
+        wm_file = self.smm_dir / ".watermark-main"
+        mode = wm_file.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600, f"watermark mode is {oct(mode)}")
 
 
 # ===========================================================================

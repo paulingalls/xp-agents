@@ -33,7 +33,9 @@ chmod 700 "${SMM_DIR}"
 
 # Touch event files (touch never truncates, safe to call unconditionally)
 touch "${SMM_DIR}/events.jsonl"
+chmod 600 "${SMM_DIR}/events.jsonl"
 touch "${SMM_DIR}/events.lock"
+chmod 600 "${SMM_DIR}/events.lock"
 
 # Output the SMM directory path
 echo "${SMM_DIR}"
