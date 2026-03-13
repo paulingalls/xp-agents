@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import os
 import re
 import signal
 import subprocess
@@ -276,19 +277,32 @@ def _on_alarm(signum: int, frame: object) -> None:
     raise LockTimeoutError("Could not acquire lock within 2 seconds")
 
 
+def _safe_open_nofollow(path: Path, flags: int) -> int:
+    """Open a file with O_NOFOLLOW to reject symlinks."""
+    return os.open(str(path), flags | os.O_NOFOLLOW, 0o600)
+
+
 def append_event(smm_dir: Path, event: dict) -> None:
     """Append event as a single JSON line to events.jsonl with flock.
 
     Raises LockTimeoutError if the lock cannot be acquired within 2 seconds.
+    Raises OSError if lock or events file is a symlink.
     """
     events_file = smm_dir / "events.jsonl"
     lock_file = smm_dir / "events.lock"
     line = json.dumps(event, ensure_ascii=False) + "\n"
 
     lock_fd = None
+    raw_fd = None
 
     try:
-        lock_fd = open(lock_file, "a")  # noqa: SIM115
+        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        try:
+            lock_fd = os.fdopen(raw_fd, "a")
+        except Exception:
+            os.close(raw_fd)
+            raise
+        raw_fd = None  # now owned by lock_fd
 
         # Use blocking flock with SIGALRM timeout (2 seconds)
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
@@ -299,8 +313,13 @@ def append_event(smm_dir: Path, event: dict) -> None:
         finally:
             signal.signal(signal.SIGALRM, old_handler)
 
-        with open(events_file, "a", encoding="utf-8") as f:
-            f.write(line)
+        ev_fd = _safe_open_nofollow(events_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        try:
+            with os.fdopen(ev_fd, "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception:
+            os.close(ev_fd)
+            raise
 
     finally:
         if lock_fd is not None:

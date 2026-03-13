@@ -606,6 +606,52 @@ class TestAgentIdValidation(unittest.TestCase):
             _append_impl._validate_agent_id("")
 
 
+class TestSymlinkProtection(unittest.TestCase):
+    """Tests that symlinks at lock/event paths are rejected."""
+
+    def setUp(self):
+        import tempfile
+
+        self.smm_dir = Path(tempfile.mkdtemp())
+        (self.smm_dir / "events.jsonl").touch()
+        (self.smm_dir / "events.lock").touch()
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.smm_dir)
+
+    def test_symlink_at_lock_file_rejected(self):
+        lock_file = self.smm_dir / "events.lock"
+        lock_file.unlink()
+        lock_file.symlink_to("/tmp/decoy-lock")
+        event = {
+            "id": "12345678-1234-4123-8123-123456789abc",
+            "ts": "2026-03-12T00:00:00+00:00",
+            "type": "customer_input",
+            "agent_id": "main",
+            "content": "test",
+            "schema_version": 1,
+        }
+        with self.assertRaises(OSError):
+            _append_impl.append_event(self.smm_dir, event)
+
+    def test_symlink_at_events_file_rejected(self):
+        events_file = self.smm_dir / "events.jsonl"
+        events_file.unlink()
+        events_file.symlink_to("/tmp/decoy-events")
+        event = {
+            "id": "12345678-1234-4123-8123-123456789abc",
+            "ts": "2026-03-12T00:00:00+00:00",
+            "type": "customer_input",
+            "agent_id": "main",
+            "content": "test",
+            "schema_version": 1,
+        }
+        with self.assertRaises(OSError):
+            _append_impl.append_event(self.smm_dir, event)
+
+
 class TestSchemaJson(unittest.TestCase):
     """Validate schema.json structure itself."""
 

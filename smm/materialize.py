@@ -88,12 +88,25 @@ def _read_with_lock(path: Path) -> str:
     """Read file contents under shared flock with 2-second timeout.
 
     Raises LockTimeoutError if the lock cannot be acquired.
+    Raises OSError if the lock file is a symlink.
     """
     lock_path = path.parent / "events.lock"
     lock_fd = None
+    raw_fd = None
 
     try:
-        lock_fd = open(lock_path, "a")  # noqa: SIM115
+        raw_fd = os.open(
+            str(lock_path),
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            lock_fd = os.fdopen(raw_fd, "a")
+        except Exception:
+            os.close(raw_fd)
+            raise
+        raw_fd = None
+
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
         try:
             signal.alarm(2)

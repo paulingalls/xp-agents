@@ -720,6 +720,31 @@ class TestWatermark(_SMMTestCase):
 
 
 # ===========================================================================
+# Symlink Protection
+# ===========================================================================
+
+
+class TestSymlinkProtection(_SMMTestCase):
+    """Symlinks at lock/event paths must be rejected."""
+
+    def test_read_delta_rejects_lock_symlink(self):
+        self._write_events([make_event()])
+        lock_file = self.smm_dir / "events.lock"
+        lock_file.unlink()
+        lock_file.symlink_to("/tmp/decoy-lock-rd")
+        with self.assertRaises(OSError):
+            read_delta.read_events_from(self.smm_dir, 0)
+
+    def test_materialize_rejects_lock_symlink(self):
+        self._write_events([make_event()])
+        lock_file = self.smm_dir / "events.lock"
+        lock_file.unlink()
+        lock_file.symlink_to("/tmp/decoy-lock-mat")
+        with self.assertRaises(OSError):
+            materialize.parse_events(self.smm_dir)
+
+
+# ===========================================================================
 # Read Delta — Event Reading
 # ===========================================================================
 
