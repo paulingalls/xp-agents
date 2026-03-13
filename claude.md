@@ -18,6 +18,18 @@ Use `match/case` for tool_name routing, event type handling, and hook input pars
 
 All scripts start with `#!/usr/bin/env python3`.
 
+## XP Practices (Follow These)
+
+**TDD.** Write the test first. Run it, watch it fail. Then write the implementation. No exceptions. If you're about to write a function, ask: where's the test?
+
+**Small commits.** One logical change per commit. If you're thinking "and also" — that's two commits.
+
+**Simple design.** Solve today's problem. Don't build abstractions for tomorrow's. If a function has more than one responsibility, split it.
+
+**Refactor continuously.** After green, clean up. Rename unclear variables, extract repeated logic, remove dead code. Every commit should leave the code better than you found it.
+
+**Courage.** If something is wrong, fix it now. Don't leave a TODO for later. If a design decision is proving wrong, say so — raise a concern.
+
 ## Hook Patterns
 
 ### Command Hook Input (stdin)
