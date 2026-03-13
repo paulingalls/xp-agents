@@ -14,3 +14,4 @@ select = [
 
 [lint.per-file-ignores]
 "smm/test_smm.py" = ["E501"]  # allow long lines in tests
+"smm/test_engine.py" = ["E501"]  # allow long lines in tests

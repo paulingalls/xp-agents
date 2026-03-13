@@ -12,3 +12,5 @@ pre-commit:
       run: shellcheck {staged_files}
     tests:
       run: python3 -m unittest smm/test_smm.py
+    tests-engine:
+      run: python3 -m unittest smm/test_engine.py

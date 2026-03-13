@@ -23,20 +23,23 @@
 
 ---
 
-## Milestone 2: SMM Engine
+## Milestone 2: SMM Engine ✅
 
 **Goal**: Read side.
 
-**Deliverables**:
-- [ ] `smm/materialize.py` — events.jsonl → SHARED_MENTAL_MODEL.md. Groups by type. Detects structural conflicts. Atomic write (tempfile + rename). Skips malformed lines (emits concern). Unknown types rendered under "Unknown Events".
-- [ ] `smm/read_delta.py` — Events since `.watermark-{agent-id}`. Tiered filtering: full, blocking-only (🔴 + pair_guidance), 🔴-only. Accepts `agent_id` param (default `main`). Updates watermark after read.
+**Status**: Complete (2026-03-12)
 
-**Acceptance Criteria**:
+**Deliverables**:
+- [x] `smm/materialize.py` — events.jsonl → SHARED_MENTAL_MODEL.md. Groups by type. Detects 5 structural conflicts. Atomic write (tempfile + rename). Skips malformed lines (warns to stderr). Unknown types rendered under "Unknown Events".
+- [x] `smm/read_delta.py` — Events since `.watermark-{agent-id}`. Tiered filtering: full, blocking-only (🔴 + pair_guidance), 🔴-only. Accepts `agent_id` param (default `main`). Watermark only advances on full reads.
+- [x] `smm/test_engine.py` — 96 tests covering all acceptance criteria.
+
+**Acceptance Criteria** (all verified):
 - Correct Markdown from sample logs covering all 12 types
-- Conflict alerts for overlapping working_on, assumption-discovery contradictions, convention violations
+- Conflict alerts for overlapping working_on, assumption-discovery contradictions, convention violations, stale questions, superseded decisions
 - Per-agent watermarks, tiered filtering
 - Handles empty, single-event, and corrupted logs
-- Kill mid-write → old or new version, never half-written
+- Kill mid-write → old or new version, never half-written (atomic write via tempfile + rename)
 
 ---
 
