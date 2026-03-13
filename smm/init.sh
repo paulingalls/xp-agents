@@ -17,7 +17,7 @@ GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null) || {
 
 # Resolve to absolute path (handles both relative .git and absolute worktree paths)
 if [[ "$GIT_COMMON_DIR" != /* ]]; then
-    GIT_COMMON_DIR="$(cd "$GIT_COMMON_DIR" && pwd)"
+    GIT_COMMON_DIR="$(cd -- "$GIT_COMMON_DIR" && pwd -P)"
 fi
 
 # Hash to create project-id (first 12 chars of SHA256)
@@ -30,6 +30,7 @@ SMM_DIR="${HOME}/.claude/xp-agents/${PROJECT_ID}/smm"
 # Create directory structure (owner-only permissions)
 mkdir -p "${SMM_DIR}/retrospectives"
 chmod 700 "${SMM_DIR}"
+chmod 700 "${SMM_DIR}/retrospectives"
 
 # Touch event files (touch never truncates, safe to call unconditionally)
 touch "${SMM_DIR}/events.jsonl"
