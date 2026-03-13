@@ -696,6 +696,20 @@ class TestSymlinkProtection(unittest.TestCase):
             _append_impl.append_event(self.smm_dir, event)
 
 
+class TestJsonSizeLimit(unittest.TestCase):
+    """Test that oversized JSON args are rejected."""
+
+    def test_oversized_json_rejected(self):
+        huge = '["' + "x" * 70000 + '"]'
+        with self.assertRaises(SystemExit) as cm:
+            _append_impl.parse_json_arg(huge, "references")
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_normal_json_accepted(self):
+        result = _append_impl.parse_json_arg('["a","b"]', "references")
+        self.assertEqual(result, ["a", "b"])
+
+
 class TestSchemaJson(unittest.TestCase):
     """Validate schema.json structure itself."""
 

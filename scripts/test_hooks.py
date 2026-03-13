@@ -201,6 +201,21 @@ class TestWriteWatermark(_HookTestCase):
         self.assertTrue(wm_file.exists())
 
 
+class TestSessionStartPathValidation(_HookTestCase):
+    """Test session_start degrades gracefully with bad plugin root."""
+
+    def test_nonexistent_plugin_root(self):
+        import session_start
+
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/nonexistent/path"}):
+            result = session_start.run(
+                {"session_id": "test", "source": "startup"},
+                smm_dir=None,
+            )
+        # Should degrade gracefully, not crash
+        self.assertIsNotNone(result)
+
+
 class TestSmmDirValidation(_HookTestCase):
     """Tests for _common._validate_smm_dir."""
 

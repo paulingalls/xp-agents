@@ -6,6 +6,7 @@ the current view, and injects it as additionalContext. Triggers retro
 instruction when enough unanalyzed events have accumulated.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -77,17 +78,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None or not smm_dir.exists():
         plugin_root = _common.resolve_plugin_root()
         init_script = plugin_root / "smm" / "init.sh"
-        try:
-            result = subprocess.run(
-                ["bash", str(init_script)],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                smm_dir = Path(result.stdout.strip())
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
+        # Validate script path before executing
+        if init_script.is_file() and init_script.stat().st_uid == os.getuid():
+            try:
+                result = subprocess.run(
+                    ["bash", str(init_script)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    smm_dir = Path(result.stdout.strip())
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                pass
 
     try:
         if smm_dir is not None:

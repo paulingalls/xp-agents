@@ -95,8 +95,18 @@ VALID_PRIORITIES = frozenset({"\U0001f534", "\U0001f7e1", "\U0001f7e2"})  # 🔴
 VALID_SEVERITIES = frozenset({"high", "medium", "low"})
 
 
+MAX_JSON_ARG_SIZE = 65536
+
+
 def parse_json_arg(value: str, name: str) -> list | dict:
-    """Parse a JSON string argument, exit on failure."""
+    """Parse a JSON string argument, exit on failure or oversized input."""
+    if len(value) > MAX_JSON_ARG_SIZE:
+        print(
+            f"Error: --{name} value too large "
+            f"({len(value)} > {MAX_JSON_ARG_SIZE} bytes)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     try:
         return json.loads(value)
     except json.JSONDecodeError as e:
