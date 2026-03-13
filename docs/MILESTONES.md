@@ -1,21 +1,25 @@
 # Development Milestones
 
-## Milestone 1: SMM Foundation
+## Milestone 1: SMM Foundation ✅
 
 **Goal**: Data layer.
 
-**Deliverables**:
-- [ ] `smm/schema.json` — 11 event types: `customer_input`, `status`, `decision`, `convention`, `concern`, `discovery`, `question`, `assumption`, `pair_guidance`, `session_end`, `retrospective`. `status` has `working_on`. `question` has `priority` (🔴/🟡/🟢). All events have optional `metadata`, `schema_version`, `references`.
-- [ ] `smm/init.sh` — Initialize `~/.claude/xp-agents/{project-id}/smm/`. Derives `project-id` from `git rev-parse --git-common-dir`. Idempotent. Validates Python 3.10+. Creates `events.jsonl`, `events.lock`, `retrospectives/`. Crash-safe. Uses `${CLAUDE_PLUGIN_ROOT}`.
-- [ ] `smm/append.sh` — Atomic append. JSON construction, schema validation, `flock` writes. Generates `id` and `ts`. Exits 1 on validation failure.
-- [ ] `LICENSE` (MIT), `CHANGELOG.md`
+**Status**: Complete (2026-03-12)
 
-**Acceptance Criteria**:
-- Schema covers all 11 types with correct fields
-- `init.sh` derives consistent project-id across worktrees
-- `init.sh` idempotent; recovers from partial completion
-- `append.sh` validates, rejects malformed, handles 20 concurrent writes
-- Python stdlib only, use match/case where appropriate, macOS + Linux
+**Deliverables**:
+- [x] `smm/schema.json` — 12 event types (added `answer`): `customer_input`, `status`, `decision`, `convention`, `concern`, `discovery`, `question`, `answer`, `assumption`, `pair_guidance`, `session_end`, `retrospective`. `status` has `working_on`. `question` has `priority` (🔴/🟡/🟢). `decision`/`convention` require `topic`. `pair_guidance` requires `tool_name`. All events have optional `metadata`, `schema_version`, `references`.
+- [x] `smm/init.sh` — Initialize `~/.claude/xp-agents/{project-id}/smm/`. Derives `project-id` from `git rev-parse --git-common-dir` (resolved to absolute path, SHA256 first 12 chars). Idempotent. Validates Python 3.10+. Creates `events.jsonl`, `events.lock`, `retrospectives/`.
+- [x] `smm/append.sh` — Thin bash wrapper delegating to `smm/_append_impl.py`.
+- [x] `smm/_append_impl.py` — Event construction, hand-written validation, `fcntl.flock` atomic append with 2-second timeout. Uses `match/case`, `argparse`, `pathlib`. Stdlib only.
+- [x] `LICENSE` (MIT), `CHANGELOG.md`
+
+**Acceptance Criteria** (all verified):
+- Schema covers all 12 types with correct required/optional fields
+- `init.sh` derives consistent project-id (absolute path resolution before hashing)
+- `init.sh` idempotent; second call succeeds silently
+- All 12 event types append successfully; invalid types and missing required fields rejected (exit 1)
+- 20 concurrent writes: all valid JSON, zero corruption, 20 unique agent_ids
+- Python stdlib only, match/case throughout, macOS compatible
 
 ---
 
@@ -28,7 +32,7 @@
 - [ ] `smm/read_delta.py` — Events since `.watermark-{agent-id}`. Tiered filtering: full, blocking-only (🔴 + pair_guidance), 🔴-only. Accepts `agent_id` param (default `main`). Updates watermark after read.
 
 **Acceptance Criteria**:
-- Correct Markdown from sample logs covering all 11 types
+- Correct Markdown from sample logs covering all 12 types
 - Conflict alerts for overlapping working_on, assumption-discovery contradictions, convention violations
 - Per-agent watermarks, tiered filtering
 - Handles empty, single-event, and corrupted logs

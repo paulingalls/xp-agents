@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SMM Event",
+  "description": "Shared Mental Model event schema for xp-agents",
+  "type": "object",
+  "required": ["id", "ts", "type", "agent_id", "content"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4 identifier"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "customer_input",
+        "status",
+        "decision",
+        "convention",
+        "concern",
+        "discovery",
+        "question",
+        "answer",
+        "assumption",
+        "pair_guidance",
+        "session_end",
+        "retrospective"
+      ]
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "Identifier of the agent that generated this event"
+    },
+    "content": {
+      "type": "string",
+      "description": "Human-readable event content"
+    },
+    "references": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "IDs of related events"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Arbitrary metadata"
+    },
+    "schema_version": {
+      "type": "integer",
+      "default": 1,
+      "description": "Schema version for forward compatibility"
+    },
+    "working_on": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File paths the agent is currently working on (status, session_end)"
+    },
+    "topic": {
+      "type": "string",
+      "description": "Topic for conflict detection and grouping (decision, convention)"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Concern severity level"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["\ud83d\udd34", "\ud83d\udfe1", "\ud83d\udfe2"],
+      "description": "Question priority: blocking, assumed, informational"
+    },
+    "tool_name": {
+      "type": "string",
+      "description": "The tool that triggered this guidance (pair_guidance)"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "description": "Session duration in seconds (session_end)"
+    },
+    "event_count": {
+      "type": "integer",
+      "description": "Total events in this session (session_end)"
+    },
+    "unresolved_items": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "IDs of unresolved questions/concerns (session_end)"
+    },
+    "final_status_recorded": {
+      "type": "boolean",
+      "description": "Whether the agent recorded a final status before session end"
+    },
+    "keep": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" },
+          "event_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "values": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "description": "Practices to keep (retrospective)"
+    },
+    "fix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" },
+          "event_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "xp_value": { "type": "string" }
+        }
+      },
+      "description": "Issues to fix (retrospective)"
+    },
+    "try": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" },
+          "event_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "description": "Experiments to try (retrospective)"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "status" } }
+      },
+      "then": {
+        "required": ["working_on"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "enum": ["decision", "convention"] } }
+      },
+      "then": {
+        "required": ["topic"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "question" } }
+      },
+      "then": {
+        "required": ["priority"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "pair_guidance" } }
+      },
+      "then": {
+        "required": ["tool_name"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}
