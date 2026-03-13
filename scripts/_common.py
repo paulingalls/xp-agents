@@ -126,6 +126,17 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _validate_smm_dir(smm_dir: Path) -> None:
+    """Validate SMM directory exists, is owned by us, not world-writable."""
+    if not smm_dir.exists():
+        raise ValueError(f"SMM directory does not exist: {smm_dir}")
+    st = smm_dir.stat()
+    if st.st_uid != os.getuid():
+        raise ValueError(f"SMM directory not owned by current user: {smm_dir}")
+    if st.st_mode & 0o002:
+        raise ValueError(f"SMM directory is world-writable: {smm_dir}")
+
+
 _AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
 
 

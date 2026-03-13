@@ -618,6 +618,38 @@ class TestAgentIdValidation(unittest.TestCase):
             _append_impl._validate_agent_id("")
 
 
+class TestSmmDirValidation(unittest.TestCase):
+    """Tests for SMM directory ownership validation."""
+
+    def setUp(self):
+        import tempfile
+
+        self.smm_dir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        if self.smm_dir.exists():
+            self.smm_dir.chmod(0o700)
+            shutil.rmtree(self.smm_dir)
+
+    def test_rejects_nonexistent(self):
+        import shutil
+
+        shutil.rmtree(self.smm_dir)
+        with self.assertRaises(ValueError):
+            _append_impl._validate_smm_dir(self.smm_dir)
+
+    def test_rejects_world_writable(self):
+        self.smm_dir.chmod(0o777)
+        with self.assertRaises(ValueError):
+            _append_impl._validate_smm_dir(self.smm_dir)
+
+    def test_accepts_valid_dir(self):
+        self.smm_dir.chmod(0o700)
+        _append_impl._validate_smm_dir(self.smm_dir)
+
+
 class TestSymlinkProtection(unittest.TestCase):
     """Tests that symlinks at lock/event paths are rejected."""
 
