@@ -1,5 +1,12 @@
 # Architecture
 
+## Goals
+
+1. **XP practices are enforced, not suggested.** Hooks make it structurally impossible to skip TDD, pair review, or customer feedback — agents don't need discipline, the system provides it.
+2. **Shared understanding without coordination cost.** The broadcast event log (SMM) gives every agent full project context without point-to-point messaging or handoff ceremonies.
+3. **Zero friction to adopt.** One install command, no config files, no workflow changes. It works because hooks fire automatically.
+4. **Honest signal over noise.** Every event in the SMM earns its place. The system tracks what's unresolved, contradicted, or stale — not just what's been said.
+
 ## Core Concept
 
 Hooks-driven Claude Code plugin. XP practices enforced through hook handlers, not agent compliance. Broadcast event log replaces point-to-point mailboxes.
@@ -34,6 +41,57 @@ User-level storage, per-project isolation. `project-id` derived from `git rev-pa
 | `retrospective` | Hook (SessionStart, agent) | Keep/Fix/Try analysis |
 
 🔴/🟡 heuristic: default to 🟡 with stated assumption. Use 🔴 only when both paths create significant rework.
+
+## Materialized View Spec (SHARED_MENTAL_MODEL.md)
+
+`materialize.py` generates this from `events.jsonl`. Sections in order:
+
+```markdown
+# Shared Mental Model
+*Auto-generated from events.jsonl ({n} events, {n} agents)*
+
+## Architecture Decisions
+- **{summary}** [{agent}, {id}, references {id}]
+- (draft) **{summary}** [{agent}, {id}] ← auto-drafted, needs review
+
+## Conventions
+- {description} [{agent}, {id}]
+
+## Questions for Customer
+- 🔴 {question} [{agent}, {id}] — **blocking, awaiting answer**
+- 🟡 {question} [{agent}, {id}] — **assumed: {assumption}**
+- ✅ {question} [{agent}, {id}] — answered: {answer} [{id}]
+
+## Customer Input
+- {prompt text} [{timestamp}]
+(last 5 prompts only — full history in events.jsonl)
+
+## Discoveries
+- ⚠️ {description} [{agent}, {id}]
+
+## Assumptions
+- {description} [{agent}, {id}] — unverified
+- ❌ {description} [{agent}, {id}] — contradicted by {id}
+
+## Concerns
+- ⚠️ {description} [{agent}, {id}] — unacknowledged
+- ✅ {description} [{agent}, {id}] — resolved → {id}
+
+## Agent Status
+- **{agent}**: {latest status content}. Working on: {files}
+- **{agent}**: {latest status content}. Idle.
+
+## Conflict Alerts
+- ⚠️ working_on overlap: {agent-a} and {agent-b} both claim {file}
+- ⚠️ assumption contradicted: {id} contradicted by {id}
+- ⚠️ convention violation: decision {id} diverges from convention {id}
+
+## Navigator Guidance
+- {guidance} [{id}, for {agent}]
+(last 3 pair_guidance events)
+```
+
+Sections with no content are omitted. Resolved/answered items use ✅ prefix. Unresolved items use ⚠️. Draft decisions are marked `(draft)`. Agent Status shows only the latest status per agent. Customer Input shows only the last 5 prompts to keep the view concise.
 
 ## Hook Map
 
