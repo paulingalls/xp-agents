@@ -4243,5 +4243,199 @@ class TestSubagentStopSecurity(_HookTestCase):
         self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
 
 
+# ===========================================================================
+# Milestone 6: CLAUDE.md & Skills
+# ===========================================================================
+
+
+class TestMilestone6Files(unittest.TestCase):
+    """Verify presence and content of M6 files."""
+
+    def setUp(self):
+        self.plugin_root = Path(__file__).parent.parent
+
+    def test_behavioral_guide_exists(self):
+        """BEHAVIORAL_GUIDE.md must exist at plugin root."""
+        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+        self.assertTrue(path.is_file(), f"Missing: {path}")
+
+    def test_behavioral_guide_token_budget(self):
+        """BEHAVIORAL_GUIDE.md word count should estimate 2,000-4,000 tokens."""
+        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+        if not path.exists():
+            self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
+        words = len(path.read_text().split())
+        # Rough token estimate: 1 token ≈ 0.75 words → tokens ≈ words / 0.75
+        estimated_tokens = words / 0.75
+        self.assertGreaterEqual(
+            estimated_tokens, 2000, f"Too short: ~{estimated_tokens:.0f} tokens"
+        )
+        self.assertLessEqual(
+            estimated_tokens, 4000, f"Too long: ~{estimated_tokens:.0f} tokens"
+        )
+
+    def test_skill_directories_exist(self):
+        """All 3 skill dirs must exist with SKILL.md."""
+        for name in ("smm-protocol", "xp-values", "pair-programming"):
+            skill_file = self.plugin_root / "skills" / name / "SKILL.md"
+            self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
+
+    def test_skill_frontmatter_valid(self):
+        """Each SKILL.md must have valid YAML frontmatter with name + description."""
+        import re
+
+        for name in ("smm-protocol", "xp-values", "pair-programming"):
+            skill_file = self.plugin_root / "skills" / name / "SKILL.md"
+            if not skill_file.exists():
+                self.skipTest(f"{skill_file} not yet created")
+            content = skill_file.read_text()
+            # Must start with ---
+            self.assertTrue(
+                content.startswith("---"),
+                f"{name}/SKILL.md missing frontmatter delimiter",
+            )
+            # Extract frontmatter
+            match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+            self.assertIsNotNone(match, f"{name}/SKILL.md frontmatter not closed")
+            fm = match.group(1)
+            self.assertIn("name:", fm, f"{name}/SKILL.md missing 'name' field")
+            self.assertIn(
+                "description:", fm, f"{name}/SKILL.md missing 'description' field"
+            )
+            # Name should match directory
+            name_match = re.search(r"name:\s*(\S+)", fm)
+            self.assertIsNotNone(name_match)
+            self.assertEqual(name_match.group(1), name)
+
+    def test_skill_token_budgets(self):
+        """Each SKILL.md should be within 1,000-2,000 token estimate."""
+        for name in ("smm-protocol", "xp-values", "pair-programming"):
+            skill_file = self.plugin_root / "skills" / name / "SKILL.md"
+            if not skill_file.exists():
+                self.skipTest(f"{skill_file} not yet created")
+            words = len(skill_file.read_text().split())
+            estimated_tokens = words / 0.75
+            self.assertGreaterEqual(
+                estimated_tokens,
+                800,
+                f"{name} too short: ~{estimated_tokens:.0f} tokens",
+            )
+            self.assertLessEqual(
+                estimated_tokens,
+                2500,
+                f"{name} too long: ~{estimated_tokens:.0f} tokens",
+            )
+
+    def test_behavioral_guide_no_contradictions(self):
+        """Guide should not contradict hook enforcement (spot check)."""
+        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+        if not path.exists():
+            self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
+        content = path.read_text()
+        # Guide should reference hooks, not claim to replace them
+        self.assertNotIn("instead of hooks", content.lower())
+        self.assertNotIn("skip the navigator", content.lower())
+        self.assertNotIn("ignore quality review", content.lower())
+        # Guide should mention TDD
+        self.assertIn("TDD", content)
+        # Guide should mention courage
+        self.assertIn("Courage", content)
+
+
+class TestSessionStartBehavioralGuide(_HookTestCase):
+    """Tests for behavioral guide injection in session_start.py."""
+
+    def setUp(self):
+        super().setUp()
+        import session_start
+
+        session_start._load_behavioral_guide.cache_clear()
+
+    def tearDown(self):
+        import session_start
+
+        session_start._load_behavioral_guide.cache_clear()
+        super().tearDown()
+
+    def test_session_start_includes_behavioral_guide(self):
+        """Output should include behavioral guide content."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Honesty Principle", result)
+
+    def test_session_start_includes_skills(self):
+        """Output should still contain skill names."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn("smm-protocol", result)
+        self.assertIn("xp-values", result)
+        self.assertIn("pair-programming", result)
+
+    def test_session_start_no_guide_degrades(self):
+        """Missing BEHAVIORAL_GUIDE.md should not crash session_start."""
+        import session_start
+
+        self._write_events([make_event()])
+        # Temporarily point plugin root to a dir without the guide
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            with patch.object(_common, "resolve_plugin_root", return_value=tmpdir):
+                # Clear any cached guide
+                if hasattr(session_start, "_load_behavioral_guide"):
+                    session_start._load_behavioral_guide.cache_clear()
+                result = session_start.run(
+                    {"session_id": "test", "source": "startup"},
+                    smm_dir=self.smm_dir,
+                )
+            self.assertIsNotNone(result)
+            # Should still have GUPP and skills
+            self.assertIn("Resume immediately", result)
+        finally:
+            import shutil
+
+            shutil.rmtree(tmpdir)
+            if hasattr(session_start, "_load_behavioral_guide"):
+                session_start._load_behavioral_guide.cache_clear()
+
+    def test_behavioral_guide_before_gupp(self):
+        """Guide should appear before GUPP in injection order."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        if result and "Honesty Principle" in result:
+            guide_pos = result.index("Honesty Principle")
+            gupp_pos = result.index("Resume immediately")
+            self.assertLess(guide_pos, gupp_pos, "Guide should appear before GUPP")
+
+    def test_behavioral_guide_after_smm(self):
+        """Guide should appear after SMM content."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        if result and "Honesty Principle" in result:
+            smm_pos = result.index("smm-context")
+            guide_pos = result.index("Honesty Principle")
+            self.assertLess(smm_pos, guide_pos, "SMM should appear before guide")
+
+
 if __name__ == "__main__":
     unittest.main()

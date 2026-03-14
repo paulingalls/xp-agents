@@ -2,10 +2,12 @@
 """SessionStart hook: initialize SMM, inject context.
 
 Runs on startup, resume, and compact. Ensures SMM exists, materializes
-the current view, and injects it as additionalContext with GUPP and skills.
+the current view, and injects it as additionalContext with behavioral
+guide, GUPP, and skills.
 Retrospective triggering is handled separately by retrospective.py.
 """
 
+import functools
 import os
 import subprocess
 import sys
@@ -29,14 +31,33 @@ GUPP_TEXT = (
 
 SKILLS_TEXT = (
     "\n\n---\n"
-    "**Available Skills:**\n"
-    "- `/smm-protocol` — When you need to record decisions, questions, "
-    "concerns, or conventions to the Shared Mental Model\n"
-    "- `/xp-values` — When facing a design decision or trade-off, "
-    "consult XP values for guidance\n"
-    "- `/pair-programming` — When starting a complex task, "
-    "engage pair programming with navigator review"
+    "**Available Skills (invoke these regularly):**\n"
+    "- `/smm-protocol` — Event recording reference. Invoke when recording "
+    "decisions, questions, concerns, assumptions, discoveries, or debt\n"
+    "- `/xp-values` — XP values as behavioral guide. Invoke when making "
+    "design decisions, resolving trade-offs, or evaluating code quality\n"
+    "- `/pair-programming` — Pair programming protocol. Invoke when "
+    "responding to navigator guidance, resolving reviewer conflicts, "
+    "or starting complex work"
 )
+
+
+# ---------------------------------------------------------------------------
+# Behavioral guide loader
+# ---------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=1)
+def _load_behavioral_guide() -> str:
+    """Load BEHAVIORAL_GUIDE.md from plugin root. Returns empty string on failure."""
+    try:
+        plugin_root = _common.resolve_plugin_root()
+        guide_path = plugin_root / "BEHAVIORAL_GUIDE.md"
+        if guide_path.is_file():
+            return "\n\n" + guide_path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +113,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     enforcement = _common.load_enforcement_mode()
     if enforcement == _common.ENFORCEMENT_ADVISORY:
         parts.append("\n[enforcement: advisory]")
+
+    # Behavioral guide — XP rules for the main agent
+    guide = _load_behavioral_guide()
+    if guide:
+        parts.append(guide)
 
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
