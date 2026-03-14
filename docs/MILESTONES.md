@@ -155,7 +155,7 @@
 
 ---
 
-## Milestone 5: Agent Hooks — Session Lifecycle ✅
+## Milestone 5.1: Agent Hooks — Session Lifecycle ✅
 
 **Goal**: Retrospective, customer triage, subagent review, TDD gate.
 
@@ -186,6 +186,64 @@
 - ✅ TDD check blocks on test failure, respects stop_hook_active
 - ✅ Keep/Fix/Try visible to user at session start
 - ✅ Plugin version bumped to 0.5.0
+
+---
+
+## Milestone 5.2: SMM Enhancements — Schema & Materializer
+
+**Goal**: New event types, two-tier materialized view, debt aging, session stats.
+
+**Deliverables**:
+- [ ] Add `goal`, `debt`, and `customer_intent` event types to `schema.json` and `append.sh`. `customer_intent` has `status` (open / delivered / superseded) and `source_refs` (links to originating `customer_input` events).
+- [ ] Update `retrospective.py` — compute session stats from event log: events by type, pair_guidance count vs. file write count, concerns raised vs. resolved, questions open vs. answered, conflicts detected by pattern, customer intents open vs. delivered, decisions draft vs. confirmed. Include stats in `.retro-input.json`.
+- [ ] Rewrite `materialize.py` — two-tier output: Active Context (goals, conflict alerts, 🔴 questions, unacknowledged concerns, customer intent, agent status, navigator guidance) above Reference (decisions, conventions, resolved questions, discoveries, assumptions, technical debt, resolved concerns)
+- [ ] Debt aging in `materialize.py` — count `session_end` events after debt timestamp. No event mutation. Thresholds: 0–3 sessions normal, 4–6 ⚠️, 7+ 🔴.
+- [ ] Goals pinned at top of Active Context, extracted from `goal` events + project CLAUDE.md if present
+- [ ] Customer Intent section in Active Context — open items only, delivered/superseded removed from view
+- [ ] Navigator guidance scoped to current session only (filter by session_id)
+- [ ] Remove raw "Customer Input" section — strategic intent via `goal` events, tactical intent via `customer_intent` events
+- [ ] Update `read_delta.py` to handle new event types
+
+**Acceptance Criteria**:
+- Goals appear at top of materialized SMM
+- Active Context / Reference tiers render correctly
+- Customer Intent section shows open items only
+- Debt age renders correctly based on session count
+- Debt at 7+ sessions renders with 🔴
+- Navigator guidance clears across sessions
+- Session stats computed from event log and included in `.retro-input.json`
+- Existing event types still work unchanged
+
+---
+
+## Milestone 5.3: SMM Enhancements — Debt & Goal Integration
+
+**Goal**: Wire goals, debt, and customer intent into agent prompts and tiered injection.
+
+**Deliverables**:
+- [ ] Update `customer_proxy.md` — on first run (empty SMM / no goal events), ask for project goals via AskUserQuestion. Non-blocking. On subsequent sessions: reconcile customer intent — review open `customer_intent` events against status/commit/decision events in log, mark delivered, distill new intents from `customer_input` events since last session. Err toward keeping intents open when completion is ambiguous.
+- [ ] Update `navigator.md` — when agent modifies a file with associated debt, include debt in guidance. Nudge to address or justify skipping.
+- [ ] Update `quality_reviewer.md` — can write `debt` events for acknowledged tradeoffs (distinct from `concern`). Writes `concern` if agent touches file with debt and doesn't address it.
+- [ ] Update `retrospective_analyst.md` — can write `debt` events when a Fix is deferred intentionally. Aging debt (4+ sessions) appears in Fix items with escalating urgency. Debt referenced by multiple concerns gets highest priority. Analyze session stats for plugin health anomalies: flag 0 navigator guidance with many writes, high unresolved concern ratio, 0 decisions despite significant work. Compare stats against previous retrospectives for cross-session trends.
+- [ ] Update `pre_tool_use.py` tiered injection — non-write tools get Active Context only, write tools get full SMM
+- [ ] Add `enforcement` setting to `settings.json` — `strict` (default) or `advisory`. In advisory mode, all exit-2 blocks become warnings via additionalContext instead. Same hooks fire, same events recorded — nothing blocks. All blocking hooks (`pre_tool_use.py`, `tdd_check.md`, `navigator.md`) read this setting.
+
+**Acceptance Criteria**:
+- `strict` mode blocks on TDD failure, working_on conflicts, decision contradictions
+- `advisory` mode converts all blocks to warnings — same events recorded, no exit 2
+- Default is `strict` — no behavior change for users who don't touch settings
+- First session on a new project asks for goals
+- Customer proxy distills new intents from customer_input events
+- Open intents carried forward across sessions
+- Delivered intents marked based on event log activity (not code inspection)
+- Ambiguous completion keeps intent open
+- Debt events tracked separately from concerns
+- Navigator nudges on debt when touching associated files
+- Quality reviewer flags ignored debt as concern
+- Retrospective escalates aging debt in Fix items
+- Retrospective flags plugin health anomalies from session stats
+- Cross-session stat trends surfaced in Keep/Fix/Try
+- Non-write PreToolUse injection contains only Active Context
 
 ---
 
@@ -237,7 +295,7 @@
 
 ## Milestone 8: Hardening & Optimization
 
-**Goal**: Production-ready.
+**Goal**: Production-ready. SMM integrity verification.
 
 **Deliverables**:
 - [ ] Performance benchmarks (materialization 100–5,000 events, delta reader optimization)
@@ -246,6 +304,8 @@
 - [ ] Recovery (`smm/repair.py` — rebuild from corrupted log)
 - [ ] Schema versioning (`smm/migrate.py`, additive-only policy)
 - [ ] Agent Teams verification (all items from architecture)
+- [ ] **Drift Signals** — new section in materialized SMM (Active Context). Event-log-only analysis during materialization, no codebase I/O. Detects: superseded decisions (same topic, no explicit revision), ignored conventions (multiple concern events filed against them), stale decisions (no related status/working_on activity in N sessions), contradicted assumptions. Surfaces evidence that decisions may not reflect reality.
+- [ ] **Velocity Signal** — metadata section in materialized SMM. Events per session, decisions made vs. revisited, churn detection (same decision made 3+ times across sessions). Feeds into retrospective analyst for trend analysis.
 - [ ] CHANGELOG final
 
 **Acceptance Criteria**:
@@ -254,3 +314,44 @@
 - Repair recovers corrupted logs
 - Migration upgrades between schema versions
 - Agent Teams items verified
+- Drift signals detect: superseded decisions, ignored conventions (via concern count), stale decisions (no recent activity), contradicted assumptions
+- Drift analysis uses event log only — no codebase I/O, no materialization performance impact
+- Velocity signal accurately reports events per session and flags decision churn
+
+---
+---
+
+## 2.0 — Autonomous Teams (Future)
+
+**Prerequisite**: 1.0 shipped, dogfooded on a real project for multiple weeks. Friction points identified through retrospectives.
+
+**Goal**: Agent Teams can execute a requirements document with minimal human intervention. Human approves goals and priorities once, then reviews outputs — not every decision.
+
+**Milestone 9: Backlog & Planning Game**
+
+- [ ] `backlog_item` event type — priority, acceptance criteria, dependencies, status (ready / in-progress / done / blocked)
+- [ ] Backlog section in materialized SMM with progress summary
+- [ ] Planning game at SessionStart — customer proxy picks next ready item, assigns to agent or teammate
+- [ ] Plan reviewer validates plans against backlog — right item, respects dependencies, right-sized
+- [ ] Burn down rendering in materializer — items completed vs. remaining, velocity, projected completion
+
+**Milestone 10: Requirements Decomposition**
+
+- [ ] SessionStart hook reads requirements document (markdown or structured) from project
+- [ ] Decomposition agent breaks requirements into backlog items with acceptance criteria and dependencies
+- [ ] Customer confirms priority ranking once via AskUserQuestion
+- [ ] Backlog items flow into planning game automatically on subsequent sessions
+
+**Milestone 11: Autonomous Decision-Making**
+
+- [ ] Draft decision lifecycle in `materialize.py` — promotion (no concerns after N sessions → confirmed), escalation (concern count exceeds threshold → 🔴 question for customer). Same aging pattern as debt, applied in reverse: time without problems → confidence.
+- [ ] Convention-based gates — conventions can require explicit customer approval for specific domains (e.g., "all auth decisions require approval"). Navigator and plan reviewer already enforce conventions, so this is configuration, not new code.
+- [ ] Retrospective feedback loop — analyst tracks draft decision outcomes. High revision/contradiction rate → Fix item: "too many auto-decisions revised in {domain}, increase customer involvement." Evidence-based calibration, not a numeric threshold.
+- [ ] Promotion thresholds configurable in `settings.json` — sessions-to-promote, concern-count-to-escalate. Conservative defaults.
+
+**Open Questions (resolve during 1.0 dogfooding)**:
+- How does the planner distribute backlog items across Agent Team teammates?
+- What's the right default sessions-to-promote for draft decisions?
+- How do dependencies between backlog items interact with multi-agent parallelism?
+- Should the burn down feed into session length / sustainable pace decisions?
+- What granularity of requirements decomposition produces right-sized backlog items?
