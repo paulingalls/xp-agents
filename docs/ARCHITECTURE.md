@@ -420,6 +420,7 @@ Fail loud, never corrupt, always recoverable.
 - **Navigator writes `pair_guidance` events** to event log for retrospective analysis, not just ephemeral additionalContext
 - **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
 - **`/simplify` at Stop** — command hook checks for file changes since last `customer_input`, prompt hook instructs agent to run `/simplify`. No special SMM integration needed — simplify's subagents are captured by SubagentStop hooks, its fixes by PostToolUse hooks. Tracker file (`.simplify-{agent_id}.json`) prevents re-trigger after simplify runs.
+- **Security review push gate** — three detection paths write the `.security-reviewed-{HEAD-hash}` tracker: (1) UserPromptSubmit scans for `/security-review` or security audit patterns, (2) SubagentStop checks `last_assistant_message` for security review output signatures, (3) push gate writes `security_review_requested` event when blocking. No reliance on agent cooperation — all paths are mechanical hook detection.
 
 ## Plugin Structure
 

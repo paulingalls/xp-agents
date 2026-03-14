@@ -287,27 +287,34 @@
 
 ## Milestone 5.5: Security Review Gate & Retrospective Security Lens
 
-**Goal**: Block `git push` until `/security-review` has been run. Add security awareness to the retrospective. Leverage Anthropic's built-in security review — we own enforcement, they own review quality.
+**Goal**: Block `git push` until a security review has been run. Add security awareness to the retrospective. Leverage Anthropic's built-in `/security-review` — we own enforcement, they own review quality.
 
 **Deliverables**:
-- [ ] `pre_tool_use.py` — detect `git push` in Bash commands (new classification alongside `git commit`). Check `.security-reviewed-{commit-hash}` tracker file in SMM dir. If no tracker for current HEAD: inject `additionalContext` instructing agent to run `/security-review` (strict mode blocks via exit 2, advisory mode warns). If tracker exists: pass through.
-- [ ] Tracker file management — `.security-reviewed-{commit-hash}` written to SMM dir after `/security-review` completes. Keyed on HEAD commit hash so new commits invalidate the tracker. Old tracker files cleaned up (keep only current).
-- [ ] Tracker write mechanism — PostToolUse on Bash detects `/security-review` completion (skill invocation pattern in command/output). Writes tracker file with current HEAD hash. Uses atomic write pattern.
-- [ ] `prompts/retrospective_analyst.md` — add security lens: were security concerns raised during the session? Were they addressed? Did pushes happen without security review (tracker gaps)? Surface as Fix items under the Courage value.
-- [ ] Tests for push gate: `git push` detected, tracker prevents re-trigger, new commits invalidate tracker, xp-agent recursion prevention, missing SMM graceful degradation, advisory vs strict mode behavior
+- [ ] `pre_tool_use.py` — detect `git push` in Bash commands (new classification alongside `git commit`). Check `.security-reviewed-{commit-hash}` tracker file in SMM dir. If no tracker for current HEAD: write `security_review_requested` event to SMM, inject `additionalContext` instructing agent to run `/security-review` (strict mode blocks via exit 2, advisory mode warns). If tracker exists: pass through.
+- [ ] Three-path security review detection — all paths write the `.security-reviewed-{HEAD-hash}` tracker file when a security review is detected:
+  - **Path 1: User-initiated** — `user_prompt_log.py` (UserPromptSubmit) scans the prompt for security review patterns (`/security-review`, `security review`, `security audit`). On match, writes tracker with current HEAD hash.
+  - **Path 2: Agent-initiated** — `subagent_stop.py` (SubagentStop) checks `last_assistant_message` for security review output signatures (severity markers, vulnerability format, "No vulnerabilities found"). On match, writes tracker.
+  - **Path 3: Gate-requested** — push gate blocks and writes `security_review_requested` event. Detection happens via Path 1 or Path 2 when the review actually runs.
+- [ ] Tracker file management — `.security-reviewed-{commit-hash}` in SMM dir. Keyed on HEAD commit hash so new commits invalidate. Old tracker files cleaned up on write (keep only current). Atomic write pattern.
+- [ ] `prompts/retrospective_analyst.md` — add security lens: were security concerns raised during the session? Were they addressed? Did pushes happen without security review (tracker gaps)? Were `security_review_requested` events followed by completion? Surface as Fix items under the Courage value.
+- [ ] Tests: push gate detection, tracker prevents re-trigger, new commits invalidate tracker, UserPromptSubmit pattern matching, SubagentStop message detection, xp-agent recursion prevention, missing SMM graceful degradation, advisory vs strict mode behavior
 
 **Design decisions**:
+- **Three detection paths** — security reviews can originate from the user (`/security-review` command or natural language request), the agent (self-initiated), or our push gate (enforcement). All three paths are observable through existing hooks: UserPromptSubmit sees user input, SubagentStop sees subagent output, and the push gate writes a request event. No reliance on agent cooperation to write the tracker.
 - **Leverage `/security-review`** — Anthropic's built-in skill handles language-specific patterns (Python, TypeScript, Go, Rust, etc.). We don't write our own security scanner.
-- **Gate on invocation, not outcome** — our gate checks whether `/security-review` was run, not what it found. The review writes its own findings; the agent decides how to act on them. This keeps us decoupled from the skill's internals.
+- **Gate on invocation, not outcome** — our gate checks whether a security review was run, not what it found. The review writes its own findings; the agent decides how to act on them. This keeps us decoupled from the skill's internals.
 - **Commit hash keying** — tracker keyed on `git rev-parse HEAD`. Push with new commits after the review? Hash changed, review needed again. Multiple pushes of the same HEAD? Tracker still valid.
 - **No `origin/HEAD` dependency** — our gate doesn't need `origin/HEAD`. If `/security-review` needs it internally, that's Anthropic's concern, not ours.
 - **Retrospective security lens** — lightweight addition to existing prompt. Security is a quality dimension analyzed under the Courage value (were hard security questions raised?).
 
 **Acceptance Criteria**:
-- `git push` blocked in strict mode until `/security-review` has been run
+- `git push` blocked in strict mode until security review has been run
 - `git push` warns in advisory mode with enforcement indicator
 - New commits after security review invalidate the tracker
 - Same HEAD push passes without re-review
+- User typing `/security-review` or "run a security review" writes tracker (Path 1)
+- Subagent completing a security review writes tracker (Path 2)
+- Push gate writes `security_review_requested` event when blocking (Path 3)
 - Retrospective surfaces security review gaps as Fix items
 - xp-agents skip the gate (recursion prevention)
 - Missing SMM degrades gracefully
