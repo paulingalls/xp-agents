@@ -93,6 +93,7 @@ VALID_TYPES = sorted(
         "pair_guidance",
         "session_end",
         "retrospective",
+        "security_review_requested",
     ]
 )
 

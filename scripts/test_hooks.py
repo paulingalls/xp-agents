@@ -3832,5 +3832,217 @@ class TestHooksJsonGapFixes(_HooksJsonTestCase):
         self.assertIsNotNone(entry, "SessionStart matcher should include 'clear'")
 
 
+# ===========================================================================
+# Security helpers (_common.py) — Milestone 5.5
+# ===========================================================================
+
+
+class TestSecurityHelpers(_HookTestCase):
+    """Tests for security review tracker helpers in _common.py."""
+
+    def test_get_head_hash_returns_hash(self):
+        """get_head_hash returns a hex hash string."""
+        with patch(
+            "_common.subprocess.check_output",
+            return_value="abc1234def5678\n",
+        ):
+            result = _common.get_head_hash()
+            self.assertEqual(result, "abc1234def5678")
+
+    def test_get_head_hash_returns_none_on_error(self):
+        """get_head_hash returns None when git fails."""
+        from subprocess import CalledProcessError
+
+        with patch(
+            "_common.subprocess.check_output",
+            side_effect=CalledProcessError(128, "git"),
+        ):
+            result = _common.get_head_hash()
+            self.assertIsNone(result)
+
+    def test_get_head_hash_returns_none_on_timeout(self):
+        """get_head_hash returns None on subprocess timeout."""
+        from subprocess import TimeoutExpired
+
+        with patch(
+            "_common.subprocess.check_output",
+            side_effect=TimeoutExpired("git", 5),
+        ):
+            result = _common.get_head_hash()
+            self.assertIsNone(result)
+
+    def test_security_tracker_path_valid_hash(self):
+        """security_tracker_path builds correct path for valid hash."""
+        path = _common.security_tracker_path(self.smm_dir, "abc1234")
+        self.assertEqual(path, self.smm_dir / ".security-reviewed-abc1234")
+
+    def test_security_tracker_path_rejects_invalid_hash(self):
+        """security_tracker_path raises ValueError for invalid hash."""
+        with self.assertRaises(ValueError):
+            _common.security_tracker_path(self.smm_dir, "not-a-hash!")
+        with self.assertRaises(ValueError):
+            _common.security_tracker_path(self.smm_dir, "../etc/passwd")
+        with self.assertRaises(ValueError):
+            _common.security_tracker_path(self.smm_dir, "")
+
+    def test_security_tracker_path_rejects_too_short_hash(self):
+        """security_tracker_path rejects hashes shorter than 7 chars."""
+        with self.assertRaises(ValueError):
+            _common.security_tracker_path(self.smm_dir, "abc12")
+
+    def test_write_and_exists_tracker(self):
+        """write_security_tracker creates file, security_tracker_exists finds it."""
+        _common.write_security_tracker(self.smm_dir, "abc1234")
+        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_tracker_not_exists_when_missing(self):
+        """security_tracker_exists returns False when no tracker file."""
+        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_write_tracker_cleans_old(self):
+        """write_security_tracker removes old tracker files."""
+        _common.write_security_tracker(self.smm_dir, "aaa1111")
+        _common.write_security_tracker(self.smm_dir, "bbb2222")
+        # Write new tracker
+        _common.write_security_tracker(self.smm_dir, "ccc3333")
+        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "aaa1111"))
+        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "bbb2222"))
+        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "ccc3333"))
+
+    def test_tracker_rejects_symlink(self):
+        """security_tracker_exists returns False for symlinks."""
+        real_file = self.smm_dir / "real_target"
+        real_file.write_text("x")
+        link = self.smm_dir / ".security-reviewed-abc1234"
+        link.symlink_to(real_file)
+        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_write_tracker_content(self):
+        """write_security_tracker writes JSON with commit_hash and ts."""
+        _common.write_security_tracker(self.smm_dir, "abc1234")
+        path = _common.security_tracker_path(self.smm_dir, "abc1234")
+        data = json.loads(path.read_text())
+        self.assertEqual(data["commit_hash"], "abc1234")
+        self.assertIn("ts", data)
+
+
+# ===========================================================================
+# PreToolUse push gate — Milestone 5.5
+# ===========================================================================
+
+
+class TestPreToolUsePushGate(_HookTestCase):
+    """Tests for git push security review gate in pre_tool_use.py."""
+
+    def setUp(self):
+        super().setUp()
+        import pre_tool_use
+
+        self.pre_tool_use = pre_tool_use
+        _common.load_enforcement_mode.cache_clear()
+
+    def tearDown(self):
+        _common.load_enforcement_mode.cache_clear()
+        super().tearDown()
+
+    def _push_input(self, command: str = "git push origin main", **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "cwd": "/tmp",
+            "agent_id": "main",
+        }
+        data.update(overrides)
+        return data
+
+    def test_is_git_push_positive(self):
+        """is_git_push detects various git push commands."""
+        self.assertTrue(self.pre_tool_use.is_git_push("git push"))
+        self.assertTrue(self.pre_tool_use.is_git_push("git push origin main"))
+        self.assertTrue(self.pre_tool_use.is_git_push("git  push --force"))
+
+    def test_is_git_push_negative(self):
+        """is_git_push rejects non-push commands."""
+        self.assertFalse(self.pre_tool_use.is_git_push("git commit -m 'test'"))
+        self.assertFalse(self.pre_tool_use.is_git_push("git pull origin main"))
+        self.assertFalse(self.pre_tool_use.is_git_push("git pushx"))
+
+    def test_push_blocked_without_tracker(self):
+        """git push is blocked when no security tracker exists."""
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                self.pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
+            self.assertIn("/security-review", str(ctx.exception))
+
+    def test_push_passes_with_tracker(self):
+        """git push passes when security tracker exists."""
+        _common.write_security_tracker(self.smm_dir, "abc1234")
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            # Should not raise BlockedError
+            self.pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
+
+    def test_push_advisory_warns(self):
+        """Advisory mode: git push warns instead of blocking."""
+        with (
+            _override_settings({"enforcement": "advisory"}),
+            patch.object(_common, "get_head_hash", return_value="abc1234"),
+        ):
+            result = self.pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
+            self.assertIsNotNone(result)
+            self.assertIn("security", result.lower())
+
+    def test_push_event_written_on_block(self):
+        """Blocking a push writes security_review_requested event."""
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            with self.assertRaises(_common.BlockedError):
+                self.pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
+            events = _common.read_events_raw(self.smm_dir)
+            sec_events = [
+                e for e in events if e.get("type") == "security_review_requested"
+            ]
+            self.assertEqual(len(sec_events), 1)
+            self.assertIn("abc1234", sec_events[0]["content"])
+
+    def test_push_no_smm_degrades(self):
+        """git push with no SMM dir passes through (no crash)."""
+        self.pre_tool_use.run(self._push_input(), smm_dir=None)
+        # No BlockedError — graceful degradation
+
+    def test_push_no_hash_degrades(self):
+        """git push with no HEAD hash passes through (no crash)."""
+        with patch.object(_common, "get_head_hash", return_value=None):
+            self.pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
+            # No BlockedError — graceful degradation
+
+    def test_push_xp_agent_skips(self):
+        """xp- agents skip the push gate."""
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            self.pre_tool_use.run(
+                self._push_input(agent_type="xp-navigator"),
+                smm_dir=self.smm_dir,
+            )
+            # No BlockedError
+
+    def test_non_push_bash_not_affected(self):
+        """Non-push Bash commands don't trigger push gate."""
+        inp = self._push_input(command="git status")
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            # Should not raise BlockedError
+            self.pre_tool_use.run(inp, smm_dir=self.smm_dir)
+
+    def test_non_bash_not_affected(self):
+        """Non-Bash tools don't trigger push gate."""
+        inp = {
+            "session_id": "t",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "test.py", "content": "git push"},
+            "cwd": "/tmp",
+            "agent_id": "main",
+        }
+        # Should not raise BlockedError
+        self.pre_tool_use.run(inp, smm_dir=self.smm_dir)
+
+
 if __name__ == "__main__":
     unittest.main()

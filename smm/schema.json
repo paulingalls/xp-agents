@@ -32,7 +32,8 @@
         "assumption",
         "pair_guidance",
         "session_end",
-        "retrospective"
+        "retrospective",
+        "security_review_requested"
       ]
     },
     "agent_id": {

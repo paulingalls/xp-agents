@@ -11,6 +11,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,7 @@ class BlockedError(Exception):
 
 # Event types — mirrors smm/schema.json enum
 CUSTOMER_INPUT = "customer_input"
+SECURITY_REVIEW_REQUESTED = "security_review_requested"
 CUSTOMER_INTENT = "customer_intent"
 DEBT = "debt"
 GOAL = "goal"
@@ -456,6 +458,69 @@ def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list
 def wrap_smm_context(content: str) -> str:
     """Wrap SMM content in XML tags for safe injection."""
     return f"<smm-context>\n{content}</smm-context>"
+
+
+# ---------------------------------------------------------------------------
+# Security review tracker
+# ---------------------------------------------------------------------------
+
+_COMMIT_HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def get_head_hash(cwd: str = ".") -> str | None:
+    """Get current HEAD commit hash. Returns None on failure."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            cwd=cwd,
+            timeout=5,
+        ).strip()
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        return None
+
+
+def security_tracker_path(smm_dir: Path, commit_hash: str) -> Path:
+    """Build tracker path. Validates hash format (^[0-9a-f]{7,40}$)."""
+    if not _COMMIT_HASH_RE.match(commit_hash):
+        raise ValueError(f"Invalid commit hash: {commit_hash!r}")
+    return smm_dir / f".security-reviewed-{commit_hash}"
+
+
+def security_tracker_exists(smm_dir: Path, commit_hash: str) -> bool:
+    """Check if tracker exists and is not a symlink."""
+    try:
+        path = security_tracker_path(smm_dir, commit_hash)
+    except ValueError:
+        return False
+    return path.exists() and not path.is_symlink()
+
+
+def write_security_tracker(smm_dir: Path, commit_hash: str) -> None:
+    """Atomic write + cleanup old trackers."""
+    from datetime import datetime, timezone
+
+    path = security_tracker_path(smm_dir, commit_hash)
+    data = {
+        "commit_hash": commit_hash,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    write_json_atomic(path, data)
+    _cleanup_old_security_trackers(smm_dir, commit_hash)
+
+
+def _cleanup_old_security_trackers(smm_dir: Path, keep_hash: str) -> None:
+    """Remove .security-reviewed-* files except current."""
+    keep_name = f".security-reviewed-{keep_hash}"
+    for f in smm_dir.glob(".security-reviewed-*"):
+        if f.name != keep_name:
+            with contextlib.suppress(OSError):
+                f.unlink()
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ checks for working_on overlap (conflict prevention), and nudges TDD ordering.
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -34,6 +35,18 @@ def classify_tier(tool_name: str, tool_input: dict) -> str:
             return read_delta.TIER_FULL
         return read_delta.TIER_BLOCKING
     return read_delta.TIER_RED_ONLY
+
+
+# ---------------------------------------------------------------------------
+# Git push detection
+# ---------------------------------------------------------------------------
+
+_GIT_PUSH_RE = re.compile(r"\bgit\s+push\b")
+
+
+def is_git_push(command: str) -> bool:
+    """Detect git push in a shell command."""
+    return bool(_GIT_PUSH_RE.search(command))
 
 
 # ---------------------------------------------------------------------------
@@ -200,11 +213,35 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Load enforcement mode
     enforcement = _common.load_enforcement_mode()
 
+    parts: list[str] = []
+
+    # Push gate: block git push until security review has been run
+    if tool_name == "Bash" and smm_dir is not None:
+        command = tool_input.get("command", "")
+        if is_git_push(command):
+            head_hash = _common.get_head_hash(cwd)
+            if head_hash is not None and not _common.security_tracker_exists(
+                smm_dir, head_hash
+            ):
+                # Write security_review_requested event
+                event = _common.make_event(
+                    _common.SECURITY_REVIEW_REQUESTED,
+                    agent_id,
+                    f"Security review required before push (HEAD: {head_hash})",
+                )
+                _common.append_safe(smm_dir, event)
+                msg = (
+                    "Security review required before pushing. "
+                    "Run /security-review first."
+                )
+                if enforcement == _common.ENFORCEMENT_ADVISORY:
+                    parts.append(f"⚠️ Advisory warning: {msg}")
+                else:
+                    raise _common.BlockedError(msg)
+
     # Classify tier and get target file
     tier = classify_tier(tool_name, tool_input)
     target_file = get_target_file(tool_name, tool_input)
-
-    parts: list[str] = []
 
     # Single lockless read for overlap + debt checks (avoid reading events.jsonl twice)
     events: list[dict] | None = None
