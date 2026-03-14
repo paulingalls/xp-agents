@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""SubagentStop command hook: deterministic plan analysis for plan_reviewer agent.
+"""SubagentStop command hook: deterministic plan analysis.
 
 Fires when a Plan subagent completes. Counts steps, flags missing TDD strategy,
-gathers all decisions/conventions from the SMM, and returns context for the
-plan_reviewer agent hook via additionalContext.
+gathers all decisions/conventions from the SMM, and records analysis as a status
+event. Outputs context via additionalContext for the main agent.
+
+Note: plan_reviewer.md agent hook runs in parallel (not sequentially), so it
+gathers its own SMM data independently. Both hooks contribute complementary
+analysis — this hook is deterministic, the agent hook is judgmental.
 """
 
 import re

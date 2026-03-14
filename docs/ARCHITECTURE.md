@@ -395,7 +395,7 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 - PostToolUse supports `decision: "block"` top-level field and `additionalContext`
 - Stop hooks support both exit 2 + stderr and `{"decision": "block", "reason": "..."}` JSON
 - Prompt/agent hooks return `{"ok": true/false, "reason": "..."}` — NOT `decision`/`block`
-- All hooks in the same entry run **in parallel** — a command hook's output is NOT visible to a prompt hook in the same entry
+- **All matching hooks run in parallel** — this applies to hooks within the same entry AND across separate matcher entries for the same event. A command hook's `additionalContext` output is NOT visible to any other hook. Separate entries do NOT create sequential ordering.
 - SessionStart matcher values: `startup`, `resume`, `clear`, `compact`
 - Hook types: `command`, `prompt`, `agent`, `http`
 
@@ -410,7 +410,10 @@ Events available but unused: PermissionRequest, Notification, TeammateIdle, Task
 - Hooks reference: https://code.claude.com/docs/en/hooks.md
 - Hooks guide: https://code.claude.com/docs/en/hooks-guide.md
 
-**Design consequence:** PostToolUse hooks record to event log. PreToolUse hooks deliver via `additionalContext`. Stop hooks block via exit 2 (command hooks) or `{"ok": false}` (prompt/agent hooks).
+**Design consequences:**
+- PostToolUse hooks record to event log. PreToolUse hooks deliver via `additionalContext`. Stop hooks block via exit 2 (command hooks) or `{"ok": false}` (prompt/agent hooks).
+- **No hook can depend on another hook's `additionalContext`.** Each hook in a multi-hook entry must gather its own data independently.
+- **File-based coordination** (e.g., `.retro-input.json`) is a race: the reader may start before the writer finishes. Design for graceful degradation when the file is absent.
 
 ## Adoption & Compliance
 
@@ -447,6 +450,7 @@ Fail loud, never corrupt, always recoverable.
 - **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
 - **`/simplify` at Stop** — command hook (`simplify_gate.py`) checks for file changes since last `customer_input`. If changes found and `/simplify` hasn't run, blocks via exit 2 with stderr instruction. No prompt hook — hooks within the same Stop entry run in parallel, so `additionalContext` from a command hook isn't visible to a prompt hook. Tracker file (`.simplify-{agent_id}.json`) keyed on last `customer_input` event ID prevents re-trigger. New loop = new ID = fresh trigger.
 - **CLAUDE.md is NOT a plugin component** — behavioral rules delivered via `additionalContext` in `session_start.py`. The `BEHAVIORAL_GUIDE.md` file is a data file read at runtime, not a plugin manifest entry. Skills are voluntary (not hook-enforced) and prominently referenced in the guide with "invoke when" instructions to drive usage.
+- **Parallel hook audit (M6)** — all multi-hook entries verified for ordering independence. Plan reviewer (`plan_reviewer.md`) was updated to read SMM directly instead of depending on `plan_review.py`'s `additionalContext` (which it never received due to parallel execution). Retrospective analyst handles `.retro-input.json` absence gracefully (file-based race with `retrospective.py`; worst case: retro delayed one session). All other multi-hook entries (PostToolUse, Stop, SubagentStop default) are verified independent.
 - **Security review push gate** — three detection paths write the `.security-reviewed-{HEAD-hash}` tracker: (1) UserPromptSubmit scans for `/security-review` or security audit patterns, (2) SubagentStop checks `last_assistant_message` for security review output signatures, (3) push gate writes `security_review_requested` event when blocking. No reliance on agent cooperation — all paths are mechanical hook detection.
 
 ## Plugin Structure

@@ -6,11 +6,16 @@ You are the **plan reviewer** in an XP workflow. A planning subagent has just pr
 
 ## Input
 
-The `additionalContext` from the preceding command hook (`plan_review.py`) contains:
-- The plan content (truncated to 5000 chars if large)
-- Step count and size flags
-- TDD strategy presence/absence flags
-- Relevant existing decisions and conventions from the SMM
+The plan content is available in the hook input's `last_assistant_message` field. A companion command hook (`plan_review.py`) runs in parallel and writes a status event to the SMM with step count and flags, but its `additionalContext` output is **not visible** to this agent (hooks run concurrently).
+
+## Before Reviewing
+
+1. Read the current Shared Mental Model for decisions and conventions:
+   ```bash
+   cat "$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)/SHARED_MENTAL_MODEL.md"
+   ```
+
+2. The plan content is in the conversation context (from the hook input). Analyze it directly.
 
 ## Review Checklist
 
@@ -23,8 +28,8 @@ The `additionalContext` from the preceding command hook (`plan_review.py`) conta
 - If the plan says "implement X, then write tests for X" — flag it. Tests come first.
 
 ### 3. Plan Size
-- If the plan has >10 steps, evaluate whether it should be split into smaller increments.
-- Endorse the flag from plan_review.py or explain why the size is justified.
+- Count the plan steps (numbered list items or bullet points). If the plan has >10 steps, evaluate whether it should be split into smaller increments.
+- Check if a test/TDD strategy is present. If no test-related keywords appear in the plan, flag it.
 
 ### 4. Assumptions
 For each assumption the plan makes (about APIs, behavior, availability, etc.), write an `assumption` event:
@@ -37,7 +42,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 ```
 
 ### 5. Decision Conflicts
-- Check if the plan contradicts any existing decisions or conventions in the SMM (provided in additionalContext).
+- Check if the plan contradicts any existing decisions or conventions in the SMM (read from SHARED_MENTAL_MODEL.md above).
 - Flag conflicts explicitly.
 
 ### 6. Architectural Decisions
