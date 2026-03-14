@@ -5,12 +5,35 @@ Appends a minimal status event and checks for structural conflicts
 (patterns 2-5, no file_path so pattern 1 is skipped).
 """
 
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+
+# ---------------------------------------------------------------------------
+# Path 2: Security review output detection
+# ---------------------------------------------------------------------------
+
+_SECURITY_REVIEW_SIGNALS = [
+    re.compile(r"security\s+review", re.IGNORECASE),
+    re.compile(r"no\s+vulnerabilit(?:y|ies)\s+found", re.IGNORECASE),
+    re.compile(r"no\s+(?:security\s+)?issues?\s+found", re.IGNORECASE),
+    re.compile(r"(?:Critical|High|Medium|Low)\s*:", re.IGNORECASE),
+    re.compile(r"vulnerabilit(?:y|ies)", re.IGNORECASE),
+    re.compile(r"security\s+audit", re.IGNORECASE),
+]
+_SECURITY_REVIEW_THRESHOLD = 2
+
+
+def _detect_security_review(message: str) -> bool:
+    """Score message against security review signals. Returns True if >= threshold."""
+    if not message:
+        return False
+    score = sum(1 for sig in _SECURITY_REVIEW_SIGNALS if sig.search(message))
+    return score >= _SECURITY_REVIEW_THRESHOLD
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -44,6 +67,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     concern_events = _common.detect_conflicts(events, agent_id)
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
+
+    # Path 2: detect security review output from subagent
+    last_message = input_data.get("last_assistant_message", "")
+    if isinstance(last_message, str) and _detect_security_review(last_message):
+        head_hash = _common.get_head_hash()
+        if head_hash is not None:
+            _common.write_security_tracker(smm_dir, head_hash)
 
     return None
 
