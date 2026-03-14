@@ -170,7 +170,7 @@ When `session_start.py` initializes a new SMM (no prior `events.jsonl`), `custom
 
 | Event | Handler | Script/Prompt | What It Does |
 |---|---|---|---|
-| **SessionStart** | command | `session_start.py` | Init SMM, check for unanalyzed events, inject SMM + GUPP + skills. On first run: creates SMM, writes initial status event. |
+| **SessionStart** | command | `session_start.py` | Init SMM, inject SMM + behavioral guide + GUPP + skills via `additionalContext`. On first run: creates SMM. |
 | **SessionStart** | command | `retrospective.py` | Check for unanalyzed events. Compute session stats (events by type, concern resolution ratio, navigator effectiveness, etc.). Write `.retro-input.json` with events + stats. |
 | **SessionStart** | agent | `retrospective_analyst.md` | Keep/Fix/Try with XP values as lenses. Analyzes session stats for plugin health anomalies. Skipped if no unanalyzed events. |
 | **SessionStart** | agent | `customer_proxy.md` | Triage open questions via AskUserQuestion. Reconcile customer intent: review open intents against event log activity, mark delivered, distill new intents from `customer_input` events. On first run (empty SMM): asks for project goals. |
@@ -213,14 +213,13 @@ When `session_start.py` initializes a new SMM (no prior `events.jsonl`), `custom
 |---|---|---|---|---|
 | **SubagentStart** | | command | `subagent_start.py` | Full SMM injection + watermark |
 | **SubagentStop** | | command | `subagent_stop.py` | Record work, conflict detection, delta for main agent |
-| **SubagentStop** | `Plan` | command | `plan_review.py` | Check plan size, extract decisions/assumptions to SMM, flag missing test strategy |
+| **SubagentStop** | `Plan` | command | `plan_review.py` | Check plan size, flag missing test strategy, record status event (deterministic, parallel with plan_reviewer) |
+| **SubagentStop** | `Plan` | agent | `plan_reviewer.md` | Check milestone boundaries, TDD ordering, assumptions, decision conflicts. Reads SMM directly. Extracts `decision` and `assumption` events |
 | **SubagentStop** | | agent (async) | `subagent_reviewer.md` | Review holistic output: conventions, complexity, decision alignment |
 
 ### Notifications
 
-| Event | Handler | Script/Prompt | What It Does |
-|---|---|---|---|
-| **Notification** | command | `customer_notify.py` | Desktop notification for 🔴 questions |
+Desktop notifications for 🔴 blocking questions are handled inline in `_append_impl.py` at the `append_event()` choke point — not as a separate hook. This ensures every 🔴 question triggers a notification regardless of which hook or agent created it (macOS `osascript` / Linux `notify-send`).
 
 ### Recursion Prevention
 
@@ -362,7 +361,7 @@ SubagentStop  → command: record work, conflicts, delta
 | **Refactoring** | LLM: quality reviewer flags growing complexity. `/simplify` runs at loop end for cross-file reuse, quality, and efficiency review. Retrospective tracks unfixed flags. | `quality_reviewer.md`, `simplify_gate.py` |
 | **Simple Design** | LLM: quality reviewer flags over-engineering. Plan review flags oversized plans. `/simplify` catches duplicate utilities and unnecessary abstractions. | `quality_reviewer.md`, `plan_review.py`, `simplify_gate.py` |
 | **Collective Code Ownership** | Deterministic: SMM injected into all agents automatically. Global hooks. | `pre_tool_use.py`, `subagent_start.py` |
-| **On-Site Customer** | Deterministic: prompts logged, notifications sent. LLM: customer-proxy triages questions. | `user_prompt_log.py`, `customer_notify.py`, `customer_proxy.md` |
+| **On-Site Customer** | Deterministic: prompts logged, notifications sent (inline in `_append_impl.py`). LLM: customer-proxy triages questions. | `user_prompt_log.py`, `_append_impl.py`, `customer_proxy.md` |
 | **Standup** | Deterministic: auto-generated status/working_on from tool calls. Continuous. | `post_tool_use.py` |
 | **Retrospective** | LLM (required): Keep/Fix/Try at session start. XP values as analytical lenses. | `retrospective_analyst.md` |
 | **Sustainable Pace** | Deterministic: SMM survives compaction, session_end preserves state. | `pre_compact.py`, `session_end.py` |
@@ -477,7 +476,6 @@ plugins/xp-agents/
 │   ├── user_prompt_log.py
 │   ├── subagent_start.py
 │   ├── subagent_stop.py
-│   ├── customer_notify.py
 │   ├── pre_compact.py
 │   ├── retrospective.py
 │   └── simplify_gate.py
