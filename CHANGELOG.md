@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.2 — Milestone 5.2: SMM Enhancements — Schema & Materializer
+
+### Added
+- 3 new event types: `goal` (🎯 prefix), `debt` (requires `files`, with session-based aging), `customer_intent` (requires `intent_status`: open/delivered/superseded)
+- Two-tier materialized view: Active Context (goals, conflicts, blocking questions, unacknowledged concerns, customer intent, agent status, navigator guidance) and Reference (decisions, conventions, resolved questions, discoveries, assumptions, technical debt, resolved concerns)
+- Debt aging in materializer — counts `session_end` events after debt timestamp using `bisect`. 0–3 normal, 4–6 ⚠️, 7+ 🔴
+- Session stats in `.retro-input.json` — pair_guidance_count, status_count, concerns raised/resolved, questions open/answered, decisions total/draft
+- `compute_resolutions()` in `_append_impl.py` — shared resolution tracking used by materializer, retrospective, session_end, and detect_conflicts
+- `read_with_lock()`, `write_watermark()` centralized in `_append_impl.py`
+- `PRIORITY_BLOCKING`, `PRIORITY_ASSUMED`, `PRIORITY_INFO` constants in `_append_impl.py` (replace `PRIORITY_RED`)
+- 34 new tests (585 total: 228 SMM + 309 hooks + 50 integration)
+
+### Changed
+- `materialize.py` — complete render rewrite to two-tier structure. Navigator guidance scoped to current session. Customer Input section removed
+- `read_delta.py` — `format_delta()` handles goal, debt, customer_intent types
+- `_append_impl.py` centralized as foundational module — `materialize.py`, `read_delta.py`, `_common.py` import shared functions instead of duplicating (6 functions deduplicated)
+- `prompts/customer_proxy.md` — updated section references for two-tier SMM
+
+### Security
+- Watermark read uses `O_NOFOLLOW` to reject symlinks
+- Watermark write rejects symlink targets before rename
+- `normalize_path` resolves symlinks via `realpath` for overlap detection
+- `references` and `files` array items validated as strings at write time
+
 ## v0.5.0 — Milestone 5: Agent Hooks — Session Lifecycle
 
 ### Added

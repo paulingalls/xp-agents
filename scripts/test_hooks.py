@@ -2887,8 +2887,8 @@ class TestHooksJsonM4(_HooksJsonTestCase):
         plugin_path = Path(__file__).parent.parent / ".claude-plugin" / "plugin.json"
         with open(plugin_path) as f:
             plugin = json.load(f)
-        # Updated to 0.5.0 in M5
-        self.assertEqual(plugin["version"], "0.5.0")
+        # Updated to 0.5.2 in M5.2
+        self.assertEqual(plugin["version"], "0.5.2")
 
 
 # ===========================================================================

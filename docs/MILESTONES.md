@@ -189,30 +189,41 @@
 
 ---
 
-## Milestone 5.2: SMM Enhancements — Schema & Materializer
+## Milestone 5.2: SMM Enhancements — Schema & Materializer ✅
 
 **Goal**: New event types, two-tier materialized view, debt aging, session stats.
 
+**Status**: Complete (585 total tests: 228 SMM + 309 hooks + 50 integration, 34 new tests for M5.2).
+
 **Deliverables**:
-- [ ] Add `goal`, `debt`, and `customer_intent` event types to `schema.json` and `append.sh`. `customer_intent` has `status` (open / delivered / superseded) and `source_refs` (links to originating `customer_input` events).
-- [ ] Update `retrospective.py` — compute session stats from event log: events by type, pair_guidance count vs. file write count, concerns raised vs. resolved, questions open vs. answered, conflicts detected by pattern, customer intents open vs. delivered, decisions draft vs. confirmed. Include stats in `.retro-input.json`.
-- [ ] Rewrite `materialize.py` — two-tier output: Active Context (goals, conflict alerts, 🔴 questions, unacknowledged concerns, customer intent, agent status, navigator guidance) above Reference (decisions, conventions, resolved questions, discoveries, assumptions, technical debt, resolved concerns)
-- [ ] Debt aging in `materialize.py` — count `session_end` events after debt timestamp. No event mutation. Thresholds: 0–3 sessions normal, 4–6 ⚠️, 7+ 🔴.
-- [ ] Goals pinned at top of Active Context, extracted from `goal` events + project CLAUDE.md if present
-- [ ] Customer Intent section in Active Context — open items only, delivered/superseded removed from view
-- [ ] Navigator guidance scoped to current session only (filter by session_id)
-- [ ] Remove raw "Customer Input" section — strategic intent via `goal` events, tactical intent via `customer_intent` events
-- [ ] Update `read_delta.py` to handle new event types
+- [x] Add `goal`, `debt`, and `customer_intent` event types to `schema.json` and `_append_impl.py`. `customer_intent` has `intent_status` (open / delivered / superseded). `debt` requires `files` array. `goal` has no extra required fields.
+- [x] Update `retrospective.py` — `_compute_session_stats()` computes pair_guidance_count, status_count, concerns raised/resolved, questions open/answered, decisions total/draft. Included in `.retro-input.json`.
+- [x] Rewrite `materialize.py` — two-tier output: Active Context (goals, conflict alerts, 🔴 questions, unacknowledged concerns, customer intent, agent status, navigator guidance) above Reference (decisions, conventions, resolved questions, discoveries, assumptions, technical debt, resolved concerns)
+- [x] Debt aging in `materialize.py` — `bisect.bisect_right` on session_end timestamps. Thresholds: 0–3 normal, 4–6 ⚠️, 7+ 🔴.
+- [x] Goals pinned at top of Active Context with 🎯 prefix
+- [x] Customer Intent section in Active Context — open items only with 📋 prefix, source refs resolved via `by_id`
+- [x] Navigator guidance scoped to current session (events after `last_session_end_pos`)
+- [x] Customer Input section removed from materialized view
+- [x] `read_delta.py` — `format_delta()` handles goal, debt, customer_intent
+- [x] Centralized `_append_impl.py` as foundational module — `resolve_smm_dir`, `_validate_smm_dir`, `_validate_agent_id`, `LockTimeoutError`, `read_with_lock`, `write_watermark`, `compute_resolutions`, `VALID_TYPES`, `PRIORITY_*` constants defined once. `materialize.py`, `read_delta.py`, `_common.py` import from it.
+- [x] Security: watermark symlink protection (O_NOFOLLOW), `normalize_path` resolves symlinks, `references`/`files` items validated as strings
+
+**Design decisions**:
+- `_append_impl.py` is the foundational module: all shared SMM primitives defined once, consumers import. Eliminates 6 duplicated functions.
+- `compute_resolutions()` shared by materializer, retrospective, session_end, and detect_conflicts — single definition of "which questions are answered, which concerns are resolved."
+- Navigator guidance scoped by event position vs. `last_session_end_pos` (not session_id), since session_id is not stored on guidance events.
+- `PRIORITY_BLOCKING` / `PRIORITY_ASSUMED` / `PRIORITY_INFO` replace `PRIORITY_RED` — semantic names instead of color names.
 
 **Acceptance Criteria**:
-- Goals appear at top of materialized SMM
-- Active Context / Reference tiers render correctly
-- Customer Intent section shows open items only
-- Debt age renders correctly based on session count
-- Debt at 7+ sessions renders with 🔴
-- Navigator guidance clears across sessions
-- Session stats computed from event log and included in `.retro-input.json`
-- Existing event types still work unchanged
+- ✅ Goals appear at top of materialized SMM with 🎯 prefix
+- ✅ Active Context / Reference tiers render with `---` dividers and `## ACTIVE CONTEXT` / `## REFERENCE` headers
+- ✅ Customer Intent section shows open items only with 📋 prefix
+- ✅ Debt age renders correctly based on session_end count after debt timestamp
+- ✅ Debt at 7+ sessions renders with 🔴
+- ✅ Navigator guidance clears across sessions (scoped to after last session_end)
+- ✅ Session stats computed and included in `.retro-input.json`
+- ✅ All 15 event types render correctly
+- ✅ Plugin version bumped to 0.5.2
 
 ---
 
