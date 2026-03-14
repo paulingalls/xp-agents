@@ -213,8 +213,7 @@ When `session_start.py` initializes a new SMM (no prior `events.jsonl`), `custom
 |---|---|---|---|---|
 | **SubagentStart** | | command | `subagent_start.py` | Full SMM injection + watermark |
 | **SubagentStop** | | command | `subagent_stop.py` | Record work, conflict detection, delta for main agent |
-| **SubagentStop** | `Plan` | command | `plan_review.py` | Check plan size, flag missing test strategy, record status event (deterministic, parallel with plan_reviewer) |
-| **SubagentStop** | `Plan` | agent | `plan_reviewer.md` | Check milestone boundaries, TDD ordering, assumptions, decision conflicts. Reads SMM directly. Extracts `decision` and `assumption` events |
+| **SubagentStop** | `Plan` | agent | `plan_reviewer.md` | Check plan size, TDD ordering, milestone boundaries, assumptions, decision conflicts. Reads SMM directly. Extracts `decision` and `assumption` events. Returns guidance to main agent. |
 | **SubagentStop** | | agent (async) | `subagent_reviewer.md` | Review holistic output: conventions, complexity, decision alignment |
 
 ### Notifications
@@ -354,12 +353,12 @@ SubagentStop  → command: record work, conflicts, delta
 |---|---|---|
 | **TDD** | Deterministic: Stop blocks if tests fail. LLM: navigator flags implementation-before-tests. | `tdd_check.md`, `pre_tool_use.py` |
 | **Pair Programming** | LLM (required): navigator before every significant write, quality reviewer after. | `navigator.md`, `quality_reviewer.md` |
-| **Planning Game** | LLM + deterministic: plan review extracts decisions/assumptions, flags oversized plans. Customer-proxy triages questions. | `plan_review.py`, `customer_proxy.md` |
+| **Planning Game** | LLM: plan reviewer extracts decisions/assumptions, flags oversized plans, checks TDD ordering. Customer-proxy triages questions. | `plan_reviewer.md`, `customer_proxy.md` |
 | **Small Releases** | Deterministic: commit size check. LLM: navigator nudges when no recent commits. | `bash_post_tool.py` |
 | **Coding Standards** | Deterministic: lint after every write, convention tracking in SMM, conflict detector catches violations. Security review required before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_use.py` (push gate) |
 | **Continuous Integration** | Deterministic: test results parsed and recorded (success via `bash_post_tool.py`, failure via `bash_failure.py`). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_check.md` |
 | **Refactoring** | LLM: quality reviewer flags growing complexity. `/simplify` runs at loop end for cross-file reuse, quality, and efficiency review. Retrospective tracks unfixed flags. | `quality_reviewer.md`, `simplify_gate.py` |
-| **Simple Design** | LLM: quality reviewer flags over-engineering. Plan review flags oversized plans. `/simplify` catches duplicate utilities and unnecessary abstractions. | `quality_reviewer.md`, `plan_review.py`, `simplify_gate.py` |
+| **Simple Design** | LLM: quality reviewer flags over-engineering. Plan reviewer flags oversized plans. `/simplify` catches duplicate utilities and unnecessary abstractions. | `quality_reviewer.md`, `plan_reviewer.md`, `simplify_gate.py` |
 | **Collective Code Ownership** | Deterministic: SMM injected into all agents automatically. Global hooks. | `pre_tool_use.py`, `subagent_start.py` |
 | **On-Site Customer** | Deterministic: prompts logged, notifications sent (inline in `_append_impl.py`). LLM: customer-proxy triages questions. | `user_prompt_log.py`, `_append_impl.py`, `customer_proxy.md` |
 | **Standup** | Deterministic: auto-generated status/working_on from tool calls. Continuous. | `post_tool_use.py` |
@@ -449,7 +448,7 @@ Fail loud, never corrupt, always recoverable.
 - **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
 - **`/simplify` at Stop** — command hook (`simplify_gate.py`) checks for file changes since last `customer_input`. If changes found and `/simplify` hasn't run, blocks via exit 2 with stderr instruction. No prompt hook — hooks within the same Stop entry run in parallel, so `additionalContext` from a command hook isn't visible to a prompt hook. Tracker file (`.simplify-{agent_id}.json`) keyed on last `customer_input` event ID prevents re-trigger. New loop = new ID = fresh trigger.
 - **CLAUDE.md is NOT a plugin component** — behavioral rules delivered via `additionalContext` in `session_start.py`. The `BEHAVIORAL_GUIDE.md` file is a data file read at runtime, not a plugin manifest entry. Skills are voluntary (not hook-enforced) and prominently referenced in the guide with "invoke when" instructions to drive usage.
-- **Parallel hook audit (M6)** — all multi-hook entries verified for ordering independence. Plan reviewer (`plan_reviewer.md`) was updated to read SMM directly instead of depending on `plan_review.py`'s `additionalContext` (which it never received due to parallel execution). Retrospective analyst handles `.retro-input.json` absence gracefully (file-based race with `retrospective.py`; worst case: retro delayed one session). All other multi-hook entries (PostToolUse, Stop, SubagentStop default) are verified independent.
+- **Parallel hook audit (M6)** — all multi-hook entries verified for ordering independence. `plan_review.py` command hook removed entirely — its deterministic checks were redundant with `plan_reviewer.md` agent hook, which reads the SMM directly, does its own step counting/TDD detection, and returns guidance to the main agent. Retrospective analyst handles `.retro-input.json` absence gracefully (file-based race with `retrospective.py`; worst case: retro delayed one session). All other multi-hook entries (PostToolUse, Stop, SubagentStop default) are verified independent.
 - **Security review push gate** — three detection paths write the `.security-reviewed-{HEAD-hash}` tracker: (1) UserPromptSubmit scans for `/security-review` or security audit patterns, (2) SubagentStop checks `last_assistant_message` for security review output signatures, (3) push gate writes `security_review_requested` event when blocking. No reliance on agent cooperation — all paths are mechanical hook detection.
 
 ## Plugin Structure
@@ -472,7 +471,6 @@ plugins/xp-agents/
 │   ├── lint_check.py
 │   ├── bash_post_tool.py
 │   ├── bash_failure.py
-│   ├── plan_review.py
 │   ├── user_prompt_log.py
 │   ├── subagent_start.py
 │   ├── subagent_stop.py

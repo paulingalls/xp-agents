@@ -1714,7 +1714,6 @@ class TestStdlibOnly(unittest.TestCase):
                 "subagent_start",
                 "subagent_stop",
                 "user_prompt_log",
-                "plan_review",
                 "retrospective",
             }
         )
@@ -2940,203 +2939,6 @@ class TestM34HooksConfig(unittest.TestCase):
 
 
 # ===========================================================================
-# plan_review.py tests (Milestone 4)
-# ===========================================================================
-
-
-class TestPlanReview(_HookTestCase):
-    """Unit tests for plan_review.py run() function."""
-
-    def test_xp_agent_skips(self):
-        import plan_review
-
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "agent_type": "xp-plan-reviewer",
-                "last_assistant_message": "1. do stuff",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_graceful_no_smm(self):
-        import plan_review
-
-        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
-        result = plan_review.run(
-            {"session_id": "test", "last_assistant_message": "1. do stuff"},
-            smm_dir=fake_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_small_plan_no_size_flag(self):
-        import plan_review
-
-        plan = "\n".join(f"{i + 1}. Step {i + 1}" for i in range(5))
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertNotIn("large plan", result.lower())
-
-    def test_large_plan_flags_size(self):
-        import plan_review
-
-        plan = "\n".join(f"{i + 1}. Step {i + 1}" for i in range(15))
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("large plan", result.lower())
-
-    def test_missing_test_strategy_flagged(self):
-        import plan_review
-
-        plan = "1. Create feature module\n2. Add routing\n3. Deploy"
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("test", result.lower())
-
-    def test_plan_with_test_strategy_ok(self):
-        import plan_review
-
-        plan = "1. Write tests for auth\n2. Implement auth module\n3. Run test suite"
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertNotIn("No test/TDD strategy", result)
-
-    def test_context_includes_plan_content(self):
-        import plan_review
-
-        plan = "1. Implement the widget\n2. Test the widget"
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIn("Implement the widget", result)
-
-    def test_context_includes_all_decisions(self):
-        import plan_review
-
-        d = make_event(
-            "decision",
-            topic="auth",
-            content="Use JWT for auth",
-            working_on=["/tmp/src/auth.py"],
-        )
-        self._write_events([d])
-        plan = "1. Refactor auth module"
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIn("Use JWT for auth", result)
-
-    def test_missing_last_assistant_message(self):
-        import plan_review
-
-        result = plan_review.run(
-            {"session_id": "test", "agent_id": "plan-1"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_step_counting_numbered_list(self):
-        import plan_review
-
-        plan = "1. First step\n2. Second step\n3. Third step"
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIn("3 steps", result)
-
-    def test_step_counting_bullets(self):
-        import plan_review
-
-        plan = "- First step\n- Second step\n* Third step\n* Fourth step"
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIn("4 steps", result)
-
-    def test_appends_status_event(self):
-        import plan_review
-
-        plan = "1. Do things"
-        plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        self.assertTrue(len(statuses) >= 1)
-        self.assertTrue(any("plan review" in s["content"].lower() for s in statuses))
-
-    def test_plan_content_truncated(self):
-        import plan_review
-
-        plan = "1. Step one\n" + "x" * 6000
-        result = plan_review.run(
-            {
-                "session_id": "test",
-                "last_assistant_message": plan,
-                "agent_id": "plan-1",
-            },
-            smm_dir=self.smm_dir,
-        )
-        # Context should contain truncated plan, not the full 6000+ chars
-        # The plan content section should be <= 5000 chars
-        self.assertIn("truncated", result.lower())
-
-
-# ===========================================================================
 # Prompt file tests (Milestone 4)
 # ===========================================================================
 
@@ -3206,6 +3008,12 @@ class TestPromptFiles(unittest.TestCase):
         content = (self.prompts_dir / "plan_reviewer.md").read_text()
         self.assertIn("xp-plan-reviewer", content)
 
+    def test_plan_reviewer_md_reads_smm_directly(self):
+        """Plan reviewer should read SMM itself, not depend on plan_review.py."""
+        content = (self.prompts_dir / "plan_reviewer.md").read_text()
+        self.assertIn("SHARED_MENTAL_MODEL.md", content)
+        self.assertNotIn("plan_review.py", content)
+
 
 # ===========================================================================
 # hooks.json test base class
@@ -3266,19 +3074,11 @@ class TestHooksJsonM4(_HooksJsonTestCase):
         self.assertEqual(agents[0]["agent_type"], "xp-quality-reviewer")
         self.assertIn("quality_reviewer.md", agents[0]["prompt"])
 
-    # --- SubagentStop: plan_review + plan_reviewer ---
+    # --- SubagentStop: plan_reviewer ---
 
     def test_subagentstop_plan_matcher(self):
         entry = self._find_matcher_entry("SubagentStop", "Plan")
         self.assertIsNotNone(entry, "SubagentStop Plan matcher entry missing")
-
-    def test_subagentstop_plan_review_command(self):
-        entry = self._find_matcher_entry("SubagentStop", "Plan")
-        commands = [h for h in entry["hooks"] if h.get("type") == "command"]
-        self.assertTrue(
-            any("plan_review.py" in h["command"] for h in commands),
-            "plan_review.py command hook missing",
-        )
 
     def test_subagentstop_plan_reviewer_agent(self):
         entry = self._find_matcher_entry("SubagentStop", "Plan")
@@ -3286,6 +3086,12 @@ class TestHooksJsonM4(_HooksJsonTestCase):
         self.assertEqual(len(agents), 1)
         self.assertEqual(agents[0]["agent_type"], "xp-plan-reviewer")
         self.assertIn("plan_reviewer.md", agents[0]["prompt"])
+
+    def test_subagentstop_plan_no_command_hook(self):
+        """Plan entry should only have the agent hook, no command hook."""
+        entry = self._find_matcher_entry("SubagentStop", "Plan")
+        commands = [h for h in entry["hooks"] if h.get("type") == "command"]
+        self.assertEqual(len(commands), 0, "Plan entry should have no command hooks")
 
     # --- Plugin version bump ---
 

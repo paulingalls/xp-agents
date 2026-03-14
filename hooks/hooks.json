@@ -92,11 +92,6 @@
         "matcher": "Plan",
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/plan_review.py",
-            "timeout": 5000
-          },
-          {
             "type": "agent",
             "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/plan_reviewer.md",
             "agent_type": "xp-plan-reviewer"
