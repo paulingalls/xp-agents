@@ -71,9 +71,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     # Path 2: detect security review output from subagent
     last_message = input_data.get("last_assistant_message", "")
     if isinstance(last_message, str) and _detect_security_review(last_message):
-        head_hash = _common.get_head_hash()
-        if head_hash is not None:
-            _common.write_security_tracker(smm_dir, head_hash)
+        _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
     return None
 

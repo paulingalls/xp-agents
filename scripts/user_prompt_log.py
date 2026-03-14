@@ -40,9 +40,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Path 1: detect security review invocation in user prompt
     if isinstance(prompt, str) and _SECURITY_REVIEW_PATTERN.search(prompt):
-        head_hash = _common.get_head_hash()
-        if head_hash is not None:
-            _common.write_security_tracker(smm_dir, head_hash)
+        _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
     return None
 

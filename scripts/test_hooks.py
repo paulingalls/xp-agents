@@ -3917,6 +3917,25 @@ class TestSecurityHelpers(_HookTestCase):
         link.symlink_to(real_file)
         self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
 
+    def test_cleanup_skips_non_hash_files(self):
+        """_cleanup_old_security_trackers skips files with non-hash suffixes."""
+        notes = self.smm_dir / ".security-reviewed-notes.txt"
+        notes.write_text("keep me")
+        _common.write_security_tracker(self.smm_dir, "abc1234")
+        self.assertTrue(notes.exists(), "Non-hash file should survive cleanup")
+
+    def test_mark_security_reviewed(self):
+        """mark_security_reviewed encapsulates hash fetch + tracker write."""
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            _common.mark_security_reviewed(self.smm_dir)
+        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_mark_security_reviewed_no_hash(self):
+        """mark_security_reviewed no-ops when HEAD hash unavailable."""
+        with patch.object(_common, "get_head_hash", return_value=None):
+            _common.mark_security_reviewed(self.smm_dir)
+        # No tracker, no crash
+
     def test_write_tracker_content(self):
         """write_security_tracker writes JSON with commit_hash and ts."""
         _common.write_security_tracker(self.smm_dir, "abc1234")
@@ -3999,7 +4018,7 @@ class TestPreToolUsePushGate(_HookTestCase):
                 self.pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
             events = _common.read_events_raw(self.smm_dir)
             sec_events = [
-                e for e in events if e.get("type") == "security_review_requested"
+                e for e in events if e.get("type") == _common.SECURITY_REVIEW_REQUESTED
             ]
             self.assertEqual(len(sec_events), 1)
             self.assertIn("abc1234", sec_events[0]["content"])

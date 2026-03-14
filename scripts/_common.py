@@ -518,9 +518,20 @@ def _cleanup_old_security_trackers(smm_dir: Path, keep_hash: str) -> None:
     """Remove .security-reviewed-* files except current."""
     keep_name = f".security-reviewed-{keep_hash}"
     for f in smm_dir.glob(".security-reviewed-*"):
-        if f.name != keep_name:
+        if f.name == keep_name:
+            continue
+        # Validate suffix is a commit hash before deleting
+        suffix = f.name.removeprefix(".security-reviewed-")
+        if _COMMIT_HASH_RE.match(suffix):
             with contextlib.suppress(OSError):
                 f.unlink()
+
+
+def mark_security_reviewed(smm_dir: Path, cwd: str = ".") -> None:
+    """Get HEAD hash and write security tracker. No-op on failure."""
+    head_hash = get_head_hash(cwd)
+    if head_hash is not None:
+        write_security_tracker(smm_dir, head_hash)
 
 
 # ---------------------------------------------------------------------------
