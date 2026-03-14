@@ -1159,5 +1159,122 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         self.assertIn("concerns_raised", data["session_stats"])
 
 
+# ===========================================================================
+# Simplify Gate (Milestone 5.4)
+# ===========================================================================
+
+
+class TestSimplifyGateIntegration(_IntegrationTestCase):
+    def test_file_changes_blocks_stop(self):
+        """customer_input + status with working_on → exit 2 with /simplify."""
+        self._seed_events(
+            [
+                make_event("customer_input", content="build feature"),
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        result = self._run_script(
+            "simplify_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("/simplify", result.stderr)
+
+    def test_no_changes_allows_stop(self):
+        """customer_input only, no file changes → exit 0, no output."""
+        self._seed_events([make_event("customer_input", content="just chatting")])
+        result = self._run_script(
+            "simplify_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_xp_agent_allows_stop(self):
+        """xp- agent_type → exit 0 even with file changes."""
+        self._seed_events(
+            [
+                make_event("customer_input", content="build"),
+                make_event("status", content="wrote", working_on=["src/x.ts"]),
+            ]
+        )
+        result = self._run_script(
+            "simplify_gate.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "main",
+                "agent_type": "xp-nav",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+
+# ===========================================================================
+# Bash Failure — PostToolUseFailure
+# ===========================================================================
+
+
+class TestBashFailureIntegration(_IntegrationTestCase):
+    def test_failed_test_creates_concern(self):
+        """Failed pytest → status + concern events on disk."""
+        result = self._run_script(
+            "bash_failure.py",
+            {
+                "session_id": "int-test",
+                "hook_event_name": "PostToolUseFailure",
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 -m pytest tests/"},
+                "error": "Command exited with non-zero status code 1",
+                "is_interrupt": False,
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("pytest", statuses[0]["content"])
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0]["severity"], "high")
+
+    def test_non_test_command_creates_nothing(self):
+        """Non-test Bash failure → no events."""
+        result = self._run_script(
+            "bash_failure.py",
+            {
+                "session_id": "int-test",
+                "hook_event_name": "PostToolUseFailure",
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls /nonexistent"},
+                "error": "exit code 2",
+                "is_interrupt": False,
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+    def test_interrupt_creates_nothing(self):
+        """User interrupt → no events."""
+        result = self._run_script(
+            "bash_failure.py",
+            {
+                "session_id": "int-test",
+                "hook_event_name": "PostToolUseFailure",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pytest"},
+                "error": "interrupted",
+                "is_interrupt": True,
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

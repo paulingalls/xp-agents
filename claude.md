@@ -6,6 +6,18 @@ A Claude Code plugin that enforces XP practices via hooks. Broadcast event log (
 
 Read `ARCHITECTURE.md` before starting any milestone. It is the source of truth for design decisions, hook map, event types, and platform constraints.
 
+## Official Claude Code Docs (check for latest API)
+
+- **Hooks reference**: https://code.claude.com/docs/en/hooks.md
+- **Hooks guide**: https://code.claude.com/docs/en/hooks-guide.md
+- **Plugins**: https://code.claude.com/docs/en/plugins.md
+- **Plugins reference**: https://code.claude.com/docs/en/plugins-reference.md
+- **Skills**: https://code.claude.com/docs/en/skills.md
+- **Subagents**: https://code.claude.com/docs/en/sub-agents.md
+- **Full docs index**: https://code.claude.com/docs/llms.txt
+
+Always verify hook I/O formats against the hooks reference before implementing new hooks. The API evolves.
+
 ## Build Order
 
 Follow `MILESTONES.md` sequentially. Each milestone's acceptance criteria must pass before moving to the next. The milestones are: SMM Foundation → SMM Engine → Core Hooks (4 sub-milestones) → Agent Hooks Quality/Navigation → Agent Hooks Session Lifecycle → CLAUDE.md & Skills → Integration Testing → Hardening.
@@ -42,7 +54,7 @@ tool_input = input_data.get("tool_input", {})
 agent_id = input_data.get("agent_id", "main")
 ```
 
-### Command Hook Output (stdout, exit 0)
+### Command Hook Output — Context Injection (exit 0, stdout JSON)
 ```python
 import json
 output = {
@@ -55,10 +67,34 @@ print(json.dumps(output))
 sys.exit(0)
 ```
 
-### Blocking (exit 2)
+### Command Hook Output — Blocking (two patterns)
+
+**Pattern 1: exit 2 + stderr** (simpler, used by our scripts)
 ```python
 print("Explanation of why this is blocked", file=sys.stderr)
 sys.exit(2)
+```
+
+**Pattern 2: JSON decision** (exit 0, for Stop/PostToolUse/SubagentStop/UserPromptSubmit)
+```python
+import json
+output = {"decision": "block", "reason": "Explanation shown to Claude"}
+print(json.dumps(output))
+sys.exit(0)
+```
+
+### Prompt Hook Output (type: "prompt")
+Prompt hooks return `ok`/`reason`, NOT `decision`/`block`:
+```json
+{"ok": true}
+{"ok": false, "reason": "Must fix tests before stopping."}
+```
+
+### Agent Hook Output (type: "agent")
+Same format as prompt hooks:
+```json
+{"ok": true}
+{"ok": false, "reason": "Explanation of why action should be blocked."}
 ```
 
 ### Recursion Prevention
@@ -130,9 +166,15 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 
 **PreToolUse `additionalContext` works** — confirmed, use it for all context injection to the agent.
 
-**PostToolUse `additionalContext` may not work** — write to event log instead. The next PreToolUse delivers it. See architecture doc Platform Constraints section for details and GitHub issue references.
+**PostToolUse now supports `decision: "block"`** — top-level JSON field. Can also use `additionalContext`. We still prefer writing to event log for async feedback.
 
 **PostToolUse agent hooks should be async** (`"async": true`) — feedback goes through event log anyway, no need to block.
+
+**Stop hooks run in parallel** — all hooks in the same Stop entry fire concurrently. A command hook's `additionalContext` is NOT visible to a prompt hook in the same entry. Use exit 2 (or `decision: "block"`) for command hooks that need to block.
+
+**Prompt/agent hooks use `ok`/`reason`** — NOT `decision`/`block`. Return `{"ok": false, "reason": "..."}` to block.
+
+**Available hook events** (as of 2026-03-14): SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, Notification, SubagentStart, SubagentStop, Stop, TeammateIdle, TaskCompleted, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 
 ## File Structure
 

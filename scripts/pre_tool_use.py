@@ -5,11 +5,8 @@ Fires on every tool call. Classifies the tool into a tier for delta injection,
 checks for working_on overlap (conflict prevention), and nudges TDD ordering.
 """
 
-import contextlib
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -178,20 +175,7 @@ def check_tdd_order(
 
 def _write_tracker(tracker_file: Path, tracker: dict) -> None:
     """Atomic write of TDD tracker file."""
-    fd, tmp = tempfile.mkstemp(
-        dir=tracker_file.parent,
-        prefix=".tdd-tmp-",
-        suffix=".json",
-    )
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(tracker, f)
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, tracker_file)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    _common.write_json_atomic(tracker_file, tracker)
 
 
 # ---------------------------------------------------------------------------

@@ -2474,6 +2474,106 @@ class TestBashPostTool(_HookTestCase):
 
 
 # ===========================================================================
+# Bash Failure (PostToolUseFailure)
+# ===========================================================================
+
+
+def _make_bash_failure_input(
+    command: str = "echo hi", error: str = "exit code 1", **overrides
+) -> dict:
+    """Build a canonical PostToolUseFailure Bash input dict."""
+    data = {
+        "session_id": "t",
+        "hook_event_name": "PostToolUseFailure",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "error": error,
+        "is_interrupt": False,
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
+class TestBashFailure(_HookTestCase):
+    """Tests for bash_failure.py PostToolUseFailure handler."""
+
+    def setUp(self):
+        super().setUp()
+        import bash_failure
+
+        self.mod = bash_failure
+
+    def test_xp_agent_skips(self):
+        inp = _make_bash_failure_input(
+            command="pytest", error="exit 1", agent_type="xp-nav"
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_interrupt_skips(self):
+        inp = _make_bash_failure_input(
+            command="pytest", error="interrupted", is_interrupt=True
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_no_smm_dir_degrades(self):
+        inp = _make_bash_failure_input(command="pytest", error="exit 1")
+        self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
+        # No crash
+
+    def test_non_test_command_ignored(self):
+        inp = _make_bash_failure_input(command="ls -la", error="exit 2")
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_pytest_failure_records_status_and_concern(self):
+        inp = _make_bash_failure_input(
+            command="python3 -m pytest tests/",
+            error="Command exited with non-zero status code 1",
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("pytest", statuses[0]["content"])
+        self.assertIn("failed", statuses[0]["content"].lower())
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0]["severity"], "high")
+
+    def test_jest_failure_records_concern(self):
+        inp = _make_bash_failure_input(command="npx jest", error="exit code 1")
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+        self.assertIn("jest", concerns[0]["content"].lower())
+
+    def test_go_test_failure_records_concern(self):
+        inp = _make_bash_failure_input(command="go test ./...", error="exit 1")
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+        self.assertIn("go", concerns[0]["content"].lower())
+
+    def test_error_message_included_in_status(self):
+        inp = _make_bash_failure_input(
+            command="pytest",
+            error="Command exited with non-zero status code 2",
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertIn("non-zero status code 2", statuses[0]["content"])
+
+
+# ===========================================================================
 # hooks.json PostToolUse registration — Milestone 3.3
 # ===========================================================================
 
@@ -3193,8 +3293,8 @@ class TestHooksJsonM4(_HooksJsonTestCase):
         plugin_path = Path(__file__).parent.parent / ".claude-plugin" / "plugin.json"
         with open(plugin_path) as f:
             plugin = json.load(f)
-        # Updated to 0.5.3 in M5.3
-        self.assertEqual(plugin["version"], "0.5.3")
+        # Updated to 0.5.4 in M5.4
+        self.assertEqual(plugin["version"], "0.5.4")
 
 
 # ===========================================================================
@@ -3295,6 +3395,12 @@ class TestPromptFilesM5(unittest.TestCase):
         content = (self.prompts_dir / "tdd_check.md").read_text()
         self.assertIn("block", content.lower())
 
+    def test_tdd_check_md_uses_ok_reason_format(self):
+        """Prompt hooks must use ok/reason format, not decision/block."""
+        content = (self.prompts_dir / "tdd_check.md").read_text()
+        self.assertIn('"ok":', content)
+        self.assertIn('"reason":', content)
+
 
 # ===========================================================================
 # M5.3 acceptance criteria — prompt content verification
@@ -3391,7 +3497,7 @@ class TestHooksJsonM5(_HooksJsonTestCase):
     # --- SessionStart: retrospective.py command ---
 
     def test_session_start_has_retrospective_command(self):
-        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact")
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
         commands = [h for h in entry["hooks"] if h.get("type") == "command"]
         self.assertTrue(
             any("retrospective.py" in h["command"] for h in commands),
@@ -3401,7 +3507,7 @@ class TestHooksJsonM5(_HooksJsonTestCase):
     # --- SessionStart: retrospective_analyst agent ---
 
     def test_session_start_has_retro_analyst_agent(self):
-        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact")
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
         agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
         retro_agents = [
             a for a in agents if a.get("agent_type") == "xp-retrospective-analyst"
@@ -3412,7 +3518,7 @@ class TestHooksJsonM5(_HooksJsonTestCase):
     # --- SessionStart: customer_proxy agent ---
 
     def test_session_start_has_customer_proxy_agent(self):
-        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact")
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
         agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
         proxy_agents = [a for a in agents if a.get("agent_type") == "xp-customer-proxy"]
         self.assertEqual(len(proxy_agents), 1)
@@ -3446,6 +3552,214 @@ class TestHooksJsonM5(_HooksJsonTestCase):
         prompt_hooks = [h for h in all_hooks if h.get("type") == "prompt"]
         self.assertEqual(len(prompt_hooks), 1)
         self.assertIn("tdd_check.md", prompt_hooks[0]["prompt"])
+
+
+# ===========================================================================
+# Helpers for Stop hook tests
+# ===========================================================================
+
+
+def _make_stop_input(**overrides) -> dict:
+    """Build a canonical Stop hook input dict."""
+    data = {"session_id": "t", "agent_id": "main"}
+    data.update(overrides)
+    return data
+
+
+# ===========================================================================
+# Simplify Gate (Milestone 5.4)
+# ===========================================================================
+
+
+class TestSimplifyGate(_HookTestCase):
+    """Tests for simplify_gate.py Stop command hook."""
+
+    def setUp(self):
+        super().setUp()
+        import simplify_gate
+
+        self.mod = simplify_gate
+
+    def test_xp_agent_skips(self):
+        inp = _make_stop_input(agent_type="xp-nav")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_stop_hook_active_skips(self):
+        inp = _make_stop_input(stop_hook_active=True)
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_smm_dir_degrades(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
+        self.assertIsNone(result)
+
+    def test_no_events_no_output(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_customer_input_no_output(self):
+        self._write_events([make_event("status", content="busy")])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_file_changes_no_output(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="do something"),
+                make_event("status", content="thinking", working_on=[]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_file_changes_triggers_simplify(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="build feature"),
+                make_event("status", content="wrote file", working_on=["src/app.ts"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("/simplify", result)
+
+    def test_tracker_prevents_retrigger(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="build feature"),
+                make_event("status", content="wrote file", working_on=["src/app.ts"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result1 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result1)
+        # Second call — tracker should prevent re-trigger
+        result2 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result2)
+
+    def test_new_loop_resets_tracker(self):
+        ci1 = make_event("customer_input", content="first task")
+        self._write_events(
+            [
+                ci1,
+                make_event("status", content="wrote", working_on=["src/a.ts"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result1 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result1)
+
+        # New loop: new customer_input + changes
+        ci2 = make_event("customer_input", content="second task")
+        self._write_events(
+            [
+                ci1,
+                make_event("status", content="wrote", working_on=["src/a.ts"]),
+                ci2,
+                make_event("status", content="wrote2", working_on=["src/b.ts"]),
+            ]
+        )
+        result2 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result2)
+        self.assertIn("/simplify", result2)
+
+    def test_tracker_written_with_loop_id(self):
+        ci = make_event("customer_input", content="build")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/x.ts"]),
+            ]
+        )
+        inp = _make_stop_input()
+        self.mod.run(inp, smm_dir=self.smm_dir)
+
+        tracker_file = self.smm_dir / ".simplify-main.json"
+        self.assertTrue(tracker_file.exists())
+        tracker = json.loads(tracker_file.read_text())
+        self.assertEqual(tracker["loop_id"], ci["id"])
+
+
+# ===========================================================================
+# hooks.json M5.4 registration tests
+# ===========================================================================
+
+
+class TestHooksJsonM54(_HooksJsonTestCase):
+    """Verify hooks.json has M5.4 hook registrations."""
+
+    def test_stop_has_simplify_gate_command(self):
+        entries = self.data["hooks"]["Stop"]
+        all_hooks = []
+        for entry in entries:
+            all_hooks.extend(entry.get("hooks", []))
+        commands = [h for h in all_hooks if h.get("type") == "command"]
+        self.assertTrue(
+            any("simplify_gate.py" in h["command"] for h in commands),
+            "simplify_gate.py command hook missing from Stop",
+        )
+
+    def test_stop_has_tdd_check_prompt(self):
+        entries = self.data["hooks"]["Stop"]
+        all_hooks = []
+        for entry in entries:
+            all_hooks.extend(entry.get("hooks", []))
+        prompts = [h for h in all_hooks if h.get("type") == "prompt"]
+        self.assertTrue(
+            any("tdd_check.md" in h["prompt"] for h in prompts),
+            "tdd_check.md prompt hook missing from Stop",
+        )
+
+    def test_stop_has_two_hooks(self):
+        entries = self.data["hooks"]["Stop"]
+        all_hooks = []
+        for entry in entries:
+            all_hooks.extend(entry.get("hooks", []))
+        self.assertEqual(
+            len(all_hooks), 2, f"Expected 2 Stop hooks, got {len(all_hooks)}"
+        )
+
+
+# ===========================================================================
+# hooks.json gap fixes — PostToolUseFailure + SessionStart clear
+# ===========================================================================
+
+
+class TestHooksJsonGapFixes(_HooksJsonTestCase):
+    """Verify hooks.json registrations for PostToolUseFailure and clear matcher."""
+
+    def test_post_tool_use_failure_section_exists(self):
+        self.assertIn(
+            "PostToolUseFailure",
+            self.data["hooks"],
+            "PostToolUseFailure section missing from hooks.json",
+        )
+
+    def test_post_tool_use_failure_has_bash_matcher(self):
+        entries = self.data["hooks"]["PostToolUseFailure"]
+        matchers = [e.get("matcher") for e in entries]
+        self.assertIn("Bash", matchers)
+
+    def test_post_tool_use_failure_has_bash_failure_command(self):
+        entries = self.data["hooks"]["PostToolUseFailure"]
+        all_hooks = []
+        for entry in entries:
+            all_hooks.extend(entry.get("hooks", []))
+        commands = [h for h in all_hooks if h.get("type") == "command"]
+        self.assertTrue(
+            any("bash_failure.py" in h["command"] for h in commands),
+            "bash_failure.py missing from PostToolUseFailure",
+        )
+
+    def test_session_start_includes_clear_matcher(self):
+        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
+        self.assertIsNotNone(entry, "SessionStart matcher should include 'clear'")
 
 
 if __name__ == "__main__":

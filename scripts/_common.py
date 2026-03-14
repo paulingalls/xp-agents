@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Make smm/ importable so we can use _append_impl as the foundational module
@@ -233,6 +234,20 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     }
     event.update(extra)
     return event
+
+
+def write_json_atomic(file_path: Path, data: dict) -> None:
+    """Atomic JSON write: tempfile + chmod 600 + rename."""
+    fd, tmp = tempfile.mkstemp(dir=file_path.parent, suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f)
+        os.chmod(tmp, 0o600)
+        os.rename(tmp, file_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def append_safe(smm_dir: Path, event: dict) -> None:

@@ -23,7 +23,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "startup|resume|compact|clear",
         "hooks": [
           {
             "type": "command",
@@ -119,6 +119,18 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bash_failure.py",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
@@ -155,6 +167,10 @@
     "Stop": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/simplify_gate.py"
+          },
           {
             "type": "prompt",
             "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/tdd_check.md"

@@ -7,7 +7,7 @@ You are evaluating whether the agent should be allowed to stop. This is a single
 ### If `stop_hook_active` is `true` in the input:
 The agent has already been blocked once and attempted to fix the issue. **Allow the stop.** Return:
 ```json
-{"decision": "allow"}
+{"ok": true}
 ```
 
 ### Otherwise, evaluate the conversation context:
@@ -21,17 +21,17 @@ The agent has already been blocked once and attempted to fix the issue. **Allow 
 ### If tests are failing or were never run after code changes:
 **Block the stop.** Return:
 ```json
-{"decision": "block", "reason": "Tests are failing (or were not run after code changes). Fix failing tests before stopping."}
+{"ok": false, "reason": "Tests are failing (or were not run after code changes). Fix failing tests before stopping."}
 ```
 
 ### If tests are passing (or no code changes were made):
 **Allow the stop.** Return:
 ```json
-{"decision": "allow"}
+{"ok": true}
 ```
 
 ## Important
 
-- This is a **prompt hook** — you have no tool access. Evaluate based solely on the conversation context provided.
+- This is a **prompt hook** — you have no tool access. Evaluate based solely on the conversation context provided. Prompt hooks must return `{"ok": true}` or `{"ok": false, "reason": "..."}`.
 - When in doubt, allow the stop. Blocking should only happen when there's clear evidence of failing tests or unrun tests after changes.
 - The `stop_hook_active` guard prevents infinite loops: if the agent was already blocked and tried to fix, let it stop on the second attempt.

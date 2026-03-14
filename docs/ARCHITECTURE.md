@@ -198,13 +198,13 @@ When `session_start.py` initializes a new SMM (no prior `events.jsonl`), `custom
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | command | `lint_check.py` | Run project linter/formatter, append results to event log |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | agent (async) | `quality_reviewer.md` | Honest code review: courage + simplicity. Writes `concern` events. |
 | **PostToolUse** | `Bash` | command | `bash_post_tool.py` | Git commit size check, test result parsing, decision detection |
+| **PostToolUseFailure** | `Bash` | command | `bash_failure.py` | Capture failed test runs (non-zero exit). Records status + concern. |
 
 ### Stop
 
 | Event | Handler | Script/Prompt | What It Does |
 |---|---|---|---|
-| **Stop** | command | `simplify_gate.py` | Check if files were changed in this loop. If yes and `/simplify` hasn't run yet, inject instruction to run it. Tracker file prevents re-trigger. |
-| **Stop** | prompt | `simplify_prompt.md` | Instruct agent to run `/simplify` for reuse, quality, and efficiency review before stopping. Only shown when gate detects changes. |
+| **Stop** | command | `simplify_gate.py` | Check if files were changed in this loop. If yes and `/simplify` hasn't run yet, block (exit 2) with instruction to run `/simplify`. Tracker file prevents re-trigger. |
 | **Stop** | prompt | `tdd_check.md` | Block if tests failing. `stop_hook_active` guard. |
 
 ### Subagent Lifecycle
@@ -301,22 +301,22 @@ SessionStart → command: init, retro check, SMM injection, GUPP, skills
 
 ### Mid-Session
 ```
-PreToolUse  → command: delta injection, conflict blocking, TDD order check
-            → command: git push security gate (block until /security-review run)
-            → agent: navigator (Write/Edit only, self-filters trivial changes)
+PreToolUse        → command: delta injection, conflict blocking, TDD order check
+                  → command: git push security gate (block until /security-review run)
+                  → agent: navigator (Write/Edit only, self-filters trivial changes)
 Tool executes
-PostToolUse → command: auto status, conflicts, lint
-            → agent (async): quality reviewer (Write/Edit)
-            → command: bash analysis (Bash) + security review tracker write
+PostToolUse       → command: auto status, conflicts, lint
+                  → agent (async): quality reviewer (Write/Edit)
+                  → command: bash analysis (Bash) + security review tracker write
+PostToolUseFailure → command: bash_failure.py (Bash) — captures failed test runs
 ```
 
 ### Stop (Agent Wants to Finish)
 ```
-Stop        → command: simplify_gate.py (files changed? simplify not yet run?)
-            → prompt: simplify_prompt.md (if gate says yes → "run /simplify")
+Stop        → command: simplify_gate.py (files changed? simplify not yet run? → exit 2)
             → prompt: tdd_check.md (block if tests failing)
-            → if /simplify runs:
-                → Agent tool spawns 3 subagents (reuse, quality, efficiency)
+            → if simplify_gate blocks:
+                → Agent runs /simplify (3 subagents: reuse, quality, efficiency)
                 → SubagentStop fires for each → captured in SMM
                 → Agent fixes code → PreToolUse/PostToolUse fire normally
                 → Agent tries to stop again → gate sees tracker → passes through
@@ -345,7 +345,7 @@ SubagentStop  → command: record work, conflicts, delta
 | **Planning Game** | LLM + deterministic: plan review extracts decisions/assumptions, flags oversized plans. Customer-proxy triages questions. | `plan_review.py`, `customer_proxy.md` |
 | **Small Releases** | Deterministic: commit size check. LLM: navigator nudges when no recent commits. | `bash_post_tool.py` |
 | **Coding Standards** | Deterministic: lint after every write, convention tracking in SMM, conflict detector catches violations. Security review required before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_use.py` (push gate) |
-| **Continuous Integration** | Deterministic: test results parsed and recorded. Stop blocks on failure. | `bash_post_tool.py`, `tdd_check.md` |
+| **Continuous Integration** | Deterministic: test results parsed and recorded (success via `bash_post_tool.py`, failure via `bash_failure.py`). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_check.md` |
 | **Refactoring** | LLM: quality reviewer flags growing complexity. `/simplify` runs at loop end for cross-file reuse, quality, and efficiency review. Retrospective tracks unfixed flags. | `quality_reviewer.md`, `simplify_gate.py` |
 | **Simple Design** | LLM: quality reviewer flags over-engineering. Plan review flags oversized plans. `/simplify` catches duplicate utilities and unnecessary abstractions. | `quality_reviewer.md`, `plan_review.py`, `simplify_gate.py` |
 | **Collective Code Ownership** | Deterministic: SMM injected into all agents automatically. Global hooks. | `pre_tool_use.py`, `subagent_start.py` |
@@ -375,16 +375,29 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 ## Platform Constraints
 
 ### Confirmed
-- PreToolUse `additionalContext` → injected into agent context (v2.1.9+)
+- PreToolUse `additionalContext` → injected into agent context
 - SessionStart/SubagentStart `additionalContext` → injected into context
-- `agent_id`/`agent_type` in hook input for subagents (v2.1.9+)
+- `agent_id`/`agent_type` in hook input for subagents
 - Async hooks deliver context on next turn
+- PostToolUse supports `decision: "block"` top-level field and `additionalContext`
+- Stop hooks support both exit 2 + stderr and `{"decision": "block", "reason": "..."}` JSON
+- Prompt/agent hooks return `{"ok": true/false, "reason": "..."}` — NOT `decision`/`block`
+- All hooks in the same entry run **in parallel** — a command hook's output is NOT visible to a prompt hook in the same entry
+- SessionStart matcher values: `startup`, `resume`, `clear`, `compact`
+- Hook types: `command`, `prompt`, `agent`, `http`
 
-### Not Confirmed
-- PostToolUse `additionalContext` → may not reach agent without `decision: "block"`. ([#18427](https://github.com/anthropics/claude-code/issues/18427), [#24788](https://github.com/anthropics/claude-code/issues/24788), [#31301](https://github.com/anthropics/claude-code/issues/31301))
-- Agent hook rich output beyond allow/block → undocumented
+### Available Hook Events (as of 2026-03-14)
+SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, Notification, SubagentStart, SubagentStop, Stop, TeammateIdle, TaskCompleted, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 
-**Design consequence:** PostToolUse hooks record to event log. PreToolUse hooks deliver via `additionalContext`. Test PostToolUse `additionalContext` during development; optimize if it works.
+Events we use: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, SubagentStart, SubagentStop, Stop, PreCompact, SessionEnd.
+
+Events available but unused: PermissionRequest, Notification, TeammateIdle, TaskCompleted, InstructionsLoaded, ConfigChange, WorktreeCreate/Remove, PostCompact, Elicitation/ElicitationResult. Consider for future milestones (TeammateIdle/TaskCompleted especially for 2.0 Agent Teams).
+
+### Reference
+- Hooks reference: https://code.claude.com/docs/en/hooks.md
+- Hooks guide: https://code.claude.com/docs/en/hooks-guide.md
+
+**Design consequence:** PostToolUse hooks record to event log. PreToolUse hooks deliver via `additionalContext`. Stop hooks block via exit 2 (command hooks) or `{"ok": false}` (prompt/agent hooks).
 
 ## Adoption & Compliance
 
@@ -419,7 +432,7 @@ Fail loud, never corrupt, always recoverable.
 - **Navigator self-filtering** — command hooks cannot gate/skip subsequent agent hooks in the same matcher array, so significance filtering is done in the navigator prompt itself. Trivial changes (whitespace, comments, single-line renames) get an immediate empty response.
 - **Navigator writes `pair_guidance` events** to event log for retrospective analysis, not just ephemeral additionalContext
 - **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
-- **`/simplify` at Stop** — command hook checks for file changes since last `customer_input`, prompt hook instructs agent to run `/simplify`. No special SMM integration needed — simplify's subagents are captured by SubagentStop hooks, its fixes by PostToolUse hooks. Tracker file (`.simplify-{agent_id}.json`) prevents re-trigger after simplify runs.
+- **`/simplify` at Stop** — command hook (`simplify_gate.py`) checks for file changes since last `customer_input`. If changes found and `/simplify` hasn't run, blocks via exit 2 with stderr instruction. No prompt hook — hooks within the same Stop entry run in parallel, so `additionalContext` from a command hook isn't visible to a prompt hook. Tracker file (`.simplify-{agent_id}.json`) keyed on last `customer_input` event ID prevents re-trigger. New loop = new ID = fresh trigger.
 - **Security review push gate** — three detection paths write the `.security-reviewed-{HEAD-hash}` tracker: (1) UserPromptSubmit scans for `/security-review` or security audit patterns, (2) SubagentStop checks `last_assistant_message` for security review output signatures, (3) push gate writes `security_review_requested` event when blocking. No reliance on agent cooperation — all paths are mechanical hook detection.
 
 ## Plugin Structure
@@ -441,6 +454,7 @@ plugins/xp-agents/
 │   ├── post_tool_use.py
 │   ├── lint_check.py
 │   ├── bash_post_tool.py
+│   ├── bash_failure.py
 │   ├── plan_review.py
 │   ├── user_prompt_log.py
 │   ├── subagent_start.py
@@ -456,7 +470,6 @@ plugins/xp-agents/
 │   ├── customer_proxy.md
 │   ├── subagent_reviewer.md
 │   ├── plan_reviewer.md
-│   ├── simplify_prompt.md
 │   └── tdd_check.md
 └── smm/
     ├── init.sh

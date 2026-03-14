@@ -258,30 +258,32 @@
 
 ---
 
-## Milestone 5.4: Auto-Simplify at Loop End
+## Milestone 5.4: Auto-Simplify at Loop End ✅
 
 **Goal**: Automatically run `/simplify` when the agent finishes a loop that changed files. Cross-file reuse, quality, and efficiency review at natural boundaries — not per-file.
 
+**Status**: Complete (637 total tests, 16 new tests for M5.4).
+
 **Deliverables**:
-- [ ] `scripts/simplify_gate.py` — Stop command hook. Reads events since last `customer_input` to detect file changes (via `status` events with `working_on`). Checks tracker file (`.simplify-{agent_id}.json`) to avoid re-triggering after simplify already ran. If files changed and simplify hasn't run: writes tracker, returns `additionalContext` instructing the agent to run `/simplify`. If no files changed or simplify already ran: exits 0 silently.
-- [ ] `prompts/simplify_prompt.md` — Stop prompt hook. Shown only when `simplify_gate.py` provides context. Instructs the agent: "Files were modified in this loop. Run /simplify to review for reuse, quality, and efficiency. After /simplify completes, you may stop." Includes `stop_hook_active` awareness — if simplify already ran (tracker exists), allow stop.
-- [ ] `hooks/hooks.json` — Register `simplify_gate.py` as command hook and `simplify_prompt.md` as prompt hook on Stop, before `tdd_check.md`. Order: simplify gate → simplify prompt → tdd check.
-- [ ] Tests for `simplify_gate.py`: file changes detected, no changes skips, tracker prevents re-trigger, xp-agent recursion prevention, missing SMM graceful degradation
+- [x] `scripts/simplify_gate.py` — Stop command hook. Reads events since last `customer_input` to detect file changes (via `status` events with `working_on`). Checks tracker file (`.simplify-{agent_id}.json`) to avoid re-triggering after simplify already ran. If files changed and simplify hasn't run: writes tracker, blocks via exit 2 with stderr instruction to run `/simplify`. If no files changed or simplify already ran: exits 0 silently.
+- [x] `hooks/hooks.json` — Register `simplify_gate.py` as command hook on Stop, before `tdd_check.md`. Order: simplify gate (command) → tdd check (prompt).
+- [x] Tests for `simplify_gate.py`: file changes detected, no changes skips, tracker prevents re-trigger, new loop resets tracker, xp-agent recursion prevention, stop_hook_active guard, missing SMM graceful degradation, integration tests (subprocess exit codes).
 
 **Design decisions**:
+- **No prompt hook** — hooks within the same Stop entry run in parallel, so command hook's `additionalContext` is not visible to a prompt hook. Command hook blocks directly via exit 2.
 - **No settings gate** — always on. Can add opt-out later if needed.
 - **No special SMM integration** — simplify's subagents are captured by existing SubagentStop hooks, its code fixes by existing PostToolUse hooks. The hook infrastructure *is* the integration layer.
-- **Tracker file per agent** — `.simplify-{agent_id}.json` in SMM dir, contains loop identifier (timestamp of last `customer_input`). Cleared at next UserPromptSubmit or session start.
+- **Tracker file per agent** — `.simplify-{agent_id}.json` in SMM dir, contains loop identifier (last `customer_input` event ID). New loop = new ID = fresh trigger. No explicit clearing needed.
 - **Order matters** — simplify gate runs before tdd_check. Simplify may fix code, then tdd_check verifies tests still pass.
 
 **Acceptance Criteria**:
-- Agent that modifies files gets `/simplify` instruction at Stop
-- Agent that only reads/answers questions stops without simplify
-- Simplify runs at most once per loop (tracker prevents re-trigger)
-- After simplify fixes code, tdd_check still gates on test status
-- Existing SubagentStop and PostToolUse hooks capture simplify's work in SMM
-- xp- agents skip the gate (recursion prevention)
-- Missing SMM dir degrades gracefully (no simplify, no crash)
+- ✅ Agent that modifies files gets `/simplify` instruction at Stop
+- ✅ Agent that only reads/answers questions stops without simplify
+- ✅ Simplify runs at most once per loop (tracker prevents re-trigger)
+- ✅ After simplify fixes code, tdd_check still gates on test status
+- ✅ Existing SubagentStop and PostToolUse hooks capture simplify's work in SMM
+- ✅ xp- agents skip the gate (recursion prevention)
+- ✅ Missing SMM dir degrades gracefully (no simplify, no crash)
 
 ---
 
