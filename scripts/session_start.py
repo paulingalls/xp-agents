@@ -79,19 +79,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return GUPP_TEXT + SKILLS_TEXT
 
     # Materialize events into SMM markdown
-    events, skipped = materialize.parse_events(smm_dir)
-    if not events and skipped == 0:
-        smm_content = ""
-    else:
-        indices = materialize.build_indices(events)
-        conflicts = materialize.detect_conflicts(events, indices)
-        smm_content = materialize.render_markdown(events, indices, conflicts, skipped)
+    smm_content = materialize.materialize(smm_dir)
 
-    # Build context: SMM + GUPP + skills
+    # Build context: SMM + enforcement + GUPP + skills
     parts: list[str] = []
 
     if smm_content:
-        parts.append(smm_content)
+        parts.append(_common.wrap_smm_context(smm_content))
+
+    # Inject enforcement indicator for advisory mode
+    # (also emitted per-tool by pre_tool_use.py to survive compaction)
+    enforcement = _common.load_enforcement_mode()
+    if enforcement == _common.ENFORCEMENT_ADVISORY:
+        parts.append("\n[enforcement: advisory]")
 
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)

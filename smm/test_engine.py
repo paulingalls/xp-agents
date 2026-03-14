@@ -1061,8 +1061,8 @@ class TestFormatDelta(_SMMTestCase):
     def test_header_footer(self):
         events = [make_event()]
         result = read_delta.format_delta(events)
-        self.assertIn("--- SMM Delta (1 new events) ---", result)
-        self.assertIn("--- End SMM Delta ---", result)
+        self.assertIn('<smm-delta count="1">', result)
+        self.assertIn("</smm-delta>", result)
 
     def test_decision_format(self):
         d = make_event("decision", topic="db", content="Use Postgres")
@@ -1223,6 +1223,39 @@ class TestReadDelta(_SMMTestCase):
         bob_events = read_delta.read_delta(self.smm_dir, "bob", tier="full")
         self.assertEqual(len(alice_events), 1)
         self.assertEqual(len(bob_events), 4)
+
+
+# ===========================================================================
+# extract_active_context
+# ===========================================================================
+
+
+class TestExtractActiveContext(_SMMTestCase):
+    def test_returns_active_section(self):
+        """Returns everything before ---\\n## REFERENCE."""
+        events = [
+            make_event("goal", content="Ship v1"),
+            make_event("decision", content="Use REST", topic="api-style"),
+        ]
+        self._write_events(events)
+        md = materialize.materialize(self.smm_dir)
+        result = materialize.extract_active_context(md)
+        self.assertIn("Project Goals", result)
+        self.assertNotIn("Architecture Decisions", result)
+
+    def test_empty_when_no_active_context(self):
+        """Returns empty string when no Active Context section."""
+        result = materialize.extract_active_context("")
+        self.assertEqual(result, "")
+
+    def test_all_active_when_no_reference(self):
+        """Returns full text when no REFERENCE section exists."""
+        events = [make_event("goal", content="Ship v1")]
+        self._write_events(events)
+        md = materialize.materialize(self.smm_dir)
+        result = materialize.extract_active_context(md)
+        # Should include the goal since there's no reference to split on
+        self.assertIn("Project Goals", result)
 
 
 if __name__ == "__main__":

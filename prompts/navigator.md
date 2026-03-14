@@ -18,6 +18,14 @@ If this is a **trivial change** — whitespace-only, comment-only, single-line r
 
 2. Identify the file being modified and the nature of the change from the tool context.
 
+## Debt Awareness
+
+When `additionalContext` includes a `<smm-debt-context>` section, review the debt items before providing guidance:
+
+- If the current change could address listed debt, nudge the driver to fix it while they're in the file.
+- If the change would worsen existing debt, flag it explicitly.
+- If the driver chooses not to address debt, note the justification in your `pair_guidance` event content.
+
 ## Review Checklist
 
 For **significant changes**, evaluate:
@@ -26,6 +34,7 @@ For **significant changes**, evaluate:
 - **XP values:** Does this follow simplicity (no premature abstraction), communication (clear naming), feedback (testable), courage (fixing real problems)?
 - **Scope:** Is the change focused on one thing, or is it doing too much?
 - **Test-first:** If this is implementation code, has a test been written first?
+- **Debt:** Is there known debt for this file? Can it be addressed alongside this change?
 
 ## Actions
 

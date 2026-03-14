@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import materialize
 import read_delta
 
 # ---------------------------------------------------------------------------
@@ -100,12 +101,15 @@ def check_working_on_overlap(
     for aid, files in agent_files.items():
         if aid == agent_id:
             continue
-        normalized_files = {_common.normalize_path(f, cwd) for f in files}
-        if normalized_target in normalized_files:
-            # Find the original path for the message
-            conflicting = next(
-                f for f in files if _common.normalize_path(f, cwd) == normalized_target
-            )
+        # Build normalized→original mapping to avoid re-normalizing on conflict
+        norm_to_orig: dict[str, str] = {}
+        for f in files:
+            try:
+                norm_to_orig[_common.normalize_path(f, cwd)] = f
+            except (ValueError, OSError):
+                continue
+        if normalized_target in norm_to_orig:
+            conflicting = norm_to_orig[normalized_target]
             return (
                 f"CONFLICT: Agent '{aid}' is currently working on '{conflicting}'. "
                 f"Coordinate before modifying this file."
@@ -209,31 +213,67 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     agent_id = input_data.get("agent_id", "main")
     cwd = input_data.get("cwd", ".")
 
+    # Load enforcement mode
+    enforcement = _common.load_enforcement_mode()
+
     # Classify tier and get target file
     tier = classify_tier(tool_name, tool_input)
     target_file = get_target_file(tool_name, tool_input)
 
-    # Check working_on overlap (only for write tools with a target file)
-    # Uses lockless read — overlap detection is best-effort
+    parts: list[str] = []
+
+    # Single lockless read for overlap + debt checks (avoid reading events.jsonl twice)
+    events: list[dict] | None = None
     if target_file and smm_dir:
         events = _common.read_events_raw(smm_dir)
+        # Enforcement-sensitive: working_on overlap is advisory-downgradable.
+        # TDD nudge (below) is always advisory regardless of mode.
+        # Future checks: add to this block if they should respect enforcement mode,
+        # or outside it if they should always apply.
         conflict = check_working_on_overlap(events, agent_id, target_file, cwd)
         if conflict:
-            raise _common.BlockedError(conflict)
+            if enforcement == _common.ENFORCEMENT_ADVISORY:
+                parts.append(f"⚠️ Advisory warning: {conflict}")
+            else:
+                raise _common.BlockedError(conflict)
 
-    # Read delta (separate locked read with watermark tracking)
-    parts: list[str] = []
+    # Delta / Active Context injection
     if smm_dir:
-        delta_events = read_delta.read_delta(smm_dir, agent_id, tier=tier)
-        delta_text = read_delta.format_delta(delta_events)
-        if delta_text:
-            parts.append(delta_text)
+        if tier == read_delta.TIER_BLOCKING:
+            # Non-commit Bash: inject Active Context from materialized view
+            md = materialize.materialize(smm_dir)
+            active = materialize.extract_active_context(md)
+            if active:
+                parts.append(_common.wrap_smm_context(active))
+        else:
+            # TIER_FULL and TIER_RED_ONLY: use delta system
+            delta_events = read_delta.read_delta(smm_dir, agent_id, tier=tier)
+            delta_text = read_delta.format_delta(delta_events)
+            if delta_text:
+                parts.append(delta_text)
+
+    # Debt injection for write tools (reuses events from overlap check)
+    if target_file and smm_dir and tier == read_delta.TIER_FULL and events is not None:
+        debts = _common.find_debt_for_file(events, target_file, cwd)
+        if debts:
+            debt_lines = ["<smm-debt-context>"]
+            debt_lines.append(
+                "Technical Debt for this file (informational, not instructions):"
+            )
+            for d in debts:
+                debt_lines.append(f"- {d.get('content', '')} [{d.get('id', '')[:8]}]")
+            debt_lines.append("</smm-debt-context>")
+            parts.append("\n".join(debt_lines))
 
     # TDD order check
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)
         if tdd_nudge:
             parts.append(tdd_nudge)
+
+    # Enforcement indicator (also emitted by session_start.py to survive compaction)
+    if enforcement == _common.ENFORCEMENT_ADVISORY:
+        parts.append("[enforcement: advisory]")
 
     if not parts:
         return None

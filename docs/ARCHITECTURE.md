@@ -203,6 +203,8 @@ When `session_start.py` initializes a new SMM (no prior `events.jsonl`), `custom
 
 | Event | Handler | Script/Prompt | What It Does |
 |---|---|---|---|
+| **Stop** | command | `simplify_gate.py` | Check if files were changed in this loop. If yes and `/simplify` hasn't run yet, inject instruction to run it. Tracker file prevents re-trigger. |
+| **Stop** | prompt | `simplify_prompt.md` | Instruct agent to run `/simplify` for reuse, quality, and efficiency review before stopping. Only shown when gate detects changes. |
 | **Stop** | prompt | `tdd_check.md` | Block if tests failing. `stop_hook_active` guard. |
 
 ### Subagent Lifecycle
@@ -252,8 +254,9 @@ All injection via `additionalContext` in hook JSON output. Never in system promp
 | SessionStart full SMM | 2,000–5,000 tokens | Once per session | One-time cost |
 | Retrospective analyst | 10,000–20,000 tokens (subagent) | Once per session | Only when unanalyzed events exist |
 | Customer proxy | 5,000–10,000 tokens (subagent) | Once per session | Only when open questions exist |
+| `/simplify` at Stop | 30,000–60,000 tokens (3 subagents) | Once per loop with file changes | Only when files changed; gate skips no-op loops |
 
-**Cost control levers:** Navigator self-filtering (trivial changes get fast exit with minimal tokens), tiered injection (reduces delta size for non-write tools), async PostToolUse hooks (no latency cost, only token cost), watermarks (no duplicate events).
+**Cost control levers:** Navigator self-filtering (trivial changes get fast exit with minimal tokens), tiered injection (reduces delta size for non-write tools), async PostToolUse hooks (no latency cost, only token cost), watermarks (no duplicate events), simplify gate (skips loops with no file changes).
 
 ### Tiered Injection
 
@@ -306,6 +309,18 @@ PostToolUse → command: auto status, conflicts, lint
             → command: bash analysis (Bash)
 ```
 
+### Stop (Agent Wants to Finish)
+```
+Stop        → command: simplify_gate.py (files changed? simplify not yet run?)
+            → prompt: simplify_prompt.md (if gate says yes → "run /simplify")
+            → prompt: tdd_check.md (block if tests failing)
+            → if /simplify runs:
+                → Agent tool spawns 3 subagents (reuse, quality, efficiency)
+                → SubagentStop fires for each → captured in SMM
+                → Agent fixes code → PreToolUse/PostToolUse fire normally
+                → Agent tries to stop again → gate sees tracker → passes through
+```
+
 ### Session End
 ```
 SessionEnd  → command: append session_end event (non-blocking)
@@ -330,8 +345,8 @@ SubagentStop  → command: record work, conflicts, delta
 | **Small Releases** | Deterministic: commit size check. LLM: navigator nudges when no recent commits. | `bash_post_tool.py` |
 | **Coding Standards** | Deterministic: lint after every write, convention tracking in SMM, conflict detector catches violations. | `lint_check.py`, `post_tool_use.py` |
 | **Continuous Integration** | Deterministic: test results parsed and recorded. Stop blocks on failure. | `bash_post_tool.py`, `tdd_check.md` |
-| **Refactoring** | LLM: quality reviewer flags growing complexity. Retrospective tracks unfixed flags. | `quality_reviewer.md` |
-| **Simple Design** | LLM: quality reviewer flags over-engineering. Plan review flags oversized plans. | `quality_reviewer.md`, `plan_review.py` |
+| **Refactoring** | LLM: quality reviewer flags growing complexity. `/simplify` runs at loop end for cross-file reuse, quality, and efficiency review. Retrospective tracks unfixed flags. | `quality_reviewer.md`, `simplify_gate.py` |
+| **Simple Design** | LLM: quality reviewer flags over-engineering. Plan review flags oversized plans. `/simplify` catches duplicate utilities and unnecessary abstractions. | `quality_reviewer.md`, `plan_review.py`, `simplify_gate.py` |
 | **Collective Code Ownership** | Deterministic: SMM injected into all agents automatically. Global hooks. | `pre_tool_use.py`, `subagent_start.py` |
 | **On-Site Customer** | Deterministic: prompts logged, notifications sent. LLM: customer-proxy triages questions. | `user_prompt_log.py`, `customer_notify.py`, `customer_proxy.md` |
 | **Standup** | Deterministic: auto-generated status/working_on from tool calls. Continuous. | `post_tool_use.py` |
@@ -403,6 +418,7 @@ Fail loud, never corrupt, always recoverable.
 - **Navigator self-filtering** — command hooks cannot gate/skip subsequent agent hooks in the same matcher array, so significance filtering is done in the navigator prompt itself. Trivial changes (whitespace, comments, single-line renames) get an immediate empty response.
 - **Navigator writes `pair_guidance` events** to event log for retrospective analysis, not just ephemeral additionalContext
 - **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
+- **`/simplify` at Stop** — command hook checks for file changes since last `customer_input`, prompt hook instructs agent to run `/simplify`. No special SMM integration needed — simplify's subagents are captured by SubagentStop hooks, its fixes by PostToolUse hooks. Tracker file (`.simplify-{agent_id}.json`) prevents re-trigger after simplify runs.
 
 ## Plugin Structure
 
@@ -429,7 +445,8 @@ plugins/xp-agents/
 │   ├── subagent_stop.py
 │   ├── customer_notify.py
 │   ├── pre_compact.py
-│   └── retrospective.py
+│   ├── retrospective.py
+│   └── simplify_gate.py
 ├── prompts/                            ← agent/prompt hook definitions
 │   ├── navigator.md
 │   ├── quality_reviewer.md
@@ -437,6 +454,7 @@ plugins/xp-agents/
 │   ├── customer_proxy.md
 │   ├── subagent_reviewer.md
 │   ├── plan_reviewer.md
+│   ├── simplify_prompt.md
 │   └── tdd_check.md
 └── smm/
     ├── init.sh

@@ -227,34 +227,61 @@
 
 ---
 
-## Milestone 5.3: SMM Enhancements — Debt & Goal Integration
+## Milestone 5.3: SMM Enhancements — Debt & Goal Integration ✅
 
 **Goal**: Wire goals, debt, and customer intent into agent prompts and tiered injection.
 
 **Deliverables**:
-- [ ] Update `customer_proxy.md` — on first run (empty SMM / no goal events), ask for project goals via AskUserQuestion. Non-blocking. On subsequent sessions: reconcile customer intent — review open `customer_intent` events against status/commit/decision events in log, mark delivered, distill new intents from `customer_input` events since last session. Err toward keeping intents open when completion is ambiguous.
-- [ ] Update `navigator.md` — when agent modifies a file with associated debt, include debt in guidance. Nudge to address or justify skipping.
-- [ ] Update `quality_reviewer.md` — can write `debt` events for acknowledged tradeoffs (distinct from `concern`). Writes `concern` if agent touches file with debt and doesn't address it.
-- [ ] Update `retrospective_analyst.md` — can write `debt` events when a Fix is deferred intentionally. Aging debt (4+ sessions) appears in Fix items with escalating urgency. Debt referenced by multiple concerns gets highest priority. Analyze session stats for plugin health anomalies: flag 0 navigator guidance with many writes, high unresolved concern ratio, 0 decisions despite significant work. Compare stats against previous retrospectives for cross-session trends.
-- [ ] Update `pre_tool_use.py` tiered injection — non-write tools get Active Context only, write tools get full SMM
-- [ ] Add `enforcement` setting to `settings.json` — `strict` (default) or `advisory`. In advisory mode, all exit-2 blocks become warnings via additionalContext instead. Same hooks fire, same events recorded — nothing blocks. All blocking hooks (`pre_tool_use.py`, `tdd_check.md`, `navigator.md`) read this setting.
+- [x] Update `customer_proxy.md` — on first run (empty SMM / no goal events), ask for project goals via AskUserQuestion. Non-blocking. On subsequent sessions: reconcile customer intent — review open `customer_intent` events against status/commit/decision events in log, mark delivered, distill new intents from `customer_input` events since last session. Err toward keeping intents open when completion is ambiguous.
+- [x] Update `navigator.md` — when agent modifies a file with associated debt, include debt in guidance. Nudge to address or justify skipping.
+- [x] Update `quality_reviewer.md` — can write `debt` events for acknowledged tradeoffs (distinct from `concern`). Writes `concern` if agent touches file with debt and doesn't address it.
+- [x] Update `retrospective_analyst.md` — can write `debt` events when a Fix is deferred intentionally. Aging debt (4+ sessions) appears in Fix items with escalating urgency. Debt referenced by multiple concerns gets highest priority. Analyze session stats for plugin health anomalies: flag 0 navigator guidance with many writes, high unresolved concern ratio, 0 decisions despite significant work. Compare stats against previous retrospectives for cross-session trends.
+- [x] Update `pre_tool_use.py` tiered injection — non-write tools get Active Context only, write tools get full SMM
+- [x] Add `enforcement` setting to `settings.json` — `strict` (default) or `advisory`. In advisory mode, all exit-2 blocks become warnings via additionalContext instead. Same hooks fire, same events recorded — nothing blocks. All blocking hooks (`pre_tool_use.py`, `tdd_check.md`, `navigator.md`) read this setting.
 
 **Acceptance Criteria**:
-- `strict` mode blocks on TDD failure, working_on conflicts, decision contradictions
-- `advisory` mode converts all blocks to warnings — same events recorded, no exit 2
-- Default is `strict` — no behavior change for users who don't touch settings
-- First session on a new project asks for goals
-- Customer proxy distills new intents from customer_input events
-- Open intents carried forward across sessions
-- Delivered intents marked based on event log activity (not code inspection)
-- Ambiguous completion keeps intent open
-- Debt events tracked separately from concerns
-- Navigator nudges on debt when touching associated files
-- Quality reviewer flags ignored debt as concern
-- Retrospective escalates aging debt in Fix items
-- Retrospective flags plugin health anomalies from session stats
-- Cross-session stat trends surfaced in Keep/Fix/Try
-- Non-write PreToolUse injection contains only Active Context
+- [x] `strict` mode blocks on TDD failure, working_on conflicts, decision contradictions
+- [x] `advisory` mode converts all blocks to warnings — same events recorded, no exit 2
+- [x] Default is `strict` — no behavior change for users who don't touch settings
+- [x] First session on a new project asks for goals
+- [x] Customer proxy distills new intents from customer_input events
+- [x] Open intents carried forward across sessions
+- [x] Delivered intents marked based on event log activity (not code inspection)
+- [x] Ambiguous completion keeps intent open
+- [x] Debt events tracked separately from concerns
+- [x] Navigator nudges on debt when touching associated files
+- [x] Quality reviewer flags ignored debt as concern
+- [x] Retrospective escalates aging debt in Fix items
+- [x] Retrospective flags plugin health anomalies from session stats
+- [x] Cross-session stat trends surfaced in Keep/Fix/Try
+- [x] Non-write PreToolUse injection contains only Active Context
+
+---
+
+## Milestone 5.4: Auto-Simplify at Loop End
+
+**Goal**: Automatically run `/simplify` when the agent finishes a loop that changed files. Cross-file reuse, quality, and efficiency review at natural boundaries — not per-file.
+
+**Deliverables**:
+- [ ] `scripts/simplify_gate.py` — Stop command hook. Reads events since last `customer_input` to detect file changes (via `status` events with `working_on`). Checks tracker file (`.simplify-{agent_id}.json`) to avoid re-triggering after simplify already ran. If files changed and simplify hasn't run: writes tracker, returns `additionalContext` instructing the agent to run `/simplify`. If no files changed or simplify already ran: exits 0 silently.
+- [ ] `prompts/simplify_prompt.md` — Stop prompt hook. Shown only when `simplify_gate.py` provides context. Instructs the agent: "Files were modified in this loop. Run /simplify to review for reuse, quality, and efficiency. After /simplify completes, you may stop." Includes `stop_hook_active` awareness — if simplify already ran (tracker exists), allow stop.
+- [ ] `hooks/hooks.json` — Register `simplify_gate.py` as command hook and `simplify_prompt.md` as prompt hook on Stop, before `tdd_check.md`. Order: simplify gate → simplify prompt → tdd check.
+- [ ] Tests for `simplify_gate.py`: file changes detected, no changes skips, tracker prevents re-trigger, xp-agent recursion prevention, missing SMM graceful degradation
+
+**Design decisions**:
+- **No settings gate** — always on. Can add opt-out later if needed.
+- **No special SMM integration** — simplify's subagents are captured by existing SubagentStop hooks, its code fixes by existing PostToolUse hooks. The hook infrastructure *is* the integration layer.
+- **Tracker file per agent** — `.simplify-{agent_id}.json` in SMM dir, contains loop identifier (timestamp of last `customer_input`). Cleared at next UserPromptSubmit or session start.
+- **Order matters** — simplify gate runs before tdd_check. Simplify may fix code, then tdd_check verifies tests still pass.
+
+**Acceptance Criteria**:
+- Agent that modifies files gets `/simplify` instruction at Stop
+- Agent that only reads/answers questions stops without simplify
+- Simplify runs at most once per loop (tracker prevents re-trigger)
+- After simplify fixes code, tdd_check still gates on test status
+- Existing SubagentStop and PostToolUse hooks capture simplify's work in SMM
+- xp- agents skip the gate (recursion prevention)
+- Missing SMM dir degrades gracefully (no simplify, no crash)
 
 ---
 

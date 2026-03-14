@@ -125,7 +125,7 @@ def format_delta(events: list[dict]) -> str:
     if not events:
         return ""
 
-    lines = [f"--- SMM Delta ({len(events)} new events) ---"]
+    lines = [f'<smm-delta count="{len(events)}">']
 
     for e in events:
         eid = e.get("id", "")[:8]
@@ -172,7 +172,7 @@ def format_delta(events: list[dict]) -> str:
             case _:
                 lines.append(f"{etype.upper()} [{eid}]: {content}")
 
-    lines.append("--- End SMM Delta ---")
+    lines.append("</smm-delta>")
     return "\n".join(lines)
 
 

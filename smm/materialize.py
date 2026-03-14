@@ -566,6 +566,24 @@ def render_markdown(
 # ---------------------------------------------------------------------------
 
 
+def extract_active_context(md_text: str) -> str:
+    """Extract Active Context section (everything before REFERENCE).
+
+    Returns the header + active context sections, or empty string if absent.
+    """
+    if not md_text:
+        return ""
+
+    separator = "---\n## REFERENCE"
+    idx = md_text.find(separator)
+    if idx >= 0:
+        return md_text[:idx].rstrip() + "\n"
+    # No reference section — if there's active context, return everything
+    if "## ACTIVE CONTEXT" in md_text:
+        return md_text
+    return ""
+
+
 def materialize(smm_dir: Path) -> str:
     """Parse events, build indices, detect conflicts, render markdown."""
     events, skipped = parse_events(smm_dir)

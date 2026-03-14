@@ -392,6 +392,18 @@ def detect_conflicts(
 # ---------------------------------------------------------------------------
 
 
+def _file_list_contains(paths: list, normalized_target: str, cwd: str) -> bool:
+    """Check if any path in list matches normalized_target after normalization."""
+    for f in paths:
+        if isinstance(f, str):
+            try:
+                if normalize_path(f, cwd) == normalized_target:
+                    return True
+            except (ValueError, OSError):
+                continue
+    return False
+
+
 def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list[str]:
     """Find event IDs of decisions/conventions that reference this file."""
     normalized = normalize_path(file_path, cwd)
@@ -402,24 +414,80 @@ def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list
             continue
         # Check working_on field
         working_on = e.get("working_on", [])
-        if isinstance(working_on, list):
-            norm_wo = {normalize_path(f, cwd) for f in working_on}
-            if normalized in norm_wo:
-                related.append(e["id"])
-                continue
+        if isinstance(working_on, list) and _file_list_contains(
+            working_on, normalized, cwd
+        ):
+            related.append(e["id"])
+            continue
         # Check references field for normalized path matches
         refs = e.get("references", [])
-        if isinstance(refs, list):
-            for ref in refs:
-                if isinstance(ref, str):
-                    try:
-                        if normalize_path(ref, cwd) == normalized:
-                            related.append(e["id"])
-                            break
-                    except (ValueError, OSError):
-                        continue
+        if isinstance(refs, list) and _file_list_contains(refs, normalized, cwd):
+            related.append(e["id"])
 
     return related
+
+
+# ---------------------------------------------------------------------------
+# SMM content wrapping (security: structural delimiters for additionalContext)
+# ---------------------------------------------------------------------------
+
+
+def wrap_smm_context(content: str) -> str:
+    """Wrap SMM content in XML tags for safe injection."""
+    return f"<smm-context>\n{content}</smm-context>"
+
+
+# ---------------------------------------------------------------------------
+# Enforcement mode
+# ---------------------------------------------------------------------------
+
+ENFORCEMENT_STRICT = "strict"
+ENFORCEMENT_ADVISORY = "advisory"
+_VALID_ENFORCEMENT_MODES = frozenset({ENFORCEMENT_STRICT, ENFORCEMENT_ADVISORY})
+
+
+@functools.lru_cache(maxsize=1)
+def load_enforcement_mode() -> str:
+    """Load enforcement mode from settings.json, default 'strict'.
+
+    Cached per process — each hook invocation is a separate process.
+    Rejects symlinks (O_NOFOLLOW) and wrong-owner files.
+    """
+    try:
+        settings_path = resolve_plugin_root() / "settings.json"
+        # Reject symlinks and wrong-owner files
+        fd = os.open(str(settings_path), os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            st = os.fstat(fd)
+            if st.st_uid != os.getuid():
+                return ENFORCEMENT_STRICT
+            raw = os.read(fd, 65536).decode("utf-8")
+        finally:
+            os.close(fd)
+        data = json.loads(raw)
+        mode = data.get("enforcement", ENFORCEMENT_STRICT)
+        if mode in _VALID_ENFORCEMENT_MODES:
+            return mode
+        return ENFORCEMENT_STRICT
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError, OSError):
+        return ENFORCEMENT_STRICT
+
+
+# ---------------------------------------------------------------------------
+# Debt lookup
+# ---------------------------------------------------------------------------
+
+
+def find_debt_for_file(events: list[dict], file_path: str, cwd: str) -> list[dict]:
+    """Filter debt events whose files array includes the target file."""
+    normalized_target = normalize_path(file_path, cwd)
+    return [
+        e
+        for e in events
+        if e.get("type") == DEBT
+        and isinstance(e.get("files", []), list)
+        and _file_list_contains(e["files"], normalized_target, cwd)
+    ]
 
 
 # write_watermark imported from _append_impl at module level

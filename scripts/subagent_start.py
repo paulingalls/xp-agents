@@ -47,7 +47,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Write watermark at current event count
     _common.write_watermark(smm_dir, agent_id, len(events))
 
-    return smm_content
+    if smm_content:
+        return _common.wrap_smm_context(smm_content)
+    return None
 
 
 # ---------------------------------------------------------------------------

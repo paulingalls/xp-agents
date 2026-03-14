@@ -27,6 +27,30 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --severity "high|medium|low"
 ```
 
+### For acknowledged tradeoffs:
+When a design tradeoff is intentional but creates future work, write a `debt` event (distinct from a `concern`):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "debt" \
+  --agent "xp-quality-reviewer" \
+  --content "Description of the technical debt and why it exists" \
+  --files '["path/to/affected/file.py"]'
+```
+
+Use `debt` when the issue is a known compromise, not a bug. Use `concern` when something should be fixed now.
+
+### For files with existing debt:
+If the modified file has debt listed in the **Technical Debt** section of the SMM and the change doesn't address it, write a `concern` noting that the debt was not addressed:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "concern" \
+  --agent "xp-quality-reviewer" \
+  --content "File has known debt that was not addressed in this change: [debt description]" \
+  --severity "low"
+```
+
 ### For clean code:
 Do nothing. No events. No false positives. Clean code is the goal — don't manufacture concerns.
 

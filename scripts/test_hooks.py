@@ -5,6 +5,7 @@ Tests _common.py and all 4 command hooks.
 Run with: python3 -m unittest scripts/test_hooks.py -v
 """
 
+import contextlib
 import io
 import json
 import os
@@ -50,6 +51,22 @@ def _make_bash_input(command: str = "echo hi", stdout: str = "", **overrides) ->
     }
     data.update(overrides)
     return data
+
+
+@contextlib.contextmanager
+def _override_settings(overrides: dict):
+    """Override settings.json via mock for test isolation."""
+    tmpdir = Path(tempfile.mkdtemp())
+    try:
+        (tmpdir / "settings.json").write_text(json.dumps(overrides))
+        _common.load_enforcement_mode.cache_clear()
+        with patch.object(_common, "resolve_plugin_root", return_value=tmpdir):
+            yield
+    finally:
+        _common.load_enforcement_mode.cache_clear()
+        import shutil
+
+        shutil.rmtree(tmpdir)
 
 
 # ===========================================================================
@@ -228,6 +245,112 @@ class TestWriteWatermark(_HookTestCase):
         self.assertTrue(wm_file.exists())
 
 
+class TestLoadEnforcementMode(unittest.TestCase):
+    """Tests for _common.load_enforcement_mode()."""
+
+    def setUp(self):
+        _common.load_enforcement_mode.cache_clear()
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.settings_path = self.tmpdir / "settings.json"
+
+    def tearDown(self):
+        _common.load_enforcement_mode.cache_clear()
+        import shutil
+
+        shutil.rmtree(self.tmpdir)
+
+    def test_default_strict(self):
+        """Defaults to strict when no enforcement key."""
+        self.settings_path.write_text(json.dumps({"commit_size_threshold": 10}))
+        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
+            result = _common.load_enforcement_mode()
+        self.assertEqual(result, "strict")
+
+    def test_advisory_mode(self):
+        self.settings_path.write_text(
+            json.dumps({"enforcement": "advisory", "commit_size_threshold": 10})
+        )
+        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
+            result = _common.load_enforcement_mode()
+        self.assertEqual(result, "advisory")
+
+    def test_strict_mode(self):
+        self.settings_path.write_text(
+            json.dumps({"enforcement": "strict", "commit_size_threshold": 10})
+        )
+        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
+            result = _common.load_enforcement_mode()
+        self.assertEqual(result, "strict")
+
+    def test_missing_file(self):
+        """Defaults to strict when settings.json missing."""
+        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
+            result = _common.load_enforcement_mode()
+        self.assertEqual(result, "strict")
+
+    def test_invalid_json(self):
+        """Defaults to strict on invalid JSON."""
+        self.settings_path.write_text("not json{{{")
+        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
+            result = _common.load_enforcement_mode()
+        self.assertEqual(result, "strict")
+
+    def test_invalid_value(self):
+        """Defaults to strict on unrecognized value."""
+        self.settings_path.write_text(json.dumps({"enforcement": "whatever"}))
+        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
+            result = _common.load_enforcement_mode()
+        self.assertEqual(result, "strict")
+
+
+class TestFindDebtForFile(_HookTestCase):
+    """Tests for _common.find_debt_for_file()."""
+
+    def test_matching_file(self):
+        events = [
+            make_event("debt", content="Legacy code", files=["/tmp/src/app.ts"]),
+        ]
+        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["content"], "Legacy code")
+
+    def test_no_match(self):
+        events = [
+            make_event("debt", content="Legacy code", files=["/tmp/src/other.ts"]),
+        ]
+        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(result, [])
+
+    def test_multiple_debts(self):
+        events = [
+            make_event("debt", content="Debt 1", files=["/tmp/src/app.ts"]),
+            make_event("debt", content="Debt 2", files=["/tmp/src/app.ts"]),
+            make_event("debt", content="Debt 3", files=["/tmp/src/other.ts"]),
+        ]
+        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(len(result), 2)
+
+    def test_path_normalization(self):
+        """Relative path in debt event matches absolute target."""
+        events = [
+            make_event("debt", content="Debt", files=["src/app.ts"]),
+        ]
+        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(len(result), 1)
+
+    def test_empty_events(self):
+        result = _common.find_debt_for_file([], "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(result, [])
+
+    def test_non_debt_events_ignored(self):
+        events = [
+            make_event("concern", content="Concern about app.ts"),
+            make_event("status", content="Working"),
+        ]
+        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(result, [])
+
+
 class TestSessionStartPathValidation(_HookTestCase):
     """Test session_start degrades gracefully with bad plugin root."""
 
@@ -391,6 +514,29 @@ class TestSessionStart(_HookTestCase):
         )
         self.assertIn("Shared Mental Model", result)
         self.assertIn("Resume immediately", result)
+
+    def test_advisory_enforcement_indicator(self):
+        """Advisory mode injects enforcement indicator into context."""
+        import session_start
+
+        self._write_events([make_event()])
+        with _override_settings({"enforcement": "advisory"}):
+            result = session_start.run(
+                {"session_id": "test", "source": "startup"},
+                smm_dir=self.smm_dir,
+            )
+            self.assertIn("[enforcement: advisory]", result)
+
+    def test_strict_enforcement_no_label(self):
+        """Strict mode has no enforcement label."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertNotIn("[enforcement:", result)
 
 
 # ===========================================================================
@@ -1085,9 +1231,8 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        # Even with empty SMM, should return something (empty string from materialize)
-        # The run function should handle this gracefully
-        self.assertIsNotNone(result)
+        # Empty SMM returns None — no content to inject
+        self.assertIsNone(result)
 
     def test_default_agent_id(self):
         import subagent_start
@@ -1321,7 +1466,7 @@ class TestPreToolUseRun(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("SMM Delta", result)
+        self.assertIn("smm-delta", result)
 
     def test_read_gets_red_only(self):
         # Write a status event (not red) — Read should NOT get it
@@ -1368,16 +1513,177 @@ class TestPreToolUseRun(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("NAVIGATOR", result)
+        # Now uses Active Context (materialized), not delta format
+        self.assertIn("Navigator Guidance", result)
 
-    def test_bash_blocking_tier_skips_status(self):
+    def test_bash_blocking_tier_includes_status(self):
+        """TIER_BLOCKING now injects Active Context which includes Agent Status."""
         events = [make_event("status", content="busy")]
         self._write_events(events)
         result = pre_tool_use.run(
             _make_bash_input(command="npm test"),
             smm_dir=self.smm_dir,
         )
+        # Active Context includes Agent Status section
+        self.assertIsNotNone(result)
+        self.assertIn("Agent Status", result)
+
+
+# ===========================================================================
+# pre_tool_use — Active Context, enforcement, debt injection (M5.3)
+# ===========================================================================
+
+
+class TestPreToolUseActiveContext(_HookTestCase):
+    def test_bash_non_commit_gets_active_context(self):
+        """TIER_BLOCKING: Bash (non-commit) gets Active Context instead of delta."""
+        import pre_tool_use
+
+        events = [
+            make_event("goal", content="Ship v1"),
+            make_event("decision", content="Use REST", topic="api-style"),
+        ]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            _make_bash_input(command="npm test"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Project Goals", result)
+        # Should NOT have reference material
+        self.assertNotIn("Architecture Decisions", result)
+
+    def test_bash_commit_gets_full_delta(self):
+        """TIER_FULL: Bash with git commit gets full delta, not Active Context."""
+        import pre_tool_use
+
+        events = [make_event("decision", content="Use REST", topic="api-style")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            _make_bash_input(command="git commit -m 'test'"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("smm-delta", result)
+
+    def test_write_gets_full_delta(self):
+        """TIER_FULL: Write tool gets full delta."""
+        import pre_tool_use
+
+        events = [make_event("status", content="Working on app")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            _make_write_input(tool_input={"file_path": "/tmp/src/new.ts"}),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("smm-delta", result)
+
+    def test_read_gets_red_only(self):
+        """TIER_RED_ONLY: Read tool still gets red-only (unchanged)."""
+        import pre_tool_use
+
+        events = [make_event("status", content="Working")]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "src/app.ts"},
+                "agent_id": "main",
+                "cwd": "/tmp",
+            },
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNone(result)
+
+
+class TestPreToolUseEnforcement(_HookTestCase):
+    def test_advisory_converts_block_to_warning(self):
+        """Advisory mode converts BlockedError to warning in context."""
+        import pre_tool_use
+
+        events = [
+            make_event(
+                "status", agent_id="other-agent", working_on=["/tmp/src/app.ts"]
+            ),
+        ]
+        self._write_events(events)
+        with _override_settings({"enforcement": "advisory"}):
+            result = pre_tool_use.run(
+                _make_write_input(),
+                smm_dir=self.smm_dir,
+            )
+            self.assertIsNotNone(result)
+            self.assertIn("CONFLICT", result)
+            self.assertIn("advisory", result.lower())
+
+    def test_strict_blocks(self):
+        """Strict mode still raises BlockedError."""
+        import pre_tool_use
+
+        events = [
+            make_event(
+                "status", agent_id="other-agent", working_on=["/tmp/src/app.ts"]
+            ),
+        ]
+        self._write_events(events)
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_use.run(
+                _make_write_input(),
+                smm_dir=self.smm_dir,
+            )
+
+    def test_advisory_indicator_in_context(self):
+        """Advisory mode appends enforcement indicator."""
+        import pre_tool_use
+
+        events = [make_event("goal", content="Ship")]
+        self._write_events(events)
+        with _override_settings({"enforcement": "advisory"}):
+            result = pre_tool_use.run(
+                _make_bash_input(command="npm test"),
+                smm_dir=self.smm_dir,
+            )
+            self.assertIsNotNone(result)
+            self.assertIn("[enforcement: advisory]", result)
+
+
+class TestPreToolUseDebtInjection(_HookTestCase):
+    def test_debt_included_for_write_tools(self):
+        """Write tools get debt info for target file."""
+        import pre_tool_use
+
+        events = [
+            make_event("debt", content="Legacy coupling", files=["/tmp/src/app.ts"]),
+        ]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            _make_write_input(
+                tool_input={"file_path": "/tmp/src/app.ts", "content": "x"}
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Legacy coupling", result)
+
+    def test_no_debt_for_clean_file(self):
+        """No debt injection section when file has no debt events."""
+        import pre_tool_use
+
+        events = [
+            make_event("debt", content="Legacy coupling", files=["/tmp/src/other.ts"]),
+        ]
+        self._write_events(events)
+        result = pre_tool_use.run(
+            _make_write_input(
+                tool_input={"file_path": "/tmp/src/app.ts", "content": "x"}
+            ),
+            smm_dir=self.smm_dir,
+        )
+        # Delta may include the debt event, but debt injection section should be absent
+        if result:
+            self.assertNotIn("smm-debt-context", result)
 
 
 # ===========================================================================
@@ -2887,8 +3193,8 @@ class TestHooksJsonM4(_HooksJsonTestCase):
         plugin_path = Path(__file__).parent.parent / ".claude-plugin" / "plugin.json"
         with open(plugin_path) as f:
             plugin = json.load(f)
-        # Updated to 0.5.2 in M5.2
-        self.assertEqual(plugin["version"], "0.5.2")
+        # Updated to 0.5.3 in M5.3
+        self.assertEqual(plugin["version"], "0.5.3")
 
 
 # ===========================================================================
@@ -2988,6 +3294,90 @@ class TestPromptFilesM5(unittest.TestCase):
     def test_tdd_check_md_mentions_block(self):
         content = (self.prompts_dir / "tdd_check.md").read_text()
         self.assertIn("block", content.lower())
+
+
+# ===========================================================================
+# M5.3 acceptance criteria — prompt content verification
+# ===========================================================================
+
+
+class TestM53AcceptanceCriteria(unittest.TestCase):
+    """Verify M5.3 acceptance criteria are met.
+
+    Prompt-only behaviors are verified by checking prompt content.
+    Testable behaviors are verified in their respective test classes:
+    - TestPreToolUseEnforcement (ACs 1-2)
+    - TestLoadEnforcementMode (AC 3)
+    - TestFindDebtForFile (AC 9)
+    - TestPreToolUseDebtInjection (AC 10)
+    - TestPreToolUseActiveContext (AC 15)
+    """
+
+    def setUp(self):
+        self.prompts_dir = Path(__file__).parent.parent / "prompts"
+
+    # AC 1: strict blocks on decision contradictions (navigator prompt)
+    def test_navigator_can_block_on_contradictions(self):
+        content = (self.prompts_dir / "navigator.md").read_text()
+        self.assertIn("block", content.lower())
+        self.assertIn("contradict", content.lower())
+
+    # AC 4: first session asks for goals
+    def test_customer_proxy_goal_collection(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("Goal Collection", content)
+        self.assertIn("Project Goals", content)
+        self.assertIn('--type "goal"', content)
+
+    # AC 5: customer proxy distills intents
+    def test_customer_proxy_intent_distillation(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("Intent Reconciliation", content)
+        self.assertIn("customer_input", content)
+        self.assertIn("--intent-status", content)
+
+    # AC 7: delivered intents by event log activity
+    def test_customer_proxy_delivery_by_events(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("status", content)
+        self.assertIn("decision", content)
+        self.assertIn("delivered", content)
+
+    # AC 8: ambiguous keeps intent open
+    def test_customer_proxy_err_toward_open(self):
+        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        self.assertIn("Err toward keeping intents open", content)
+
+    # AC 10: navigator debt awareness (prompt side)
+    def test_navigator_debt_awareness(self):
+        content = (self.prompts_dir / "navigator.md").read_text()
+        self.assertIn("Debt Awareness", content)
+        self.assertIn("smm-debt-context", content)
+
+    # AC 11: quality reviewer flags ignored debt
+    def test_quality_reviewer_flags_ignored_debt(self):
+        content = (self.prompts_dir / "quality_reviewer.md").read_text()
+        self.assertIn('--type "debt"', content)
+        self.assertIn("debt was not addressed", content)
+
+    # AC 12: retrospective escalates aging debt
+    def test_retrospective_escalates_aging_debt(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn("Escalating aging debt", content)
+        self.assertIn("high-priority", content)
+
+    # AC 13: retrospective flags plugin health anomalies
+    def test_retrospective_plugin_health(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn("Plugin Health", content)
+        self.assertIn("session_stats", content)
+        self.assertIn("pair_guidance", content)
+
+    # AC 14: cross-session trends
+    def test_retrospective_cross_session_trends(self):
+        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        self.assertIn("previous_retros", content)
+        self.assertIn("cross-session", content.lower())
 
 
 # ===========================================================================

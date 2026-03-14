@@ -341,7 +341,7 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("SMM Delta", ctx)
+        self.assertIn("smm-delta", ctx)
         self.assertIn("Blocker?", ctx)
 
     def test_working_on_conflict_blocks(self):

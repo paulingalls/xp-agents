@@ -50,6 +50,36 @@ For each item:
 - Reference the events that motivated it
 - Must be specific enough to evaluate ("try writing tests first" not "be better")
 
+## Debt in Retrospectives
+
+### Writing debt events
+When a Fix item will be intentionally deferred (not addressed this session), record it as a `debt` event:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "debt" \
+  --agent "xp-retrospective-analyst" \
+  --content "Description of deferred fix" \
+  --files '["affected/file.py"]'
+```
+
+### Escalating aging debt
+Debt items with aging markers (visible in the **Technical Debt** section of the SMM) must appear in Fix items with escalating urgency:
+- ⚠️ markers (4-6 sessions old): include in Fix as "aging debt, address soon"
+- 🔴 markers (7+ sessions old): include in Fix as **high-priority**, should be the first Fix item
+- Debt referenced by multiple concerns gets highest priority regardless of age
+
+## Plugin Health from Session Stats
+
+`.retro-input.json` now includes a `session_stats` object. Use it to flag anomalies:
+
+- **0 `pair_guidance` with many `status` events** → navigator may not be providing guidance
+- **High unresolved concern ratio** (concerns_raised >> concerns_resolved) → concerns not being addressed
+- **0 `decisions` with significant work** (many status/pair_guidance events) → no decisions are being recorded
+- **Compare stats against `previous_retros`** for cross-session trends (e.g., declining guidance count, growing unresolved concerns)
+
+Include plugin health observations in the Keep/Fix/Try output when anomalies are found.
+
 ## Actions
 
 ### 1. Write retrospective event to the event log:

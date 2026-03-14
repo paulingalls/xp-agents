@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.5.3 — Milestone 5.3: Debt & Goal Integration
+
+### Added
+- `load_enforcement_mode()` in `_common.py` — reads `enforcement` from `settings.json`, defaults to `"strict"`. Supports `"strict"` and `"advisory"` modes
+- `find_debt_for_file()` in `_common.py` — filters debt events by target file with path normalization
+- `extract_active_context()` in `materialize.py` — splits materialized view at REFERENCE boundary, returns Active Context section only
+- Active Context injection for TIER_BLOCKING (non-commit Bash) in `pre_tool_use.py` — replaces delta with materialized Active Context view
+- Debt injection for write tools in `pre_tool_use.py` — looks up debt events for the target file and injects them into `additionalContext`
+- Advisory enforcement mode — `pre_tool_use.py` converts `BlockedError` to warning, appends `[enforcement: advisory]` indicator
+- `session_start.py` — injects `[enforcement: advisory]` indicator when in advisory mode so agent/prompt hooks see it
+- `settings.json` — added `"enforcement": "strict"` default
+- 26 new tests (609 total)
+
+### Changed
+- `pre_tool_use.py` — TIER_BLOCKING now uses `materialize()` + `extract_active_context()` instead of `read_delta()` for non-commit Bash
+- `prompts/customer_proxy.md` — added goal collection (first-run) and intent reconciliation behaviors before question triage
+- `prompts/navigator.md` — added Debt Awareness section: nudges driver to address debt when modifying files with known debt
+- `prompts/quality_reviewer.md` — can now write `debt` events for acknowledged tradeoffs; checks if file debt was addressed
+- `prompts/retrospective_analyst.md` — debt escalation in Fix items (aging markers), plugin health analysis from session stats, can write `debt` events for deferred fixes
+
 ## v0.5.2 — Milestone 5.2: SMM Enhancements — Schema & Materializer
 
 ### Added
