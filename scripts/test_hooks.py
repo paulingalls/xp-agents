@@ -3687,6 +3687,76 @@ class TestSimplifyGate(_HookTestCase):
 
 
 # ===========================================================================
+# Security: agent_id validation + symlink protection
+# ===========================================================================
+
+
+class TestSimplifyGateSecurity(_HookTestCase):
+    """Security tests for simplify_gate.py."""
+
+    def setUp(self):
+        super().setUp()
+        import simplify_gate
+
+        self.mod = simplify_gate
+
+    def test_path_traversal_agent_id_rejected(self):
+        """agent_id with path traversal is rejected."""
+        self._write_events(
+            [
+                make_event("customer_input", content="build"),
+                make_event("status", content="wrote", working_on=["src/a.ts"]),
+            ]
+        )
+        inp = _make_stop_input(agent_id="../../../etc/evil")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_slash_agent_id_rejected(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="build"),
+                make_event("status", content="wrote", working_on=["src/a.ts"]),
+            ]
+        )
+        inp = _make_stop_input(agent_id="foo/bar")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+
+class TestBashFailureSecurity(_HookTestCase):
+    """Security tests for bash_failure.py."""
+
+    def setUp(self):
+        super().setUp()
+        import bash_failure
+
+        self.mod = bash_failure
+
+    def test_path_traversal_agent_id_rejected(self):
+        inp = _make_bash_failure_input(
+            command="pytest", error="exit 1", agent_id="../../evil"
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+
+class TestWriteJsonAtomicSecurity(_HookTestCase):
+    """Security tests for _common.write_json_atomic()."""
+
+    def test_rejects_symlink_target(self):
+        target = self.smm_dir / "real-file.json"
+        target.write_text("{}")
+        link = self.smm_dir / "link.json"
+        link.symlink_to(target)
+        with self.assertRaises(ValueError):
+            _common.write_json_atomic(link, {"evil": True})
+        # Original file should be unchanged
+        self.assertEqual(target.read_text(), "{}")
+
+
+# ===========================================================================
 # hooks.json M5.4 registration tests
 # ===========================================================================
 

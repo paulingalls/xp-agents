@@ -91,6 +91,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Check tracker — same loop_id means simplify already ran
     agent_id = input_data.get("agent_id", "main")
+    try:
+        _common._validate_agent_id(agent_id)
+    except ValueError:
+        return None
     loop_id = ci_event.get("id", "")
     tracker = _load_tracker(smm_dir, agent_id)
     if tracker.get("loop_id") == loop_id:

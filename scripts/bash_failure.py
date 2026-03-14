@@ -41,6 +41,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     agent_id = input_data.get("agent_id", "main")
+    try:
+        _common._validate_agent_id(agent_id)
+    except ValueError:
+        return None
     error = input_data.get("error", "")
 
     # Record failure as status + concern

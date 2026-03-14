@@ -237,7 +237,13 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
 
 
 def write_json_atomic(file_path: Path, data: dict) -> None:
-    """Atomic JSON write: tempfile + chmod 600 + rename."""
+    """Atomic JSON write: tempfile + chmod 600 + rename.
+
+    Caller must ensure file_path.parent is a validated SMM directory.
+    Rejects symlink targets to prevent symlink-based overwrites.
+    """
+    if file_path.is_symlink():
+        raise ValueError(f"Refusing to write to symlink: {file_path}")
     fd, tmp = tempfile.mkstemp(dir=file_path.parent, suffix=".json")
     try:
         with os.fdopen(fd, "w") as f:
