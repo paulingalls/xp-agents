@@ -285,6 +285,36 @@
 
 ---
 
+## Milestone 5.5: Security Review Gate & Retrospective Security Lens
+
+**Goal**: Block `git push` until `/security-review` has been run. Add security awareness to the retrospective. Leverage Anthropic's built-in security review — we own enforcement, they own review quality.
+
+**Deliverables**:
+- [ ] `pre_tool_use.py` — detect `git push` in Bash commands (new classification alongside `git commit`). Check `.security-reviewed-{commit-hash}` tracker file in SMM dir. If no tracker for current HEAD: inject `additionalContext` instructing agent to run `/security-review` (strict mode blocks via exit 2, advisory mode warns). If tracker exists: pass through.
+- [ ] Tracker file management — `.security-reviewed-{commit-hash}` written to SMM dir after `/security-review` completes. Keyed on HEAD commit hash so new commits invalidate the tracker. Old tracker files cleaned up (keep only current).
+- [ ] Tracker write mechanism — PostToolUse on Bash detects `/security-review` completion (skill invocation pattern in command/output). Writes tracker file with current HEAD hash. Uses atomic write pattern.
+- [ ] `prompts/retrospective_analyst.md` — add security lens: were security concerns raised during the session? Were they addressed? Did pushes happen without security review (tracker gaps)? Surface as Fix items under the Courage value.
+- [ ] Tests for push gate: `git push` detected, tracker prevents re-trigger, new commits invalidate tracker, xp-agent recursion prevention, missing SMM graceful degradation, advisory vs strict mode behavior
+
+**Design decisions**:
+- **Leverage `/security-review`** — Anthropic's built-in skill handles language-specific patterns (Python, TypeScript, Go, Rust, etc.). We don't write our own security scanner.
+- **Gate on invocation, not outcome** — our gate checks whether `/security-review` was run, not what it found. The review writes its own findings; the agent decides how to act on them. This keeps us decoupled from the skill's internals.
+- **Commit hash keying** — tracker keyed on `git rev-parse HEAD`. Push with new commits after the review? Hash changed, review needed again. Multiple pushes of the same HEAD? Tracker still valid.
+- **No `origin/HEAD` dependency** — our gate doesn't need `origin/HEAD`. If `/security-review` needs it internally, that's Anthropic's concern, not ours.
+- **Retrospective security lens** — lightweight addition to existing prompt. Security is a quality dimension analyzed under the Courage value (were hard security questions raised?).
+
+**Acceptance Criteria**:
+- `git push` blocked in strict mode until `/security-review` has been run
+- `git push` warns in advisory mode with enforcement indicator
+- New commits after security review invalidate the tracker
+- Same HEAD push passes without re-review
+- Retrospective surfaces security review gaps as Fix items
+- xp-agents skip the gate (recursion prevention)
+- Missing SMM degrades gracefully
+- Works regardless of project language
+
+---
+
 ## Milestone 6: CLAUDE.md & Skills
 
 **Goal**: Behavioral rules and reference knowledge.

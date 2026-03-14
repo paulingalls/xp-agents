@@ -187,7 +187,7 @@ When `session_start.py` initializes a new SMM (no prior `events.jsonl`), `custom
 
 | Event | Matcher | Handler | Script/Prompt | What It Does |
 |---|---|---|---|---|
-| **PreToolUse** | `*` | command | `pre_tool_use.py` | Delta injection (tiered), 🔴 question injection, `working_on` conflict blocking, TDD order check |
+| **PreToolUse** | `*` | command | `pre_tool_use.py` | Delta injection (tiered), 🔴 question injection, `working_on` conflict blocking, TDD order check, `git push` security review gate |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | agent | `navigator.md` | Strategic guidance. Can block if change contradicts decisions. Self-filters trivial changes (whitespace, comments, renames). |
 
 ### PostToolUse (After Action)
@@ -302,11 +302,12 @@ SessionStart → command: init, retro check, SMM injection, GUPP, skills
 ### Mid-Session
 ```
 PreToolUse  → command: delta injection, conflict blocking, TDD order check
+            → command: git push security gate (block until /security-review run)
             → agent: navigator (Write/Edit only, self-filters trivial changes)
 Tool executes
 PostToolUse → command: auto status, conflicts, lint
             → agent (async): quality reviewer (Write/Edit)
-            → command: bash analysis (Bash)
+            → command: bash analysis (Bash) + security review tracker write
 ```
 
 ### Stop (Agent Wants to Finish)
@@ -343,7 +344,7 @@ SubagentStop  → command: record work, conflicts, delta
 | **Pair Programming** | LLM (required): navigator before every significant write, quality reviewer after. | `navigator.md`, `quality_reviewer.md` |
 | **Planning Game** | LLM + deterministic: plan review extracts decisions/assumptions, flags oversized plans. Customer-proxy triages questions. | `plan_review.py`, `customer_proxy.md` |
 | **Small Releases** | Deterministic: commit size check. LLM: navigator nudges when no recent commits. | `bash_post_tool.py` |
-| **Coding Standards** | Deterministic: lint after every write, convention tracking in SMM, conflict detector catches violations. | `lint_check.py`, `post_tool_use.py` |
+| **Coding Standards** | Deterministic: lint after every write, convention tracking in SMM, conflict detector catches violations. Security review required before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_use.py` (push gate) |
 | **Continuous Integration** | Deterministic: test results parsed and recorded. Stop blocks on failure. | `bash_post_tool.py`, `tdd_check.md` |
 | **Refactoring** | LLM: quality reviewer flags growing complexity. `/simplify` runs at loop end for cross-file reuse, quality, and efficiency review. Retrospective tracks unfixed flags. | `quality_reviewer.md`, `simplify_gate.py` |
 | **Simple Design** | LLM: quality reviewer flags over-engineering. Plan review flags oversized plans. `/simplify` catches duplicate utilities and unnecessary abstractions. | `quality_reviewer.md`, `plan_review.py`, `simplify_gate.py` |
