@@ -4243,5 +4243,101 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             self.assertLess(smm_pos, guide_pos, "SMM should appear before guide")
 
 
+# ===========================================================================
+# Milestone 6.5: Agent Hook → Plugin Subagent Migration
+# ===========================================================================
+
+_SUBAGENT_NAMES = (
+    "xp-navigator",
+    "xp-quality-reviewer",
+    "xp-retrospective",
+    "xp-customer-proxy",
+    "xp-plan-reviewer",
+    "xp-subagent-reviewer",
+)
+
+_BACKGROUND_SUBAGENTS = frozenset({"xp-quality-reviewer", "xp-subagent-reviewer"})
+
+
+class TestAgentFilesM65(unittest.TestCase):
+    """Verify all 6 plugin subagent files exist with correct frontmatter."""
+
+    def setUp(self):
+        self.agents_dir = Path(__file__).parent.parent / "agents"
+
+    def test_agents_directory_exists(self):
+        self.assertTrue(self.agents_dir.is_dir(), "agents/ directory missing")
+
+    def test_all_agent_files_exist(self):
+        for name in _SUBAGENT_NAMES:
+            path = self.agents_dir / f"{name}.md"
+            self.assertTrue(path.is_file(), f"Missing: {path}")
+
+    def test_frontmatter_has_name(self):
+        """Each agent file must have a name field matching the filename."""
+        import re
+
+        for name in _SUBAGENT_NAMES:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
+            match = re.search(r"^name:\s*(.+)$", content, re.MULTILINE)
+            self.assertIsNotNone(match, f"{name} missing name field")
+            self.assertEqual(match.group(1).strip(), name)
+
+    def test_frontmatter_has_description(self):
+        for name in _SUBAGENT_NAMES:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            self.assertIn("description:", content, f"{name} missing description")
+
+    def test_tools_include_bash(self):
+        """Every subagent needs Bash for append.sh."""
+        for name in _SUBAGENT_NAMES:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            # Extract frontmatter
+            parts = content.split("---", 2)
+            self.assertGreaterEqual(len(parts), 3, f"{name} frontmatter not closed")
+            fm = parts[1]
+            self.assertIn("Bash", fm, f"{name} missing Bash in tools")
+
+    def test_skills_include_smm_protocol(self):
+        for name in _SUBAGENT_NAMES:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            parts = content.split("---", 2)
+            fm = parts[1]
+            self.assertIn("smm-protocol", fm, f"{name} missing smm-protocol skill")
+
+    def test_background_subagents(self):
+        """Quality reviewer and subagent reviewer must have background: true."""
+        for name in _BACKGROUND_SUBAGENTS:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            parts = content.split("---", 2)
+            fm = parts[1]
+            self.assertIn("background: true", fm, f"{name} should be background")
+
+    def test_foreground_subagents(self):
+        """Customer proxy must NOT have background: true (needs AskUserQuestion)."""
+        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
+        parts = content.split("---", 2)
+        fm = parts[1]
+        self.assertNotIn("background:", fm, "customer-proxy should be foreground")
+
+    def test_body_mentions_append_sh(self):
+        """Every subagent should reference append.sh for event writing."""
+        for name in _SUBAGENT_NAMES:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            # Body is after the second ---
+            parts = content.split("---", 2)
+            body = parts[2] if len(parts) >= 3 else ""
+            self.assertIn("append.sh", body, f"{name} body missing append.sh reference")
+
+    def test_body_mentions_smm_content_trust(self):
+        """Every subagent should have the SMM content trust section."""
+        for name in _SUBAGENT_NAMES:
+            content = (self.agents_dir / f"{name}.md").read_text()
+            self.assertIn(
+                "SMM Content Trust", content, f"{name} missing SMM Content Trust"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
