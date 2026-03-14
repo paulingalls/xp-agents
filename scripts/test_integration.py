@@ -116,6 +116,21 @@ class _IntegrationTestCase(unittest.TestCase):
                     continue
         return events
 
+    def _run_script_with_env(
+        self, script_name: str, input_data: dict, env_overrides: dict
+    ) -> subprocess.CompletedProcess:
+        """Run a hook script with custom environment variables."""
+        env = os.environ.copy()
+        env.update(env_overrides)
+        return subprocess.run(
+            ["python3", str(self.scripts_dir / script_name)],
+            input=json.dumps(input_data),
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=env,
+        )
+
     def _seed_events(self, events: list[dict]) -> None:
         """Write seed events to events.jsonl."""
         lines = [json.dumps(e, ensure_ascii=False) for e in events]
@@ -1274,6 +1289,318 @@ class TestBashFailureIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
         self.assertEqual(len(events), 0)
+
+
+# ===========================================================================
+# Lint Check — additional coverage
+# ===========================================================================
+
+
+class TestLintCheckIntegrationExtended(_IntegrationTestCase):
+    def test_linter_config_detected_and_run(self):
+        """ruff.toml present + ruff on PATH → linter runs on file."""
+        (self.tmpdir / "ruff.toml").write_text("[lint]\n")
+        # Create a Python file with a lint issue (unused import)
+        src = self.tmpdir / "bad.py"
+        src.write_text("import os\n")
+        result = self._run_script(
+            "lint_check.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": str(src), "content": "import os\n"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        # If ruff is installed, we get a concern for unused import.
+        # If ruff is not installed, we get nothing (graceful degradation).
+        # Either way, no crash and no "no linter" warning.
+        no_linter_concerns = [
+            e
+            for e in events
+            if e.get("type") == "concern"
+            and "no linter" in e.get("content", "").lower()
+        ]
+        self.assertEqual(len(no_linter_concerns), 0)
+
+    def test_xp_agent_skips_lint(self):
+        """xp- agent_type → exit 0, no events."""
+        result = self._run_script(
+            "lint_check.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.py", "content": "x"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+                "agent_type": "xp-quality-reviewer",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+    def test_no_linter_warning_only_once(self):
+        """Second run without linter config → no duplicate concern."""
+        for _ in range(2):
+            self._run_script(
+                "lint_check.py",
+                {
+                    "session_id": "int-test",
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "src/app.py", "content": "x"},
+                    "cwd": str(self.tmpdir),
+                    "agent_id": "main",
+                },
+            )
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1, "Should warn exactly once")
+
+
+# ===========================================================================
+# Bash PostTool — additional framework coverage
+# ===========================================================================
+
+
+class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
+    def test_jest_results_create_events(self):
+        """jest output → status + concern events."""
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "npx jest"},
+                "tool_response": {"stdout": "Tests:  1 failed, 4 passed, 5 total"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(statuses) >= 1)
+        self.assertTrue(any("4 passed" in s["content"] for s in statuses))
+        self.assertTrue(len(concerns) >= 1)
+
+    def test_go_test_results_create_events(self):
+        """go test output → status event."""
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "go test ./..."},
+                "tool_response": {
+                    "stdout": (
+                        "ok  \tgithub.com/user/pkg\t0.3s\n"
+                        "ok  \tgithub.com/user/lib\t0.1s"
+                    )
+                },
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+        self.assertTrue(any("2 passed" in s["content"] for s in statuses))
+
+    def test_go_test_failure_creates_concern(self):
+        """go test with FAIL → status + concern."""
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "go test ./..."},
+                "tool_response": {
+                    "stdout": "--- FAIL: TestFoo (0.00s)\nFAIL\tpkg\t0.3s"
+                },
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(len(concerns) >= 1)
+
+    def test_npm_test_detected(self):
+        """npm test → recognized as jest framework."""
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "npm test"},
+                "tool_response": {"stdout": "Tests:  3 passed, 3 total"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+
+
+# ===========================================================================
+# Simplify Gate — tracker re-trigger sequence
+# ===========================================================================
+
+
+class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
+    def test_tracker_prevents_retrigger(self):
+        """First stop blocks, second stop (same loop) passes through."""
+        self._seed_events(
+            [
+                make_event("customer_input", content="build feature"),
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        # First stop — should block
+        r1 = self._run_script(
+            "simplify_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(r1.returncode, 2)
+        self.assertIn("/simplify", r1.stderr)
+
+        # Second stop — same events, tracker should prevent re-trigger
+        r2 = self._run_script(
+            "simplify_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(r2.returncode, 0)
+        self.assertEqual(r2.stdout.strip(), "")
+
+    def test_new_loop_retriggers_after_tracker(self):
+        """New customer_input resets tracker — blocks again."""
+        ci1 = make_event("customer_input", content="task 1")
+        self._seed_events(
+            [ci1, make_event("status", content="wrote", working_on=["src/a.ts"])]
+        )
+        # First loop blocks
+        r1 = self._run_script(
+            "simplify_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(r1.returncode, 2)
+
+        # New loop with new customer_input
+        ci2 = make_event("customer_input", content="task 2")
+        self._seed_events(
+            [
+                ci1,
+                make_event("status", content="wrote", working_on=["src/a.ts"]),
+                ci2,
+                make_event("status", content="wrote2", working_on=["src/b.ts"]),
+            ]
+        )
+        r2 = self._run_script(
+            "simplify_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(r2.returncode, 2)
+        self.assertIn("/simplify", r2.stderr)
+
+    def test_stop_hook_active_passes_through(self):
+        """stop_hook_active=True → exit 0 even with file changes."""
+        self._seed_events(
+            [
+                make_event("customer_input", content="build"),
+                make_event("status", content="wrote", working_on=["src/x.ts"]),
+            ]
+        )
+        result = self._run_script(
+            "simplify_gate.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "main",
+                "stop_hook_active": True,
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+
+# ===========================================================================
+# Advisory enforcement mode — conflict becomes warning instead of block
+# ===========================================================================
+
+
+class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
+    def _make_advisory_plugin_root(self) -> Path:
+        """Create a temp dir with advisory settings.json."""
+        plugin_root = Path(tempfile.mkdtemp())
+        (plugin_root / "settings.json").write_text(
+            json.dumps({"enforcement": "advisory"})
+        )
+        return plugin_root
+
+    def test_conflict_warns_instead_of_blocking(self):
+        """Advisory mode: working_on conflict → exit 0 with warning, not exit 2."""
+        self._seed_events(
+            [
+                make_event(
+                    "status",
+                    agent_id="other-agent",
+                    working_on=[str(self.tmpdir / "src" / "app.ts")],
+                ),
+            ]
+        )
+        plugin_root = self._make_advisory_plugin_root()
+        try:
+            result = self._run_script_with_env(
+                "pre_tool_use.py",
+                {
+                    "session_id": "int-test",
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "src/app.ts"},
+                    "agent_id": "main",
+                    "cwd": str(self.tmpdir),
+                },
+                {"CLAUDE_PLUGIN_ROOT": str(plugin_root)},
+            )
+            self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+            output = json.loads(result.stdout)
+            ctx = output["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("Advisory", ctx)
+            self.assertIn("other-agent", ctx)
+            self.assertIn("[enforcement: advisory]", ctx)
+        finally:
+            shutil.rmtree(plugin_root)
+
+    def test_strict_mode_blocks(self):
+        """Strict mode (default): working_on conflict → exit 2."""
+        self._seed_events(
+            [
+                make_event(
+                    "status",
+                    agent_id="other-agent",
+                    working_on=[str(self.tmpdir / "src" / "app.ts")],
+                ),
+            ]
+        )
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("other-agent", result.stderr)
 
 
 if __name__ == "__main__":
