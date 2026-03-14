@@ -3049,58 +3049,29 @@ class _HooksJsonTestCase(unittest.TestCase):
 
 
 class TestHooksJsonM4(_HooksJsonTestCase):
-    """Verify hooks.json has all M4 agent hook registrations."""
+    """Verify hooks.json M4 registrations (agent hooks removed in M6.5)."""
 
-    # --- PreToolUse: navigator ---
+    def test_pretooluse_has_star_matcher(self):
+        entry = self._find_matcher_entry("PreToolUse", "*")
+        self.assertIsNotNone(entry, "PreToolUse * matcher entry missing")
 
-    def test_pretooluse_has_write_edit_matcher(self):
+    def test_pretooluse_no_write_edit_entry(self):
+        """Write|Edit|MultiEdit navigator agent hook removed in M6.5."""
         entry = self._find_matcher_entry("PreToolUse", "Write|Edit|MultiEdit")
-        self.assertIsNotNone(entry, "PreToolUse Write|Edit|MultiEdit entry missing")
+        self.assertIsNone(
+            entry, "PreToolUse Write|Edit|MultiEdit entry should be removed"
+        )
 
-    def test_pretooluse_navigator_agent(self):
-        entry = self._find_matcher_entry("PreToolUse", "Write|Edit|MultiEdit")
-        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        self.assertEqual(len(agents), 1)
-        self.assertEqual(agents[0]["agent_type"], "xp-navigator")
-        self.assertIn("navigator.md", agents[0]["prompt"])
-
-    # --- PostToolUse: quality_reviewer ---
-
-    def test_posttooluse_quality_reviewer_async(self):
+    def test_posttooluse_no_agent_hooks(self):
+        """Quality reviewer agent hook removed in M6.5."""
         entry = self._find_matcher_entry("PostToolUse", "Write|Edit|MultiEdit")
         agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        self.assertEqual(len(agents), 1)
-        self.assertTrue(agents[0].get("async"), "quality_reviewer should be async")
-        self.assertEqual(agents[0]["agent_type"], "xp-quality-reviewer")
-        self.assertIn("quality_reviewer.md", agents[0]["prompt"])
+        self.assertEqual(len(agents), 0, "No agent hooks should remain in PostToolUse")
 
-    # --- SubagentStop: plan_reviewer ---
-
-    def test_subagentstop_plan_matcher(self):
+    def test_subagentstop_no_plan_matcher(self):
+        """Plan matcher entry removed in M6.5 (plan review via subagent now)."""
         entry = self._find_matcher_entry("SubagentStop", "Plan")
-        self.assertIsNotNone(entry, "SubagentStop Plan matcher entry missing")
-
-    def test_subagentstop_plan_reviewer_agent(self):
-        entry = self._find_matcher_entry("SubagentStop", "Plan")
-        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        self.assertEqual(len(agents), 1)
-        self.assertEqual(agents[0]["agent_type"], "xp-plan-reviewer")
-        self.assertIn("plan_reviewer.md", agents[0]["prompt"])
-
-    def test_subagentstop_plan_no_command_hook(self):
-        """Plan entry should only have the agent hook, no command hook."""
-        entry = self._find_matcher_entry("SubagentStop", "Plan")
-        commands = [h for h in entry["hooks"] if h.get("type") == "command"]
-        self.assertEqual(len(commands), 0, "Plan entry should have no command hooks")
-
-    # --- Plugin version bump ---
-
-    def test_plugin_version_m4(self):
-        plugin_path = Path(__file__).parent.parent / ".claude-plugin" / "plugin.json"
-        with open(plugin_path) as f:
-            plugin = json.load(f)
-        # Updated to 0.6.0 in M6
-        self.assertEqual(plugin["version"], "0.6.0")
+        self.assertIsNone(entry, "SubagentStop Plan matcher entry should be removed")
 
 
 # ===========================================================================
@@ -3310,40 +3281,23 @@ class TestHooksJsonM5(_HooksJsonTestCase):
             "retrospective.py command hook missing from SessionStart",
         )
 
-    # --- SessionStart: retrospective_analyst agent ---
+    # --- SessionStart: agent hooks removed in M6.5 ---
 
-    def test_session_start_has_retro_analyst_agent(self):
+    def test_session_start_no_agent_hooks(self):
+        """Retro analyst and customer proxy agent hooks removed in M6.5."""
         entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
         agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        retro_agents = [
-            a for a in agents if a.get("agent_type") == "xp-retrospective-analyst"
-        ]
-        self.assertEqual(len(retro_agents), 1)
-        self.assertIn("retrospective_analyst.md", retro_agents[0]["prompt"])
+        self.assertEqual(len(agents), 0, "No agent hooks should remain in SessionStart")
 
-    # --- SessionStart: customer_proxy agent ---
+    # --- SubagentStop: agent hooks removed in M6.5 ---
 
-    def test_session_start_has_customer_proxy_agent(self):
-        entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
-        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        proxy_agents = [a for a in agents if a.get("agent_type") == "xp-customer-proxy"]
-        self.assertEqual(len(proxy_agents), 1)
-        self.assertIn("customer_proxy.md", proxy_agents[0]["prompt"])
-
-    # --- SubagentStop: subagent_reviewer agent (async) ---
-
-    def test_subagentstop_default_has_reviewer_agent(self):
-        entry = self._find_default_entry("SubagentStop")
-        self.assertIsNotNone(entry, "SubagentStop default entry missing")
-        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        self.assertEqual(len(agents), 1)
-        self.assertEqual(agents[0]["agent_type"], "xp-subagent-reviewer")
-        self.assertIn("subagent_reviewer.md", agents[0]["prompt"])
-
-    def test_subagentstop_reviewer_is_async(self):
-        entry = self._find_default_entry("SubagentStop")
-        agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
-        self.assertTrue(agents[0].get("async"), "subagent_reviewer should be async")
+    def test_subagentstop_no_agent_hooks(self):
+        """Subagent reviewer agent hook removed in M6.5."""
+        for entry in self.data["hooks"]["SubagentStop"]:
+            agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
+            self.assertEqual(
+                len(agents), 0, "No agent hooks should remain in SubagentStop"
+            )
 
     # --- Stop: tdd_check prompt ---
 
@@ -4257,6 +4211,45 @@ _SUBAGENT_NAMES = (
 )
 
 _BACKGROUND_SUBAGENTS = frozenset({"xp-quality-reviewer", "xp-subagent-reviewer"})
+
+
+class TestHooksJsonM65(_HooksJsonTestCase):
+    """Verify no agent hooks remain in hooks.json after M6.5 migration."""
+
+    def test_no_agent_hooks_anywhere(self):
+        """hooks.json should have zero type: agent entries."""
+        for event_name, entries in self.data["hooks"].items():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    self.assertNotEqual(
+                        hook.get("type"),
+                        "agent",
+                        f"Found agent hook in {event_name}: {hook}",
+                    )
+
+    def test_only_command_and_prompt_types(self):
+        """All hooks should be type: command or type: prompt."""
+        valid_types = {"command", "prompt"}
+        for event_name, entries in self.data["hooks"].items():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    self.assertIn(
+                        hook.get("type"),
+                        valid_types,
+                        f"Invalid hook type in {event_name}: {hook.get('type')}",
+                    )
+
+    def test_tdd_check_is_only_prompt_hook(self):
+        """tdd_check.md should be the only prompt hook remaining."""
+        prompt_hooks = []
+        for event_name, entries in self.data["hooks"].items():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    if hook.get("type") == "prompt":
+                        prompt_hooks.append((event_name, hook))
+        self.assertEqual(len(prompt_hooks), 1, "Should have exactly 1 prompt hook")
+        self.assertEqual(prompt_hooks[0][0], "Stop")
+        self.assertIn("tdd_check.md", prompt_hooks[0][1]["prompt"])
 
 
 class TestAgentFilesM65(unittest.TestCase):

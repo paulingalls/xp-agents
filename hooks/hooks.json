@@ -9,16 +9,6 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py"
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/navigator.md",
-            "agent_type": "xp-navigator"
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -32,16 +22,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/retrospective.py"
-          },
-          {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/retrospective_analyst.md",
-            "agent_type": "xp-retrospective-analyst"
-          },
-          {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/customer_proxy.md",
-            "agent_type": "xp-customer-proxy"
           }
         ]
       }
@@ -89,27 +69,11 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "Plan",
-        "hooks": [
-          {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/plan_reviewer.md",
-            "agent_type": "xp-plan-reviewer"
-          }
-        ]
-      },
-      {
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/subagent_stop.py",
             "timeout": 5000
-          },
-          {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/subagent_reviewer.md",
-            "agent_type": "xp-subagent-reviewer",
-            "async": true
           }
         ]
       }
@@ -139,12 +103,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint_check.py",
             "timeout": 10000
-          },
-          {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/quality_reviewer.md",
-            "agent_type": "xp-quality-reviewer",
-            "async": true
           }
         ]
       },
