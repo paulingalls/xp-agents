@@ -41,12 +41,43 @@ def classify_tier(tool_name: str, tool_input: dict) -> str:
 # Git push detection
 # ---------------------------------------------------------------------------
 
-_GIT_PUSH_RE = re.compile(r"\bgit\s+push\b")
-
 
 def is_git_push(command: str) -> bool:
-    """Detect git push in a shell command."""
-    return bool(_GIT_PUSH_RE.search(command))
+    """Detect git push in a shell command using argv parsing.
+
+    Handles /usr/bin/git, git -c key=val push, env git push, etc.
+    Falls back to regex on parse failure.
+    """
+    import shlex
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # Malformed shell quoting — fall back to simple regex
+        return bool(re.search(r"\bgit\s+push\b", command))
+
+    # Walk tokens looking for a git executable followed by push subcommand
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        # Check if token is 'git' or ends with '/git'
+        if tok == "git" or tok.endswith("/git"):
+            # Scan forward past flags/options for the subcommand
+            j = i + 1
+            while j < len(tokens) and tokens[j].startswith("-"):
+                j += 1
+                # Skip flag value for -c/-C style options
+                prev = tokens[j - 1]
+                if (
+                    j < len(tokens)
+                    and not prev.startswith("--")
+                    and prev in ("-c", "-C")
+                ):
+                    j += 1
+            if j < len(tokens) and tokens[j] == "push":
+                return True
+        i += 1
+    return False
 
 
 # ---------------------------------------------------------------------------

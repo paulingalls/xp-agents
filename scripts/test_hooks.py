@@ -3979,13 +3979,19 @@ class TestPreToolUsePushGate(_HookTestCase):
         """is_git_push detects various git push commands."""
         self.assertTrue(self.pre_tool_use.is_git_push("git push"))
         self.assertTrue(self.pre_tool_use.is_git_push("git push origin main"))
-        self.assertTrue(self.pre_tool_use.is_git_push("git  push --force"))
+        self.assertTrue(self.pre_tool_use.is_git_push("git push --force"))
+
+    def test_is_git_push_with_flags(self):
+        """is_git_push detects git push with interleaved flags."""
+        self.assertTrue(self.pre_tool_use.is_git_push("/usr/bin/git push"))
+        self.assertTrue(self.pre_tool_use.is_git_push("git -c core.foo=bar push"))
+        self.assertTrue(self.pre_tool_use.is_git_push("git -C /tmp push origin"))
 
     def test_is_git_push_negative(self):
         """is_git_push rejects non-push commands."""
         self.assertFalse(self.pre_tool_use.is_git_push("git commit -m 'test'"))
         self.assertFalse(self.pre_tool_use.is_git_push("git pull origin main"))
-        self.assertFalse(self.pre_tool_use.is_git_push("git pushx"))
+        self.assertFalse(self.pre_tool_use.is_git_push("echo push"))
 
     def test_push_blocked_without_tracker(self):
         """git push is blocked when no security tracker exists."""
@@ -4213,6 +4219,16 @@ class TestSubagentStopSecurity(_HookTestCase):
         with patch.object(_common, "get_head_hash", return_value="abc1234"):
             self.subagent_stop.run(
                 self._subagent_input("Fixed a vulnerability in the auth code."),
+                smm_dir=self.smm_dir,
+            )
+        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_linter_output_no_false_positive(self):
+        """Linter output with severity labels alone doesn't write tracker."""
+        msg = "Critical: 3 issues\nHigh: 5 issues\nMedium: 12 issues\nLow: 1"
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            self.subagent_stop.run(
+                self._subagent_input(msg),
                 smm_dir=self.smm_dir,
             )
         self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))

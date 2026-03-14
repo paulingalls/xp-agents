@@ -17,22 +17,35 @@ import _common
 # Path 2: Security review output detection
 # ---------------------------------------------------------------------------
 
-_SECURITY_REVIEW_SIGNALS = [
+# At least one "anchor" signal must match (explicitly security-related)
+_SECURITY_ANCHOR_SIGNALS = [
     re.compile(r"security\s+review", re.IGNORECASE),
+    re.compile(r"security\s+audit", re.IGNORECASE),
+]
+# Additional signals that boost confidence (but alone are too generic)
+_SECURITY_BOOST_SIGNALS = [
     re.compile(r"no\s+vulnerabilit(?:y|ies)\s+found", re.IGNORECASE),
     re.compile(r"no\s+(?:security\s+)?issues?\s+found", re.IGNORECASE),
     re.compile(r"(?:Critical|High|Medium|Low)\s*:", re.IGNORECASE),
     re.compile(r"vulnerabilit(?:y|ies)", re.IGNORECASE),
-    re.compile(r"security\s+audit", re.IGNORECASE),
 ]
 _SECURITY_REVIEW_THRESHOLD = 2
 
 
 def _detect_security_review(message: str) -> bool:
-    """Score message against security review signals. Returns True if >= threshold."""
+    """Detect security review output.
+
+    Requires an anchor signal (security review/audit) plus total
+    score >= threshold. Boost signals alone cannot trigger detection,
+    preventing false positives from linter output.
+    """
     if not message:
         return False
-    score = sum(1 for sig in _SECURITY_REVIEW_SIGNALS if sig.search(message))
+    has_anchor = any(sig.search(message) for sig in _SECURITY_ANCHOR_SIGNALS)
+    if not has_anchor:
+        return False
+    all_signals = _SECURITY_ANCHOR_SIGNALS + _SECURITY_BOOST_SIGNALS
+    score = sum(1 for sig in all_signals if sig.search(message))
     return score >= _SECURITY_REVIEW_THRESHOLD
 
 
