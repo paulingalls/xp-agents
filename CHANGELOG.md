@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.5 — Milestone 5.5: Security Review Gate
+
+### Added
+- Push gate in `pre_tool_use.py` — detects `git push` in Bash commands, blocks until `.security-reviewed-{HEAD-hash}` tracker exists. Writes `security_review_requested` event on block. Strict mode blocks (exit 2), advisory mode warns
+- Path 1 detection in `user_prompt_log.py` — scans user prompt for `/security-review`, `security review`, `security audit` patterns. On match, writes HEAD-keyed tracker file
+- Path 2 detection in `subagent_stop.py` — scores `last_assistant_message` against 6 security review output signals (security review heading, severity markers, vulnerability mentions). Threshold of 2+ prevents false positives. On match, writes tracker
+- Security helpers in `_common.py` — `get_head_hash()`, `security_tracker_path()`, `security_tracker_exists()`, `write_security_tracker()`, `_cleanup_old_security_trackers()`. Hash validation (`^[0-9a-f]{7,40}$`) prevents path traversal
+- `security_review_requested` event type in `_append_impl.py` and `schema.json`
+- Security lens in `retrospective_analyst.md` — analyzes `security_review_requested` events through Courage value, surfaces gaps as Fix items
+- 42 new tests (711 total: 228 SMM + 406 hooks + 77 integration)
+
+### Design decisions
+- **Three detection paths** — security reviews detected via user prompt (Path 1), subagent output (Path 2), or push gate request (Path 3). No reliance on agent cooperation
+- **Gate on invocation, not outcome** — checks if a review was run, not what it found
+- **Commit hash keying** — new commits invalidate tracker, same HEAD passes without re-review
+- **No new hook registrations** — all logic fits into existing PreToolUse, UserPromptSubmit, SubagentStop hooks
+
 ## v0.5.4 — Milestone 5.4: Auto-Simplify at Loop End
 
 ### Added

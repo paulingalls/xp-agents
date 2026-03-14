@@ -80,6 +80,17 @@ Debt items with aging markers (visible in the **Technical Debt** section of the 
 
 Include plugin health observations in the Keep/Fix/Try output when anomalies are found.
 
+## Security Practices (Courage Lens)
+
+Analyze security review practices through the **Courage** value:
+
+- **`security_review_requested` events** — these fire when `git push` was attempted without a prior security review. Check: were they followed by an actual security review before the next push? Unresolved requests are a Fix item.
+- **Proactive security** — did the team run security reviews voluntarily (before the gate forced them)? This is a Keep item under Courage.
+- **Review gaps** — multiple `security_review_requested` events in a session suggest the team is pushing without reviewing. Surface as a Fix item: "Security reviews should happen before push attempts, not after being blocked."
+- **Security concerns** — were any `concern` events related to security raised during the session? Were they addressed?
+
+Include security observations in Keep/Fix/Try when relevant.
+
 ## Actions
 
 ### 1. Write retrospective event to the event log:

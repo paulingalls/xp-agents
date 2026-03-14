@@ -1603,5 +1603,206 @@ class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
         self.assertIn("other-agent", result.stderr)
 
 
+# ===========================================================================
+# Security review gate (Milestone 5.5)
+# ===========================================================================
+
+
+class TestSecurityReviewGateIntegration(_IntegrationTestCase):
+    """Integration tests for security review push gate and detection paths."""
+
+    def _get_head_hash(self) -> str:
+        """Get HEAD hash from the temp git repo."""
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            cwd=self.tmpdir,
+        ).strip()
+
+    def _write_tracker(self, commit_hash: str) -> None:
+        """Write a security tracker file in the SMM dir."""
+        tracker = self.smm_dir / f".security-reviewed-{commit_hash}"
+        tracker.write_text(
+            json.dumps({"commit_hash": commit_hash, "ts": "2026-03-14T00:00:00"})
+        )
+
+    def test_git_push_blocked_no_review(self):
+        """git push blocked without security review tracker."""
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push origin main"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("security", result.stderr.lower())
+        self.assertIn("/security-review", result.stderr)
+
+    def test_git_push_passes_with_tracker(self):
+        """git push passes when tracker exists for current HEAD."""
+        head = self._get_head_hash()
+        self._write_tracker(head)
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push origin main"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+
+    def test_security_review_event_written(self):
+        """Blocking a push writes security_review_requested event."""
+        self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        events = self._read_events()
+        sec_events = [e for e in events if e.get("type") == "security_review_requested"]
+        self.assertEqual(len(sec_events), 1)
+
+    def test_advisory_mode_warns(self):
+        """Advisory mode: push warns instead of blocking."""
+        plugin_root = Path(tempfile.mkdtemp())
+        (plugin_root / "settings.json").write_text(
+            json.dumps({"enforcement": "advisory"})
+        )
+        try:
+            result = self._run_script_with_env(
+                "pre_tool_use.py",
+                {
+                    "session_id": "int-test",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git push"},
+                    "agent_id": "main",
+                    "cwd": str(self.tmpdir),
+                },
+                {"CLAUDE_PLUGIN_ROOT": str(plugin_root)},
+            )
+            self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+            output = json.loads(result.stdout)
+            ctx = output["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("security", ctx.lower())
+        finally:
+            shutil.rmtree(plugin_root)
+
+    def test_user_prompt_writes_tracker(self):
+        """/security-review in user prompt writes tracker file."""
+        result = self._run_script(
+            "user_prompt_log.py",
+            {
+                "session_id": "int-test",
+                "prompt": "/security-review",
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+        head = self._get_head_hash()
+        tracker = self.smm_dir / f".security-reviewed-{head}"
+        self.assertTrue(
+            tracker.exists(),
+            "Tracker should exist after /security-review",
+        )
+
+    def test_subagent_security_output_writes_tracker(self):
+        """Security review output from subagent writes tracker file."""
+        msg = (
+            "## Security Review\n\nNo vulnerabilities found.\nSecurity audit complete."
+        )
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "sub1",
+                "last_assistant_message": msg,
+            },
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+        head = self._get_head_hash()
+        tracker = self.smm_dir / f".security-reviewed-{head}"
+        self.assertTrue(
+            tracker.exists(),
+            "Tracker should exist after security output",
+        )
+
+    def test_new_commit_invalidates_tracker(self):
+        """New commit creates new HEAD → old tracker invalid."""
+        old_head = self._get_head_hash()
+        self._write_tracker(old_head)
+
+        # Create a new commit
+        (self.tmpdir / "new_file").write_text("change")
+        subprocess.run(["git", "add", "new_file"], cwd=self.tmpdir, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "new commit"],
+            cwd=self.tmpdir,
+            capture_output=True,
+        )
+
+        # Push should now be blocked (new HEAD, old tracker)
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_full_flow(self):
+        """Full flow: push blocked → user sends /security-review → push passes."""
+        # Step 1: push is blocked
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+
+        # Step 2: user sends /security-review
+        self._run_script(
+            "user_prompt_log.py",
+            {
+                "session_id": "int-test",
+                "prompt": "/security-review",
+                "agent_id": "main",
+            },
+        )
+
+        # Step 3: push now passes
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+
+
 if __name__ == "__main__":
     unittest.main()
