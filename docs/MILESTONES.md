@@ -326,21 +326,29 @@
 
 ---
 
-## Milestone 6: CLAUDE.md & Skills
+## Milestone 6: CLAUDE.md & Skills ✅
 
 **Goal**: Behavioral rules and reference knowledge.
 
+**Status**: Complete (730 total tests: 228 SMM + 131 engine + 422 hooks + 79 integration, 14 new tests for M6).
+
 **Deliverables**:
-- [ ] `CLAUDE.md` (~2,500–3,500 tokens) — Honesty Principle (7 rules), XP Values, SMM Protocol (read before modify, record decisions, never silently override, working_on, GUPP), Standup Protocol, Session End Protocol (final status before finishing), Retrospective Protocol, Code Quality (test first, lint, flag complexity), Courage Commitments.
-- [ ] `skills/smm-protocol/SKILL.md` (~1,000–2,000 tokens) — Event types, working_on, references, conflict response, good vs. bad event examples.
-- [ ] `skills/xp-values/SKILL.md` (~1,000–2,000 tokens) — Values as behaviors, honesty as foundation.
-- [ ] `skills/pair-programming/SKILL.md` (~1,000–2,000 tokens) — Navigator/driver protocol, pair_guidance events.
+- [x] `BEHAVIORAL_GUIDE.md` (~2,000–3,000 tokens) — Honesty Principle (7 rules), XP Values as behavior, Skills reference library (with explicit invocation guidance), Session Lifecycle (start/during/end), Code Quality (TDD, lint, complexity, small commits, security), Courage Commitments. Delivered via `additionalContext` injection in `session_start.py`, not as plugin CLAUDE.md (which is not an official plugin component).
+- [x] `skills/smm-protocol/SKILL.md` (~1,000–1,500 tokens) — Event types, working_on, references, conflict response, good vs. bad event examples, common recording patterns.
+- [x] `skills/xp-values/SKILL.md` (~1,000–1,500 tokens) — Values as behaviors, honesty as foundation, value priority when conflicting, practical examples.
+- [x] `skills/pair-programming/SKILL.md` (~1,000–1,500 tokens) — Navigator/driver protocol, pair_guidance events, conflict resolution, debt in pair programming, session flow.
+
+**Design change from plan**: `CLAUDE.md` renamed to `BEHAVIORAL_GUIDE.md` to avoid confusion with the dev guide at repo root. Content delivered via `session_start.py` `additionalContext` injection rather than as a plugin CLAUDE.md file (which is not an official plugin component per the plugin reference docs). Skills prominently referenced in the guide with explicit "invoke when" instructions since they are voluntary (not hook-enforced).
 
 **Acceptance Criteria**:
-- CLAUDE.md 2,500–3,500 tokens, readable in <3 minutes
-- No contradictions with hook enforcement
-- Skills have valid frontmatter with trigger/skip_when
-- Developer can append an event correctly after reading smm-protocol alone
+- ✅ BEHAVIORAL_GUIDE.md ~2,000–3,000 tokens, readable in <3 minutes
+- ✅ No contradictions with hook enforcement (tested)
+- ✅ Skills have valid frontmatter with name + description
+- ✅ Developer can append an event correctly after reading smm-protocol alone
+- ✅ Skills are prominently referenced in guide to drive voluntary usage
+- ✅ Graceful degradation when BEHAVIORAL_GUIDE.md is missing
+- ✅ Injection order: SMM → enforcement → behavioral guide → GUPP → skills
+- ✅ Plugin version bumped to 0.6.0
 
 ---
 

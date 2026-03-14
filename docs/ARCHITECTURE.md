@@ -232,12 +232,25 @@ All xp-agents agent hooks use `xp-` prefix on agent_type. Command hooks check `a
 
 | When | Hook | What's Injected |
 |---|---|---|
-| Session start | SessionStart | Full SMM (after retrospective if applicable) |
+| Session start | SessionStart | Full SMM + behavioral guide (after retrospective if applicable) |
 | Subagent spawn | SubagentStart | Full materialized SMM |
 | Before tool use | PreToolUse | Delta since agent's watermark (tiered) |
-| After compaction | SessionStart (compact matcher) | Full SMM re-injection |
+| After compaction | SessionStart (compact matcher) | Full SMM + behavioral guide re-injection |
 
 All injection via `additionalContext` in hook JSON output. Never in system prompt (preserves prompt cache).
+
+### Behavioral Guide Injection
+
+`BEHAVIORAL_GUIDE.md` at plugin root contains XP behavioral rules for the main agent. Loaded by `session_start.py` via `_load_behavioral_guide()` (cached per process). Injected between enforcement indicator and GUPP in `additionalContext`. Graceful degradation: missing file skips injection without error.
+
+**Why not plugin CLAUDE.md?** CLAUDE.md is not an official plugin component per the plugin reference docs (which list skills, agents, hooks, MCP/LSP servers, and settings). When installed to cache, a plugin's root CLAUDE.md is not auto-loaded. `additionalContext` from SessionStart is the reliable delivery mechanism.
+
+**Injection order in `additionalContext`:**
+1. SMM (materialized view)
+2. Enforcement indicator (advisory mode only)
+3. Behavioral guide (from `BEHAVIORAL_GUIDE.md`)
+4. GUPP ("Resume immediately")
+5. Skills list (with "invoke these regularly" emphasis)
 
 ### Prompt Cache & Token Cost
 
@@ -293,7 +306,7 @@ Critical → exit 2 (block) in `strict` mode, warning via additionalContext in `
 
 ### Session Start
 ```
-SessionStart → command: init, retro check, SMM injection, GUPP, skills
+SessionStart → command: init, retro check, SMM + behavioral guide + GUPP + skills injection
             → agent: retrospective-analyst (if unanalyzed events)
             → agent: customer-proxy (if open questions)
             → work begins
@@ -433,6 +446,7 @@ Fail loud, never corrupt, always recoverable.
 - **Navigator writes `pair_guidance` events** to event log for retrospective analysis, not just ephemeral additionalContext
 - **Performance budget** — 2 agent hooks per Write/Edit (navigator + quality reviewer). Navigator self-filters trivial changes for minimal token cost.
 - **`/simplify` at Stop** — command hook (`simplify_gate.py`) checks for file changes since last `customer_input`. If changes found and `/simplify` hasn't run, blocks via exit 2 with stderr instruction. No prompt hook — hooks within the same Stop entry run in parallel, so `additionalContext` from a command hook isn't visible to a prompt hook. Tracker file (`.simplify-{agent_id}.json`) keyed on last `customer_input` event ID prevents re-trigger. New loop = new ID = fresh trigger.
+- **CLAUDE.md is NOT a plugin component** — behavioral rules delivered via `additionalContext` in `session_start.py`. The `BEHAVIORAL_GUIDE.md` file is a data file read at runtime, not a plugin manifest entry. Skills are voluntary (not hook-enforced) and prominently referenced in the guide with "invoke when" instructions to drive usage.
 - **Security review push gate** — three detection paths write the `.security-reviewed-{HEAD-hash}` tracker: (1) UserPromptSubmit scans for `/security-review` or security audit patterns, (2) SubagentStop checks `last_assistant_message` for security review output signatures, (3) push gate writes `security_review_requested` event when blocking. No reliance on agent cooperation — all paths are mechanical hook detection.
 
 ## Plugin Structure
@@ -440,7 +454,7 @@ Fail loud, never corrupt, always recoverable.
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json
-├── CLAUDE.md
+├── BEHAVIORAL_GUIDE.md                 ← XP behavioral rules, loaded by session_start.py
 ├── settings.json
 ├── skills/
 │   ├── smm-protocol/SKILL.md
