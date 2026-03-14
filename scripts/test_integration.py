@@ -12,6 +12,7 @@ Frequency: pre-push (not pre-commit — too slow for every commit).
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -1050,6 +1051,112 @@ class TestRetrospectiveIntegration(_IntegrationTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertEqual(len(data["previous_retros"]), 1)
+
+
+# ===========================================================================
+# New event types: goal, debt, customer_intent (Milestone 5.2)
+# ===========================================================================
+
+
+class TestNewEventTypesIntegration(_IntegrationTestCase):
+    def _run_append(self, *args: str) -> subprocess.CompletedProcess:
+        """Run append.sh with given args in the temp git repo."""
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_ROOT"] = str(Path(__file__).parent.parent)
+        append_sh = Path(__file__).parent.parent / "smm" / "append.sh"
+        return subprocess.run(
+            ["bash", str(append_sh), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(self.tmpdir),
+        )
+
+    def test_append_goal_and_materialize(self):
+        """Goal event appears in materialized view under Project Goals."""
+        r = self._run_append(
+            "--type", "goal", "--agent", "main", "--content", "Ship v2.0"
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "goal")
+
+        # Materialize and check
+        import materialize as mat
+
+        md = mat.materialize(self.smm_dir)
+        self.assertIn("## Project Goals", md)
+        self.assertIn("🎯", md)
+        self.assertIn("Ship v2.0", md)
+
+    def test_append_debt_and_materialize(self):
+        """Debt event appears in materialized view under Technical Debt."""
+        r = self._run_append(
+            "--type",
+            "debt",
+            "--agent",
+            "main",
+            "--content",
+            "Legacy auth module",
+            "--files",
+            '["src/auth.py", "src/legacy.py"]',
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "debt")
+        self.assertEqual(events[0]["files"], ["src/auth.py", "src/legacy.py"])
+
+        import materialize as mat
+
+        md = mat.materialize(self.smm_dir)
+        self.assertIn("## Technical Debt", md)
+        self.assertIn("Legacy auth module", md)
+        self.assertIn("src/auth.py", md)
+
+    def test_append_customer_intent_and_materialize(self):
+        """Customer intent event appears in materialized view."""
+        r = self._run_append(
+            "--type",
+            "customer_intent",
+            "--agent",
+            "main",
+            "--content",
+            "Need OAuth integration",
+            "--intent-status",
+            "open",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "customer_intent")
+        self.assertEqual(events[0]["intent_status"], "open")
+
+        import materialize as mat
+
+        md = mat.materialize(self.smm_dir)
+        self.assertIn("## Customer Intent", md)
+        self.assertIn("📋", md)
+        self.assertIn("Need OAuth integration", md)
+
+    def test_retro_includes_session_stats(self):
+        """Retrospective .retro-input.json includes session_stats."""
+        self._seed_events([make_event(content=f"e{i}") for i in range(6)])
+        result = self._run_script(
+            "retrospective.py",
+            {"session_id": "int-test", "source": "startup"},
+        )
+        self.assertEqual(result.returncode, 0)
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("session_stats", data)
+        self.assertIn("pair_guidance_count", data["session_stats"])
+        self.assertIn("status_count", data["session_stats"])
+        self.assertIn("concerns_raised", data["session_stats"])
 
 
 if __name__ == "__main__":

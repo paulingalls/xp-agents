@@ -7,13 +7,10 @@ via tempfile + os.rename.
 """
 
 import argparse
+import bisect
 import contextlib
-import fcntl
-import hashlib
 import json
 import os
-import signal
-import subprocess
 import sys
 import tempfile
 from collections import defaultdict
@@ -22,123 +19,22 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-STALE_THRESHOLD = 50
-PRIORITY_RED = "\U0001f534"
-_MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
-
-
-def _validate_smm_dir(smm_dir: Path) -> None:
-    """Validate SMM directory exists, is owned by us, not world-writable."""
-    if not smm_dir.exists():
-        raise ValueError(f"SMM directory does not exist: {smm_dir}")
-    st = smm_dir.stat()
-    if st.st_uid != os.getuid():
-        raise ValueError(f"SMM directory not owned by current user: {smm_dir}")
-    if st.st_mode & 0o002:
-        raise ValueError(f"SMM directory is world-writable: {smm_dir}")
-
-
-VALID_TYPES = frozenset(
-    {
-        "customer_input",
-        "status",
-        "decision",
-        "convention",
-        "concern",
-        "discovery",
-        "question",
-        "answer",
-        "assumption",
-        "pair_guidance",
-        "session_end",
-        "retrospective",
-    }
+from _append_impl import (
+    PRIORITY_BLOCKING,
+    LockTimeoutError,
+    _validate_smm_dir,
+    compute_resolutions,
+    resolve_smm_dir,
+)
+from _append_impl import (
+    VALID_TYPES as _VALID_TYPES_LIST,
+)
+from _append_impl import (
+    read_with_lock as _read_with_lock,
 )
 
-
-# ---------------------------------------------------------------------------
-# SMM path resolution (duplicated for self-containment)
-# ---------------------------------------------------------------------------
-
-
-def resolve_smm_dir() -> Path:
-    """Derive the SMM directory from git-common-dir."""
-    try:
-        git_common = subprocess.check_output(
-            ["git", "rev-parse", "--git-common-dir"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("Error: Not in a git repository", file=sys.stderr)
-        sys.exit(1)
-
-    git_common_path = Path(git_common)
-    if not git_common_path.is_absolute():
-        git_common_path = git_common_path.resolve()
-
-    project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
-    return Path.home() / ".claude" / "xp-agents" / project_id / "smm"
-
-
-# ---------------------------------------------------------------------------
-# Locking helpers (duplicated from _append_impl.py per design decision)
-# ---------------------------------------------------------------------------
-
-
-class LockTimeoutError(Exception):
-    """Raised when flock cannot be acquired within the timeout."""
-
-    pass
-
-
-def _on_alarm(signum: int, frame: object) -> None:
-    raise LockTimeoutError("Could not acquire lock within 2 seconds")
-
-
-def _read_with_lock(path: Path) -> str:
-    """Read file contents under shared flock with 2-second timeout.
-
-    Raises LockTimeoutError if the lock cannot be acquired.
-    Raises OSError if the lock file is a symlink.
-    """
-    lock_path = path.parent / "events.lock"
-    lock_fd = None
-    raw_fd = None
-
-    try:
-        raw_fd = os.open(
-            str(lock_path),
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
-            0o600,
-        )
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(2)
-            fcntl.flock(lock_fd, fcntl.LOCK_SH)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
-        try:
-            if path.stat().st_size > _MAX_EVENTS_FILE_SIZE:
-                return ""
-            return path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return ""
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+STALE_THRESHOLD = 50
+VALID_TYPES = frozenset(_VALID_TYPES_LIST)
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +111,9 @@ def build_indices(events: list[dict]) -> dict:
         "assumption_contradictions": {},
         "concern_resolutions": {},
         "agent_ids": set(),
+        "session_end_positions": [],
+        "last_session_end_pos": -1,
+        "intent_by_status": defaultdict(list),
     }
 
     for i, event in enumerate(events):
@@ -233,6 +132,15 @@ def build_indices(events: list[dict]) -> dict:
             case "status":
                 indices["latest_status"][event.get("agent_id", "")] = event
 
+            case "session_end":
+                indices["session_end_positions"].append((i, event.get("ts", "")))
+                indices["last_session_end_pos"] = i
+
+            case "customer_intent":
+                intent_status = event.get("intent_status", "")
+                if intent_status:
+                    indices["intent_by_status"][intent_status].append(event)
+
             case "decision":
                 topic = event.get("topic", "")
                 if topic:
@@ -242,12 +150,6 @@ def build_indices(events: list[dict]) -> dict:
                 topic = event.get("topic", "")
                 if topic:
                     indices["conventions_by_topic"][topic].append(event)
-
-            case "answer":
-                for ref_id in event.get("references", []):
-                    ref_event = indices["by_id"].get(ref_id)
-                    if ref_event and ref_event.get("type") == "question":
-                        indices["question_answers"][ref_id] = event
 
             case "assumption":
                 for ref_id in event.get("references", []):
@@ -261,12 +163,10 @@ def build_indices(events: list[dict]) -> dict:
                     if ref_event and ref_event.get("type") == "assumption":
                         indices["assumption_contradictions"][ref_id] = event
 
-        # Any event referencing a concern resolves it
-        if event_type != "concern":
-            for ref_id in event.get("references", []):
-                ref_event = indices["by_id"].get(ref_id)
-                if ref_event and ref_event.get("type") == "concern":
-                    indices["concern_resolutions"][ref_id] = event
+    # Question-answer and concern-resolution tracking via shared utility
+    resolutions = compute_resolutions(events)
+    indices["question_answers"] = resolutions["question_answers"]
+    indices["concern_resolutions"] = resolutions["concern_resolutions"]
 
     return indices
 
@@ -320,7 +220,7 @@ def detect_conflicts(events: list[dict], indices: dict) -> list[str]:
 
     # 4. Stale question — 🔴 with no answer after STALE_THRESHOLD events
     for q in indices["by_type"].get("question", []):
-        if q.get("priority") != PRIORITY_RED:
+        if q.get("priority") != PRIORITY_BLOCKING:
             continue
         q_id = q["id"]
         if q_id in indices["question_answers"]:
@@ -375,7 +275,11 @@ def render_markdown(
     conflicts: list[str],
     skipped: int,
 ) -> str:
-    """Render the SHARED_MENTAL_MODEL.md content."""
+    """Render the SHARED_MENTAL_MODEL.md content.
+
+    Two-tier structure: ACTIVE CONTEXT (actionable) and REFERENCE (background).
+    """
+
     sections: list[str] = []
 
     agent_count = len(indices["agent_ids"])
@@ -390,7 +294,126 @@ def render_markdown(
         header += f"\n*⚠️ {skipped} malformed lines skipped*"
     sections.append(header)
 
-    # 1. Architecture Decisions
+    # ===================================================================
+    # ACTIVE CONTEXT
+    # ===================================================================
+    active_sections: list[str] = []
+
+    # A1. Project Goals
+    goals = indices["by_type"].get("goal", [])
+    if goals:
+        lines = ["## Project Goals"]
+        for g in goals:
+            lines.append(
+                f"- 🎯 {g.get('content', '')} "
+                f"[{g.get('agent_id', '')}, {short_id(g.get('id', ''))}]"
+            )
+        active_sections.append("\n".join(lines))
+
+    # A2. Conflict Alerts
+    if conflicts:
+        lines = ["## Conflict Alerts"]
+        lines.extend(f"- {c}" for c in conflicts)
+        active_sections.append("\n".join(lines))
+
+    # A3. Blocking Questions — only 🔴 unanswered/unassumed
+    questions = indices["by_type"].get("question", [])
+    blocking_qs = [
+        q
+        for q in questions
+        if q.get("priority") == PRIORITY_BLOCKING
+        and q["id"] not in indices["question_answers"]
+        and q["id"] not in indices["question_assumptions"]
+    ]
+    if blocking_qs:
+        lines = ["## Blocking Questions"]
+        for q in blocking_qs:
+            q_id = q["id"]
+            lines.append(
+                f"- 🔴 {q.get('content', '')} "
+                f"[{q.get('agent_id', '')}, {short_id(q_id)}] "
+                f"— **blocking, awaiting answer**"
+            )
+        active_sections.append("\n".join(lines))
+
+    # A4. Unacknowledged Concerns
+    concerns = indices["by_type"].get("concern", [])
+    unack_concerns = [
+        c for c in concerns if c["id"] not in indices["concern_resolutions"]
+    ]
+    if unack_concerns:
+        lines = ["## Unacknowledged Concerns"]
+        for c in unack_concerns:
+            lines.append(
+                f"- ⚠️ {c.get('content', '')} "
+                f"[{c.get('agent_id', '')}, {short_id(c['id'])}] "
+                f"— unacknowledged"
+            )
+        active_sections.append("\n".join(lines))
+
+    # A5. Customer Intent — open items only
+    open_intents = indices["intent_by_status"].get("open", [])
+    if open_intents:
+        lines = ["## Customer Intent"]
+        for ci in open_intents:
+            refs_str = ""
+            if ci.get("references"):
+                ref_parts = [short_id(r) for r in ci["references"]]
+                refs_str = f" (refs: {', '.join(ref_parts)})"
+            lines.append(
+                f"- 📋 {ci.get('content', '')} "
+                f"[{ci.get('agent_id', '')}, {short_id(ci.get('id', ''))}]"
+                f"{refs_str}"
+            )
+        active_sections.append("\n".join(lines))
+
+    # A6. Agent Status
+    latest = indices["latest_status"]
+    if latest:
+        lines = ["## Agent Status"]
+        for agent_id in sorted(latest):
+            status = latest[agent_id]
+            working_on = status.get("working_on", [])
+            content = status.get("content", "")
+            if working_on:
+                files = ", ".join(working_on)
+                lines.append(f"- **{agent_id}**: {content}. Working on: {files}")
+            else:
+                lines.append(f"- **{agent_id}**: {content}. Idle.")
+        active_sections.append("\n".join(lines))
+
+    # A7. Navigator Guidance — scoped to current session
+    all_guidance = indices["by_type"].get("pair_guidance", [])
+    last_se_pos = indices["last_session_end_pos"]
+    if last_se_pos >= 0:
+        # Only guidance after last session_end
+        guidance = [
+            g
+            for g in all_guidance
+            if indices["event_positions"].get(g.get("id", ""), -1) > last_se_pos
+        ]
+    else:
+        guidance = all_guidance
+    if guidance:
+        lines = ["## Navigator Guidance"]
+        for g in guidance[-3:]:
+            lines.append(
+                f"- {g.get('content', '')} "
+                f"[{short_id(g.get('id', ''))}, for {g.get('agent_id', '')}]"
+            )
+        active_sections.append("\n".join(lines))
+
+    # Emit Active Context
+    if active_sections:
+        sections.append("---\n## ACTIVE CONTEXT")
+        sections.extend(active_sections)
+
+    # ===================================================================
+    # REFERENCE
+    # ===================================================================
+    ref_sections: list[str] = []
+
+    # R1. Architecture Decisions
     decisions = indices["by_type"].get("decision", [])
     if decisions:
         lines = ["## Architecture Decisions"]
@@ -404,9 +427,9 @@ def render_markdown(
                 f"- {prefix}**{d.get('content', '')}** "
                 f"[{d.get('agent_id', '')}, {short_id(d.get('id', ''))}{refs_str}]"
             )
-        sections.append("\n".join(lines))
+        ref_sections.append("\n".join(lines))
 
-    # 2. Conventions
+    # R2. Conventions
     conventions = indices["by_type"].get("convention", [])
     if conventions:
         lines = ["## Conventions"]
@@ -415,13 +438,18 @@ def render_markdown(
                 f"- {c.get('content', '')} "
                 f"[{c.get('agent_id', '')}, {short_id(c.get('id', ''))}]"
             )
-        sections.append("\n".join(lines))
+        ref_sections.append("\n".join(lines))
 
-    # 3. Questions for Customer
-    questions = indices["by_type"].get("question", [])
-    if questions:
-        lines = ["## Questions for Customer"]
-        for q in questions:
+    # R3. Questions (Resolved & Assumed) — answered + assumed questions
+    resolved_qs = [
+        q
+        for q in questions
+        if q["id"] in indices["question_answers"]
+        or q["id"] in indices["question_assumptions"]
+    ]
+    if resolved_qs:
+        lines = ["## Questions (Resolved & Assumed)"]
+        for q in resolved_qs:
             q_id = q["id"]
             if q_id in indices["question_answers"]:
                 answer = indices["question_answers"][q_id]
@@ -438,33 +466,9 @@ def render_markdown(
                     f"[{q.get('agent_id', '')}, {short_id(q_id)}] "
                     f"— **assumed: {assumption.get('content', '')}**"
                 )
-            elif q.get("priority") == PRIORITY_RED:
-                lines.append(
-                    f"- 🔴 {q.get('content', '')} "
-                    f"[{q.get('agent_id', '')}, {short_id(q_id)}] "
-                    f"— **blocking, awaiting answer**"
-                )
-            else:
-                lines.append(
-                    f"- {q.get('priority', '')} {q.get('content', '')} "
-                    f"[{q.get('agent_id', '')}, {short_id(q_id)}]"
-                )
-        sections.append("\n".join(lines))
+        ref_sections.append("\n".join(lines))
 
-    # 4. Customer Input (last 5)
-    customer_inputs = indices["by_type"].get("customer_input", [])
-    if customer_inputs:
-        lines = ["## Customer Input"]
-        for ci in customer_inputs[-5:]:
-            lines.append(f"- {ci.get('content', '')} [{ci.get('ts', '')}]")
-        if len(customer_inputs) > 5:
-            lines.append(
-                f"*(showing last 5 of {len(customer_inputs)}"
-                f" — full history in events.jsonl)*"
-            )
-        sections.append("\n".join(lines))
-
-    # 5. Discoveries
+    # R4. Discoveries
     discoveries = indices["by_type"].get("discovery", [])
     if discoveries:
         lines = ["## Discoveries"]
@@ -473,9 +477,9 @@ def render_markdown(
                 f"- ⚠️ {d.get('content', '')} "
                 f"[{d.get('agent_id', '')}, {short_id(d.get('id', ''))}]"
             )
-        sections.append("\n".join(lines))
+        ref_sections.append("\n".join(lines))
 
-    # 6. Assumptions
+    # R5. Assumptions
     assumptions = indices["by_type"].get("assumption", [])
     if assumptions:
         lines = ["## Assumptions"]
@@ -494,62 +498,55 @@ def render_markdown(
                     f"[{a.get('agent_id', '')}, {short_id(a_id)}] "
                     f"— unverified"
                 )
-        sections.append("\n".join(lines))
+        ref_sections.append("\n".join(lines))
 
-    # 7. Concerns
-    concerns = indices["by_type"].get("concern", [])
-    if concerns:
-        lines = ["## Concerns"]
-        for c in concerns:
-            c_id = c["id"]
-            if c_id in indices["concern_resolutions"]:
-                resolver = indices["concern_resolutions"][c_id]
-                lines.append(
-                    f"- ✅ {c.get('content', '')} "
-                    f"[{c.get('agent_id', '')}, {short_id(c_id)}] "
-                    f"— resolved → {short_id(resolver['id'])}"
-                )
-            else:
-                lines.append(
-                    f"- ⚠️ {c.get('content', '')} "
-                    f"[{c.get('agent_id', '')}, {short_id(c_id)}] "
-                    f"— unacknowledged"
-                )
-        sections.append("\n".join(lines))
-
-    # 8. Agent Status
-    latest = indices["latest_status"]
-    if latest:
-        lines = ["## Agent Status"]
-        for agent_id in sorted(latest):
-            status = latest[agent_id]
-            working_on = status.get("working_on", [])
-            content = status.get("content", "")
-            if working_on:
-                files = ", ".join(working_on)
-                lines.append(f"- **{agent_id}**: {content}. Working on: {files}")
-            else:
-                lines.append(f"- **{agent_id}**: {content}. Idle.")
-        sections.append("\n".join(lines))
-
-    # 9. Conflict Alerts
-    if conflicts:
-        lines = ["## Conflict Alerts"]
-        lines.extend(f"- {c}" for c in conflicts)
-        sections.append("\n".join(lines))
-
-    # 10. Navigator Guidance (last 3)
-    guidance = indices["by_type"].get("pair_guidance", [])
-    if guidance:
-        lines = ["## Navigator Guidance"]
-        for g in guidance[-3:]:
-            lines.append(
-                f"- {g.get('content', '')} "
-                f"[{short_id(g.get('id', ''))}, for {g.get('agent_id', '')}]"
+    # R6. Technical Debt — with aging markers
+    debts = indices["by_type"].get("debt", [])
+    if debts:
+        # Build sorted list of session_end timestamps for bisect
+        se_timestamps = [ts for _, ts in indices["session_end_positions"]]
+        lines = ["## Technical Debt"]
+        for d in debts:
+            debt_ts = d.get("ts", "")
+            # Count session_ends after this debt: total - those at or before debt_ts
+            sessions_after = len(se_timestamps) - bisect.bisect_right(
+                se_timestamps, debt_ts
             )
-        sections.append("\n".join(lines))
+            if sessions_after >= 7:
+                age_marker = "🔴 "
+            elif sessions_after >= 4:
+                age_marker = "⚠️ "
+            else:
+                age_marker = ""
+            files = ", ".join(d.get("files", []))
+            lines.append(
+                f"- {age_marker}{d.get('content', '')} "
+                f"[{d.get('agent_id', '')}, {short_id(d.get('id', ''))}] "
+                f"(files: {files})"
+            )
+        ref_sections.append("\n".join(lines))
 
-    # 11. Unknown Events
+    # R7. Resolved Concerns
+    resolved_concerns = [
+        c for c in concerns if c["id"] in indices["concern_resolutions"]
+    ]
+    if resolved_concerns:
+        lines = ["## Resolved Concerns"]
+        for c in resolved_concerns:
+            resolver = indices["concern_resolutions"][c["id"]]
+            lines.append(
+                f"- ✅ {c.get('content', '')} "
+                f"[{c.get('agent_id', '')}, {short_id(c['id'])}] "
+                f"— resolved → {short_id(resolver['id'])}"
+            )
+        ref_sections.append("\n".join(lines))
+
+    # Emit Reference
+    if ref_sections:
+        sections.append("---\n## REFERENCE")
+        sections.extend(ref_sections)
+
+    # Unknown Events (after both tiers)
     unknown_types = set(indices["by_type"].keys()) - VALID_TYPES
     if unknown_types:
         lines = ["## Unknown Events"]

@@ -257,6 +257,46 @@ class TestValidateEvent(unittest.TestCase):
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("content" in e for e in errors))
 
+    # --- New M5.2 types: goal, debt, customer_intent ---
+
+    def test_valid_goal(self):
+        event = self._base_event(type="goal")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_valid_debt(self):
+        event = self._base_event(type="debt", files=["src/legacy.py"])
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_debt_missing_files(self):
+        event = self._base_event(type="debt")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("files" in e for e in errors))
+
+    def test_debt_files_wrong_type(self):
+        event = self._base_event(type="debt", files="not-a-list")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("array" in e for e in errors))
+
+    def test_valid_customer_intent(self):
+        event = self._base_event(type="customer_intent", intent_status="open")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_customer_intent_missing_intent_status(self):
+        event = self._base_event(type="customer_intent")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("intent_status" in e for e in errors))
+
+    def test_customer_intent_invalid_intent_status(self):
+        event = self._base_event(type="customer_intent", intent_status="invalid")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("intent_status" in e for e in errors))
+
+    def test_customer_intent_all_statuses_valid(self):
+        for status in ("open", "delivered", "superseded"):
+            with self.subTest(status=status):
+                event = self._base_event(type="customer_intent", intent_status=status)
+                self.assertEqual(_append_impl.validate_event(event), [])
+
     # --- All three priority emojis ---
 
     def test_priority_red(self):
@@ -386,10 +426,31 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertIn("T", event["ts"])
         self.assertIn("+", event["ts"])
 
-    def test_all_12_types_succeed(self):
+    def test_all_15_types_succeed(self):
         """Ensure every event type can be appended with valid arguments."""
         cases = [
             ["--type", "customer_input", "--agent", "m", "--content", "x"],
+            [
+                "--type",
+                "customer_intent",
+                "--agent",
+                "m",
+                "--content",
+                "x",
+                "--intent-status",
+                "open",
+            ],
+            [
+                "--type",
+                "debt",
+                "--agent",
+                "m",
+                "--content",
+                "x",
+                "--files",
+                '["src/legacy.py"]',
+            ],
+            ["--type", "goal", "--agent", "m", "--content", "x"],
             [
                 "--type",
                 "status",
@@ -436,7 +497,7 @@ class TestAppendIntegration(unittest.TestCase):
 
         events = self._read_events()
         types = {e["type"] for e in events}
-        self.assertEqual(len(types), 12, f"Expected 12 types, got {types}")
+        self.assertEqual(len(types), 15, f"Expected 15 types, got {types}")
 
     def test_session_end_optional_fields(self):
         r = run_append(
@@ -734,11 +795,14 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
-    def test_schema_has_12_types(self):
+    def test_schema_has_15_types(self):
         types = self.schema["properties"]["type"]["enum"]
-        self.assertEqual(len(types), 12)
+        self.assertEqual(len(types), 15)
         expected = {
             "customer_input",
+            "customer_intent",
+            "debt",
+            "goal",
             "status",
             "decision",
             "convention",
@@ -775,6 +839,8 @@ class TestSchemaJson(unittest.TestCase):
             "keep",
             "fix",
             "try",
+            "files",
+            "intent_status",
         ):
             self.assertIn(
                 field, top_props, f"'{field}' must be in top-level properties"
@@ -805,6 +871,8 @@ class TestSchemaJson(unittest.TestCase):
         self.assertIn("topic", conditional_reqs.get("convention", []))
         self.assertIn("priority", conditional_reqs.get("question", []))
         self.assertIn("tool_name", conditional_reqs.get("pair_guidance", []))
+        self.assertIn("files", conditional_reqs.get("debt", []))
+        self.assertIn("intent_status", conditional_reqs.get("customer_intent", []))
 
 
 # ===========================================================================

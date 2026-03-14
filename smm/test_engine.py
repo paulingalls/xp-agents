@@ -44,6 +44,12 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
             event["priority"] = kwargs.pop("priority", "\U0001f534")
         case "pair_guidance":
             event["tool_name"] = kwargs.pop("tool_name", "Write")
+        case "goal":
+            pass  # No extra required fields
+        case "debt":
+            event["files"] = kwargs.pop("files", ["src/legacy.py"])
+        case "customer_intent":
+            event["intent_status"] = kwargs.pop("intent_status", "open")
     event.update(kwargs)
     return event
 
@@ -217,6 +223,41 @@ class TestBuildIndices(_SMMTestCase):
         self.assertEqual(indices["event_positions"][e0["id"]], 0)
         self.assertEqual(indices["event_positions"][e1["id"]], 1)
 
+    def test_session_end_positions_tracked(self):
+        e0 = make_event("customer_input")
+        se1 = make_event("session_end", content="done", ts="2026-03-12T01:00:00+00:00")
+        e1 = make_event("customer_input")
+        se2 = make_event("session_end", content="done2", ts="2026-03-12T02:00:00+00:00")
+        indices = materialize.build_indices([e0, se1, e1, se2])
+        self.assertEqual(len(indices["session_end_positions"]), 2)
+        self.assertEqual(
+            indices["session_end_positions"][0], (1, "2026-03-12T01:00:00+00:00")
+        )
+        self.assertEqual(
+            indices["session_end_positions"][1], (3, "2026-03-12T02:00:00+00:00")
+        )
+
+    def test_last_session_end_pos_default(self):
+        indices = materialize.build_indices([make_event("customer_input")])
+        self.assertEqual(indices["last_session_end_pos"], -1)
+
+    def test_last_session_end_pos_tracked(self):
+        e0 = make_event("customer_input")
+        se = make_event("session_end", content="done")
+        e1 = make_event("customer_input")
+        indices = materialize.build_indices([e0, se, e1])
+        self.assertEqual(indices["last_session_end_pos"], 1)
+
+    def test_intent_by_status_groups(self):
+        i1 = make_event("customer_intent", content="Feature A", intent_status="open")
+        i2 = make_event(
+            "customer_intent", content="Feature B", intent_status="delivered"
+        )
+        i3 = make_event("customer_intent", content="Feature C", intent_status="open")
+        indices = materialize.build_indices([i1, i2, i3])
+        self.assertEqual(len(indices["intent_by_status"]["open"]), 2)
+        self.assertEqual(len(indices["intent_by_status"]["delivered"]), 1)
+
 
 # ===========================================================================
 # Materialize — Conflict Detection
@@ -386,13 +427,26 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertIn("0 events", md)
         self.assertIn("2 malformed", md)
 
-    def test_decisions_section(self):
+    def test_two_tier_headers(self):
+        """Two-tier structure with ACTIVE CONTEXT and REFERENCE dividers."""
+        q = make_event("question", priority="\U0001f534", content="Q?")
+        d = make_event("decision", topic="db", content="Use Postgres")
+        self._write_events([q, d])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## ACTIVE CONTEXT", md)
+        self.assertIn("## REFERENCE", md)
+
+    def test_decisions_in_reference(self):
         d = make_event("decision", topic="db", content="Use Postgres", agent_id="nav")
         self._write_events([d])
         md = materialize.materialize(self.smm_dir)
         self.assertIn("## Architecture Decisions", md)
         self.assertIn("**Use Postgres**", md)
         self.assertIn("nav", md)
+        # Decisions should be in REFERENCE section
+        ref_idx = md.index("## REFERENCE")
+        dec_idx = md.index("## Architecture Decisions")
+        self.assertGreater(dec_idx, ref_idx)
 
     def test_draft_decision(self):
         d = make_event(
@@ -422,49 +476,40 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertIn("## Conventions", md)
         self.assertIn("Use camelCase", md)
 
-    def test_question_blocking(self):
+    def test_blocking_question_in_active(self):
         q = make_event("question", priority="\U0001f534", content="Which framework?")
         self._write_events([q])
         md = materialize.materialize(self.smm_dir)
-        self.assertIn("## Questions for Customer", md)
+        self.assertIn("## Blocking Questions", md)
         self.assertIn("\U0001f534", md)
         self.assertIn("blocking, awaiting answer", md)
 
-    def test_question_answered(self):
+    def test_question_answered_in_reference(self):
         q = make_event("question", priority="\U0001f534", content="Which DB?")
         a = make_event("answer", content="Postgres", references=[q["id"]])
         self._write_events([q, a])
         md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Questions (Resolved & Assumed)", md)
         self.assertIn("✅", md)
         self.assertIn("answered: Postgres", md)
 
-    def test_question_assumed(self):
+    def test_question_assumed_in_reference(self):
         q = make_event("question", priority="\U0001f7e1", content="Auth method?")
         assumption = make_event(
             "assumption", content="Using OAuth", references=[q["id"]]
         )
         self._write_events([q, assumption])
         md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Questions (Resolved & Assumed)", md)
         self.assertIn("🟡", md)
         self.assertIn("assumed: Using OAuth", md)
 
-    def test_customer_input_last_5(self):
+    def test_customer_input_section_removed(self):
+        """Customer Input section no longer rendered."""
         events = [make_event("customer_input", content=f"Input {i}") for i in range(7)]
         self._write_events(events)
         md = materialize.materialize(self.smm_dir)
-        self.assertIn("## Customer Input", md)
-        self.assertNotIn("Input 0", md)
-        self.assertNotIn("Input 1", md)
-        self.assertIn("Input 2", md)
-        self.assertIn("Input 6", md)
-        self.assertIn("showing last 5 of 7", md)
-
-    def test_customer_input_5_or_fewer_no_message(self):
-        events = [make_event("customer_input", content=f"Input {i}") for i in range(3)]
-        self._write_events(events)
-        md = materialize.materialize(self.smm_dir)
-        self.assertIn("Input 0", md)
-        self.assertNotIn("showing last", md)
+        self.assertNotIn("## Customer Input", md)
 
     def test_discoveries_section(self):
         d = make_event("discovery", content="Found legacy API")
@@ -488,23 +533,44 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertIn("❌", md)
         self.assertIn("contradicted by", md)
 
-    def test_concerns_unacknowledged(self):
+    def test_unacknowledged_concerns_in_active(self):
         c = make_event("concern", content="Missing error handling")
         self._write_events([c])
         md = materialize.materialize(self.smm_dir)
-        self.assertIn("## Concerns", md)
+        self.assertIn("## Unacknowledged Concerns", md)
         self.assertIn("⚠️", md)
         self.assertIn("unacknowledged", md)
 
-    def test_concerns_resolved(self):
+    def test_resolved_concerns_in_reference(self):
         c = make_event("concern", content="Missing tests")
         r = make_event(
             "status", content="Fixed", references=[c["id"]], working_on=["test.py"]
         )
         self._write_events([c, r])
         md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Resolved Concerns", md)
         self.assertIn("✅", md)
         self.assertIn("resolved", md)
+
+    def test_concerns_split_active_and_reference(self):
+        """Unresolved in Active, resolved in Reference."""
+        c1 = make_event("concern", content="Unresolved issue")
+        c2 = make_event("concern", content="Resolved issue")
+        r = make_event(
+            "status", content="Fixed", references=[c2["id"]], working_on=["test.py"]
+        )
+        self._write_events([c1, c2, r])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Unacknowledged Concerns", md)
+        self.assertIn("## Resolved Concerns", md)
+        # Unacknowledged in Active Context
+        active_idx = md.index("## ACTIVE CONTEXT")
+        ref_idx = md.index("## REFERENCE")
+        unack_idx = md.index("## Unacknowledged Concerns")
+        resolved_idx = md.index("## Resolved Concerns")
+        self.assertGreater(unack_idx, active_idx)
+        self.assertLess(unack_idx, ref_idx)
+        self.assertGreater(resolved_idx, ref_idx)
 
     def test_agent_status_working(self):
         s = make_event(
@@ -535,11 +601,11 @@ class TestRenderMarkdown(_SMMTestCase):
         self._write_events([s1, s2])
         md = materialize.materialize(self.smm_dir)
         self.assertIn("Second task", md)
-        # Agent Status section shows only latest — First task shouldn't be in that section
         status_section = md.split("## Agent Status")[1].split("##")[0]
         self.assertNotIn("First task", status_section)
 
-    def test_navigator_guidance_last_3(self):
+    def test_navigator_guidance_all_without_session_end(self):
+        """Without session_end, show all guidance (last 3)."""
         events = [
             make_event("pair_guidance", content=f"Guidance {i}", tool_name="Write")
             for i in range(5)
@@ -551,6 +617,118 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertNotIn("Guidance 1", md)
         self.assertIn("Guidance 2", md)
         self.assertIn("Guidance 4", md)
+
+    def test_navigator_guidance_scoped_to_session(self):
+        """With session_end, only show guidance after last session_end."""
+        events = [
+            make_event("pair_guidance", content="Old guidance", tool_name="Write"),
+            make_event("session_end", content="done"),
+            make_event("pair_guidance", content="New guidance", tool_name="Edit"),
+        ]
+        self._write_events(events)
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Navigator Guidance", md)
+        self.assertNotIn("Old guidance", md)
+        self.assertIn("New guidance", md)
+
+    def test_navigator_no_guidance_after_session_end(self):
+        """All guidance before session_end → no Navigator section."""
+        events = [
+            make_event("pair_guidance", content="Old guidance", tool_name="Write"),
+            make_event("session_end", content="done"),
+        ]
+        self._write_events(events)
+        md = materialize.materialize(self.smm_dir)
+        self.assertNotIn("## Navigator Guidance", md)
+
+    def test_goals_render_with_prefix(self):
+        g = make_event("goal", content="Ship v2.0")
+        self._write_events([g])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Project Goals", md)
+        self.assertIn("🎯", md)
+        self.assertIn("Ship v2.0", md)
+
+    def test_customer_intent_open_in_active(self):
+        i1 = make_event(
+            "customer_intent", content="Need auth flow", intent_status="open"
+        )
+        i2 = make_event(
+            "customer_intent", content="Done feature", intent_status="delivered"
+        )
+        self._write_events([i1, i2])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Customer Intent", md)
+        self.assertIn("📋", md)
+        self.assertIn("Need auth flow", md)
+        # Delivered should NOT appear in Customer Intent
+        intent_section = md.split("## Customer Intent")[1].split("##")[0]
+        self.assertNotIn("Done feature", intent_section)
+
+    def test_customer_intent_with_source_refs(self):
+        ci = make_event("customer_input", content="I want auth")
+        intent = make_event(
+            "customer_intent",
+            content="Auth flow needed",
+            intent_status="open",
+            references=[ci["id"]],
+        )
+        self._write_events([ci, intent])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Customer Intent", md)
+        self.assertIn("Auth flow needed", md)
+        self.assertIn(ci["id"][:8], md)
+
+    def test_debt_with_aging_new(self):
+        """Debt with 0-3 session_ends after: no age marker."""
+        d = make_event("debt", content="Legacy code", files=["src/old.py"])
+        self._write_events([d])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Technical Debt", md)
+        self.assertIn("Legacy code", md)
+        self.assertIn("src/old.py", md)
+
+    def test_debt_with_aging_warning(self):
+        """Debt with 4-6 session_ends after: ⚠️ marker."""
+        d = make_event(
+            "debt",
+            content="Legacy code",
+            files=["src/old.py"],
+            ts="2026-03-12T00:00:00+00:00",
+        )
+        ses = [
+            make_event(
+                "session_end",
+                content=f"done {i}",
+                ts=f"2026-03-12T0{i + 1}:00:00+00:00",
+            )
+            for i in range(5)
+        ]
+        self._write_events([d, *ses])
+        md = materialize.materialize(self.smm_dir)
+        debt_section = md.split("## Technical Debt")[1].split("##")[0]
+        self.assertIn("⚠️", debt_section)
+
+    def test_debt_with_aging_critical(self):
+        """Debt with 7+ session_ends after: 🔴 marker."""
+        d = make_event(
+            "debt",
+            content="Legacy code",
+            files=["src/old.py"],
+            ts="2026-03-12T00:00:00+00:00",
+        )
+        ses = [
+            make_event(
+                "session_end",
+                content=f"done {i}",
+                ts=f"2026-03-12T{i + 1:02d}:00:00+00:00",
+            )
+            for i in range(8)
+        ]
+        self._write_events([d, *ses])
+        md = materialize.materialize(self.smm_dir)
+        debt_section = md.split("## Technical Debt")[1].split("##")[0]
+        self.assertIn("🔴", debt_section)
 
     def test_unknown_event_type(self):
         e = {
@@ -571,15 +749,21 @@ class TestRenderMarkdown(_SMMTestCase):
         md = materialize.materialize(self.smm_dir)
         self.assertNotIn("## Architecture Decisions", md)
         self.assertNotIn("## Conventions", md)
-        self.assertNotIn("## Concerns", md)
+        self.assertNotIn("## Unacknowledged Concerns", md)
         self.assertNotIn("## Conflict Alerts", md)
         self.assertNotIn("## Navigator Guidance", md)
         self.assertNotIn("## Unknown Events", md)
+        self.assertNotIn("## Project Goals", md)
+        self.assertNotIn("## Customer Intent", md)
+        self.assertNotIn("## Technical Debt", md)
 
-    def test_all_12_types_render(self):
+    def test_all_15_types_render(self):
         q = make_event("question", content="Q?", priority="\U0001f534")
         events = [
             make_event("customer_input", content="Hello"),
+            make_event("customer_intent", content="Want auth", intent_status="open"),
+            make_event("debt", content="Old code", files=["old.py"]),
+            make_event("goal", content="Ship v2"),
             make_event("status", content="Working", working_on=["f.py"]),
             make_event("decision", content="Use Postgres", topic="db"),
             make_event("convention", content="camelCase", topic="naming"),
@@ -595,7 +779,7 @@ class TestRenderMarkdown(_SMMTestCase):
         self._write_events(events)
         md = materialize.materialize(self.smm_dir)
         self.assertIn("# Shared Mental Model", md)
-        self.assertIn("12 events", md)
+        self.assertIn("15 events", md)
 
     def test_short_id_in_output(self):
         d = make_event("decision", topic="db", content="Use Postgres")
@@ -642,9 +826,9 @@ class TestMaterializeToFile(_SMMTestCase):
         self.assertEqual(len(tmp_files), 0)
 
     def test_overwrites_existing(self):
-        self._write_events([make_event("customer_input", content="First")])
+        self._write_events([make_event("goal", content="First")])
         materialize.materialize_to_file(self.smm_dir)
-        self._write_events([make_event("customer_input", content="Second")])
+        self._write_events([make_event("goal", content="Second")])
         path = materialize.materialize_to_file(self.smm_dir)
         content = path.read_text()
         self.assertIn("Second", content)
@@ -926,6 +1110,28 @@ class TestFormatDelta(_SMMTestCase):
         result = read_delta.format_delta([a])
         self.assertIn("ANSWER", result)
         self.assertIn("re: aaaaaaaa", result)
+
+    def test_goal_format(self):
+        g = make_event("goal", content="Ship v2.0")
+        result = read_delta.format_delta([g])
+        self.assertIn("GOAL", result)
+        self.assertIn("Ship v2.0", result)
+
+    def test_debt_format(self):
+        d = make_event(
+            "debt", content="Legacy code", files=["src/old.py", "src/legacy.py"]
+        )
+        result = read_delta.format_delta([d])
+        self.assertIn("DEBT", result)
+        self.assertIn("src/old.py, src/legacy.py", result)
+        self.assertIn("Legacy code", result)
+
+    def test_customer_intent_format(self):
+        ci = make_event("customer_intent", content="Need auth", intent_status="open")
+        result = read_delta.format_delta([ci])
+        self.assertIn("INTENT", result)
+        self.assertIn("(open)", result)
+        self.assertIn("Need auth", result)
 
     def test_unknown_type_format(self):
         e = {

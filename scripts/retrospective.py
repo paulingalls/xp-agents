@@ -64,6 +64,47 @@ def _gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list
     return result
 
 
+def _compute_session_stats(events: list[dict]) -> dict:
+    """Compute session statistics using shared resolution tracking."""
+    import _append_impl
+
+    stats = {
+        "pair_guidance_count": 0,
+        "status_count": 0,
+        "concerns_raised": 0,
+        "concerns_resolved": 0,
+        "questions_open": 0,
+        "questions_answered": 0,
+        "decisions_total": 0,
+        "decisions_draft": 0,
+    }
+
+    question_ids: set[str] = set()
+
+    for e in events:
+        match e.get("type", ""):
+            case _common.PAIR_GUIDANCE:
+                stats["pair_guidance_count"] += 1
+            case _common.STATUS:
+                stats["status_count"] += 1
+            case _common.CONCERN:
+                stats["concerns_raised"] += 1
+            case _common.QUESTION:
+                question_ids.add(e.get("id", ""))
+            case _common.DECISION:
+                stats["decisions_total"] += 1
+                if e.get("metadata", {}).get("draft"):
+                    stats["decisions_draft"] += 1
+
+    resolutions = _append_impl.compute_resolutions(events)
+    stats["concerns_resolved"] = len(resolutions["resolved_concern_ids"])
+    stats["questions_answered"] = len(resolutions["answered_question_ids"])
+    answered = resolutions["answered_question_ids"]
+    stats["questions_open"] = len(question_ids) - len(answered)
+
+    return stats
+
+
 def _build_retro_input(
     events: list[dict],
     start_idx: int,
@@ -75,11 +116,13 @@ def _build_retro_input(
     """
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
+    session_stats = _compute_session_stats(unanalyzed)
     return {
         "unanalyzed_count": len(unanalyzed),
         "events_since_last_retro": unanalyzed[-MAX_EVENTS_IN_RETRO:],
         "previous_retros": retro_history,
         "event_type_counts": type_counts,
+        "session_stats": session_stats,
     }
 
 
@@ -100,12 +143,31 @@ def _write_retro_input(smm_dir: Path, data: dict) -> None:
         raise
 
 
-def _build_context_summary(unanalyzed_count: int, type_counts: dict) -> str:
+def _build_context_summary(
+    unanalyzed_count: int,
+    type_counts: dict,
+    session_stats: dict | None = None,
+) -> str:
     """Build a brief additionalContext string for the agent."""
     parts = [f"Retrospective data prepared: {unanalyzed_count} unanalyzed events."]
     if type_counts:
         summary = ", ".join(f"{count} {t}" for t, count in sorted(type_counts.items()))
         parts.append(f"Event breakdown: {summary}.")
+    if session_stats:
+        stat_items = []
+        if session_stats.get("pair_guidance_count"):
+            stat_items.append(
+                f"{session_stats['pair_guidance_count']} navigator guidance"
+            )
+        if session_stats.get("concerns_raised"):
+            stat_items.append(
+                f"{session_stats['concerns_raised']} concerns "
+                f"({session_stats.get('concerns_resolved', 0)} resolved)"
+            )
+        if session_stats.get("questions_open"):
+            stat_items.append(f"{session_stats['questions_open']} open questions")
+        if stat_items:
+            parts.append(f"Key stats: {', '.join(stat_items)}.")
     parts.append("Read .retro-input.json from the SMM directory for full data.")
     return " ".join(parts)
 
@@ -139,7 +201,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     retro_input = _build_retro_input(events, start_idx, retro_history)
     _write_retro_input(smm_dir, retro_input)
 
-    return _build_context_summary(unanalyzed_count, retro_input["event_type_counts"])
+    return _build_context_summary(
+        unanalyzed_count,
+        retro_input["event_type_counts"],
+        retro_input.get("session_stats"),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ and appends it atomically to events.jsonl using flock.
 """
 
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -14,6 +15,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,6 +79,9 @@ def _validate_agent_id(agent_id: str) -> None:
 VALID_TYPES = sorted(
     [
         "customer_input",
+        "customer_intent",
+        "debt",
+        "goal",
         "status",
         "decision",
         "convention",
@@ -91,13 +96,18 @@ VALID_TYPES = sorted(
     ]
 )
 
-VALID_PRIORITIES = frozenset({"\U0001f534", "\U0001f7e1", "\U0001f7e2"})  # 🔴🟡🟢
+PRIORITY_BLOCKING = "\U0001f534"  # 🔴
+PRIORITY_ASSUMED = "\U0001f7e1"  # 🟡
+PRIORITY_INFO = "\U0001f7e2"  # 🟢
+VALID_PRIORITIES = frozenset({PRIORITY_BLOCKING, PRIORITY_ASSUMED, PRIORITY_INFO})
 VALID_SEVERITIES = frozenset({"high", "medium", "low"})
+VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
 
 MAX_JSON_ARG_SIZE = 65536
 MAX_CONTENT_LENGTH = 50_000
 MAX_EVENT_BYTES = 100_000
+MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 
 
 def parse_json_arg(value: str, name: str) -> list | dict:
@@ -138,6 +148,14 @@ def build_event(args: argparse.Namespace) -> dict:
 
     # Type-specific fields — just map args to event fields, no validation
     match args.type:
+        case "debt":
+            if args.files is not None:
+                event["files"] = parse_json_arg(args.files, "files")
+
+        case "customer_intent":
+            if args.intent_status is not None:
+                event["intent_status"] = args.intent_status
+
         case "status":
             if args.working_on is not None:
                 event["working_on"] = parse_json_arg(args.working_on, "working-on")
@@ -215,8 +233,11 @@ def validate_event(event: dict) -> list[str]:
         return errors
 
     # Universal optional field types
-    if "references" in event and not isinstance(event["references"], list):
-        errors.append("Field 'references' must be an array")
+    if "references" in event:
+        if not isinstance(event["references"], list):
+            errors.append("Field 'references' must be an array")
+        elif not all(isinstance(r, str) for r in event["references"]):
+            errors.append("Field 'references' items must be strings")
     if "metadata" in event and not isinstance(event["metadata"], dict):
         errors.append("Field 'metadata' must be an object")
     if "schema_version" in event and not isinstance(event["schema_version"], int):
@@ -224,6 +245,25 @@ def validate_event(event: dict) -> list[str]:
 
     # Type-specific validation
     match event_type:
+        case "debt":
+            if "files" not in event:
+                errors.append("Field 'files' is required for type 'debt'")
+            elif not isinstance(event["files"], list):
+                errors.append("Field 'files' must be an array")
+            elif not all(isinstance(f, str) for f in event["files"]):
+                errors.append("Field 'files' items must be strings")
+
+        case "customer_intent":
+            if "intent_status" not in event:
+                errors.append(
+                    "Field 'intent_status' is required for type 'customer_intent'"
+                )
+            elif event["intent_status"] not in VALID_INTENT_STATUSES:
+                errors.append(
+                    f"Invalid intent_status: {event['intent_status']} "
+                    f"(must be open/delivered/superseded)"
+                )
+
         case "status":
             if "working_on" not in event:
                 errors.append("Field 'working_on' is required for type 'status'")
@@ -290,6 +330,50 @@ def validate_event(event: dict) -> list[str]:
                                 )
 
     return errors
+
+
+# ---------------------------------------------------------------------------
+# Event resolution tracking (shared by materialize, retrospective, hooks)
+# ---------------------------------------------------------------------------
+
+
+def compute_resolutions(events: list[dict]) -> dict:
+    """Single-pass computation of question answers and concern resolutions.
+
+    Returns dict with:
+      - question_answers: dict mapping question event ID → answer event
+      - concern_resolutions: dict mapping concern event ID → resolving event
+      - answered_question_ids: set of answered question IDs
+      - resolved_concern_ids: set of resolved concern IDs
+    """
+    by_id: dict[str, dict] = {}
+    question_answers: dict[str, dict] = {}
+    concern_resolutions: dict[str, dict] = {}
+
+    for event in events:
+        event_id = event.get("id", "")
+        event_type = event.get("type", "")
+        if event_id:
+            by_id[event_id] = event
+
+        if event_type == "answer":
+            for ref_id in event.get("references", []):
+                ref_event = by_id.get(ref_id)
+                if ref_event and ref_event.get("type") == "question":
+                    question_answers[ref_id] = event
+
+        if event_type != "concern":
+            for ref_id in event.get("references", []):
+                ref_event = by_id.get(ref_id)
+                if ref_event and ref_event.get("type") == "concern":
+                    concern_resolutions[ref_id] = event
+
+    return {
+        "question_answers": question_answers,
+        "concern_resolutions": concern_resolutions,
+        "answered_question_ids": set(question_answers.keys()),
+        "resolved_concern_ids": set(concern_resolutions.keys()),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +447,74 @@ def _on_alarm(signum: int, frame: object) -> None:
 def _safe_open_nofollow(path: Path, flags: int) -> int:
     """Open a file with O_NOFOLLOW to reject symlinks."""
     return os.open(str(path), flags | os.O_NOFOLLOW, 0o600)
+
+
+def read_with_lock(path: Path) -> str:
+    """Read file contents under shared flock with 2-second timeout.
+
+    Raises LockTimeoutError if the lock cannot be acquired.
+    Raises OSError if the lock file is a symlink.
+    """
+    lock_path = path.parent / "events.lock"
+    lock_fd = None
+    raw_fd = None
+
+    try:
+        raw_fd = os.open(
+            str(lock_path),
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            lock_fd = os.fdopen(raw_fd, "a")
+        except Exception:
+            os.close(raw_fd)
+            raise
+        raw_fd = None
+
+        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
+        try:
+            signal.alarm(2)
+            fcntl.flock(lock_fd, fcntl.LOCK_SH)
+            signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, old_handler)
+
+        try:
+            if path.stat().st_size > MAX_EVENTS_FILE_SIZE:
+                return ""
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return ""
+
+    finally:
+        if lock_fd is not None:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+
+def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
+    """Atomic write of watermark via temp + rename. Validates agent_id.
+
+    Rejects symlinks at the target path to prevent write-through attacks.
+    """
+    _validate_agent_id(agent_id)
+    wm_file = smm_dir / f".watermark-{agent_id}"
+
+    # Reject existing symlink at target path
+    if wm_file.is_symlink():
+        raise OSError(f"Watermark path is a symlink: {wm_file}")
+
+    fd, tmp = tempfile.mkstemp(dir=smm_dir, prefix=f".wm-{agent_id}-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(str(line_count))
+        os.chmod(tmp, 0o600)
+        os.rename(tmp, wm_file)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def append_event(smm_dir: Path, event: dict) -> None:
@@ -449,6 +601,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["high", "medium", "low"],
     )
     parser.add_argument("--tool-name", help="Tool name")
+
+    # debt specific
+    parser.add_argument("--files", help="JSON array of file paths (debt)")
+
+    # customer_intent specific
+    parser.add_argument(
+        "--intent-status",
+        choices=["open", "delivered", "superseded"],
+        help="Intent status (customer_intent)",
+    )
 
     # session_end specific
     parser.add_argument(

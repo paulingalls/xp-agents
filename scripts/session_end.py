@@ -45,32 +45,18 @@ def _compute_summary(events: list[dict]) -> dict:
                 pass
 
     # Unresolved: questions with no answer, concerns with no resolution
-    question_ids: set[str] = set()
-    answered_ids: set[str] = set()
-    concern_ids: set[str] = set()
-    resolved_ids: set[str] = set()
+    question_ids = {
+        e["id"] for e in events if e.get("type") == _common.QUESTION and e.get("id")
+    }
+    concern_ids = {
+        e["id"] for e in events if e.get("type") == _common.CONCERN and e.get("id")
+    }
 
-    for e in events:
-        etype = e.get("type", "")
-        eid = e.get("id", "")
-        refs = e.get("references", [])
-
-        match etype:
-            case _common.QUESTION:
-                question_ids.add(eid)
-            case _common.ANSWER:
-                for ref in refs:
-                    answered_ids.add(ref)
-            case _common.CONCERN:
-                concern_ids.add(eid)
-
-        # Any non-concern event referencing a concern resolves it
-        if etype != _common.CONCERN:
-            for ref in refs:
-                if ref in concern_ids:
-                    resolved_ids.add(ref)
-
-    unresolved = sorted((question_ids - answered_ids) | (concern_ids - resolved_ids))
+    resolutions = _append_impl.compute_resolutions(events)
+    unresolved = sorted(
+        (question_ids - resolutions["answered_question_ids"])
+        | (concern_ids - resolutions["resolved_concern_ids"])
+    )
 
     # Active working_on: latest status per agent
     latest_status: dict[str, dict] = {}

@@ -11,7 +11,7 @@ You are the **customer proxy** in an XP workflow. A new session is starting and 
    cat "$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)/SHARED_MENTAL_MODEL.md"
    ```
 
-2. Look for the **Questions for Customer** section. Identify questions with priority markers:
+2. Look for the **Blocking Questions** section (in Active Context) and **Questions (Resolved & Assumed)** section (in Reference). Identify questions with priority markers:
    - Red questions are **blocking** — work cannot proceed without an answer
    - Yellow questions have a **stated assumption** — work is proceeding but may need correction
    - Green questions are **informational** — nice to know, not urgent

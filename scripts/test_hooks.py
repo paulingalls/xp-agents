@@ -578,6 +578,115 @@ class TestRetrospective(_HookTestCase):
         self.assertEqual(data["event_type_counts"]["concern"], 1)
         self.assertEqual(data["event_type_counts"]["customer_input"], 3)
 
+    def test_session_stats_key_exists(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("session_stats", data)
+
+    def test_session_stats_pair_guidance_count(self):
+        import retrospective
+
+        events = [
+            make_event("pair_guidance", content="Check tests", tool_name="Write"),
+            make_event("pair_guidance", content="Add types", tool_name="Edit"),
+            make_event(content="filler 1"),
+            make_event(content="filler 2"),
+            make_event(content="filler 3"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["pair_guidance_count"], 2)
+
+    def test_session_stats_status_count(self):
+        import retrospective
+
+        events = [
+            make_event("status", content="Working", working_on=["a.py"]),
+            make_event("status", content="Working2", working_on=["b.py"]),
+            make_event("status", content="Working3", working_on=["c.py"]),
+            make_event(content="filler 1"),
+            make_event(content="filler 2"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["status_count"], 3)
+
+    def test_session_stats_concerns(self):
+        import retrospective
+
+        c1 = make_event("concern", content="Issue A")
+        c2 = make_event("concern", content="Issue B")
+        resolver = make_event(
+            "status", content="Fixed", references=[c1["id"]], working_on=["test.py"]
+        )
+        events = [c1, c2, resolver, make_event(content="f1"), make_event(content="f2")]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["concerns_raised"], 2)
+        self.assertEqual(data["session_stats"]["concerns_resolved"], 1)
+
+    def test_session_stats_questions(self):
+        import retrospective
+
+        q1 = make_event("question", content="Q1?", priority="\U0001f534")
+        q2 = make_event("question", content="Q2?", priority="\U0001f7e1")
+        a = make_event("answer", content="Yes", references=[q1["id"]])
+        events = [q1, q2, a, make_event(content="f1"), make_event(content="f2")]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["questions_open"], 1)
+        self.assertEqual(data["session_stats"]["questions_answered"], 1)
+
+    def test_session_stats_decisions(self):
+        import retrospective
+
+        events = [
+            make_event("decision", content="Use Postgres", topic="db"),
+            make_event(
+                "decision", content="Use REST", topic="api", metadata={"draft": True}
+            ),
+            make_event(content="f1"),
+            make_event(content="f2"),
+            make_event(content="f3"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["decisions_total"], 2)
+        self.assertEqual(data["session_stats"]["decisions_draft"], 1)
+
 
 # ===========================================================================
 # session_end.py tests

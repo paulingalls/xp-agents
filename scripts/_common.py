@@ -11,11 +11,21 @@ import functools
 import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+# Make smm/ importable so we can use _append_impl as the foundational module
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+
+from _append_impl import (
+    PRIORITY_ASSUMED,  # noqa: F401
+    PRIORITY_BLOCKING,
+    PRIORITY_INFO,  # noqa: F401
+    _validate_agent_id,  # noqa: F401
+    write_watermark,  # noqa: F401
+)
+from _append_impl import _validate_smm_dir as validate_smm_dir
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -32,6 +42,9 @@ class BlockedError(Exception):
 
 # Event types — mirrors smm/schema.json enum
 CUSTOMER_INPUT = "customer_input"
+CUSTOMER_INTENT = "customer_intent"
+DEBT = "debt"
+GOAL = "goal"
 STATUS = "status"
 DECISION = "decision"
 CONVENTION = "convention"
@@ -44,10 +57,7 @@ PAIR_GUIDANCE = "pair_guidance"
 SESSION_END = "session_end"
 RETROSPECTIVE = "retrospective"
 
-# Question priorities
-PRIORITY_BLOCKING = "\U0001f534"  # 🔴
-PRIORITY_ASSUMED = "\U0001f7e1"  # 🟡
-PRIORITY_INFO = "\U0001f7e2"  # 🟢
+# Question priorities imported from _append_impl at module level
 
 
 # ---------------------------------------------------------------------------
@@ -167,19 +177,8 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Watermark management
+# SMM directory validation (imported from _append_impl, with convenience wrapper)
 # ---------------------------------------------------------------------------
-
-
-def validate_smm_dir(smm_dir: Path) -> None:
-    """Validate SMM directory exists, is owned by us, not world-writable."""
-    if not smm_dir.exists():
-        raise ValueError(f"SMM directory does not exist: {smm_dir}")
-    st = smm_dir.stat()
-    if st.st_uid != os.getuid():
-        raise ValueError(f"SMM directory not owned by current user: {smm_dir}")
-    if st.st_mode & 0o002:
-        raise ValueError(f"SMM directory is world-writable: {smm_dir}")
 
 
 def try_validate_smm_dir(smm_dir: Path | None) -> Path | None:
@@ -193,23 +192,23 @@ def try_validate_smm_dir(smm_dir: Path | None) -> Path | None:
         return None
 
 
-_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
-
-
-def _validate_agent_id(agent_id: str) -> None:
-    """Reject agent IDs that don't match the allowlist pattern."""
-    if not agent_id:
-        raise ValueError("agent_id must not be empty")
-    if not _AGENT_ID_RE.match(agent_id):
-        raise ValueError(f"Invalid agent_id: {agent_id!r}")
-
-
 def normalize_path(file_path: str, cwd: str) -> str:
-    """Resolve a file path against cwd, return normalized string."""
+    """Resolve a file path against cwd, return normalized string.
+
+    Uses realpath when the path exists to resolve symlinks, preventing
+    symlink-based confusion in working_on overlap detection. Falls back
+    to normpath for non-existent paths (e.g., planned file writes).
+    """
     p = Path(file_path)
     if not p.is_absolute():
         p = Path(cwd) / p
-    return os.path.normpath(str(p))
+    full = str(p)
+    resolved = os.path.realpath(full)
+    # Use realpath only if the path exists (avoids platform-specific
+    # resolution of fictional paths like /home on macOS → /System/Volumes/Data/home)
+    if os.path.exists(resolved):
+        return resolved
+    return os.path.normpath(full)
 
 
 def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
@@ -238,7 +237,6 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
 
 def append_safe(smm_dir: Path, event: dict) -> None:
     """Validate and append event, swallowing lock errors."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
     import _append_impl
 
     errors = _append_impl.validate_event(event)
@@ -332,14 +330,15 @@ def detect_conflicts(
                     )
 
     # 4. Stale question — 🔴 question with no answer after 20+ subsequent events
+    import _append_impl
+
     question_positions: dict[str, int] = {}
-    answered_ids: set[str] = set()
     for i, e in enumerate(events):
         if e.get("type") == QUESTION and e.get("priority") == PRIORITY_BLOCKING:
             question_positions[e.get("id", "")] = i
-        elif e.get("type") == ANSWER:
-            for ref in e.get("references", []):
-                answered_ids.add(ref)
+
+    resolutions = _append_impl.compute_resolutions(events)
+    answered_ids = resolutions["answered_question_ids"]
 
     total = len(events)
     for qid, pos in question_positions.items():
@@ -423,18 +422,4 @@ def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list
     return related
 
 
-def write_watermark(smm_dir: Path, agent_id: str, count: int) -> None:
-    """Atomic watermark write via tempfile + rename. Validates agent_id."""
-    _validate_agent_id(agent_id)
-    wm_file = smm_dir / f".watermark-{agent_id}"
-
-    fd, tmp = tempfile.mkstemp(dir=smm_dir, prefix=f".wm-{agent_id}-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(str(count))
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, wm_file)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+# write_watermark imported from _append_impl at module level

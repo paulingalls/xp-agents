@@ -19,6 +19,9 @@
       "type": "string",
       "enum": [
         "customer_input",
+        "customer_intent",
+        "debt",
+        "goal",
         "status",
         "decision",
         "convention",
@@ -77,6 +80,16 @@
     "tool_name": {
       "type": "string",
       "description": "The tool that triggered this guidance (pair_guidance)"
+    },
+    "files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File paths associated with technical debt (debt)"
+    },
+    "intent_status": {
+      "type": "string",
+      "enum": ["open", "delivered", "superseded"],
+      "description": "Status of customer intent (customer_intent)"
     },
     "duration_seconds": {
       "type": "number",
@@ -177,6 +190,22 @@
       },
       "then": {
         "required": ["tool_name"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "debt" } }
+      },
+      "then": {
+        "required": ["files"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "customer_intent" } }
+      },
+      "then": {
+        "required": ["intent_status"]
       }
     }
   ],

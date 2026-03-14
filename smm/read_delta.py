@@ -6,17 +6,21 @@ filtering based on tool context. Watermark only advances on full reads.
 """
 
 import argparse
-import contextlib
-import fcntl
-import hashlib
 import json
-import os
-import re
-import signal
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+from _append_impl import (
+    PRIORITY_BLOCKING,
+    LockTimeoutError,
+    _validate_agent_id,
+    _validate_smm_dir,
+    resolve_smm_dir,
+    write_watermark,
+)
+from _append_impl import (
+    read_with_lock as _read_with_lock,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -27,153 +31,26 @@ TIER_BLOCKING = "blocking"
 TIER_RED_ONLY = "red-only"
 VALID_TIERS = frozenset({TIER_FULL, TIER_BLOCKING, TIER_RED_ONLY})
 
-PRIORITY_RED = "\U0001f534"
-_MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
-
-
-# ---------------------------------------------------------------------------
-# SMM path resolution (duplicated for self-containment)
-# ---------------------------------------------------------------------------
-
-
-def resolve_smm_dir() -> Path:
-    """Derive the SMM directory from git-common-dir."""
-    try:
-        git_common = subprocess.check_output(
-            ["git", "rev-parse", "--git-common-dir"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("Error: Not in a git repository", file=sys.stderr)
-        sys.exit(1)
-
-    git_common_path = Path(git_common)
-    if not git_common_path.is_absolute():
-        git_common_path = git_common_path.resolve()
-
-    project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
-    return Path.home() / ".claude" / "xp-agents" / project_id / "smm"
-
-
-# ---------------------------------------------------------------------------
-# Locking helpers (duplicated from _append_impl.py per design decision)
-# ---------------------------------------------------------------------------
-
-
-class LockTimeoutError(Exception):
-    """Raised when flock cannot be acquired within the timeout."""
-
-    pass
-
-
-def _on_alarm(signum: int, frame: object) -> None:
-    raise LockTimeoutError("Could not acquire lock within 2 seconds")
-
-
-# ---------------------------------------------------------------------------
-# Watermark management
-# ---------------------------------------------------------------------------
-
-
-def _validate_smm_dir(smm_dir: Path) -> None:
-    """Validate SMM directory exists, is owned by us, not world-writable."""
-    if not smm_dir.exists():
-        raise ValueError(f"SMM directory does not exist: {smm_dir}")
-    st = smm_dir.stat()
-    if st.st_uid != os.getuid():
-        raise ValueError(f"SMM directory not owned by current user: {smm_dir}")
-    if st.st_mode & 0o002:
-        raise ValueError(f"SMM directory is world-writable: {smm_dir}")
-
-
-_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
-
-
-def _validate_agent_id(agent_id: str) -> None:
-    """Reject agent IDs that don't match the allowlist pattern."""
-    if not agent_id:
-        raise ValueError("agent_id must not be empty")
-    if not _AGENT_ID_RE.match(agent_id):
-        raise ValueError(f"Invalid agent_id: {agent_id!r}")
-
 
 def read_watermark(smm_dir: Path, agent_id: str) -> int:
-    """Read watermark for agent. Returns 0 if missing or corrupt."""
+    """Read watermark for agent. Returns 0 if missing or corrupt.
+
+    Rejects symlinks at the watermark path (O_NOFOLLOW).
+    """
+    import os as _os
+
     _validate_agent_id(agent_id)
     wm_file = smm_dir / f".watermark-{agent_id}"
     try:
-        content = wm_file.read_text().strip()
+        fd = _os.open(str(wm_file), _os.O_RDONLY | _os.O_NOFOLLOW)
+        try:
+            content = _os.read(fd, 64).decode().strip()
+        finally:
+            _os.close(fd)
         value = int(content)
         return max(0, value)
-    except (FileNotFoundError, ValueError):
+    except (FileNotFoundError, ValueError, OSError):
         return 0
-
-
-def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
-    """Atomic write of watermark via temp + rename."""
-    _validate_agent_id(agent_id)
-    wm_file = smm_dir / f".watermark-{agent_id}"
-
-    fd, tmp = tempfile.mkstemp(dir=smm_dir, prefix=f".wm-{agent_id}-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(str(line_count))
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, wm_file)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
-
-
-# ---------------------------------------------------------------------------
-# Locking helper
-# ---------------------------------------------------------------------------
-
-
-def _read_with_lock(path: Path) -> str:
-    """Read file contents under shared flock with 2-second timeout.
-
-    Raises LockTimeoutError if the lock cannot be acquired.
-    Raises OSError if the lock file is a symlink.
-    """
-    lock_path = path.parent / "events.lock"
-    lock_fd = None
-    raw_fd = None
-
-    try:
-        raw_fd = os.open(
-            str(lock_path),
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
-            0o600,
-        )
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(2)
-            fcntl.flock(lock_fd, fcntl.LOCK_SH)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
-        try:
-            if path.stat().st_size > _MAX_EVENTS_FILE_SIZE:
-                return ""
-            return path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return ""
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
 
 
 # ---------------------------------------------------------------------------
@@ -219,14 +96,20 @@ def filter_by_tier(events: list[dict], tier: str) -> list[dict]:
             return [
                 e
                 for e in events
-                if (e.get("type") == "question" and e.get("priority") == PRIORITY_RED)
+                if (
+                    e.get("type") == "question"
+                    and e.get("priority") == PRIORITY_BLOCKING
+                )
                 or e.get("type") == "pair_guidance"
             ]
         case "red-only":
             return [
                 e
                 for e in events
-                if (e.get("type") == "question" and e.get("priority") == PRIORITY_RED)
+                if (
+                    e.get("type") == "question"
+                    and e.get("priority") == PRIORITY_BLOCKING
+                )
             ]
         case _:
             return events
@@ -251,6 +134,14 @@ def format_delta(events: list[dict]) -> str:
         etype = e.get("type", "")
 
         match etype:
+            case "goal":
+                lines.append(f"GOAL [{eid}]: {content}")
+            case "debt":
+                files = ", ".join(e.get("files", []))
+                lines.append(f"DEBT [{eid}] (files: {files}): {content}")
+            case "customer_intent":
+                intent_status = e.get("intent_status", "")
+                lines.append(f"INTENT [{eid}] ({intent_status}): {content}")
             case "decision":
                 topic = e.get("topic", "")
                 draft = " (draft)" if e.get("metadata", {}).get("draft") else ""
