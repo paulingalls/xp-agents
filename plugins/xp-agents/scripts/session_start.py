@@ -100,6 +100,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return GUPP_TEXT + SKILLS_TEXT
 
     # Materialize events into SMM markdown
+    materialize.materialize_to_file(smm_dir)
     smm_content = materialize.materialize(smm_dir)
 
     # Build context: SMM + enforcement + GUPP + skills
