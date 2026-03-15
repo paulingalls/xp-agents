@@ -6,11 +6,8 @@ have accumulated (≥5), writes .retro-input.json for the retrospective
 analyst agent hook to consume. Always exits 0.
 """
 
-import contextlib
 import json
-import os
 import sys
-import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -127,20 +124,8 @@ def _build_retro_input(
 
 
 def _write_retro_input(smm_dir: Path, data: dict) -> None:
-    """Write .retro-input.json atomically via tempfile + rename."""
-    target = smm_dir / ".retro-input.json"
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(smm_dir), prefix=".retro-input-", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-        os.chmod(tmp_path, 0o600)
-        os.rename(tmp_path, str(target))
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+    """Write .retro-input.json atomically via _common.write_json_atomic."""
+    _common.write_json_atomic(smm_dir / ".retro-input.json", data)
 
 
 def _build_context_summary(

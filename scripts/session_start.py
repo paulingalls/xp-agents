@@ -120,11 +120,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         parts.append(guide)
 
     # Customer proxy subagent nudge — check for missing goals or open questions
+    import _append_impl
+
     events = _common.read_events_raw(smm_dir)
     has_goals = any(e.get("type") == _common.GOAL for e in events)
+    # Filter out answered questions to avoid false positive nudges
+    resolutions = _append_impl.compute_resolutions(events)
+    answered_ids = resolutions["answered_question_ids"]
     has_open_questions = any(
         e.get("type") == _common.QUESTION
         and e.get("priority") in (_common.PRIORITY_BLOCKING, _common.PRIORITY_ASSUMED)
+        and e.get("id") not in answered_ids
         for e in events
     )
     if not has_goals or has_open_questions:
