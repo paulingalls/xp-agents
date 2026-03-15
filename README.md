@@ -266,6 +266,54 @@ Build additional hook-based reviewers — security, accessibility, domain-specif
 
 ---
 
+## Technical Details
+
+### XP Practices → Enforcement Mechanism
+
+| Practice | Enforcement | Mechanism |
+|---|---|---|
+| **TDD** | Deterministic: Stop blocks if tests fail. Navigator flags implementation-before-tests. | `tdd_check.md`, `pre_tool_use.py` |
+| **Pair Programming** | Subagent: navigator before every significant write, quality reviewer after. | `xp-navigator`, `xp-quality-reviewer` |
+| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Block via exit 2. | `xp-plan-reviewer`, `xp-customer-proxy` |
+| **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
+| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security review before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_use.py` |
+| **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_check.md` |
+| **Refactoring** | Subagent + gate: quality reviewer flags complexity, `/simplify` runs at loop end. | `xp-quality-reviewer`, `simplify_gate.py` |
+| **Simple Design** | Subagent: quality reviewer flags over-engineering, plan reviewer flags oversized plans. | `xp-quality-reviewer`, `xp-plan-reviewer` |
+| **Collective Code Ownership** | Deterministic: SMM injected into all agents automatically. Global hooks. | `pre_tool_use.py`, `subagent_start.py` |
+| **On-Site Customer** | Deterministic: prompts logged, notifications sent. Subagent: customer proxy triages questions. | `user_prompt_log.py`, `xp-customer-proxy` |
+| **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
+
+### Token Cost Model
+
+| Source | Per-occurrence | Frequency | Mitigation |
+|---|---|---|---|
+| PreToolUse delta (full) | 50-500 tokens | Every Write/Edit/Commit | Watermarks prevent duplicates |
+| PreToolUse delta (minimal) | 10-50 tokens | Every Bash/Read/Grep | 🔴 questions only |
+| Navigator subagent | 5,000-10,000 tokens | Every Write/Edit (if invoked) | Self-filters trivial changes |
+| Quality reviewer subagent | 5,000-10,000 tokens | Every Write/Edit (background) | Async, no latency cost |
+| SessionStart full SMM | 2,000-5,000 tokens | Once per session | One-time cost |
+| Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
+| `/simplify` at Stop | 30,000-60,000 tokens | Once per loop with file changes | Gate skips no-op loops |
+
+### Debt Aging
+
+Technical debt events age across sessions. The materializer counts `session_end` events after the debt timestamp:
+
+- **0-3 sessions**: rendered normally
+- **4-6 sessions**: rendered with ⚠️, retrospective flags in Fix items
+- **7+ sessions**: rendered with 🔴, retrospective escalates urgency
+
+Repayment pressure comes from three sources: navigator nudges when modifying files with debt, quality reviewer writes concern if debt not addressed, retrospective escalates aging debt in Fix items.
+
+### Architecture: Why Subagents Instead of Agent Hooks
+
+Agent hooks (`type: "agent"` in hooks.json) can only use Read/Grep/Glob tools — no Bash, Write, or Edit. This was confirmed empirically: a Bash command in an agent hook did not execute. Agent hooks also return only `ok: true/false` with no way to pass advisory guidance when allowing.
+
+Plugin subagents (`agents/` directory) have full tool access (Bash, Read, Write, Edit, AskUserQuestion), return their full conversational response to the main agent, support background mode, and can preload skills. Command hooks trigger subagents via `additionalContext` nudge (strong encouragement) or exit 2 block (deterministic, like the `/simplify` gate).
+
+---
+
 ## Research Sources
 
 | Source | Title | Date |

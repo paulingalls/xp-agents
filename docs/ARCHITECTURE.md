@@ -266,6 +266,28 @@ Fail loud, never corrupt, always recoverable.
 | Schema validation failure | Append rejected, stderr error |
 | xp-agent subagent | Command hooks skip (recursion prevention) |
 
+## Debt Aging
+
+Debt age computed at materialize time by counting `session_end` events after the debt timestamp. Append-only log preserved — no event mutation.
+
+| Age | Rendering | Repayment Pressure |
+|---|---|---|
+| 0-3 sessions | Normal | — |
+| 4-6 sessions | ⚠️ | Retrospective flags in Fix items |
+| 7+ sessions | 🔴 | Retrospective escalates as high-priority Fix |
+
+Debt referenced by multiple concerns gets highest priority regardless of age. Navigator nudges when modifying files with associated debt. Quality reviewer writes concern if debt not addressed.
+
+## Agent Teams
+
+SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global and install is at user scope:
+
+- Every teammate gets SMM deltas before every tool call
+- Every teammate's code gets navigator and quality reviewer subagent nudges
+- Every teammate's `working_on` is tracked for conflict detection
+- Every teammate's decisions are visible to all others
+- Retrospective analyzes the whole team's session
+
 ## Design Principles
 
 1. Hooks enforce, subagents advise
@@ -276,3 +298,15 @@ Fail loud, never corrupt, always recoverable.
 6. Command hooks for determinism, subagents for judgment
 7. Global hooks, automatic participation
 8. The customer's voice is in the log
+
+## Future Vision: Autonomous Teams (2.0)
+
+1.0 assumes a human in the loop. 2.0 loosens that assumption.
+
+- **Backlog.** `backlog_item` event type with priority, acceptance criteria, dependencies, status. Planning game at SessionStart picks next item.
+- **Burn down.** Materializer renders progress: items completed vs. remaining, velocity, projected completion.
+- **Draft decision lifecycle.** Drafts with no concerns after N sessions get promoted to confirmed. Drafts with concerns get escalated to 🔴 questions. Same aging pattern as debt, applied in reverse.
+- **Requirements as input.** Requirements document decomposed into backlog items at SessionStart. Customer confirms priority once.
+- **Blocks as maturity signal.** When blocks stop firing (tests always pass, agents never overlap, decisions are consistent), that's the readiness signal for 2.0. `strict` and `advisory` produce the same behavior.
+
+What 1.0 provides that 2.0 needs: goal tracking, decision recording, convention enforcement, debt aging, conflict detection, retrospectives, session stats.
