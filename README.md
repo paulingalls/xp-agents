@@ -14,19 +14,30 @@ A Claude Code plugin that makes your agents — solo or in teams — write bette
 
 ## Install
 
+From within a Claude Code session:
+
 ```bash
 # Add the marketplace
 /plugin marketplace add paulingalls/xp-agents
 
-# Install at user level (required for Agent Teams / worktree support)
-/plugin install xp-agents@xp-agents --scope user
+# Install (select "User" scope for Agent Teams / worktree support)
+/plugin install xp-agents@xp-agents
 ```
 
-Or install directly:
+Or from your terminal (skips the interactive scope picker):
 
 ```bash
-git clone https://github.com/paulingalls/xp-agents.git
-claude plugin install ./xp-agents/plugins/xp-agents --scope user
+# Add the marketplace
+claude plugin marketplace add paulingalls/xp-agents
+
+# Install at user scope
+claude plugin install xp-agents@xp-agents --scope user
+```
+
+For local development, use `--plugin-dir` (session-only, not persisted):
+
+```bash
+claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
 **Requirements:** Python 3.10+ on PATH. macOS or Linux. Zero external packages.

@@ -69,10 +69,14 @@ git init && git commit --allow-empty -m "init"
 
 ### 1.1 Installation
 
-**Do:** Install the plugin at user scope.
+**Do:** Add the marketplace and install the plugin at user scope.
 
 ```bash
-claude plugin install /path/to/xp-agents/plugins/xp-agents --scope user
+# Add the local repo as a marketplace
+claude plugin marketplace add /path/to/xp-agents
+
+# Install at user scope
+claude plugin install xp-agents@xp-agents --scope user
 ```
 
 **Verify:**
