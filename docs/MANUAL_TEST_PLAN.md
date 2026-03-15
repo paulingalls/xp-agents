@@ -14,7 +14,9 @@ Many verifications require inspecting the SMM directory. After the plugin initia
 
 ```bash
 # From inside the test project:
-PROJECT_ID=$(git rev-parse --git-common-dir | shasum -a 256 | cut -c1-16)
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
+[[ "$GIT_COMMON_DIR" != /* ]] && GIT_COMMON_DIR=$(cd -- "$GIT_COMMON_DIR" && pwd -P)
+PROJECT_ID=$(printf '%s' "$GIT_COMMON_DIR" | python3 -c "import hashlib,sys; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest()[:12])")
 SMM_DIR=~/.claude/xp-agents/${PROJECT_ID}/smm
 echo $SMM_DIR
 ```
