@@ -1103,7 +1103,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
 class TestSimplifyGateIntegration(_IntegrationTestCase):
     def test_file_changes_blocks_stop(self):
-        """customer_input + status with working_on → exit 2 with /simplify."""
+        """customer_input + status with working_on → decision block with /simplify."""
         self._seed_events(
             [
                 make_event("customer_input", content="build feature"),
@@ -1114,8 +1114,10 @@ class TestSimplifyGateIntegration(_IntegrationTestCase):
             "simplify_gate.py",
             {"session_id": "int-test", "agent_id": "main"},
         )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("/simplify", result.stderr)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["decision"], "block")
+        self.assertIn("/simplify", data["reason"])
 
     def test_no_changes_allows_stop(self):
         """customer_input only, no file changes → exit 0, no output."""
@@ -1387,13 +1389,15 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
                 make_event("status", content="wrote", working_on=["src/app.ts"]),
             ]
         )
-        # First stop — should block
+        # First stop — should block via decision JSON
         r1 = self._run_script(
             "simplify_gate.py",
             {"session_id": "int-test", "agent_id": "main"},
         )
-        self.assertEqual(r1.returncode, 2)
-        self.assertIn("/simplify", r1.stderr)
+        self.assertEqual(r1.returncode, 0)
+        d1 = json.loads(r1.stdout)
+        self.assertEqual(d1["decision"], "block")
+        self.assertIn("/simplify", d1["reason"])
 
         # Second stop — same events, tracker should prevent re-trigger
         r2 = self._run_script(
@@ -1414,7 +1418,8 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
             "simplify_gate.py",
             {"session_id": "int-test", "agent_id": "main"},
         )
-        self.assertEqual(r1.returncode, 2)
+        self.assertEqual(r1.returncode, 0)
+        self.assertEqual(json.loads(r1.stdout)["decision"], "block")
 
         # New loop with new customer_input
         ci2 = make_event("customer_input", content="task 2")
@@ -1430,8 +1435,10 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
             "simplify_gate.py",
             {"session_id": "int-test", "agent_id": "main"},
         )
-        self.assertEqual(r2.returncode, 2)
-        self.assertIn("/simplify", r2.stderr)
+        self.assertEqual(r2.returncode, 0)
+        d2 = json.loads(r2.stdout)
+        self.assertEqual(d2["decision"], "block")
+        self.assertIn("/simplify", d2["reason"])
 
     def test_stop_hook_active_passes_through(self):
         """stop_hook_active=True → exit 0 even with file changes."""

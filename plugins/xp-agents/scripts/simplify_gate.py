@@ -114,6 +114,6 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        print(result, file=sys.stderr)
-        sys.exit(2)
+        print(json.dumps({"decision": "block", "reason": result}))
+        sys.exit(0)
     sys.exit(0)
