@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "xp-agents",
-      "source": ".",
+      "source": "./",
       "description": "XP practices enforcement via shared mental model — command hooks + plugin subagents for autonomous code quality"
     }
   ]
