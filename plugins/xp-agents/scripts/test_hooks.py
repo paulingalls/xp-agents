@@ -2833,15 +2833,26 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=fake_dir,
         )
 
-    def test_empty_prompt_still_logs(self):
+    def test_empty_prompt_skips(self):
         user_prompt_log.run(
             {"session_id": "t", "prompt": ""},
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
         ci = [e for e in events if e.get("type") == "customer_input"]
-        self.assertEqual(len(ci), 1)
-        self.assertEqual(ci[0]["content"], "")
+        self.assertEqual(len(ci), 0)
+
+    def test_task_notification_skips(self):
+        user_prompt_log.run(
+            {
+                "session_id": "t",
+                "prompt": "<task-notification>\n<task-id>abc123</task-id>\n",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        ci = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(ci), 0)
 
     def test_long_prompt_truncated(self):
         long_prompt = "x" * 15000

@@ -32,7 +32,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     prompt = input_data.get("prompt", "")
-    if isinstance(prompt, str) and len(prompt) > _MAX_PROMPT_LENGTH:
+    if not isinstance(prompt, str) or not prompt.strip():
+        return None
+
+    # Skip task notifications — these are internal system messages,
+    # not actual customer input. They create false loop boundaries.
+    if prompt.strip().startswith("<task-notification>"):
+        return None
+
+    if len(prompt) > _MAX_PROMPT_LENGTH:
         prompt = prompt[:_MAX_PROMPT_LENGTH]
 
     event = _common.make_event(_common.CUSTOMER_INPUT, "customer", prompt)

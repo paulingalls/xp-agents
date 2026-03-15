@@ -669,14 +669,14 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
         ci = [e for e in events if e.get("type") == "customer_input"]
         self.assertEqual(len(ci[0]["content"]), 10000)
 
-    def test_empty_prompt_still_logs(self):
+    def test_empty_prompt_skips(self):
         result = self._run_script(
             "user_prompt_log.py", {"session_id": "int-test", "prompt": ""}
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
         ci = [e for e in events if e.get("type") == "customer_input"]
-        self.assertEqual(len(ci), 1)
+        self.assertEqual(len(ci), 0)
 
     def test_xp_agent_skips(self):
         result = self._run_script(
