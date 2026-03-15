@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.8.0 — Milestone 7: Integration Testing & Packaging
+
+### Added
+- `.claude-plugin/marketplace.json` — marketplace publishing manifest with owner, plugin name, and description
+- `TestPluginIntegrity` (9 tests) — validates marketplace.json, plugin.json, hooks.json script references, agent files, skill files, settings.json, behavioral guide, and no external dependencies
+- `TestFullSessionLifecycle` (1 test) — chains session_start → pre_tool_use(Write) → post_tool_use → session_end, verifying event accumulation, working_on propagation, and subagent nudges at each step
+- `TestPlanReviewFlow` (2 tests) — Plan subagent blocks with plan-reviewer instruction, regular subagent nudges subagent-reviewer
+- `TestThreeSessionAccumulation` (1 test) — 3-session retro data accumulation, verifying cross-session trend visibility in `.retro-input.json` previous_retros
+- `TestCompactionReinjection` (1 test) — seed → pre_compact → truncate → session_start verifies SMM re-injection after compaction
+- `TestLargeEventLog` (3 tests) — 1000 events through pre_tool_use, materialize, and retrospective without error
+- `TestConcurrentAgentWrites` (1 test) — 5 workers run full subagent lifecycle concurrently, no event corruption, no duplicate IDs
+- `TestWorktreeSharing` (1 test) — git worktree derives same SMM path as main repo, events visible from both locations
+- `TestEmptyProject` (2 tests) — fresh git repo with no events, session_start nudges for goals, pre_tool_use produces navigator nudge
+- 21 new tests (736 total: 228 SMM + 131 engine + 415 hooks + 92 integration)
+
+### Design decisions
+- **marketplace.json follows Claude Code marketplace format** — name, owner, plugins array with source and description
+- **Edge cases tested via subprocess** — all tests run scripts as subprocesses matching production execution
+- **Worktree test auto-skips** when git worktree add fails (CI environments without worktree support)
+- **Concurrent test uses ThreadPoolExecutor** with 5 workers, verifies flock-based serialization holds under contention
+
 ## v0.7.0 — Milestone 6.5: Agent Hook to Plugin Subagent Migration
 
 ### Changed
