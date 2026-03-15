@@ -1058,7 +1058,8 @@ class TestPluginConfig(unittest.TestCase):
             data = json.load(f)
         self.assertEqual(data["name"], "xp-agents")
         self.assertIn("version", data)
-        self.assertIn("hooks", data)
+        # hooks/hooks.json is auto-discovered; must NOT be in manifest
+        self.assertNotIn("hooks", data)
 
     def test_hooks_json_valid(self):
         hooks_path = Path(__file__).parent.parent / "hooks" / "hooks.json"
@@ -4473,7 +4474,8 @@ class TestPluginIntegrity(unittest.TestCase):
         data = json.loads(pj.read_text())
         self.assertIn("name", data)
         self.assertIn("version", data)
-        self.assertIn("hooks", data)
+        # hooks/hooks.json is auto-discovered; must NOT be in manifest
+        self.assertNotIn("hooks", data)
 
     def _assert_hook_paths_exist(self, hook_type: str, path_key: str):
         """Verify all hooks of given type reference existing files."""
