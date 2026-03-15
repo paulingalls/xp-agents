@@ -317,6 +317,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             debt_lines.append("</smm-debt-context>")
             parts.append("\n".join(debt_lines))
 
+    # Navigator subagent nudge for write tools
+    if tool_name in _FULL_TOOLS:
+        parts.append(
+            "Invoke the xp-navigator subagent for pair programming guidance "
+            "before this write."
+        )
+
     # TDD order check
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)

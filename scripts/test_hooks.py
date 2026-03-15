@@ -1503,7 +1503,11 @@ class TestPreToolUseRun(_HookTestCase):
             _make_write_input(),
             smm_dir=fake_dir,
         )
-        self.assertIsNone(result)
+        # Write tools still get navigator nudge even without SMM
+        # but no SMM-dependent content (delta, debt, etc.)
+        if result:
+            self.assertNotIn("smm-context", result)
+            self.assertNotIn("smm-debt-context", result)
 
     def test_bash_blocking_tier_gets_pair_guidance(self):
         events = [make_event("pair_guidance", content="Use --dry-run")]
@@ -1794,6 +1798,79 @@ class TestPreToolUsePerformance(_HookTestCase):
 
         # 1000 no-op runs should be well under 1 second
         self.assertLess(elapsed, 1.0, f"1000 xp-agent skips took {elapsed:.2f}s")
+
+
+# ===========================================================================
+# M6.5: Subagent nudge tests
+# ===========================================================================
+
+
+class TestPreToolUseNavigatorNudge(_HookTestCase):
+    """M6.5: pre_tool_use.py should nudge invoking xp-navigator for writes."""
+
+    def test_write_tool_has_navigator_nudge(self):
+        result = pre_tool_use.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-navigator", result)
+
+    def test_edit_tool_has_navigator_nudge(self):
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": "src/app.ts",
+                    "old_string": "x",
+                    "new_string": "y",
+                },
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-navigator", result)
+
+    def test_read_tool_no_navigator_nudge(self):
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "src/app.ts"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-navigator", result)
+
+    def test_bash_tool_no_navigator_nudge(self):
+        result = pre_tool_use.run(
+            _make_bash_input(command="echo hi"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-navigator", result)
+
+    def test_git_commit_no_navigator_nudge(self):
+        """git commit is TIER_FULL but not a write tool — no navigator nudge."""
+        result = pre_tool_use.run(
+            _make_bash_input(command="git commit -m 'test'"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-navigator", result)
+
+    def test_xp_agent_no_navigator_nudge(self):
+        result = pre_tool_use.run(
+            _make_write_input(agent_type="xp-navigator"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
 
 
 # ===========================================================================
