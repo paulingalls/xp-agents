@@ -4439,5 +4439,132 @@ class TestAgentFilesM65(unittest.TestCase):
             )
 
 
+# ===========================================================================
+# M7: Plugin Integrity
+# ===========================================================================
+
+
+class TestPluginIntegrity(unittest.TestCase):
+    """M7: marketplace.json, hooks.json references, and structural checks."""
+
+    def setUp(self):
+        self.plugin_root = Path(__file__).parent.parent
+
+    def test_marketplace_json_exists_and_valid(self):
+        """marketplace.json has required fields."""
+        mp = self.plugin_root / ".claude-plugin" / "marketplace.json"
+        self.assertTrue(mp.is_file(), "Missing .claude-plugin/marketplace.json")
+        data = json.loads(mp.read_text())
+        self.assertIn("name", data)
+        self.assertIn("owner", data)
+        self.assertIn("name", data["owner"])
+        self.assertIn("plugins", data)
+        self.assertIsInstance(data["plugins"], list)
+        self.assertGreater(len(data["plugins"]), 0)
+        for plugin in data["plugins"]:
+            self.assertIn("name", plugin)
+            self.assertIn("source", plugin)
+            self.assertIn("description", plugin)
+
+    def test_plugin_json_exists_and_valid(self):
+        """plugin.json has required fields."""
+        pj = self.plugin_root / ".claude-plugin" / "plugin.json"
+        self.assertTrue(pj.is_file())
+        data = json.loads(pj.read_text())
+        self.assertIn("name", data)
+        self.assertIn("version", data)
+        self.assertIn("hooks", data)
+
+    def test_all_hook_scripts_exist(self):
+        """Every command script referenced in hooks.json exists on disk."""
+        hooks_file = self.plugin_root / "hooks" / "hooks.json"
+        data = json.loads(hooks_file.read_text())
+        for event_name, entries in data["hooks"].items():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    if hook.get("type") != "command":
+                        continue
+                    cmd = hook["command"]
+                    # Replace ${CLAUDE_PLUGIN_ROOT} with actual path
+                    script_path = cmd.replace(
+                        "${CLAUDE_PLUGIN_ROOT}", str(self.plugin_root)
+                    )
+                    self.assertTrue(
+                        Path(script_path).is_file(),
+                        f"Missing script: {cmd} (event: {event_name})",
+                    )
+
+    def test_all_prompt_hooks_exist(self):
+        """Every prompt file referenced in hooks.json exists on disk."""
+        hooks_file = self.plugin_root / "hooks" / "hooks.json"
+        data = json.loads(hooks_file.read_text())
+        for event_name, entries in data["hooks"].items():
+            for entry in entries:
+                for hook in entry.get("hooks", []):
+                    if hook.get("type") != "prompt":
+                        continue
+                    prompt = hook["prompt"]
+                    prompt_path = prompt.replace(
+                        "${CLAUDE_PLUGIN_ROOT}", str(self.plugin_root)
+                    )
+                    self.assertTrue(
+                        Path(prompt_path).is_file(),
+                        f"Missing prompt: {prompt} (event: {event_name})",
+                    )
+
+    def test_all_agent_files_exist(self):
+        """All 6 agent .md files exist in agents/ directory."""
+        agents_dir = self.plugin_root / "agents"
+        expected = [
+            "xp-navigator",
+            "xp-quality-reviewer",
+            "xp-retrospective",
+            "xp-customer-proxy",
+            "xp-plan-reviewer",
+            "xp-subagent-reviewer",
+        ]
+        for name in expected:
+            path = agents_dir / f"{name}.md"
+            self.assertTrue(path.is_file(), f"Missing agent: {path}")
+
+    def test_all_skill_files_exist(self):
+        """All 3 SKILL.md files exist in skills/ directory."""
+        skills_dir = self.plugin_root / "skills"
+        for name in ("smm-protocol", "xp-values", "pair-programming"):
+            path = skills_dir / name / "SKILL.md"
+            self.assertTrue(path.is_file(), f"Missing skill: {path}")
+
+    def test_no_requirements_or_pyproject(self):
+        """No requirements.txt or pyproject.toml with dependencies."""
+        for name in ("requirements.txt", "pyproject.toml"):
+            path = self.plugin_root / name
+            if path.is_file():
+                content = path.read_text()
+                self.assertNotIn(
+                    "install_requires",
+                    content,
+                    f"{name} should not declare dependencies",
+                )
+                self.assertNotIn(
+                    "dependencies",
+                    content,
+                    f"{name} should not declare dependencies",
+                )
+
+    def test_settings_json_exists(self):
+        """settings.json exists with enforcement default."""
+        path = self.plugin_root / "settings.json"
+        self.assertTrue(path.is_file())
+        data = json.loads(path.read_text())
+        self.assertIn("enforcement", data)
+
+    def test_behavioral_guide_exists(self):
+        """BEHAVIORAL_GUIDE.md exists and is non-trivial."""
+        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+        self.assertTrue(path.is_file(), "Missing BEHAVIORAL_GUIDE.md")
+        content = path.read_text()
+        self.assertGreater(len(content), 1000, "BEHAVIORAL_GUIDE.md too short")
+
+
 if __name__ == "__main__":
     unittest.main()

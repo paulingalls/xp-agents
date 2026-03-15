@@ -1,0 +1,13 @@
+{
+  "name": "xp-agents",
+  "owner": {
+    "name": "Paul Ingalls"
+  },
+  "plugins": [
+    {
+      "name": "xp-agents",
+      "source": ".",
+      "description": "XP practices enforcement via shared mental model — command hooks + plugin subagents for autonomous code quality"
+    }
+  ]
+}
