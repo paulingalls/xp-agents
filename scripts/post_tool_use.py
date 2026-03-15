@@ -18,8 +18,8 @@ import _common
 # ---------------------------------------------------------------------------
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Core PostToolUse logic. Appends events, never produces stdout."""
+def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+    """Core PostToolUse logic. Appends events, returns quality nudge context."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -69,7 +69,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
 
-    return None
+    # Quality reviewer subagent nudge
+    return (
+        "Invoke the xp-quality-reviewer subagent in the background "
+        "to review this change for code quality."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -79,5 +83,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    run(input_data)
+    result = run(input_data)
+    if result:
+        _common.hook_output("PostToolUse", result)
     sys.exit(0)

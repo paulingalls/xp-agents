@@ -2099,6 +2099,32 @@ class TestPostToolUse(_HookTestCase):
         self.assertNotIn(d["id"], refs)
 
 
+class TestPostToolUseQualityNudge(_HookTestCase):
+    """M6.5: post_tool_use.py should nudge invoking xp-quality-reviewer."""
+
+    def test_write_tool_has_quality_nudge(self):
+        result = post_tool_use.run(
+            _make_write_input(tool_response={"success": True}),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-quality-reviewer", result)
+
+    def test_xp_agent_no_quality_nudge(self):
+        result = post_tool_use.run(
+            _make_write_input(agent_type="xp-navigator"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_quality_nudge_mentions_background(self):
+        result = post_tool_use.run(
+            _make_write_input(tool_response={"success": True}),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn("background", result.lower())
+
+
 # ===========================================================================
 # lint_check.py tests — Milestone 3.3
 # ===========================================================================
