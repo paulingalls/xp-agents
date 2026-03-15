@@ -3184,80 +3184,8 @@ class TestM34HooksConfig(unittest.TestCase):
 
 
 # ===========================================================================
-# Prompt file tests (Milestone 4)
+# Prompt file tests (M6.5: agent prompts deleted, only tdd_check remains)
 # ===========================================================================
-
-
-class TestPromptFiles(unittest.TestCase):
-    """Verify all agent hook prompt files exist and contain key content."""
-
-    def setUp(self):
-        self.prompts_dir = Path(__file__).parent.parent / "prompts"
-
-    # --- navigator.md ---
-
-    def test_navigator_md_exists(self):
-        self.assertTrue((self.prompts_dir / "navigator.md").exists())
-
-    def test_navigator_md_contains_pair_guidance(self):
-        content = (self.prompts_dir / "navigator.md").read_text()
-        self.assertIn("pair_guidance", content)
-
-    def test_navigator_md_references_append_sh(self):
-        content = (self.prompts_dir / "navigator.md").read_text()
-        self.assertIn("append.sh", content)
-
-    def test_navigator_md_mentions_trivial_filter(self):
-        content = (self.prompts_dir / "navigator.md").read_text()
-        self.assertIn("trivial", content.lower())
-
-    def test_navigator_md_mentions_recursion_prevention(self):
-        content = (self.prompts_dir / "navigator.md").read_text()
-        self.assertIn("xp-navigator", content)
-
-    # --- quality_reviewer.md ---
-
-    def test_quality_reviewer_md_exists(self):
-        self.assertTrue((self.prompts_dir / "quality_reviewer.md").exists())
-
-    def test_quality_reviewer_md_contains_concern(self):
-        content = (self.prompts_dir / "quality_reviewer.md").read_text()
-        self.assertIn("concern", content)
-
-    def test_quality_reviewer_md_references_append_sh(self):
-        content = (self.prompts_dir / "quality_reviewer.md").read_text()
-        self.assertIn("append.sh", content)
-
-    def test_quality_reviewer_md_mentions_recursion_prevention(self):
-        content = (self.prompts_dir / "quality_reviewer.md").read_text()
-        self.assertIn("xp-quality-reviewer", content)
-
-    # --- plan_reviewer.md ---
-
-    def test_plan_reviewer_md_exists(self):
-        self.assertTrue((self.prompts_dir / "plan_reviewer.md").exists())
-
-    def test_plan_reviewer_md_contains_assumption(self):
-        content = (self.prompts_dir / "plan_reviewer.md").read_text()
-        self.assertIn("assumption", content)
-
-    def test_plan_reviewer_md_contains_decision(self):
-        content = (self.prompts_dir / "plan_reviewer.md").read_text()
-        self.assertIn("decision", content)
-
-    def test_plan_reviewer_md_references_append_sh(self):
-        content = (self.prompts_dir / "plan_reviewer.md").read_text()
-        self.assertIn("append.sh", content)
-
-    def test_plan_reviewer_md_mentions_recursion_prevention(self):
-        content = (self.prompts_dir / "plan_reviewer.md").read_text()
-        self.assertIn("xp-plan-reviewer", content)
-
-    def test_plan_reviewer_md_reads_smm_directly(self):
-        """Plan reviewer should read SMM itself, not depend on plan_review.py."""
-        content = (self.prompts_dir / "plan_reviewer.md").read_text()
-        self.assertIn("SHARED_MENTAL_MODEL.md", content)
-        self.assertNotIn("plan_review.py", content)
 
 
 # ===========================================================================
@@ -3325,82 +3253,18 @@ class TestHooksJsonM4(_HooksJsonTestCase):
 
 
 class TestPromptFilesM5(unittest.TestCase):
-    """Verify all M5 agent/prompt hook files exist and contain key content."""
+    """Verify tdd_check.md prompt hook (only prompt file remaining after M6.5)."""
 
     def setUp(self):
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
 
-    # --- retrospective_analyst.md ---
-
-    def test_retrospective_analyst_md_exists(self):
-        self.assertTrue((self.prompts_dir / "retrospective_analyst.md").exists())
-
-    def test_retrospective_analyst_md_contains_keep_fix_try(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
-        self.assertIn("Keep", content)
-        self.assertIn("Fix", content)
-        self.assertIn("Try", content)
-
-    def test_retrospective_analyst_md_references_append_sh(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
-        self.assertIn("append.sh", content)
-
-    def test_retrospective_analyst_md_mentions_recursion_prevention(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
-        self.assertIn("xp-retrospective-analyst", content)
-
-    def test_retrospective_analyst_md_mentions_retro_input(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
-        self.assertIn(".retro-input.json", content)
-
-    def test_retrospective_analyst_md_mentions_xp_values(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
-        for value in ["Honesty", "Communication", "Courage", "Simplicity", "Respect"]:
-            self.assertIn(value, content)
-
-    # --- customer_proxy.md ---
-
-    def test_customer_proxy_md_exists(self):
-        self.assertTrue((self.prompts_dir / "customer_proxy.md").exists())
-
-    def test_customer_proxy_md_contains_ask_user_question(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
-        self.assertIn("AskUserQuestion", content)
-
-    def test_customer_proxy_md_references_append_sh(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
-        self.assertIn("append.sh", content)
-
-    def test_customer_proxy_md_mentions_recursion_prevention(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
-        self.assertIn("xp-customer-proxy", content)
-
-    def test_customer_proxy_md_mentions_questions(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
-        self.assertIn("question", content.lower())
-
-    # --- subagent_reviewer.md ---
-
-    def test_subagent_reviewer_md_exists(self):
-        self.assertTrue((self.prompts_dir / "subagent_reviewer.md").exists())
-
-    def test_subagent_reviewer_md_contains_concern(self):
-        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
-        self.assertIn("concern", content)
-
-    def test_subagent_reviewer_md_references_append_sh(self):
-        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
-        self.assertIn("append.sh", content)
-
-    def test_subagent_reviewer_md_mentions_recursion_prevention(self):
-        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
-        self.assertIn("xp-subagent-reviewer", content)
-
-    def test_subagent_reviewer_md_mentions_transcript(self):
-        content = (self.prompts_dir / "subagent_reviewer.md").read_text()
-        self.assertIn("transcript", content.lower())
-
-    # --- tdd_check.md ---
+    def test_only_tdd_check_remains(self):
+        """Agent hook prompts deleted in M6.5; only tdd_check.md should remain."""
+        md_files = list(self.prompts_dir.glob("*.md"))
+        names = {f.name for f in md_files}
+        self.assertEqual(
+            names, {"tdd_check.md"}, f"Unexpected files in prompts/: {names}"
+        )
 
     def test_tdd_check_md_exists(self):
         self.assertTrue((self.prompts_dir / "tdd_check.md").exists())
@@ -3432,8 +3296,9 @@ class TestPromptFilesM5(unittest.TestCase):
 class TestM53AcceptanceCriteria(unittest.TestCase):
     """Verify M5.3 acceptance criteria are met.
 
-    Prompt-only behaviors are verified by checking prompt content.
-    Testable behaviors are verified in their respective test classes:
+    Prompt content checks updated in M6.5 to point to agents/ directory
+    (agent hook prompts moved to plugin subagents).
+    Testable behaviors verified in their respective test classes:
     - TestPreToolUseEnforcement (ACs 1-2)
     - TestLoadEnforcementMode (AC 3)
     - TestFindDebtForFile (AC 9)
@@ -3442,68 +3307,65 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
     """
 
     def setUp(self):
-        self.prompts_dir = Path(__file__).parent.parent / "prompts"
+        self.agents_dir = Path(__file__).parent.parent / "agents"
 
-    # AC 1: strict blocks on decision contradictions (navigator prompt)
-    def test_navigator_can_block_on_contradictions(self):
-        content = (self.prompts_dir / "navigator.md").read_text()
-        self.assertIn("block", content.lower())
+    # AC 1: navigator mentions contradictions
+    def test_navigator_mentions_contradictions(self):
+        content = (self.agents_dir / "xp-navigator.md").read_text()
         self.assertIn("contradict", content.lower())
 
     # AC 4: first session asks for goals
     def test_customer_proxy_goal_collection(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
         self.assertIn("Goal Collection", content)
         self.assertIn("Project Goals", content)
         self.assertIn('--type "goal"', content)
 
     # AC 5: customer proxy distills intents
     def test_customer_proxy_intent_distillation(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
         self.assertIn("Intent Reconciliation", content)
         self.assertIn("customer_input", content)
         self.assertIn("--intent-status", content)
 
     # AC 7: delivered intents by event log activity
     def test_customer_proxy_delivery_by_events(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
-        self.assertIn("status", content)
-        self.assertIn("decision", content)
+        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
         self.assertIn("delivered", content)
+        self.assertIn("recent events", content.lower())
 
     # AC 8: ambiguous keeps intent open
     def test_customer_proxy_err_toward_open(self):
-        content = (self.prompts_dir / "customer_proxy.md").read_text()
+        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
         self.assertIn("Err toward keeping intents open", content)
 
-    # AC 10: navigator debt awareness (prompt side)
+    # AC 10: navigator debt awareness
     def test_navigator_debt_awareness(self):
-        content = (self.prompts_dir / "navigator.md").read_text()
+        content = (self.agents_dir / "xp-navigator.md").read_text()
         self.assertIn("Debt Awareness", content)
-        self.assertIn("smm-debt-context", content)
 
     # AC 11: quality reviewer flags ignored debt
     def test_quality_reviewer_flags_ignored_debt(self):
-        content = (self.prompts_dir / "quality_reviewer.md").read_text()
+        content = (self.agents_dir / "xp-quality-reviewer.md").read_text()
         self.assertIn('--type "debt"', content)
-        self.assertIn("debt was not addressed", content)
+        self.assertIn("debt", content.lower())
 
     # AC 12: retrospective escalates aging debt
     def test_retrospective_escalates_aging_debt(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        content = (self.agents_dir / "xp-retrospective.md").read_text()
         self.assertIn("Escalating aging debt", content)
         self.assertIn("high-priority", content)
 
     # AC 13: retrospective flags plugin health anomalies
     def test_retrospective_plugin_health(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        content = (self.agents_dir / "xp-retrospective.md").read_text()
         self.assertIn("Plugin Health", content)
         self.assertIn("session_stats", content)
         self.assertIn("pair_guidance", content)
 
     # AC 14: cross-session trends
     def test_retrospective_cross_session_trends(self):
-        content = (self.prompts_dir / "retrospective_analyst.md").read_text()
+        content = (self.agents_dir / "xp-retrospective.md").read_text()
         self.assertIn("previous_retros", content)
         self.assertIn("cross-session", content.lower())
 
