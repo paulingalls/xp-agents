@@ -710,11 +710,11 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        # Now produces hookSpecificOutput with reviewer nudge
+        # Now produces decision:approve with reviewer nudge
         if result.stdout.strip():
             output = json.loads(result.stdout)
-            ctx = output["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("xp-subagent-reviewer", ctx)
+            self.assertEqual(output["decision"], "approve")
+            self.assertIn("xp-subagent-reviewer", output["reason"])
 
         events = self._read_events()
         statuses = [e for e in events if e.get("type") == "status"]
@@ -1827,7 +1827,7 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertIn("xp-quality-reviewer", ctx)
 
     def test_subagent_stop_plan_blocks(self):
-        """Plan agent_type → exit 2 with plan reviewer instruction."""
+        """Plan agent_type → decision:block with plan reviewer instruction."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -1837,11 +1837,13 @@ class TestMilestone65Integration(_IntegrationTestCase):
                 "last_assistant_message": "1. Do stuff\n2. More stuff",
             },
         )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("xp-plan-reviewer", result.stderr)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["decision"], "block")
+        self.assertIn("xp-plan-reviewer", data["reason"])
 
     def test_subagent_stop_reviewer_nudge(self):
-        """Regular subagent → stdout contains xp-subagent-reviewer nudge."""
+        """Regular subagent → decision:approve with xp-subagent-reviewer nudge."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -1852,8 +1854,8 @@ class TestMilestone65Integration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-subagent-reviewer", ctx)
+        self.assertEqual(output["decision"], "approve")
+        self.assertIn("xp-subagent-reviewer", output["reason"])
 
     def test_retrospective_nudge(self):
         """>=5 events → stdout contains xp-retrospective nudge."""
@@ -1974,7 +1976,7 @@ class TestPlanReviewFlow(_IntegrationTestCase):
     """M7: Plan subagent → block, regular subagent → nudge."""
 
     def test_plan_subagent_blocks_with_reviewer(self):
-        """Plan agent_type → exit 2 with xp-plan-reviewer instruction."""
+        """Plan agent_type → decision:block with xp-plan-reviewer instruction."""
         # Seed decisions so plan review has context
         self._seed_events(
             [
@@ -2000,11 +2002,13 @@ class TestPlanReviewFlow(_IntegrationTestCase):
                 "last_assistant_message": "1. Add endpoint\n2. Write tests",
             },
         )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("xp-plan-reviewer", result.stderr)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["decision"], "block")
+        self.assertIn("xp-plan-reviewer", data["reason"])
 
     def test_regular_subagent_nudges_reviewer(self):
-        """Non-Plan subagent → exit 0 with xp-subagent-reviewer nudge."""
+        """Non-Plan subagent → decision:approve with xp-subagent-reviewer nudge."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -2015,8 +2019,8 @@ class TestPlanReviewFlow(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-subagent-reviewer", ctx)
+        self.assertEqual(output["decision"], "approve")
+        self.assertIn("xp-subagent-reviewer", output["reason"])
 
         # Should also have recorded a status event
         events = self._read_events()

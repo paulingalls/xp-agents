@@ -5,6 +5,7 @@ Appends a minimal status event and checks for structural conflicts
 (patterns 2-5, no file_path so pattern 1 is skipped).
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -107,9 +108,11 @@ if __name__ == "__main__":
     try:
         result = run(input_data)
     except _common.BlockedError as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(2)
+        print(json.dumps({"decision": "block", "reason": str(e)}))
+        sys.exit(0)
 
     if result:
-        _common.hook_output("SubagentStop", result)
+        # SubagentStop doesn't support hookSpecificOutput/additionalContext.
+        # Use decision:approve with reason to pass the nudge through.
+        print(json.dumps({"decision": "approve", "reason": result}))
     sys.exit(0)
