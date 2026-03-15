@@ -134,15 +134,27 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         and e.get("id") not in answered_ids
         for e in events
     )
-    if not has_goals or has_open_questions:
-        parts.append(
-            "\n\nInvoke the xp-customer-proxy subagent to "
-            + ("collect project goals and " if not has_goals else "")
-            + "triage open questions."
-        )
-
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
+
+    # Customer proxy nudge goes LAST for maximum salience.
+    # No goals = first session on this project — critical to establish direction.
+    if not has_goals:
+        parts.append(
+            "\n\n---\n"
+            "**IMPORTANT — FIRST ACTION REQUIRED:** No project goals have been "
+            "recorded yet. Before doing ANY other work, invoke the "
+            "xp-customer-proxy subagent to ask the user about project goals. "
+            "This is a first-session requirement — goals guide all subsequent "
+            "decisions, reviews, and retrospectives."
+        )
+    elif has_open_questions:
+        parts.append(
+            "\n\n---\n"
+            "**ACTION REQUIRED:** There are unresolved blocking or assumed "
+            "questions. Invoke the xp-customer-proxy subagent to triage them "
+            "before proceeding with work."
+        )
 
     return "".join(parts)
 
