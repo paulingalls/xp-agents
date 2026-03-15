@@ -10,13 +10,8 @@
 """
 
 import argparse
-import contextlib
-import fcntl
 import json
-import os
-import signal
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,17 +19,21 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _append_impl import (
     LockTimeoutError,
-    _on_alarm,
-    _safe_open_nofollow,
     _validate_smm_dir,
+    replace_events_file,
     resolve_smm_dir,
 )
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+# Required fields — same set validated by _append_impl.validate_event()
+_REQUIRED_FIELDS = {"id", "type", "ts", "agent_id", "content"}
 
-REQUIRED_FIELDS = {"id", "type", "ts", "agent_id", "content"}
+_EMPTY_RESULT = {
+    "malformed": 0,
+    "invalid": 0,
+    "duplicates": 0,
+    "reordered": 0,
+    "retained": 0,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -49,23 +48,11 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     """
     events_file = smm_dir / "events.jsonl"
     if not events_file.exists():
-        return {
-            "malformed": 0,
-            "invalid": 0,
-            "duplicates": 0,
-            "reordered": 0,
-            "retained": 0,
-        }
+        return dict(_EMPTY_RESULT)
 
     raw = events_file.read_text(encoding="utf-8")
     if not raw.strip():
-        return {
-            "malformed": 0,
-            "invalid": 0,
-            "duplicates": 0,
-            "reordered": 0,
-            "retained": 0,
-        }
+        return dict(_EMPTY_RESULT)
 
     # Phase 1: Parse and validate
     malformed = 0
@@ -79,24 +66,20 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
         if not line:
             continue
 
-        # Parse JSON
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             malformed += 1
             continue
 
-        # Must be a dict
         if not isinstance(event, dict):
             invalid += 1
             continue
 
-        # Required fields
-        if not REQUIRED_FIELDS.issubset(event.keys()):
+        if not _REQUIRED_FIELDS.issubset(event.keys()):
             invalid += 1
             continue
 
-        # Deduplicate by ID
         event_id = event["id"]
         if event_id in seen_ids:
             duplicates += 1
@@ -129,44 +112,8 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     backup_file = backups_dir / f"pre-repair-{ts}.jsonl"
     backup_file.write_text(raw, encoding="utf-8")
 
-    # Phase 4: Atomic replacement
-    lock_file = smm_dir / "events.lock"
-    lock_fd = None
-    raw_fd = None
-
-    try:
-        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(2)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
-        lines = [json.dumps(e, ensure_ascii=False) for e in valid_events]
-        fd, tmp = tempfile.mkstemp(dir=smm_dir, suffix=".jsonl.tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + ("\n" if lines else ""))
-            os.chmod(tmp, 0o600)
-            os.rename(tmp, events_file)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+    # Phase 4: Atomic replacement under exclusive flock
+    replace_events_file(smm_dir, valid_events)
 
     # Phase 5: Write repair report
     report_file = smm_dir / ".repair-report.json"

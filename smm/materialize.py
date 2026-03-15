@@ -287,6 +287,9 @@ def detect_drift_signals(events: list[dict], indices: dict) -> list[str]:
 
     # 1. Stale decisions — topic with no related events in 5+ sessions
     if total_sessions >= STALE_SESSIONS_THRESHOLD:
+        # Pre-extract position list for bisect (O(S) once, not per topic)
+        se_pos_list = [pos for pos, _ in session_end_positions]
+
         for topic in sorted(indices["decisions_by_topic"]):
             decisions = indices["decisions_by_topic"][topic]
             # Find latest event position for this topic (any type)
@@ -304,11 +307,10 @@ def detect_drift_signals(events: list[dict], indices: dict) -> list[str]:
             if latest_pos < 0:
                 continue
 
-            # Count session_ends after latest activity
-            sessions_since = 0
-            for se_pos, _ in session_end_positions:
-                if se_pos > latest_pos:
-                    sessions_since += 1
+            # Count session_ends after latest activity via bisect (O(log S))
+            sessions_since = total_sessions - bisect.bisect_right(
+                se_pos_list, latest_pos
+            )
 
             if sessions_since >= STALE_SESSIONS_THRESHOLD:
                 signals.append(
@@ -318,9 +320,12 @@ def detect_drift_signals(events: list[dict], indices: dict) -> list[str]:
 
     # 2. Ignored conventions — 3+ unresolved concerns referencing convention
     concern_resolutions = indices["concern_resolutions"]
-    convention_ids_by_topic: dict[str, set[str]] = {}
+
+    # Build reverse index: convention_id → topic (O(1) lookup per reference)
+    conv_id_to_topic: dict[str, str] = {}
     for topic, convs in indices["conventions_by_topic"].items():
-        convention_ids_by_topic[topic] = {c["id"] for c in convs}
+        for c in convs:
+            conv_id_to_topic[c["id"]] = topic
 
     # Count unresolved concerns per convention topic
     convention_concern_counts: dict[str, int] = defaultdict(int)
@@ -328,9 +333,9 @@ def detect_drift_signals(events: list[dict], indices: dict) -> list[str]:
         if concern["id"] in concern_resolutions:
             continue  # resolved
         for ref_id in concern.get("references", []):
-            for topic, conv_ids in convention_ids_by_topic.items():
-                if ref_id in conv_ids:
-                    convention_concern_counts[topic] += 1
+            topic = conv_id_to_topic.get(ref_id)
+            if topic:
+                convention_concern_counts[topic] += 1
 
     for topic in sorted(convention_concern_counts):
         count = convention_concern_counts[topic]

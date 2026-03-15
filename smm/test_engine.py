@@ -73,6 +73,15 @@ class _SMMTestCase(unittest.TestCase):
     def _write_raw_lines(self, lines: list[str]) -> None:
         self.events_file.write_text("\n".join(lines) + "\n")
 
+    def _read_events(self) -> list[dict]:
+        """Read events back from events.jsonl, skipping empty/bad lines."""
+        events = []
+        for line in self.events_file.read_text().splitlines():
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+        return events
+
 
 # ===========================================================================
 # Materialize — Parsing
@@ -1306,11 +1315,7 @@ class TestCompact(_SMMTestCase):
         result = compact.compact(self.smm_dir, keep_sessions=3)
         self.assertGreater(result["archived"], 0)
         # Read back retained events
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         # Session 1 events should be archived (it's the 4th-oldest)
         contents = [e.get("content", "") for e in retained]
         self.assertNotIn("session 1 event 0", contents)
@@ -1351,11 +1356,7 @@ class TestCompact(_SMMTestCase):
         self._write_events(permanent + session + recent)
 
         result = compact.compact(self.smm_dir, keep_sessions=1)
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
         for p in permanent:
             self.assertIn(
@@ -1378,11 +1379,7 @@ class TestCompact(_SMMTestCase):
         self._write_events([q, *old_session, *recent])
 
         compact.compact(self.smm_dir, keep_sessions=1)
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
         self.assertIn(q["id"], retained_ids)
 
@@ -1407,11 +1404,7 @@ class TestCompact(_SMMTestCase):
         self._write_events([q, a, *old_session, *recent])
 
         compact.compact(self.smm_dir, keep_sessions=1)
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
         # Answered question CAN be archived (not guaranteed retained)
         # We just verify archival happened
@@ -1429,11 +1422,7 @@ class TestCompact(_SMMTestCase):
         self._write_events([c, *old_session, *recent])
 
         compact.compact(self.smm_dir, keep_sessions=1)
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
         self.assertIn(c["id"], retained_ids)
 
@@ -1518,11 +1507,7 @@ class TestCompact(_SMMTestCase):
         self._write_events([permanent, *session])
 
         compact.compact(self.smm_dir, keep_sessions=1)
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         # Permanent event should come before session events
         ids = [e["id"] for e in retained]
         self.assertEqual(ids[0], permanent["id"])
@@ -1606,11 +1591,7 @@ class TestRepair(_SMMTestCase):
         self.assertEqual(result["duplicates"], 1)
         self.assertEqual(result["retained"], 1)
         # Retained should be the first occurrence
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         self.assertEqual(retained[0]["content"], "original")
 
     def test_repair_sorts_by_timestamp(self):
@@ -1621,11 +1602,7 @@ class TestRepair(_SMMTestCase):
         self._write_events([e1, e2])
         result = repair.repair(self.smm_dir)
         self.assertEqual(result["reordered"], 1)
-        retained = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                retained.append(json.loads(line))
+        retained = self._read_events()
         self.assertEqual(retained[0]["content"], "first")
         self.assertEqual(retained[1]["content"], "second")
 
@@ -1768,11 +1745,7 @@ class TestMigrate(_SMMTestCase):
         self.assertEqual(result["migrated"], 1)
         self.assertEqual(result["unchanged"], 1)
         # Read back and verify
-        migrated = []
-        for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
-            line = line.strip()
-            if line:
-                migrated.append(json.loads(line))
+        migrated = self._read_events()
         for e in migrated:
             self.assertEqual(e["schema_version"], 2)
 

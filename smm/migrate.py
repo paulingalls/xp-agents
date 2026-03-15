@@ -7,23 +7,18 @@ Events with schema_version > CURRENT_VERSION pass through unchanged
 """
 
 import argparse
-import contextlib
-import fcntl
 import json
-import os
 import re
-import signal
 import sys
-import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from _append_impl import (
     LockTimeoutError,
-    _on_alarm,
-    _safe_open_nofollow,
     _validate_smm_dir,
+    replace_events_file,
     resolve_smm_dir,
 )
 
@@ -49,7 +44,7 @@ def _migrate_v1_to_v2(event: dict) -> dict:
     return event
 
 
-MIGRATIONS: dict[tuple[int, int], callable] = {
+MIGRATIONS: dict[tuple[int, int], Callable] = {
     (1, 2): _migrate_v1_to_v2,
 }
 
@@ -116,7 +111,7 @@ def migrate_file(smm_dir: Path) -> dict:
         version = event.get("schema_version", 1)
         migrated = migrate_event(event)
 
-        if migrated.get("schema_version") != version or migrated != event:
+        if migrated.get("schema_version") != version:
             migrated_count += 1
         else:
             unchanged_count += 1
@@ -127,44 +122,8 @@ def migrate_file(smm_dir: Path) -> dict:
     if migrated_count == 0:
         return {"migrated": 0, "unchanged": unchanged_count}
 
-    # Atomic replacement
-    lock_file = smm_dir / "events.lock"
-    lock_fd = None
-    raw_fd = None
-
-    try:
-        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(2)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
-        lines = [json.dumps(e, ensure_ascii=False) for e in events]
-        fd, tmp = tempfile.mkstemp(dir=smm_dir, suffix=".jsonl.tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + ("\n" if lines else ""))
-            os.chmod(tmp, 0o600)
-            os.rename(tmp, events_file)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+    # Atomic replacement under exclusive flock
+    replace_events_file(smm_dir, events)
 
     return {"migrated": migrated_count, "unchanged": unchanged_count}
 

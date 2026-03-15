@@ -572,6 +572,65 @@ def append_event(smm_dir: Path, event: dict) -> None:
     _notify_blocking_question(event)
 
 
+def replace_events_file(smm_dir: Path, events: list[dict]) -> str:
+    """Read events.jsonl under exclusive flock, replace atomically.
+
+    Holds the exclusive lock for the entire read-then-write transaction
+    to prevent TOCTOU races. Returns the original file contents (for
+    callers that need to back up the original).
+
+    Raises LockTimeoutError if the lock cannot be acquired.
+    """
+    events_file = smm_dir / "events.jsonl"
+    lock_file = smm_dir / "events.lock"
+    lock_fd = None
+    raw_fd = None
+    original_content = ""
+
+    try:
+        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        try:
+            lock_fd = os.fdopen(raw_fd, "a")
+        except Exception:
+            os.close(raw_fd)
+            raise
+        raw_fd = None
+
+        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
+        try:
+            signal.alarm(2)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, old_handler)
+
+        # Read original under lock (prevents TOCTOU race)
+        try:
+            original_content = events_file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            original_content = ""
+
+        # Write replacement via tempfile + rename
+        lines = [json.dumps(e, ensure_ascii=False) for e in events]
+        fd, tmp = tempfile.mkstemp(dir=smm_dir, suffix=".jsonl.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + ("\n" if lines else ""))
+            os.chmod(tmp, 0o600)
+            os.rename(tmp, events_file)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+
+    finally:
+        if lock_fd is not None:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+    return original_content
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
