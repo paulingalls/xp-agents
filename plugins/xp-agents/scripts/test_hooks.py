@@ -3265,39 +3265,14 @@ class TestHooksJsonM4(_HooksJsonTestCase):
 
 
 class TestPromptFilesM5(unittest.TestCase):
-    """Verify tdd_check.md prompt hook (only prompt file remaining after M6.5)."""
+    """Verify prompt files state after tdd_check.md replaced by command hook."""
 
     def setUp(self):
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
 
-    def test_only_tdd_check_remains(self):
-        """Agent hook prompts deleted in M6.5; only tdd_check.md should remain."""
-        md_files = list(self.prompts_dir.glob("*.md"))
-        names = {f.name for f in md_files}
-        self.assertEqual(
-            names, {"tdd_check.md"}, f"Unexpected files in prompts/: {names}"
-        )
-
-    def test_tdd_check_md_exists(self):
+    def test_tdd_check_md_still_exists(self):
+        """tdd_check.md kept for reference but no longer registered as hook."""
         self.assertTrue((self.prompts_dir / "tdd_check.md").exists())
-
-    def test_tdd_check_md_mentions_tests(self):
-        content = (self.prompts_dir / "tdd_check.md").read_text()
-        self.assertIn("test", content.lower())
-
-    def test_tdd_check_md_mentions_stop_hook_active(self):
-        content = (self.prompts_dir / "tdd_check.md").read_text()
-        self.assertIn("stop_hook_active", content)
-
-    def test_tdd_check_md_mentions_block(self):
-        content = (self.prompts_dir / "tdd_check.md").read_text()
-        self.assertIn("block", content.lower())
-
-    def test_tdd_check_md_uses_ok_reason_format(self):
-        """Prompt hooks must use ok/reason format, not decision/block."""
-        content = (self.prompts_dir / "tdd_check.md").read_text()
-        self.assertIn('"ok":', content)
-        self.assertIn('"reason":', content)
 
 
 # ===========================================================================
@@ -3418,19 +3393,30 @@ class TestHooksJsonM5(_HooksJsonTestCase):
                 len(agents), 0, "No agent hooks should remain in SubagentStop"
             )
 
-    # --- Stop: tdd_check prompt ---
+    # --- Stop: tdd_stop_gate command hook ---
 
     def test_stop_hook_exists(self):
         self.assertIn("Stop", self.data["hooks"], "Stop hook section missing")
 
-    def test_stop_hook_has_tdd_check_prompt(self):
+    def test_stop_hook_has_tdd_gate_command(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
-        prompt_hooks = [h for h in all_hooks if h.get("type") == "prompt"]
-        self.assertEqual(len(prompt_hooks), 1)
-        self.assertIn("tdd_check.md", prompt_hooks[0]["prompt"])
+        commands = [h for h in all_hooks if h.get("type") == "command"]
+        self.assertTrue(
+            any("tdd_stop_gate.py" in h["command"] for h in commands),
+            "tdd_stop_gate.py command hook missing from Stop",
+        )
+
+    def test_stop_hook_no_prompt_hooks(self):
+        """Prompt hooks replaced by command hooks — none should remain."""
+        entries = self.data["hooks"]["Stop"]
+        all_hooks = []
+        for entry in entries:
+            all_hooks.extend(entry.get("hooks", []))
+        prompts = [h for h in all_hooks if h.get("type") == "prompt"]
+        self.assertEqual(len(prompts), 0, "No prompt hooks should remain in Stop")
 
 
 # ===========================================================================
@@ -3603,6 +3589,130 @@ class TestSimplifyGateSecurity(_HookTestCase):
         self.assertIsNone(result)
 
 
+# ===========================================================================
+# TDD Stop Gate (replaces tdd_check.md prompt hook)
+# ===========================================================================
+
+
+class TestTddStopGate(_HookTestCase):
+    """Tests for tdd_stop_gate.py Stop command hook."""
+
+    def setUp(self):
+        super().setUp()
+        import tdd_stop_gate
+
+        self.mod = tdd_stop_gate
+
+    def test_xp_agent_skips(self):
+        inp = _make_stop_input(agent_type="xp-nav")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_stop_hook_active_skips(self):
+        inp = _make_stop_input(stop_hook_active=True)
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_events_allows_stop(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_smm_dir_degrades(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
+        self.assertIsNone(result)
+
+    def test_passing_tests_allows_stop(self):
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="Tests: 5 passed, 0 failed (pytest)",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_failing_tests_blocks_stop(self):
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 2 failed (pytest)",
+                    severity="high",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("failing", result.lower())
+
+    def test_failed_test_run_blocks_stop(self):
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test command failed: `pytest` — exit 1",
+                    severity="high",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+    def test_pass_after_fail_allows_stop(self):
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 2 failed (pytest)",
+                    severity="high",
+                ),
+                make_event(
+                    "status",
+                    content="Tests: 5 passed, 0 failed (pytest)",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_fail_after_pass_blocks_stop(self):
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="Tests: 5 passed, 0 failed (pytest)",
+                ),
+                make_event(
+                    "concern",
+                    content="Test failures detected: 1 failed (jest)",
+                    severity="high",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+    def test_no_test_events_allows_stop(self):
+        self._write_events(
+            [
+                make_event("status", content="Wrote file", working_on=["a.py"]),
+                make_event("customer_input", content="build something"),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+
 class TestBashFailureSecurity(_HookTestCase):
     """Security tests for bash_failure.py."""
 
@@ -3654,15 +3764,15 @@ class TestHooksJsonM54(_HooksJsonTestCase):
             "simplify_gate.py command hook missing from Stop",
         )
 
-    def test_stop_has_tdd_check_prompt(self):
+    def test_stop_has_tdd_gate_command(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
-        prompts = [h for h in all_hooks if h.get("type") == "prompt"]
+        commands = [h for h in all_hooks if h.get("type") == "command"]
         self.assertTrue(
-            any("tdd_check.md" in h["prompt"] for h in prompts),
-            "tdd_check.md prompt hook missing from Stop",
+            any("tdd_stop_gate.py" in h["command"] for h in commands),
+            "tdd_stop_gate.py command hook missing from Stop",
         )
 
     def test_stop_has_two_hooks(self):
@@ -4358,17 +4468,15 @@ class TestHooksJsonM65(_HooksJsonTestCase):
                         f"Invalid hook type in {event_name}: {hook.get('type')}",
                     )
 
-    def test_tdd_check_is_only_prompt_hook(self):
-        """tdd_check.md should be the only prompt hook remaining."""
+    def test_no_prompt_hooks_remain(self):
+        """All prompt hooks replaced by command hooks — none should remain."""
         prompt_hooks = []
         for event_name, entries in self.data["hooks"].items():
             for entry in entries:
                 for hook in entry.get("hooks", []):
                     if hook.get("type") == "prompt":
                         prompt_hooks.append((event_name, hook))
-        self.assertEqual(len(prompt_hooks), 1, "Should have exactly 1 prompt hook")
-        self.assertEqual(prompt_hooks[0][0], "Stop")
-        self.assertIn("tdd_check.md", prompt_hooks[0][1]["prompt"])
+        self.assertEqual(len(prompt_hooks), 0, "No prompt hooks should remain")
 
 
 class TestAgentFilesM65(unittest.TestCase):

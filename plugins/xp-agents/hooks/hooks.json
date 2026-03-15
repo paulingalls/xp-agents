@@ -136,8 +136,8 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/simplify_gate.py"
           },
           {
-            "type": "prompt",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/tdd_check.md"
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py"
           }
         ]
       }
