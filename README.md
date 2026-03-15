@@ -115,20 +115,20 @@ xp-agents uses Claude Code's hook system to enforce XP practices deterministical
 
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
-| **PreToolUse** (Write/Edit) | SMM delta injection, navigator guidance, `working_on` conflict blocking, TDD order check | Communication, Pair Programming, TDD |
-| **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check, quality reviewer | Standup, Coding Standards, Courage, Simplicity |
+| **PreToolUse** (Write/Edit) | SMM delta injection, `working_on` conflict blocking, TDD order check, navigator subagent nudge | Communication, Pair Programming, TDD |
+| **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check, quality reviewer subagent nudge | Standup, Coding Standards, Courage, Simplicity |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
-| **SubagentStop** (Plan) | Plan size review, decision/assumption extraction to SMM | Planning Game, Simple Design |
-| **SessionStart** | Retrospective (Keep/Fix/Try + session stats), customer intent reconciliation, goal setting (first run), SMM injection | Retrospective, On-Site Customer |
+| **SubagentStop** (Plan) | Block until plan reviewer subagent invoked | Planning Game, Simple Design |
+| **SessionStart** | SMM + behavioral guide injection, retrospective subagent nudge, customer proxy subagent nudge | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
 | **UserPromptSubmit** | Log user prompt as `customer_input` event | On-Site Customer |
 | **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
-| **SubagentStop** | Review subagent output for quality and alignment | Code Review |
+| **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
 | **Stop** | Block if tests failing | TDD |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 
-The navigator, quality reviewer, retrospective analyst, customer proxy, and plan reviewer are all hook handlers that fire automatically at the right lifecycle point.
+The navigator, quality reviewer, retrospective analyst, customer proxy, plan reviewer, and subagent reviewer are plugin subagents with full tool access. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer uses exit-2 blocking (like the simplify gate) for deterministic triggering.
 
 ### The Shared Mental Model
 
@@ -248,11 +248,11 @@ A standup where agents report "everything is fine" when tests are failing is wor
 
 xp-agents enforces honesty through hooks, not aspiration:
 
-- **Quality reviewer** — detects empty catch blocks, premature "done" signals, missing error handling
-- **Retrospective analyst** — analyzes honesty patterns: were status events truthful? Were concerns raised or did everyone agree too easily?
+- **Quality reviewer subagent** — detects empty catch blocks, premature "done" signals, missing error handling
+- **Retrospective subagent** — analyzes honesty patterns: were status events truthful? Were concerns raised or did everyone agree too easily?
 - **Session end hook** — flags when the agent didn't write a final status summary
 - **Conflict detector** — catches convention violations and unacknowledged contradictions
-- **CLAUDE.md** — behavioral nudges for judgment calls hooks can't enforce
+- **Behavioral guide** — XP behavioral rules injected at session start for judgment calls hooks can't enforce
 
 ---
 

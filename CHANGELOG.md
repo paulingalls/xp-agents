@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.7.0 — Milestone 6.5: Agent Hook to Plugin Subagent Migration
+
+### Changed
+- **Agent hooks replaced with plugin subagents** — Agent hooks (type: "agent" in hooks.json) can only use Read/Grep/Glob tools (confirmed empirically: Bash test failed). They cannot write events via `append.sh` or return advisory guidance. All 6 agent hook prompts have been converted to plugin subagents in `agents/` directory with full tool access (Bash, Read, Write, Edit, AskUserQuestion)
+- **Command hooks now trigger subagents** via `additionalContext` injection (nudge) or exit 2 blocking (deterministic):
+  - `pre_tool_use.py` — nudges xp-navigator for Write/Edit/MultiEdit
+  - `post_tool_use.py` — nudges xp-quality-reviewer (background), returns additionalContext
+  - `retrospective.py` — nudges xp-retrospective when retro data available
+  - `session_start.py` — nudges xp-customer-proxy when goals missing or open questions
+  - `subagent_stop.py` — blocks for Plan subagents (xp-plan-reviewer), nudges xp-subagent-reviewer for others
+- **hooks.json** — all type: "agent" entries removed. Only type: "command" and one type: "prompt" (tdd_check.md) remain
+- `plan_review.py` command hook removed (redundant with plan reviewer subagent)
+
+### Added
+- `agents/xp-navigator.md` — pair programming guidance (haiku, preloads smm-protocol + pair-programming skills)
+- `agents/xp-quality-reviewer.md` — courage + simplicity code review (haiku, background: true)
+- `agents/xp-retrospective.md` — Keep/Fix/Try analysis (inherit, preloads smm-protocol + xp-values skills)
+- `agents/xp-customer-proxy.md` — goal collection + question triage (inherit, foreground for AskUserQuestion)
+- `agents/xp-plan-reviewer.md` — plan size/TDD/decision review (inherit, preloads smm-protocol + xp-values)
+- `agents/xp-subagent-reviewer.md` — holistic output review (haiku, background: true)
+
+### Removed
+- `prompts/navigator.md`, `prompts/quality_reviewer.md`, `prompts/retrospective_analyst.md`, `prompts/customer_proxy.md`, `prompts/plan_reviewer.md`, `prompts/subagent_reviewer.md` — replaced by plugin subagents
+- `scripts/plan_review.py` — deterministic checks redundant with plan reviewer subagent
+
+### Design decisions
+- **Agent hooks are read-only gates** — confirmed empirically. Only use for ok/not-ok gating (tdd_check.md)
+- **Plugin subagents have full tool access** — Bash, Write, Edit, AskUserQuestion all work
+- **Nudge for frequent triggers, block for critical ones** — navigator nudges every write, plan reviewer blocks once per plan
+- **background: true for async reviewers** — quality reviewer and subagent reviewer always run in background
+- **skills preloaded into subagents** — subagents don't inherit parent skills, must list explicitly
+
 ## v0.6.0 — Milestone 6: CLAUDE.md & Skills
 
 ### Added

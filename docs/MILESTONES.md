@@ -352,6 +352,35 @@
 
 ---
 
+## Milestone 6.5: Agent Hook → Plugin Subagent Migration ✅
+
+**Goal**: Fix non-functional agent hooks by migrating to plugin subagents with full tool access.
+
+**Status**: Complete (715 total tests: 228 SMM + 131 engine + 406 hooks + 80 integration).
+
+**Discovery**: Agent hooks (type: "agent" in hooks.json) can only use Read/Grep/Glob tools — no Bash, Write, or Edit (confirmed empirically 2026-03-14). All 6 agent hook prompts that called `append.sh` or returned advisory guidance never actually worked as designed.
+
+**Solution**: Plugin subagents (`agents/` directory) have full tool access. Command hooks trigger them via `additionalContext` nudge or exit 2 blocking.
+
+**Deliverables**:
+- [x] 6 plugin subagents in `agents/` directory: xp-navigator, xp-quality-reviewer, xp-retrospective, xp-customer-proxy, xp-plan-reviewer, xp-subagent-reviewer
+- [x] All agent hooks removed from `hooks/hooks.json` — only command + 1 prompt hook remain
+- [x] Command hooks updated with subagent nudges: pre_tool_use.py (navigator), post_tool_use.py (quality reviewer), retrospective.py (retrospective), session_start.py (customer proxy), subagent_stop.py (plan reviewer block + subagent reviewer nudge)
+- [x] Old prompt files deleted (navigator.md, quality_reviewer.md, etc.) — only tdd_check.md remains in prompts/
+- [x] plan_review.py command hook removed (redundant)
+
+**Acceptance Criteria**:
+- ✅ No agent hooks in hooks.json (only command + prompt)
+- ✅ All 6 subagent files have valid frontmatter with tools, skills, model
+- ✅ Background subagents (quality-reviewer, subagent-reviewer) have background: true
+- ✅ Customer proxy is foreground (needs AskUserQuestion)
+- ✅ Plan reviewer uses exit 2 blocking (deterministic, like simplify_gate)
+- ✅ All subagents preload smm-protocol skill and include append.sh usage
+- ✅ Recursion prevention works via existing is_xp_agent() check
+- ✅ Plugin version bumped to 0.7.0
+
+---
+
 ## Milestone 7: Integration Testing & Packaging
 
 **Goal**: End-to-end, marketplace ready.

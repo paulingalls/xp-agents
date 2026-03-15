@@ -1776,5 +1776,107 @@ class TestMilestone6Integration(_IntegrationTestCase):
         self.assertNotIn("Honesty Principle", ctx)
 
 
+# ===========================================================================
+# Milestone 6.5: Subagent nudge/block integration tests
+# ===========================================================================
+
+
+class TestMilestone65Integration(_IntegrationTestCase):
+    def test_pre_tool_use_navigator_nudge(self):
+        """Write tool → stdout contains xp-navigator nudge."""
+        self._seed_events([make_event()])
+        result = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-navigator", ctx)
+
+    def test_post_tool_use_quality_nudge(self):
+        """Write tool → stdout contains xp-quality-reviewer nudge."""
+        self._seed_events([make_event()])
+        result = self._run_script(
+            "post_tool_use.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.ts", "content": "x"},
+                "tool_response": {"success": True},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-quality-reviewer", ctx)
+
+    def test_subagent_stop_plan_blocks(self):
+        """Plan agent_type → exit 2 with plan reviewer instruction."""
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-1",
+                "agent_type": "Plan",
+                "last_assistant_message": "1. Do stuff\n2. More stuff",
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("xp-plan-reviewer", result.stderr)
+
+    def test_subagent_stop_reviewer_nudge(self):
+        """Regular subagent → stdout contains xp-subagent-reviewer nudge."""
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-subagent-reviewer", ctx)
+
+    def test_retrospective_nudge(self):
+        """>=5 events → stdout contains xp-retrospective nudge."""
+        self._seed_events([make_event(content=f"e{i}") for i in range(6)])
+        result = self._run_script(
+            "retrospective.py",
+            {"session_id": "int-test", "source": "startup"},
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-retrospective", ctx)
+
+    def test_agent_files_exist(self):
+        """All 6 agent .md files exist in agents/ directory."""
+        agents_dir = Path(__file__).parent.parent / "agents"
+        for name in (
+            "xp-navigator",
+            "xp-quality-reviewer",
+            "xp-retrospective",
+            "xp-customer-proxy",
+            "xp-plan-reviewer",
+            "xp-subagent-reviewer",
+        ):
+            path = agents_dir / f"{name}.md"
+            self.assertTrue(path.is_file(), f"Missing: {path}")
+            content = path.read_text()
+            self.assertGreater(len(content), 500, f"{name} too short")
+            self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
+
+
 if __name__ == "__main__":
     unittest.main()

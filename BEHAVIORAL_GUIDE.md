@@ -10,7 +10,7 @@ Ground truth is in the Shared Mental Model (SMM). These seven rules govern your 
 
 2. **Record decisions as events.** Every architectural choice gets a `decision` event with a topic and rationale. Hooks auto-draft decisions from commits, but significant design choices need explicit recording.
 
-3. **Never silently override.** If you disagree with an existing decision or convention, record a `concern` event first. The navigator hook blocks direct contradictions, but subtle divergences require your honesty.
+3. **Never silently override.** If you disagree with an existing decision or convention, record a `concern` event first. The navigator subagent flags direct contradictions, but subtle divergences require your honesty.
 
 4. **Keep working_on current.** PostToolUse hooks auto-generate `status` events for Write/Edit, but when you shift focus to a different area, record a status update explicitly. Other agents and the conflict detector rely on this.
 
@@ -109,7 +109,7 @@ The `session_end` hook flags when no final status exists. The next session's ret
 ## Code Quality
 
 ### TDD
-The TDD check gate blocks you at Stop if tests are failing. Write the test first, watch it fail, then implement. The navigator may flag implementation-before-test ordering. When the TDD gate blocks you, fix the tests before trying to stop again — the gate is there because shipping broken tests violates the Feedback value.
+The TDD check gate blocks you at Stop if tests are failing. Write the test first, watch it fail, then implement. The navigator subagent may flag implementation-before-test ordering. When the TDD gate blocks you, fix the tests before trying to stop again — the gate is there because shipping broken tests violates the Feedback value.
 
 ### Lint
 The lint hook runs automatically after every Write/Edit. If it finds issues, they appear as `concern` events in the SMM. Fix them before moving on — don't accumulate lint warnings.
