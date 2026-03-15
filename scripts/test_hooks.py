@@ -1873,6 +1873,86 @@ class TestPreToolUseNavigatorNudge(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestRetrospectiveNudge(_HookTestCase):
+    """M6.5: retrospective.py should nudge invoking xp-retrospective."""
+
+    def test_retro_context_has_nudge(self):
+        import retrospective
+
+        events = [make_event(content=f"e{i}") for i in range(6)]
+        self._write_events(events)
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-retrospective", result)
+
+    def test_retro_below_threshold_no_nudge(self):
+        import retrospective
+
+        self._write_events([make_event()])
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
+class TestSessionStartCustomerNudge(_HookTestCase):
+    """M6.5: session_start.py should nudge invoking xp-customer-proxy."""
+
+    def setUp(self):
+        super().setUp()
+        import session_start
+
+        session_start._load_behavioral_guide.cache_clear()
+
+    def tearDown(self):
+        import session_start
+
+        session_start._load_behavioral_guide.cache_clear()
+        super().tearDown()
+
+    def test_no_goals_nudges_customer_proxy(self):
+        import session_start
+
+        self._write_events([make_event("status", content="working")])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn("xp-customer-proxy", result)
+        self.assertIn("goals", result.lower())
+
+    def test_has_goals_no_questions_no_nudge(self):
+        import session_start
+
+        self._write_events([make_event("goal", content="Build the app")])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertNotIn("xp-customer-proxy", result)
+
+    def test_open_questions_nudges_customer_proxy(self):
+        import session_start
+
+        self._write_events(
+            [
+                make_event("goal", content="Build the app"),
+                make_event(
+                    "question", content="Which DB?", priority=_common.PRIORITY_BLOCKING
+                ),
+            ]
+        )
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn("xp-customer-proxy", result)
+
+
 # ===========================================================================
 # post_tool_use.py tests — Milestone 3.3
 # ===========================================================================

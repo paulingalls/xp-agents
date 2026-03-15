@@ -119,6 +119,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if guide:
         parts.append(guide)
 
+    # Customer proxy subagent nudge — check for missing goals or open questions
+    events = _common.read_events_raw(smm_dir)
+    has_goals = any(e.get("type") == _common.GOAL for e in events)
+    has_open_questions = any(
+        e.get("type") == _common.QUESTION
+        and e.get("priority") in (_common.PRIORITY_BLOCKING, _common.PRIORITY_ASSUMED)
+        for e in events
+    )
+    if not has_goals or has_open_questions:
+        parts.append(
+            "\n\nInvoke the xp-customer-proxy subagent to "
+            + ("collect project goals and " if not has_goals else "")
+            + "triage open questions."
+        )
+
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
 
