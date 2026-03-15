@@ -2062,17 +2062,9 @@ class TestThreeSessionAccumulation(_IntegrationTestCase):
         }
         (retro_dir / "2026-03-14T00-00-00.json").write_text(json.dumps(retro_data))
 
-        # Mark retro as done via retrospective event
+        # Mark retro as done + add session 2 work events
         events = self._read_events()
-        retro_event = make_event(
-            "retrospective",
-            content="Retrospective complete",
-        )
-        events.append(retro_event)
-        self._seed_events(events)
-
-        # Add more events for session 2 work
-        events = self._read_events()
+        events.append(make_event("retrospective", content="Retrospective complete"))
         for i in range(6):
             events.append(make_event(content=f"s2-e{i}"))
         self._seed_events(events)
@@ -2174,8 +2166,7 @@ class TestLargeEventLog(_IntegrationTestCase):
 
     def test_materialize_with_1000_events(self):
         """materialize.py renders 1000 events without error."""
-        sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
-        import materialize as mat
+        import materialize as mat  # already on sys.path from module level
 
         self._seed_events([make_event(content=f"event-{i}") for i in range(1000)])
         md = mat.materialize(self.smm_dir)
@@ -2267,6 +2258,17 @@ class TestConcurrentAgentWrites(_IntegrationTestCase):
 class TestWorktreeSharing(_IntegrationTestCase):
     """M7: Main repo + worktree share same SMM directory."""
 
+    def _cleanup_worktree(self, wt_dir: Path, repo_dir: str):
+        """Remove worktree and directory — safe to call even if already gone."""
+        if Path(repo_dir).exists():
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(wt_dir)],
+                cwd=repo_dir,
+                capture_output=True,
+            )
+        if wt_dir.exists():
+            shutil.rmtree(wt_dir)
+
     def test_worktree_shares_project_id(self):
         """Git worktree derives same SMM path as main repo."""
         # Create worktree in a separate temp directory (not inside repo)
@@ -2280,6 +2282,10 @@ class TestWorktreeSharing(_IntegrationTestCase):
         )
         if r_branch.returncode != 0:
             self.skipTest(f"git worktree add failed: {r_branch.stderr}")
+
+        # Ensure cleanup even if assertions fail (pass repo_dir as
+        # string since self.tmpdir may be removed by tearDown first)
+        self.addCleanup(self._cleanup_worktree, wt_dir, str(self.tmpdir))
 
         # Init SMM from both locations
         init_sh = Path(__file__).parent.parent / "smm" / "init.sh"
@@ -2314,15 +2320,6 @@ class TestWorktreeSharing(_IntegrationTestCase):
         # Read from worktree
         content = events_file.read_text()
         self.assertIn("from main repo", content)
-
-        # Cleanup worktree
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", str(wt_dir)],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
-        if wt_dir.exists():
-            shutil.rmtree(wt_dir)
 
 
 # ===========================================================================

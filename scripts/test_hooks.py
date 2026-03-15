@@ -4475,55 +4475,37 @@ class TestPluginIntegrity(unittest.TestCase):
         self.assertIn("version", data)
         self.assertIn("hooks", data)
 
-    def test_all_hook_scripts_exist(self):
-        """Every command script referenced in hooks.json exists on disk."""
+    def _assert_hook_paths_exist(self, hook_type: str, path_key: str):
+        """Verify all hooks of given type reference existing files."""
         hooks_file = self.plugin_root / "hooks" / "hooks.json"
         data = json.loads(hooks_file.read_text())
         for event_name, entries in data["hooks"].items():
             for entry in entries:
                 for hook in entry.get("hooks", []):
-                    if hook.get("type") != "command":
+                    if hook.get("type") != hook_type:
                         continue
-                    cmd = hook["command"]
-                    # Replace ${CLAUDE_PLUGIN_ROOT} with actual path
-                    script_path = cmd.replace(
-                        "${CLAUDE_PLUGIN_ROOT}", str(self.plugin_root)
+                    raw = hook[path_key]
+                    resolved = raw.replace(
+                        "${CLAUDE_PLUGIN_ROOT}",
+                        str(self.plugin_root),
                     )
                     self.assertTrue(
-                        Path(script_path).is_file(),
-                        f"Missing script: {cmd} (event: {event_name})",
+                        Path(resolved).is_file(),
+                        f"Missing {hook_type}: {raw} (event: {event_name})",
                     )
+
+    def test_all_hook_scripts_exist(self):
+        """Every command script referenced in hooks.json exists on disk."""
+        self._assert_hook_paths_exist("command", "command")
 
     def test_all_prompt_hooks_exist(self):
         """Every prompt file referenced in hooks.json exists on disk."""
-        hooks_file = self.plugin_root / "hooks" / "hooks.json"
-        data = json.loads(hooks_file.read_text())
-        for event_name, entries in data["hooks"].items():
-            for entry in entries:
-                for hook in entry.get("hooks", []):
-                    if hook.get("type") != "prompt":
-                        continue
-                    prompt = hook["prompt"]
-                    prompt_path = prompt.replace(
-                        "${CLAUDE_PLUGIN_ROOT}", str(self.plugin_root)
-                    )
-                    self.assertTrue(
-                        Path(prompt_path).is_file(),
-                        f"Missing prompt: {prompt} (event: {event_name})",
-                    )
+        self._assert_hook_paths_exist("prompt", "prompt")
 
     def test_all_agent_files_exist(self):
         """All 6 agent .md files exist in agents/ directory."""
         agents_dir = self.plugin_root / "agents"
-        expected = [
-            "xp-navigator",
-            "xp-quality-reviewer",
-            "xp-retrospective",
-            "xp-customer-proxy",
-            "xp-plan-reviewer",
-            "xp-subagent-reviewer",
-        ]
-        for name in expected:
+        for name in _SUBAGENT_NAMES:
             path = agents_dir / f"{name}.md"
             self.assertTrue(path.is_file(), f"Missing agent: {path}")
 
