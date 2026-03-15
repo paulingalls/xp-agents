@@ -11,16 +11,16 @@ pre-commit:
       glob: "*.sh"
       run: shellcheck {staged_files}
     tests:
-      run: python3 -m unittest smm/test_smm.py
+      run: python3 -m unittest plugins/xp-agents/smm/test_smm.py
     tests-engine:
-      run: python3 -m unittest smm/test_engine.py
+      run: python3 -m unittest plugins/xp-agents/smm/test_engine.py
     tests-hooks:
-      run: python3 -m unittest scripts/test_hooks.py
+      run: python3 -m unittest plugins/xp-agents/scripts/test_hooks.py
     tests-integration:
-      run: python3 -m unittest scripts/test_integration.py
+      run: python3 -m unittest plugins/xp-agents/scripts/test_integration.py
 
 pre-push:
   parallel: true
   commands:
     integration:
-      run: python3 -m unittest scripts/test_integration.py
+      run: python3 -m unittest plugins/xp-agents/scripts/test_integration.py

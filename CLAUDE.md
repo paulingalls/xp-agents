@@ -180,13 +180,14 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 
 ```
 plugins/xp-agents/
-├── .claude-plugin/plugin.json
-├── CLAUDE.md                          ← the plugin's CLAUDE.md (milestone 6), NOT this file
-├── settings.json
-├── skills/{smm-protocol,xp-values,pair-programming}/SKILL.md
+├── .claude-plugin/plugin.json         ← plugin manifest
+├── BEHAVIORAL_GUIDE.md                ← loaded by session_start.py
+├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks
+├── agents/*.md                        ← subagent definitions
 ├── prompts/*.md                       ← agent/prompt hook definitions
+├── skills/{smm-protocol,xp-values,pair-programming}/SKILL.md
 └── smm/{init.sh,append.sh,materialize.py,read_delta.py,schema.json}
 ```
 
@@ -206,13 +207,13 @@ All tests run on every commit via lefthook (`lefthook.yml`). The pre-commit hook
 
 ```bash
 # Run everything (what pre-commit does):
-python3 -m unittest smm/test_smm.py smm/test_engine.py scripts/test_hooks.py scripts/test_integration.py -v
+python3 -m unittest plugins/xp-agents/smm/test_smm.py plugins/xp-agents/smm/test_engine.py plugins/xp-agents/scripts/test_hooks.py plugins/xp-agents/scripts/test_integration.py -v
 
 # Run a single suite:
-python3 -m unittest scripts/test_hooks.py -v
+python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -v
 
 # Run a single test class:
-python3 -m unittest scripts/test_hooks.py -k TestUserPromptLog -v
+python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -k TestUserPromptLog -v
 ```
 
 ### Test suites
