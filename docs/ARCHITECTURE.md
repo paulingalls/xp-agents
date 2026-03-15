@@ -63,7 +63,11 @@ Two tiers: **Active Context** (needs attention now) above **Reference** (informs
 - Assumptions (unverified + contradicted)
 - Technical Debt (with session-based aging: normal → ⚠️ 4-6 sessions → 🔴 7+)
 - Resolved Concerns
+- Drift Signals (superseded decisions, ignored conventions, stale decisions, contradicted assumptions)
+- Velocity Signal (events per session, decision churn detection)
 ```
+
+Drift Signals and Velocity Signal are event-log-only analysis computed during materialization — no codebase I/O. They surface evidence that decisions may not reflect reality and flag decision churn across sessions.
 
 ### Tiered Injection
 
@@ -301,12 +305,44 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 
 ## Future Vision: Autonomous Teams (2.0)
 
-1.0 assumes a human in the loop. 2.0 loosens that assumption.
+**Prerequisite:** 1.0 shipped, dogfooded on a real project for multiple weeks. Friction points identified through retrospectives.
 
-- **Backlog.** `backlog_item` event type with priority, acceptance criteria, dependencies, status. Planning game at SessionStart picks next item.
-- **Burn down.** Materializer renders progress: items completed vs. remaining, velocity, projected completion.
-- **Draft decision lifecycle.** Drafts with no concerns after N sessions get promoted to confirmed. Drafts with concerns get escalated to 🔴 questions. Same aging pattern as debt, applied in reverse.
-- **Requirements as input.** Requirements document decomposed into backlog items at SessionStart. Customer confirms priority once.
-- **Blocks as maturity signal.** When blocks stop firing (tests always pass, agents never overlap, decisions are consistent), that's the readiness signal for 2.0. `strict` and `advisory` produce the same behavior.
+**Goal:** Agent Teams execute a requirements document with minimal human intervention. Human approves goals and priorities once, then reviews outputs — not every decision.
 
-What 1.0 provides that 2.0 needs: goal tracking, decision recording, convention enforcement, debt aging, conflict detection, retrospectives, session stats.
+### Backlog & Planning Game (M9)
+
+- `backlog_item` event type with priority, acceptance criteria, dependencies, status (ready / in-progress / done / blocked)
+- Backlog section in materialized SMM with progress summary
+- Planning game at SessionStart — customer proxy picks next ready item, assigns to agent or teammate
+- Plan reviewer validates plans against backlog — right item, respects dependencies, right-sized
+- Burn down rendering — items completed vs. remaining, velocity per session, projected completion
+
+### Requirements Decomposition (M10)
+
+- SessionStart reads requirements document (markdown or structured) from project
+- Decomposition subagent breaks requirements into backlog items with acceptance criteria and dependencies
+- Customer confirms priority ranking once via AskUserQuestion
+- Backlog items flow into planning game automatically on subsequent sessions
+
+### Autonomous Decision-Making (M11)
+
+- **Draft decision lifecycle.** Drafts with no concerns after N sessions get promoted to confirmed. Drafts with concerns get escalated to 🔴 questions. Same aging pattern as debt, applied in reverse — time without problems builds confidence.
+- **Convention-based gates.** Conventions can require explicit customer approval for specific domains (e.g., "all auth decisions require approval"). Navigator and plan reviewer already enforce conventions — this is configuration, not new code.
+- **Retrospective feedback loop.** Analyst tracks draft decision outcomes. High revision/contradiction rate → Fix item: "too many auto-decisions revised in {domain}, increase customer involvement." Evidence-based calibration.
+- **Promotion thresholds** configurable in `settings.json` — sessions-to-promote, concern-count-to-escalate. Conservative defaults.
+
+### Blocks as Maturity Signal
+
+In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, security review, simplify gate. These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0. `strict` and `advisory` produce the same behavior.
+
+### Open Questions (resolve during 1.0 dogfooding)
+
+- How does the planner distribute backlog items across Agent Team teammates?
+- What's the right default sessions-to-promote for draft decisions?
+- How do dependencies between backlog items interact with multi-agent parallelism?
+- Should the burn down feed into session length / sustainable pace decisions?
+- What granularity of requirements decomposition produces right-sized backlog items?
+
+### What 1.0 Provides That 2.0 Needs
+
+Goal tracking, decision recording, convention enforcement, debt aging, conflict detection, retrospectives, drift signals, velocity signal, session stats. The autonomy layer sits on top — it doesn't replace XP enforcement, it leverages it.
