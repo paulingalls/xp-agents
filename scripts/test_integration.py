@@ -2368,5 +2368,326 @@ class TestEmptyProject(_IntegrationTestCase):
             self.assertIn("xp-navigator", ctx)
 
 
+# ===========================================================================
+# Watermark Isolation (Milestone 8)
+# ===========================================================================
+
+
+class TestWatermarkIsolation(_IntegrationTestCase):
+    """Verify per-agent watermark independence under concurrent access."""
+
+    def test_three_agents_independent_watermarks(self):
+        """3 agents read delta concurrently, each gets independent watermark."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Seed 10 events
+        self._seed_events([make_event(content=f"e{i}") for i in range(10)])
+
+        smm_dir = self.smm_dir
+
+        def read_for_agent(agent_id: str) -> int:
+            """Read delta via subprocess and return event count."""
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(Path(__file__).parent.parent / "smm" / "read_delta.py"),
+                    "--agent-id",
+                    agent_id,
+                    "--tier",
+                    "full",
+                    "--json",
+                    "--smm-dir",
+                    str(smm_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return -1
+            events = json.loads(result.stdout)
+            return len(events)
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = [pool.submit(read_for_agent, f"agent-{i}") for i in range(3)]
+            counts = [f.result() for f in futures]
+
+        # All 3 agents should get all 10 events (first read)
+        for count in counts:
+            self.assertEqual(count, 10)
+
+        # Verify each agent has its own watermark file
+        for i in range(3):
+            wm = smm_dir / f".watermark-agent-{i}"
+            self.assertTrue(wm.exists(), f"Missing watermark for agent-{i}")
+
+    def test_compact_resets_watermarks(self):
+        """After compact, all watermark files are removed."""
+        # Create watermarks
+        (self.smm_dir / ".watermark-alice").write_text("5")
+        (self.smm_dir / ".watermark-bob").write_text("3")
+
+        # Seed some sessions
+        events = []
+        for s in range(3):
+            events.extend(
+                [
+                    make_event(
+                        content=f"s{s}-e{i}", ts=f"2026-03-{s + 1:02d}T00:00:00+00:00"
+                    )
+                    for i in range(3)
+                ]
+            )
+            events.append(
+                make_event(
+                    "session_end",
+                    content=f"end-{s}",
+                    working_on=[],
+                    ts=f"2026-03-{s + 1:02d}T23:59:59+00:00",
+                )
+            )
+        self._seed_events(events)
+
+        # Run compact via subprocess
+        result = subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "compact.py"),
+                "--keep-sessions",
+                "1",
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+
+        # Watermarks should be gone
+        watermarks = list(self.smm_dir.glob(".watermark-*"))
+        self.assertEqual(len(watermarks), 0)
+
+
+# ===========================================================================
+# Compact Integration (Milestone 8)
+# ===========================================================================
+
+
+class TestCompactIntegration(_IntegrationTestCase):
+    """Subprocess-level tests for compact.py."""
+
+    def test_compact_subprocess_run(self):
+        """Run compact as subprocess, verify events compacted."""
+        events = []
+        for s in range(4):
+            events.extend(
+                [make_event(content=f"s{s}", ts=f"2026-03-{s + 1:02d}T00:00:00+00:00")]
+            )
+            events.append(
+                make_event(
+                    "session_end",
+                    content=f"end-{s}",
+                    working_on=[],
+                    ts=f"2026-03-{s + 1:02d}T23:59:59+00:00",
+                )
+            )
+        self._seed_events(events)
+        original_count = len(events)
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "compact.py"),
+                "--keep-sessions",
+                "2",
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("archived", result.stdout)
+
+        # Fewer events after compaction
+        remaining = self._read_events()
+        self.assertLess(len(remaining), original_count)
+
+    def test_compact_then_session_start(self):
+        """After compact, session_start can still read the log."""
+        events = [
+            make_event("goal", content="Ship v1"),
+            make_event("session_end", content="end", working_on=[]),
+        ]
+        self._seed_events(events)
+
+        # Compact
+        subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "compact.py"),
+                "--keep-sessions",
+                "1",
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Session start should still work
+        r = self._run_script(
+            "session_start.py",
+            {
+                "session_id": "post-compact",
+                "source": "compact",
+            },
+        )
+        self.assertEqual(r.returncode, 0)
+        output = json.loads(r.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Shared Mental Model", ctx)
+
+
+# ===========================================================================
+# Repair Integration (Milestone 8)
+# ===========================================================================
+
+
+class TestRepairIntegration(_IntegrationTestCase):
+    """Subprocess-level tests for repair.py."""
+
+    def test_repair_corrupted_file(self):
+        """Repair a file with bad lines, verify clean output."""
+        good = make_event(content="good")
+        lines = [json.dumps(good), "bad json {{", '{"missing": "id"}']
+        (self.smm_dir / "events.jsonl").write_text("\n".join(lines) + "\n")
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "repair.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("malformed", result.stdout)
+
+        # Verify clean log
+        remaining = self._read_events()
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["content"], "good")
+
+    def test_repair_dry_run(self):
+        """Dry run reports problems without modifying file."""
+        lines = [json.dumps(make_event()), "bad"]
+        (self.smm_dir / "events.jsonl").write_text("\n".join(lines) + "\n")
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "repair.py"),
+                "--dry-run",
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("DRY RUN", result.stdout)
+
+        # File unchanged (still has bad line)
+        raw = (self.smm_dir / "events.jsonl").read_text()
+        self.assertIn("bad", raw)
+
+    def test_repair_then_materialize(self):
+        """After repair, materialize works correctly."""
+        good = make_event("goal", content="Ship v1")
+        lines = [json.dumps(good), "corrupt line"]
+        (self.smm_dir / "events.jsonl").write_text("\n".join(lines) + "\n")
+
+        subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "repair.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Materialize should work
+        r = subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "materialize.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0)
+
+
+# ===========================================================================
+# Migrate Integration (Milestone 8)
+# ===========================================================================
+
+
+class TestMigrateIntegration(_IntegrationTestCase):
+    """Subprocess-level tests for migrate.py."""
+
+    def test_migrate_subprocess_run(self):
+        """Run migrate as subprocess."""
+        events = [make_event(ts="2026-03-12T00:00:00")]
+        self._seed_events(events)
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(Path(__file__).parent.parent / "smm" / "migrate.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("migrated", result.stdout)
+
+        # Verify events are v2
+        migrated = self._read_events()
+        self.assertEqual(migrated[0]["schema_version"], 2)
+
+    def test_migrate_idempotent(self):
+        """Running migrate twice produces same result."""
+        events = [make_event(ts="2026-03-12T00:00:00")]
+        self._seed_events(events)
+
+        for _ in range(2):
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(Path(__file__).parent.parent / "smm" / "migrate.py"),
+                    "--smm-dir",
+                    str(self.smm_dir),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0)
+
+        migrated = self._read_events()
+        self.assertEqual(len(migrated), 1)
+        self.assertEqual(migrated[0]["schema_version"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

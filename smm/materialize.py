@@ -265,6 +265,135 @@ def detect_conflicts(events: list[dict], indices: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Drift signal detection
+# ---------------------------------------------------------------------------
+
+STALE_SESSIONS_THRESHOLD = 5
+IGNORED_CONVENTION_THRESHOLD = 3
+
+
+def detect_drift_signals(events: list[dict], indices: dict) -> list[str]:
+    """Detect drift signals from the event log only (no codebase I/O).
+
+    Signal types:
+    - Stale decision: topic with no related events in 5+ sessions
+    - Ignored convention: topic with 3+ unresolved concerns referencing it
+    """
+    signals: list[str] = []
+
+    # Session end positions for staleness detection
+    session_end_positions = indices["session_end_positions"]
+    total_sessions = len(session_end_positions)
+
+    # 1. Stale decisions — topic with no related events in 5+ sessions
+    if total_sessions >= STALE_SESSIONS_THRESHOLD:
+        for topic in sorted(indices["decisions_by_topic"]):
+            decisions = indices["decisions_by_topic"][topic]
+            # Find latest event position for this topic (any type)
+            latest_pos = -1
+            for d in decisions:
+                pos = indices["event_positions"].get(d.get("id", ""), -1)
+                if pos > latest_pos:
+                    latest_pos = pos
+            # Also check conventions on the same topic
+            for c in indices["conventions_by_topic"].get(topic, []):
+                pos = indices["event_positions"].get(c.get("id", ""), -1)
+                if pos > latest_pos:
+                    latest_pos = pos
+
+            if latest_pos < 0:
+                continue
+
+            # Count session_ends after latest activity
+            sessions_since = 0
+            for se_pos, _ in session_end_positions:
+                if se_pos > latest_pos:
+                    sessions_since += 1
+
+            if sessions_since >= STALE_SESSIONS_THRESHOLD:
+                signals.append(
+                    f"⚠️ Stale decision: topic '{topic}' has had no related "
+                    f"events for {sessions_since} sessions"
+                )
+
+    # 2. Ignored conventions — 3+ unresolved concerns referencing convention
+    concern_resolutions = indices["concern_resolutions"]
+    convention_ids_by_topic: dict[str, set[str]] = {}
+    for topic, convs in indices["conventions_by_topic"].items():
+        convention_ids_by_topic[topic] = {c["id"] for c in convs}
+
+    # Count unresolved concerns per convention topic
+    convention_concern_counts: dict[str, int] = defaultdict(int)
+    for concern in indices["by_type"].get("concern", []):
+        if concern["id"] in concern_resolutions:
+            continue  # resolved
+        for ref_id in concern.get("references", []):
+            for topic, conv_ids in convention_ids_by_topic.items():
+                if ref_id in conv_ids:
+                    convention_concern_counts[topic] += 1
+
+    for topic in sorted(convention_concern_counts):
+        count = convention_concern_counts[topic]
+        if count >= IGNORED_CONVENTION_THRESHOLD:
+            signals.append(
+                f"⚠️ Ignored convention: topic '{topic}' has {count} unresolved concerns"
+            )
+
+    return signals
+
+
+# ---------------------------------------------------------------------------
+# Velocity metrics
+# ---------------------------------------------------------------------------
+
+
+def compute_velocity(events: list[dict], indices: dict) -> dict:
+    """Compute velocity metrics from the event log.
+
+    Returns dict with: events_this_session, total_sessions, decisions_made,
+    decisions_revisited, churn_topics, concerns_total, concerns_resolved.
+    """
+    # Events this session (since last session_end)
+    last_se_pos = indices["last_session_end_pos"]
+    events_this_session = (
+        len(events) - last_se_pos - 1 if last_se_pos >= 0 else len(events)
+    )
+
+    # Total sessions
+    total_sessions = len(indices["session_end_positions"])
+
+    # Decisions
+    decisions_made = len(indices["by_type"].get("decision", []))
+    decisions_revisited = sum(
+        1 for decisions in indices["decisions_by_topic"].values() if len(decisions) >= 2
+    )
+
+    # Churn topics (3+ decisions on same topic)
+    churn_topics = sorted(
+        topic
+        for topic, decisions in indices["decisions_by_topic"].items()
+        if len(decisions) >= 3
+    )
+
+    # Concern resolution
+    concerns = indices["by_type"].get("concern", [])
+    concerns_total = len(concerns)
+    concerns_resolved = sum(
+        1 for c in concerns if c["id"] in indices["concern_resolutions"]
+    )
+
+    return {
+        "events_this_session": events_this_session,
+        "total_sessions": total_sessions,
+        "decisions_made": decisions_made,
+        "decisions_revisited": decisions_revisited,
+        "churn_topics": churn_topics,
+        "concerns_total": concerns_total,
+        "concerns_resolved": concerns_resolved,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
@@ -402,6 +531,33 @@ def render_markdown(
                 f"[{short_id(g.get('id', ''))}, for {g.get('agent_id', '')}]"
             )
         active_sections.append("\n".join(lines))
+
+    # A8. Drift Signals
+    drift_signals = detect_drift_signals(events, indices)
+    if drift_signals:
+        lines = ["## Drift Signals"]
+        lines.extend(f"- {s}" for s in drift_signals)
+        active_sections.append("\n".join(lines))
+
+    # A9. Velocity
+    velocity = compute_velocity(events, indices)
+    vel_lines = ["## Velocity"]
+    vel_lines.append(f"- {velocity['events_this_session']} events this session")
+    vel_lines.append(f"- {velocity['total_sessions']} total sessions")
+    vel_lines.append(
+        f"- {velocity['decisions_made']} decisions made, "
+        f"{velocity['decisions_revisited']} revisited"
+    )
+    if velocity["churn_topics"]:
+        topics_str = ", ".join(velocity["churn_topics"])
+        vel_lines.append(f"- **Churn topics**: {topics_str}")
+    if velocity["concerns_total"] > 0:
+        ratio = velocity["concerns_resolved"] / velocity["concerns_total"]
+        vel_lines.append(
+            f"- Concern resolution: {velocity['concerns_resolved']}/"
+            f"{velocity['concerns_total']} ({ratio:.0%})"
+        )
+    active_sections.append("\n".join(vel_lines))
 
     # Emit Active Context
     if active_sections:

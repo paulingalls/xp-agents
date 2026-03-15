@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.9.0 — Milestone 8: Hardening & Optimization
+
+### Added
+- `smm/compact.py` — Log compaction: archives old events, keeps permanent types (decision, convention, goal, debt, assumption, retrospective) + unresolved questions/concerns + last N sessions. Configurable `keep_sessions` (default 3). Archives to `backups/archive-{ts}.jsonl`. Removes all watermarks after compaction. Registered as PostCompact hook
+- `smm/repair.py` — Log recovery: skips malformed JSON, validates required fields, deduplicates by event ID, sorts by timestamp. Backs up original to `backups/pre-repair-{ts}.jsonl`. Writes `.repair-report.json`. Supports `--dry-run`
+- `smm/migrate.py` — Schema versioning framework: additive-only migrations with `CURRENT_VERSION = 2`. v1→v2: normalize timestamps to include timezone. Events with `schema_version > CURRENT` pass through unchanged (forward-compatible)
+- **Drift Signals** (A8) — New Active Context section in materializer. Detects: stale decisions (topic with no activity in 5+ sessions), ignored conventions (3+ unresolved concerns referencing convention). Event-log-only analysis, no codebase I/O
+- **Velocity** (A9) — New Active Context section in materializer. Metrics: events this session, total sessions, decisions made/revisited, churn topics (3+ decisions on same topic), concern resolution ratio
+- Performance benchmarks — `materialize()` <100ms/100 events, <500ms/1000, <2000ms/5000. `read_delta()` <50ms/1000@500. `compact()` <1000ms/5000. `repair()` <1000ms/5000
+- Watermark isolation tests — 3 agents concurrent delta read, each gets independent watermark
+- Integration tests for compact/repair/migrate — subprocess-level: compact then session_start, repair corrupted then materialize, migrate idempotent re-run
+- 66 new tests (802 total: 98 SMM + 188 engine + 415 hooks + 101 integration)
+
+### Changed
+- `smm/schema.json` — `schema_version` now allows values `[1, 2]`
+- `hooks/hooks.json` — Added PostCompact hook for `compact.py` (5s timeout)
+- `smm/materialize.py` — Two new Active Context sections: Drift Signals (A8) and Velocity (A9). Now has `detect_drift_signals()` and `compute_velocity()` functions
+
+### Design decisions
+- **Compact retention: 3 sessions + permanent types** — configurable via `keep_sessions`. Unresolved questions/concerns always retained regardless of age
+- **Repair strategy: skip, don't fix** — malformed lines dropped, not corrected. Dedup + sort. Dry-run for inspection
+- **Schema v2 is minimal** — proves the migration framework works. Real schema evolution (e.g., `backlog_item`) happens in M9+
+- **Drift thresholds hardcoded** — stale=5 sessions, ignored=3 concerns. Can add settings later
+- **Velocity always in Active Context** — actionable signal, not archival. Informs current session behavior
+- **No new event types** — all M8 analysis uses existing event types
+- **compact.py as PostCompact hook** — runs after Claude Code's built-in compaction
+
 ## v0.8.0 — Milestone 7: Integration Testing & Packaging
 
 ### Added
