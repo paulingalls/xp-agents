@@ -3482,6 +3482,51 @@ class TestSimplifyGate(_HookTestCase):
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_only_docs_no_trigger(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="update docs"),
+                make_event("status", content="wrote", working_on=["README.md"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_only_config_no_trigger(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="update config"),
+                make_event("status", content="wrote", working_on=["package.json"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_only_images_no_trigger(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="add logo"),
+                make_event("status", content="wrote", working_on=["logo.png"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_code_plus_docs_triggers(self):
+        self._write_events(
+            [
+                make_event("customer_input", content="build feature"),
+                make_event("status", content="wrote", working_on=["README.md"]),
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
     def test_file_changes_triggers_simplify(self):
         self._write_events(
             [

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Stop command hook: auto-simplify gate.
 
-Blocks stop (exit 2) when files were modified in the current loop and
-/simplify hasn't been run yet. Uses a tracker file keyed on the last
-customer_input event ID to detect new loops.
+Blocks stop when code files were modified in the current loop and
+/simplify hasn't been run yet. Non-code files (docs, images, config)
+are ignored. Uses a tracker file keyed on the last customer_input
+event ID to detect new loops.
 """
 
 import json
@@ -14,6 +15,66 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+
+# ---------------------------------------------------------------------------
+# Non-code file detection
+# ---------------------------------------------------------------------------
+
+# Extensions that /simplify won't find useful
+_NON_CODE_SUFFIXES = frozenset(
+    {
+        # Documentation
+        ".md",
+        ".txt",
+        ".rst",
+        ".adoc",
+        ".tex",
+        # Images
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".webp",
+        # Data / config (not executable)
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".csv",
+        ".plist",
+        ".pbxproj",
+        ".xcworkspacedata",
+        ".xcscheme",
+        # Lock files
+        ".lock",
+        # Misc
+        ".license",
+        ".gitignore",
+        ".gitattributes",
+        ".env",
+        ".env.example",
+        ".dockerignore",
+    }
+)
+
+
+def _is_code_file(path: str) -> bool:
+    """Return True if the file is likely code that /simplify should review."""
+    suffix = Path(path).suffix.lower()
+    if suffix in _NON_CODE_SUFFIXES:
+        return False
+    name = Path(path).name.lower()
+    return name not in {
+        "license",
+        "changelog",
+        "readme",
+        "makefile",
+        "dockerfile",
+    }
+
 
 # ---------------------------------------------------------------------------
 # Loop boundary detection
@@ -28,12 +89,14 @@ def _find_last_customer_input(events: list[dict]) -> tuple[int, dict] | None:
     return None
 
 
-def _has_file_changes_since(events: list[dict], start_idx: int) -> bool:
-    """Check for status events with non-empty working_on after start_idx."""
+def _has_code_changes_since(events: list[dict], start_idx: int) -> bool:
+    """Check for status events with code files in working_on after start_idx."""
     for e in events[start_idx + 1 :]:
         if e.get("type") == _common.STATUS:
             working_on = e.get("working_on", [])
-            if isinstance(working_on, list) and working_on:
+            if isinstance(working_on, list) and any(
+                _is_code_file(f) for f in working_on if isinstance(f, str)
+            ):
                 return True
     return False
 
@@ -86,7 +149,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     start_idx, ci_event = boundary
-    if not _has_file_changes_since(events, start_idx):
+    if not _has_code_changes_since(events, start_idx):
         return None
 
     # Check tracker — same loop_id means simplify already ran
