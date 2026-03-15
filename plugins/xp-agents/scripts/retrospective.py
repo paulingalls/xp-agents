@@ -155,8 +155,10 @@ def _build_context_summary(
             parts.append(f"Key stats: {', '.join(stat_items)}.")
     parts.append("Read .retro-input.json from the SMM directory for full data.")
     parts.append(
-        "Invoke the xp-retrospective subagent now to perform "
-        "Keep/Fix/Try analysis on the unanalyzed events."
+        "\n\n---\n"
+        "**ACTION REQUIRED:** Invoke the xp-retrospective subagent NOW "
+        "to perform Keep/Fix/Try analysis before starting any new work. "
+        "Retrospectives surface cross-session learning and unresolved issues."
     )
     return " ".join(parts)
 
