@@ -1878,5 +1878,145 @@ class TestMilestone65Integration(_IntegrationTestCase):
             self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
 
 
+# ===========================================================================
+# M7: Full Session Lifecycle
+# ===========================================================================
+
+
+class TestFullSessionLifecycle(_IntegrationTestCase):
+    """M7: Chain session_start → pre_tool_use → post_tool_use → session_end."""
+
+    def test_full_lifecycle_first_run(self):
+        """Empty SMM → full lifecycle produces correct event chain."""
+        # 1. Session start (first run — empty SMM)
+        r1 = self._run_script(
+            "session_start.py",
+            {"session_id": "m7-lifecycle", "source": "startup"},
+        )
+        self.assertEqual(r1.returncode, 0)
+        output = json.loads(r1.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        # Should have behavioral guide + GUPP + skills
+        self.assertIn("Resume immediately", ctx)
+        self.assertIn("smm-protocol", ctx)
+        # Customer proxy nudge for missing goals
+        self.assertIn("xp-customer-proxy", ctx)
+
+        # 2. Pre tool use (Write) — navigator nudge
+        r2 = self._run_script(
+            "pre_tool_use.py",
+            {
+                "session_id": "m7-lifecycle",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/feature.ts"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(r2.returncode, 0)
+        output2 = json.loads(r2.stdout)
+        ctx2 = output2["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-navigator", ctx2)
+
+        # 3. Post tool use (Write) — status event + quality nudge
+        r3 = self._run_script(
+            "post_tool_use.py",
+            {
+                "session_id": "m7-lifecycle",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/feature.ts", "content": "code"},
+                "tool_response": {"success": True},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(r3.returncode, 0)
+        output3 = json.loads(r3.stdout)
+        ctx3 = output3["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-quality-reviewer", ctx3)
+
+        # 4. Session end
+        r4 = self._run_script(
+            "session_end.py",
+            {"session_id": "m7-lifecycle", "reason": "task_complete"},
+        )
+        self.assertEqual(r4.returncode, 0)
+
+        # Verify accumulated events
+        events = self._read_events()
+        types = [e["type"] for e in events]
+        self.assertIn("status", types)
+        self.assertIn("session_end", types)
+
+        # session_end should capture working_on from the status event
+        se = next(e for e in events if e["type"] == "session_end")
+        self.assertTrue(
+            any("src/feature.ts" in w for w in se["working_on"]),
+            f"working_on should include feature.ts: {se['working_on']}",
+        )
+        self.assertIn("task_complete", se["content"])
+        self.assertEqual(se["event_count"], len(events) - 1)  # excludes itself
+
+
+# ===========================================================================
+# M7: Plan Review Full Flow
+# ===========================================================================
+
+
+class TestPlanReviewFlow(_IntegrationTestCase):
+    """M7: Plan subagent → block, regular subagent → nudge."""
+
+    def test_plan_subagent_blocks_with_reviewer(self):
+        """Plan agent_type → exit 2 with xp-plan-reviewer instruction."""
+        # Seed decisions so plan review has context
+        self._seed_events(
+            [
+                make_event(
+                    "decision",
+                    content="Use REST API",
+                    topic="api",
+                    metadata={"draft": False},
+                ),
+                make_event(
+                    "convention",
+                    content="TDD for all features",
+                    topic="testing",
+                ),
+            ]
+        )
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "m7-plan",
+                "agent_id": "plan-1",
+                "agent_type": "Plan",
+                "last_assistant_message": "1. Add endpoint\n2. Write tests",
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("xp-plan-reviewer", result.stderr)
+
+    def test_regular_subagent_nudges_reviewer(self):
+        """Non-Plan subagent → exit 0 with xp-subagent-reviewer nudge."""
+        result = self._run_script(
+            "subagent_stop.py",
+            {
+                "session_id": "m7-plan",
+                "agent_id": "task-2",
+                "last_assistant_message": "Completed the refactoring",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-subagent-reviewer", ctx)
+
+        # Should also have recorded a status event
+        events = self._read_events()
+        statuses = [e for e in events if e["type"] == "status"]
+        self.assertTrue(len(statuses) >= 1)
+        self.assertIn("task-2", statuses[0]["content"])
+
+
 if __name__ == "__main__":
     unittest.main()
