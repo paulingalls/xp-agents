@@ -292,6 +292,12 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 - Every teammate's decisions are visible to all others
 - Retrospective analyzes the whole team's session
 
+## Enforcement vs. Agent Compliance
+
+**Fully enforced (no agent compliance needed):** SMM injection, status/working_on tracking, conflict detection, customer input logging, session bookkeeping, TDD stop gate, lint, security review push gate, simplify gate, plan review block.
+
+**Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents (navigator, quality reviewer, retrospective, customer proxy).
+
 ## Design Principles
 
 1. Hooks enforce, subagents advise
