@@ -49,8 +49,8 @@ def _detect_security_review(message: str) -> bool:
     return score >= _SECURITY_REVIEW_THRESHOLD
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Core SubagentStop logic."""
+def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+    """Core SubagentStop logic. Returns context or raises BlockedError."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -86,10 +86,30 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if isinstance(last_message, str) and _detect_security_review(last_message):
         _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
-    return None
+    # Plan reviewer block — highest-leverage review, must not be skipped
+    agent_type = input_data.get("agent_type", "")
+    if agent_type == "Plan":
+        raise _common.BlockedError(
+            "Plan review required. Invoke the xp-plan-reviewer subagent "
+            "to review this plan before proceeding."
+        )
+
+    # Subagent reviewer nudge for non-xp subagents
+    return (
+        "Invoke the xp-subagent-reviewer subagent in the background "
+        "to review this subagent's output."
+    )
 
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    run(input_data)
+
+    try:
+        result = run(input_data)
+    except _common.BlockedError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(2)
+
+    if result:
+        _common.hook_output("SubagentStop", result)
     sys.exit(0)

@@ -710,7 +710,11 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
+        # Now produces hookSpecificOutput with reviewer nudge
+        if result.stdout.strip():
+            output = json.loads(result.stdout)
+            ctx = output["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("xp-subagent-reviewer", ctx)
 
         events = self._read_events()
         statuses = [e for e in events if e.get("type") == "status"]

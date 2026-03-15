@@ -2955,6 +2955,68 @@ class TestSubagentStop(_HookTestCase):
         self.assertEqual(len(concerns), 0)
 
 
+class TestSubagentStopPlanBlock(_HookTestCase):
+    """M6.5: subagent_stop.py should block for Plan subagents."""
+
+    def test_plan_agent_type_blocks(self):
+        with self.assertRaises(_common.BlockedError) as cm:
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "plan-1",
+                    "agent_type": "Plan",
+                    "last_assistant_message": "1. Write tests\n2. Implement",
+                },
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("xp-plan-reviewer", str(cm.exception))
+
+    def test_plan_block_still_records_status(self):
+        """Status event should be written even when blocking."""
+        with contextlib.suppress(_common.BlockedError):
+            subagent_stop.run(
+                {
+                    "session_id": "t",
+                    "agent_id": "plan-1",
+                    "agent_type": "Plan",
+                    "last_assistant_message": "1. Do stuff",
+                },
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+
+
+class TestSubagentStopReviewerNudge(_HookTestCase):
+    """M6.5: subagent_stop.py should nudge xp-subagent-reviewer for non-xp subagents."""
+
+    def test_regular_subagent_gets_reviewer_nudge(self):
+        result = subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-subagent-reviewer", result)
+        self.assertIn("background", result.lower())
+
+    def test_xp_agent_no_reviewer_nudge(self):
+        result = subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "agent_type": "xp-navigator",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
 # ===========================================================================
 # detect_conflicts in _common.py — Milestone 3.4 extraction
 # ===========================================================================
