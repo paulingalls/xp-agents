@@ -2018,5 +2018,132 @@ class TestPlanReviewFlow(_IntegrationTestCase):
         self.assertIn("task-2", statuses[0]["content"])
 
 
+# ===========================================================================
+# M7: 3-Session Accumulation
+# ===========================================================================
+
+
+class TestThreeSessionAccumulation(_IntegrationTestCase):
+    """M7: Retro data accumulates across sessions."""
+
+    def test_cross_session_retro_trends(self):
+        """Session 1 → end, Session 2 → retro, Session 3 → retro sees history."""
+        # --- Session 1: seed events, run session_end ---
+        self._seed_events([make_event(content=f"s1-e{i}") for i in range(6)])
+        self._run_script(
+            "session_end.py",
+            {"session_id": "s1", "reason": "done"},
+        )
+
+        # --- Session 2: retrospective sees 7 unanalyzed events ---
+        r2 = self._run_script(
+            "retrospective.py",
+            {"session_id": "s2", "source": "startup"},
+        )
+        self.assertEqual(r2.returncode, 0)
+        retro_input_path = self.smm_dir / ".retro-input.json"
+        self.assertTrue(retro_input_path.exists())
+        with open(retro_input_path) as f:
+            data = json.load(f)
+        self.assertGreaterEqual(data["unanalyzed_count"], 6)
+        ctx2 = json.loads(r2.stdout)
+        self.assertIn(
+            "xp-retrospective",
+            ctx2["hookSpecificOutput"]["additionalContext"],
+        )
+
+        # Simulate retro agent writing a retrospective file
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_dir.mkdir(exist_ok=True)
+        retro_data = {
+            "keep": [{"content": "Good TDD practice"}],
+            "fix": [{"content": "Slow CI"}],
+            "try": [{"content": "Pair more"}],
+        }
+        (retro_dir / "2026-03-14T00-00-00.json").write_text(json.dumps(retro_data))
+
+        # Mark retro as done via retrospective event
+        events = self._read_events()
+        retro_event = make_event(
+            "retrospective",
+            content="Retrospective complete",
+        )
+        events.append(retro_event)
+        self._seed_events(events)
+
+        # Add more events for session 2 work
+        events = self._read_events()
+        for i in range(6):
+            events.append(make_event(content=f"s2-e{i}"))
+        self._seed_events(events)
+
+        # Run session_end for session 2
+        self._run_script(
+            "session_end.py",
+            {"session_id": "s2", "reason": "done"},
+        )
+
+        # --- Session 3: retro sees previous retro in history ---
+        r3 = self._run_script(
+            "retrospective.py",
+            {"session_id": "s3", "source": "startup"},
+        )
+        self.assertEqual(r3.returncode, 0)
+        self.assertTrue(retro_input_path.exists())
+        with open(retro_input_path) as f:
+            data3 = json.load(f)
+        self.assertEqual(len(data3["previous_retros"]), 1)
+        self.assertEqual(
+            data3["previous_retros"][0]["keep"][0]["content"],
+            "Good TDD practice",
+        )
+
+
+# ===========================================================================
+# M7: Compaction → Re-injection
+# ===========================================================================
+
+
+class TestCompactionReinjection(_IntegrationTestCase):
+    """M7: After compaction, session_start re-injects full SMM."""
+
+    def test_compact_reinjects_smm(self):
+        """Seed → materialize → backup → truncate → session_start."""
+        # 1. Seed events and materialize
+        self._seed_events(
+            [
+                make_event(
+                    "decision",
+                    content="Use PostgreSQL",
+                    topic="database",
+                ),
+                make_event("status", content="Working on DB"),
+            ]
+        )
+
+        # 2. Run pre_compact to create backup
+        self._run_script(
+            "pre_compact.py",
+            {"session_id": "compact-test"},
+        )
+        backups_dir = self.smm_dir / "backups"
+        self.assertTrue(backups_dir.exists())
+
+        # 3. Truncate events.jsonl (simulate compaction)
+        (self.smm_dir / "events.jsonl").write_text("")
+
+        # 4. Session start with compact source re-injects
+        r = self._run_script(
+            "session_start.py",
+            {"session_id": "compact-test", "source": "compact"},
+        )
+        self.assertEqual(r.returncode, 0)
+        output = json.loads(r.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        # Should have SMM context (materialized from empty log)
+        self.assertIn("Resume immediately", ctx)
+        self.assertIn("smm-protocol", ctx)
+
+
 if __name__ == "__main__":
     unittest.main()
