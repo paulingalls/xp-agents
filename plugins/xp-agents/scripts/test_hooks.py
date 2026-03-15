@@ -4487,10 +4487,13 @@ class TestPluginIntegrity(unittest.TestCase):
                     if hook.get("type") != hook_type:
                         continue
                     raw = hook[path_key]
-                    resolved = raw.replace(
-                        "${CLAUDE_PLUGIN_ROOT}",
-                        str(self.plugin_root),
-                    )
+                    # Strip interpreter prefix (e.g. "python3 ")
+                    marker = "${CLAUDE_PLUGIN_ROOT}"
+                    if marker in raw:
+                        path_part = raw.split(marker)[-1]
+                        resolved = str(self.plugin_root) + path_part
+                    else:
+                        resolved = raw
                     self.assertTrue(
                         Path(resolved).is_file(),
                         f"Missing {hook_type}: {raw} (event: {event_name})",
