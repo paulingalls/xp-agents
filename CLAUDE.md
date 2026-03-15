@@ -4,7 +4,7 @@
 
 A Claude Code plugin that enforces XP practices via hooks. Broadcast event log (Shared Mental Model) replaces point-to-point mailboxes. All XP agents are implemented as hook handlers.
 
-Read `ARCHITECTURE.md` before starting any milestone. It is the source of truth for design decisions, hook map, event types, and platform constraints.
+Read `docs/ARCHITECTURE.md` before starting any milestone. It is the source of truth for design decisions, hook map, event types, and platform constraints.
 
 ## Official Claude Code Docs (check for latest API)
 
@@ -20,7 +20,7 @@ Always verify hook I/O formats against the hooks reference before implementing n
 
 ## Build Order
 
-Follow `MILESTONES.md` sequentially. Each milestone's acceptance criteria must pass before moving to the next. The milestones are: SMM Foundation → SMM Engine → Core Hooks (4 sub-milestones) → Agent Hooks Quality/Navigation → Agent Hooks Session Lifecycle → CLAUDE.md & Skills → Integration Testing → Hardening.
+Follow `docs/MILESTONES.md` sequentially. Each milestone's acceptance criteria must pass before moving to the next. The milestones are: SMM Foundation → SMM Engine → Core Hooks (4 sub-milestones) → Agent Hooks Quality/Navigation → Agent Hooks Session Lifecycle → CLAUDE.md & Skills → Integration Testing → Hardening.
 
 ## Coding Standards
 
@@ -245,8 +245,8 @@ python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -k TestUserPromptLog
 - SMM at `~/.claude/xp-agents/{project-id}/smm/` (user level, shared across worktrees)
 - Install at user scope (`--scope user`)
 - PreToolUse delivers context, PostToolUse records to event log
-- Navigator is required (PreToolUse agent hook), not opt-in
-- Quality reviewer is PostToolUse async agent hook (combined courage + simplicity)
+- Navigator is required (PreToolUse plugin subagent), not opt-in
+- Quality reviewer is PostToolUse async plugin subagent (combined courage + simplicity)
 - Retrospective runs at session start, not session end
 - Keep/Fix/Try framework with XP values as analytical lenses
 - `customer_input` events from UserPromptSubmit

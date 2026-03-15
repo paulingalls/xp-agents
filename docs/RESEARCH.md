@@ -52,13 +52,13 @@ Both implement file reservation — agents declare intent before modifying files
 
 *Our approach*: Lighter — `status` events include a `working_on` field for intent signaling without full locking.
 
-*→ Reflected in: Milestone 1 (schema), Milestone 5 (skills), Milestone 8 (CLAUDE.md)*
+*→ Reflected in: Milestone 1 (schema), Milestone 5 (skills), Milestone 6 (BEHAVIORAL_GUIDE.md)*
 
 **3. GUPP: Physics over politeness** (from Gas Town)
 
 Yegge's most powerful insight: agents that restart should immediately check for pending work and resume, without waiting for permission. *"If there is work on your hook, YOU MUST RUN IT."* The biggest failure isn't wrong work — it's idle agents too polite to start.
 
-*→ Reflected in: Milestone 3 (SessionStart hook), Milestone 5 (skills), Milestone 8 (CLAUDE.md GUPP Rule)*
+*→ Reflected in: Milestone 3 (SessionStart hook), Milestone 5 (skills), Milestone 6 (BEHAVIORAL_GUIDE.md GUPP Rule)*
 
 **4. Crash recovery through persistent state** (from Gas Town & Beads)
 
@@ -82,13 +82,13 @@ Swarm Tools records outcomes for every task — duration, errors, files touched 
 
 *Our approach*: All events include an optional `metadata` object for future analytics without schema migration. `schema_version` field enables evolution.
 
-*→ Reflected in: Milestone 1 (schema extensible `metadata` + `schema_version`), Milestone 10 (migration utility)*
+*→ Reflected in: Milestone 1 (schema extensible `metadata` + `schema_version`), Milestone 8 (migration utility)*
 
 **7. Marketplace plugin structure** (from The Ring & Swarm Tools)
 
 Both distribute as Claude Code plugin marketplaces. The Ring manages 6 plugins with versioning. Validates our marketplace-first decision.
 
-*→ Reflected in: Distribution section, Milestone 9*
+*→ Reflected in: Milestone 7 (marketplace packaging)*
 
 ### What We Avoid
 
@@ -102,7 +102,7 @@ Both distribute as Claude Code plugin marketplaces. The Ring manages 6 plugins w
 
 **5. The "Dementia Problem."** Yegge's vivid insight: agents create recursive plans they forget about. *"By phase 3, the AI has mostly forgotten where it came from. It declares, 'Oh wow, this is a big project, I'm going to break it into five phases.'"* Our `decision` and `convention` events survive compaction and prevent this.
 
-**6. Over-engineering review.** The Ring has 7 parallel reviewers and 83 skills. Our 4 focused subagents with XP values cover more ground — the courage-reviewer can say *anything* that needs saying, not siloed into a narrow category. And anyone can extend the team by copying `agents/_template.md` and adding SMM interactions — turning any subagent into a full team member.
+**6. Over-engineering review.** The Ring has 7 parallel reviewers and 83 skills. Our 4 focused subagents with XP values cover more ground — the courage-reviewer can say *anything* that needs saying, not siloed into a narrow category. And anyone can extend the team by adding a new subagent to `agents/` with SMM interactions — turning any subagent into a full team member.
 
 ---
 

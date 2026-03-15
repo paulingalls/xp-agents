@@ -1,78 +1,78 @@
 # Development Milestones
 
-## Milestone 1: SMM Foundation
+## Milestone 1: SMM Foundation ✅
 
 **Goal**: Data layer.
 
 **Deliverables**:
-- [ ] `smm/schema.json` — 11 event types: `customer_input`, `status`, `decision`, `convention`, `concern`, `discovery`, `question`, `assumption`, `pair_guidance`, `session_end`, `retrospective`. `status` has `working_on`. `question` has `priority` (🔴/🟡/🟢). All events have optional `metadata`, `schema_version`, `references`.
-- [ ] `smm/init.sh` — Initialize `~/.claude/xp-agents/{project-id}/smm/`. Derives `project-id` from `git rev-parse --git-common-dir`. Idempotent. Validates Python 3.10+. Creates `events.jsonl`, `events.lock`, `retrospectives/`. Crash-safe. Uses `${CLAUDE_PLUGIN_ROOT}`.
-- [ ] `smm/append.sh` — Atomic append. JSON construction, schema validation, `flock` writes. Generates `id` and `ts`. Exits 1 on validation failure.
-- [ ] `LICENSE` (MIT), `CHANGELOG.md`
+- [x] `smm/schema.json` — 11 event types: `customer_input`, `status`, `decision`, `convention`, `concern`, `discovery`, `question`, `assumption`, `pair_guidance`, `session_end`, `retrospective`. `status` has `working_on`. `question` has `priority` (🔴/🟡/🟢). All events have optional `metadata`, `schema_version`, `references`.
+- [x] `smm/init.sh` — Initialize `~/.claude/xp-agents/{project-id}/smm/`. Derives `project-id` from `git rev-parse --git-common-dir`. Idempotent. Validates Python 3.10+. Creates `events.jsonl`, `events.lock`, `retrospectives/`. Crash-safe. Uses `${CLAUDE_PLUGIN_ROOT}`.
+- [x] `smm/append.sh` — Atomic append. JSON construction, schema validation, `flock` writes. Generates `id` and `ts`. Exits 1 on validation failure.
+- [x] `LICENSE` (MIT), `CHANGELOG.md`
 
 **Acceptance Criteria**:
-- Schema covers all 11 types with correct fields
-- `init.sh` derives consistent project-id across worktrees
-- `init.sh` idempotent; recovers from partial completion
-- `append.sh` validates, rejects malformed, handles 20 concurrent writes
-- Python stdlib only, use match/case where appropriate, macOS + Linux
+- ✅ Schema covers all 11 types with correct fields
+- ✅ `init.sh` derives consistent project-id across worktrees
+- ✅ `init.sh` idempotent; recovers from partial completion
+- ✅ `append.sh` validates, rejects malformed, handles 20 concurrent writes
+- ✅ Python stdlib only, use match/case where appropriate, macOS + Linux
 
 ---
 
-## Milestone 2: SMM Engine
+## Milestone 2: SMM Engine ✅
 
 **Goal**: Read side.
 
 **Deliverables**:
-- [ ] `smm/materialize.py` — events.jsonl → SHARED_MENTAL_MODEL.md. Groups by type. Detects structural conflicts. Atomic write (tempfile + rename). Skips malformed lines (emits concern). Unknown types rendered under "Unknown Events".
-- [ ] `smm/read_delta.py` — Events since `.watermark-{agent-id}`. Tiered filtering: full, blocking-only (🔴 + pair_guidance), 🔴-only. Accepts `agent_id` param (default `main`). Updates watermark after read.
+- [x] `smm/materialize.py` — events.jsonl → SHARED_MENTAL_MODEL.md. Groups by type. Detects structural conflicts. Atomic write (tempfile + rename). Skips malformed lines (emits concern). Unknown types rendered under "Unknown Events".
+- [x] `smm/read_delta.py` — Events since `.watermark-{agent-id}`. Tiered filtering: full, blocking-only (🔴 + pair_guidance), 🔴-only. Accepts `agent_id` param (default `main`). Updates watermark after read.
 
 **Acceptance Criteria**:
-- Correct Markdown from sample logs covering all 11 types
-- Conflict alerts for overlapping working_on, assumption-discovery contradictions, convention violations
-- Per-agent watermarks, tiered filtering
-- Handles empty, single-event, and corrupted logs
-- Kill mid-write → old or new version, never half-written
+- ✅ Correct Markdown from sample logs covering all 11 types
+- ✅ Conflict alerts for overlapping working_on, assumption-discovery contradictions, convention violations
+- ✅ Per-agent watermarks, tiered filtering
+- ✅ Handles empty, single-event, and corrupted logs
+- ✅ Kill mid-write → old or new version, never half-written
 
 ---
 
-## Milestone 3.1: Core Hooks — Session Lifecycle
+## Milestone 3.1: Core Hooks — Session Lifecycle ✅
 
 **Goal**: Plugin skeleton. After this, the plugin loads, sessions are tracked, SMM injects.
 
 **Deliverables**:
-- [ ] `hooks/hooks.json` — All hook registrations. Correct matchers, timeouts, handler types. Paths use `${CLAUDE_PLUGIN_ROOT}`.
-- [ ] `.claude-plugin/plugin.json` — Plugin manifest.
-- [ ] `settings.json` — Default plugin settings.
-- [ ] `scripts/session_start.py` — SessionStart (startup, resume, compact). Calls `init.sh`. Checks for unanalyzed events. Two modes: unanalyzed events → prepare retro input + instruction for retrospective agent hook + GUPP + skills. No events → full SMM directly + GUPP + skills. Output via `additionalContext`.
-- [ ] `scripts/session_end.py` — SessionEnd. Computes duration, event count, unresolved items, active working_on, missing final status flag. Appends `session_end` event. Non-blocking.
-- [ ] `scripts/pre_compact.py` — PreCompact. Timestamped backup of events.jsonl and SHARED_MENTAL_MODEL.md.
-- [ ] `scripts/subagent_start.py` — SubagentStart. Runs materializer, injects full SMM via `additionalContext`. Creates `.watermark-{agent_id}`.
+- [x] `hooks/hooks.json` — All hook registrations. Correct matchers, timeouts, handler types. Paths use `${CLAUDE_PLUGIN_ROOT}`.
+- [x] `.claude-plugin/plugin.json` — Plugin manifest.
+- [x] `settings.json` — Default plugin settings.
+- [x] `scripts/session_start.py` — SessionStart (startup, resume, compact). Calls `init.sh`. Checks for unanalyzed events. Two modes: unanalyzed events → prepare retro input + instruction for retrospective agent hook + GUPP + skills. No events → full SMM directly + GUPP + skills. Output via `additionalContext`.
+- [x] `scripts/session_end.py` — SessionEnd. Computes duration, event count, unresolved items, active working_on, missing final status flag. Appends `session_end` event. Non-blocking.
+- [x] `scripts/pre_compact.py` — PreCompact. Timestamped backup of events.jsonl and SHARED_MENTAL_MODEL.md.
+- [x] `scripts/subagent_start.py` — SubagentStart. Runs materializer, injects full SMM via `additionalContext`. Creates `.watermark-{agent_id}`.
 
 **Acceptance Criteria**:
-- Plugin loads without errors
-- SessionStart initializes SMM on first run, re-injects after compaction
-- SessionStart detects unanalyzed events and signals for retrospective
-- SessionEnd captures all summary fields
-- SubagentStart injects SMM and creates watermark
-- All hooks pass through gracefully when SMM missing
-- All hooks check agent_id/agent_type, skip `xp-` prefixed agents
+- ✅ Plugin loads without errors
+- ✅ SessionStart initializes SMM on first run, re-injects after compaction
+- ✅ SessionStart detects unanalyzed events and signals for retrospective
+- ✅ SessionEnd captures all summary fields
+- ✅ SubagentStart injects SMM and creates watermark
+- ✅ All hooks pass through gracefully when SMM missing
+- ✅ All hooks check agent_id/agent_type, skip `xp-` prefixed agents
 
 ---
 
-## Milestone 3.2: Core Hooks — PreToolUse
+## Milestone 3.2: Core Hooks — PreToolUse ✅
 
 **Goal**: Delta injection, conflict prevention, TDD ordering.
 
 **Deliverables**:
-- [ ] `scripts/pre_tool_use.py` — PreToolUse (matcher: `*`). Reads `agent_id` (fallback `main`). Tiered delta injection via `additionalContext`: full delta for Write/Edit/MultiEdit/Bash(git commit), 🔴+pair_guidance for other Bash, 🔴-only for Read/Grep/Glob. Checks `working_on` overlap → exit 2 if conflict. TDD order tracking: records file write order, flags implementation-before-test.
+- [x] `scripts/pre_tool_use.py` — PreToolUse (matcher: `*`). Reads `agent_id` (fallback `main`). Tiered delta injection via `additionalContext`: full delta for Write/Edit/MultiEdit/Bash(git commit), 🔴+pair_guidance for other Bash, 🔴-only for Read/Grep/Glob. Checks `working_on` overlap → exit 2 if conflict. TDD order tracking: records file write order, flags implementation-before-test.
 
 **Acceptance Criteria**:
-- Correct tier of delta based on tool_name
-- Per-agent watermarks via agent_id
-- Blocks on working_on overlap (exit 2 with explanation)
-- Flags implementation-before-test ordering via additionalContext
-- Fast — minimal overhead on every tool call
+- ✅ Correct tier of delta based on tool_name
+- ✅ Per-agent watermarks via agent_id
+- ✅ Blocks on working_on overlap (exit 2 with explanation)
+- ✅ Flags implementation-before-test ordering via additionalContext
+- ✅ Fast — minimal overhead on every tool call
 
 ---
 
