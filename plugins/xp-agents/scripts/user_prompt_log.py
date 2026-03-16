@@ -50,17 +50,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if isinstance(prompt, str) and _SECURITY_REVIEW_PATTERN.search(prompt):
         _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
-    # Goal collection nudge — fires on every prompt until goals exist.
-    # UserPromptSubmit additionalContext has high salience because it's
-    # injected right alongside the user's prompt, not at session start.
+    # Goal collection — block first prompt of a goalless session.
+    # Only block once (tracker file prevents infinite loop), then nudge.
     events = _common.read_events_raw(smm_dir)
     has_goals = any(e.get("type") == _common.GOAL for e in events)
     if not has_goals:
+        tracker = smm_dir / ".goal-nudge-sent"
+        if not tracker.exists():
+            tracker.write_text("")
+            return "block_goals"
         return (
-            "IMPORTANT: No project goals recorded yet. Before responding "
-            "to this prompt, first invoke the xp-customer-proxy subagent "
-            "to ask the user what the project goals are. Then proceed "
-            "with their request."
+            "REMINDER: No project goals recorded yet. Invoke the "
+            "xp-customer-proxy subagent to collect goals."
         )
 
     return None
@@ -69,6 +70,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
-    if result:
+    if result == "block_goals":
+        import json
+
+        print(
+            json.dumps(
+                {
+                    "decision": "block",
+                    "reason": (
+                        "No project goals recorded. Invoke the "
+                        "xp-customer-proxy subagent to ask the user "
+                        "about project goals before proceeding."
+                    ),
+                }
+            )
+        )
+    elif result:
         _common.hook_output("UserPromptSubmit", result)
     sys.exit(0)

@@ -652,12 +652,11 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
             "user_prompt_log.py", {"session_id": "int-test", "prompt": "hello world"}
         )
         self.assertEqual(result.returncode, 0)
-        # No goals → nudge output expected
+        # No goals → block or nudge output expected
         if result.stdout.strip():
             output = json.loads(result.stdout)
-            self.assertIn(
-                "goals", output["hookSpecificOutput"]["additionalContext"].lower()
-            )
+            # First prompt blocks, subsequent nudge via additionalContext
+            self.assertIn("goals", json.dumps(output).lower())
 
         events = self._read_events()
         ci = [e for e in events if e.get("type") == "customer_input"]
