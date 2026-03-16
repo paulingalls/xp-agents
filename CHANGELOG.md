@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.20 — Security Review Hook, TDD unittest Detection
+
+### Fixed
+- **Push gate proper fix** — replaced second-push bypass with PostToolUse:Skill hook (`security_review_done.py`) that writes the `.security-reviewed-{hash}` tracker only when `/security-review` actually completes
+- **TDD stop gate blind to unittest** — `bash_post_tool.py` only detected pytest/jest/go test. Added `python3 -m unittest` detection and result parsing so the TDD stop gate has data to work with
+
+### Added
+- `scripts/security_review_done.py` — PostToolUse:Skill hook that writes security tracker after `/security-review` completes
+- PostToolUse:Skill hook entry in `hooks.json`
+- unittest result parser in `bash_post_tool.py` (handles `Ran N tests`/`FAILED (failures=X, errors=Y)`)
+- Integration test for unittest detection pipeline
+
+### Discovered
+- **bash_failure.py false positive** — lefthook ruff formatting failures get misclassified as "Test run failed (pytest)" because the full lefthook output contains test-like patterns. The TDD stop gate then blocks on a non-test failure. Needs investigation.
+
 ## v0.9.19 — Preload Fix, Navigator Gate, Push Gate Fix
 
 ### Fixed
