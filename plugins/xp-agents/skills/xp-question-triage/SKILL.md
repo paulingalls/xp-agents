@@ -7,11 +7,9 @@ allowed-tools:
   - Bash(*/append.sh *)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/check_questions.sh`
-
 # Question Triage & Intent Reconciliation
 
-The current state above was preloaded automatically.
+Check the Shared Mental Model context (already in this conversation from SessionStart) for **Questions** and **Customer Intent** sections.
 
 ## Question Triage
 

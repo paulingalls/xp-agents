@@ -7,9 +7,19 @@ description: >-
 context: fork
 agent: xp-agents:xp-navigator
 allowed-tools:
+  - Read
   - Bash(*/append.sh *)
+  - Bash(*/init.sh)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+## Data Loading
 
-Review the code change in progress using the SMM state above. Provide strategic pair programming guidance — check alignment with decisions, conventions, XP values, and technical debt.
+First, resolve the SMM path and read the current state:
+```bash
+SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
+```
+Then use Read to load `$SMM_DIR/SHARED_MENTAL_MODEL.md`.
+
+## Task
+
+Review the code change in progress using the SMM state. Provide strategic pair programming guidance — check alignment with decisions, conventions, XP values, and technical debt.

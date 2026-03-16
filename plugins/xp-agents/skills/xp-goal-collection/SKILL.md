@@ -7,13 +7,11 @@ allowed-tools:
   - Bash(*/append.sh *)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/check_goals.sh`
-
 # Goal Collection
 
-The goal status above was preloaded automatically.
+Check the Shared Mental Model context (already in this conversation from SessionStart) for a **Project Goals** section.
 
-## If Goals: NONE RECORDED
+## If no goals are present
 
 1. Ask the user for their project goals using `AskUserQuestion`:
    - "What are the main goals for this project? (e.g., 'Ship MVP by March', 'Migrate to new API')"
@@ -26,7 +24,7 @@ The goal status above was preloaded automatically.
    ```
 3. If the user declines or skips, move on. Goal collection is non-blocking.
 
-## If Goals: PRESENT
+## If goals are present
 
 Report briefly that goals already exist. If the user invoked this skill manually, ask if they want to add or update goals.
 

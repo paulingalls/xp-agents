@@ -128,39 +128,80 @@ def _write_retro_input(smm_dir: Path, data: dict) -> None:
     _common.write_json_atomic(smm_dir / ".retro-input.json", data)
 
 
+def _summarize_key_events(events: list[dict]) -> str:
+    """Produce a condensed text summary of non-status events for analysis."""
+    lines: list[str] = []
+    skip_types = {_common.STATUS, _common.SECURITY_REVIEW_REQUESTED}
+    for e in events:
+        etype = e.get("type", "")
+        if etype in skip_types:
+            continue
+        eid = e.get("id", "?")[:8]
+        content = e.get("content", "")
+        if len(content) > 200:
+            content = content[:200] + "..."
+        lines.append(f"- [{etype}] ({eid}) {content}")
+    return "\n".join(lines[-50:])  # cap at 50 most recent
+
+
 def _build_context_summary(
     unanalyzed_count: int,
     type_counts: dict,
     session_stats: dict | None = None,
+    key_events: list[dict] | None = None,
 ) -> str:
-    """Build a brief additionalContext string for the agent."""
-    parts = [f"Retrospective data prepared: {unanalyzed_count} unanalyzed events."]
+    """Build inline retrospective context with data and analysis instructions."""
+    parts: list[str] = []
+
+    # Header with stats
+    parts.append(f"**Retrospective: {unanalyzed_count} unanalyzed events.**")
     if type_counts:
         summary = ", ".join(f"{count} {t}" for t, count in sorted(type_counts.items()))
         parts.append(f"Event breakdown: {summary}.")
+
+    # Session health signals
     if session_stats:
-        stat_items = []
-        if session_stats.get("pair_guidance_count"):
-            stat_items.append(
-                f"{session_stats['pair_guidance_count']} navigator guidance"
-            )
-        if session_stats.get("concerns_raised"):
-            stat_items.append(
-                f"{session_stats['concerns_raised']} concerns "
-                f"({session_stats.get('concerns_resolved', 0)} resolved)"
-            )
-        if session_stats.get("questions_open"):
-            stat_items.append(f"{session_stats['questions_open']} open questions")
-        if stat_items:
-            parts.append(f"Key stats: {', '.join(stat_items)}.")
-    parts.append("Read .retro-input.json from the SMM directory for full data.")
+        health: list[str] = []
+        pg = session_stats.get("pair_guidance_count", 0)
+        sc = session_stats.get("status_count", 0)
+        if pg == 0 and sc > 5:
+            health.append(f"CRITICAL: 0 navigator guidance with {sc} status events")
+        elif pg:
+            health.append(f"{pg} navigator guidance events")
+        cr = session_stats.get("concerns_raised", 0)
+        cres = session_stats.get("concerns_resolved", 0)
+        if cr:
+            health.append(f"Concerns: {cr} raised, {cres} resolved")
+        dt = session_stats.get("decisions_total", 0)
+        dd = session_stats.get("decisions_draft", 0)
+        if dt:
+            health.append(f"Decisions: {dt} total, {dd} still draft")
+        qo = session_stats.get("questions_open", 0)
+        if qo:
+            health.append(f"{qo} open questions")
+        if health:
+            parts.append("Health: " + "; ".join(health) + ".")
+
+    # Key events for analysis
+    if key_events:
+        event_summary = _summarize_key_events(key_events)
+        if event_summary:
+            parts.append(f"\nKey events:\n{event_summary}")
+
+    # Inline K/F/T instructions
     parts.append(
         "\n\n---\n"
-        "**ACTION REQUIRED:** Run /xp-retrospective NOW "
-        "to perform Keep/Fix/Try analysis before starting any new work. "
-        "Retrospectives surface cross-session learning and unresolved issues."
+        "**ACTION REQUIRED:** Perform Keep/Fix/Try retrospective analysis "
+        "before starting new work.\n\n"
+        "Using the SMM context and event data above, analyze through XP values "
+        "(Honesty, Communication, Courage, Simplicity, Respect):\n"
+        "- **Keep**: What went well? Reference specific events.\n"
+        "- **Fix**: What went wrong? Name the XP value violated.\n"
+        "- **Try**: Concrete experiments for this session.\n\n"
+        "Display the analysis to the user, then run /xp-retrospective "
+        "to record results to the event log."
     )
-    return " ".join(parts)
+    return "\n".join(parts)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -196,6 +237,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         unanalyzed_count,
         retro_input["event_type_counts"],
         retro_input.get("session_stats"),
+        retro_input.get("events_since_last_retro"),
     )
 
 
