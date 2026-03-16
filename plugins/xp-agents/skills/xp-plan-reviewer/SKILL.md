@@ -9,6 +9,7 @@ allowed-tools:
   - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
 ---
 
 !`${CLAUDE_SKILL_DIR}/scripts/preload.sh`

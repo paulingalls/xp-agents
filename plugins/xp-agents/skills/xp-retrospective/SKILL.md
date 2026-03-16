@@ -10,6 +10,7 @@ allowed-tools:
   - Write
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
   - Bash(python3 */materialize.py)
 ---
 

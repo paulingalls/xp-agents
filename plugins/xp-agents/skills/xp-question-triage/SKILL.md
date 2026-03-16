@@ -6,6 +6,7 @@ description: >-
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
 ---
 
 !`${CLAUDE_SKILL_DIR}/scripts/check_questions.sh`

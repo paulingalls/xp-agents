@@ -9,6 +9,7 @@ allowed-tools:
   - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
   - Bash(git diff *)
 ---
 
