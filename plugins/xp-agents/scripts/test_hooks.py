@@ -4368,6 +4368,40 @@ class TestSubagentStopSecurity(_HookTestCase):
         self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
 
 
+import security_review_done  # noqa: E402
+
+
+class TestSecurityReviewDone(_HookTestCase):
+    """PostToolUse:Skill hook writes tracker after /security-review."""
+
+    def _skill_input(self, skill: str = "security-review", **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Skill",
+            "tool_input": {"skill": skill},
+        }
+        data.update(overrides)
+        return data
+
+    def test_writes_tracker_on_security_review(self):
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            security_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_ignores_other_skills(self):
+        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+            security_review_done.run(
+                self._skill_input("simplify"), smm_dir=self.smm_dir
+            )
+        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+
+    def test_xp_agent_skips(self):
+        result = security_review_done.run(
+            self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
+        )
+        self.assertIsNone(result)
+
+
 # ===========================================================================
 # Milestone 6: CLAUDE.md & Skills
 # ===========================================================================
