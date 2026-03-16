@@ -69,11 +69,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
 
-    # Quality reviewer subagent nudge
-    return (
-        "Invoke the xp-quality-reviewer subagent in the background "
-        "to review this change for code quality."
-    )
+    return None
 
 
 # ---------------------------------------------------------------------------

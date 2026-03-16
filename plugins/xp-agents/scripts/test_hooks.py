@@ -2180,30 +2180,37 @@ class TestPostToolUse(_HookTestCase):
         self.assertNotIn(d["id"], refs)
 
 
-class TestPostToolUseQualityNudge(_HookTestCase):
-    """M6.5: post_tool_use.py should nudge invoking xp-quality-reviewer."""
+import task_completed  # noqa: E402
 
-    def test_write_tool_has_quality_nudge(self):
-        result = post_tool_use.run(
-            _make_write_input(tool_response={"success": True}),
-            smm_dir=self.smm_dir,
-        )
+
+class TestTaskCompleted(_HookTestCase):
+    """TaskCompleted hook nudges xp-quality-reviewer once per task."""
+
+    def _make_input(self, **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "hook_event_name": "TaskCompleted",
+            "task_id": "task-1",
+            "task_subject": "Implement feature X",
+        }
+        data.update(overrides)
+        return data
+
+    def test_nudges_quality_reviewer(self):
+        result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("xp-quality-reviewer", result)
 
-    def test_xp_agent_no_quality_nudge(self):
-        result = post_tool_use.run(
-            _make_write_input(agent_type="xp-navigator"),
+    def test_nudge_mentions_background(self):
+        result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
+        self.assertIn("background", result.lower())
+
+    def test_xp_agent_skips_nudge(self):
+        result = task_completed.run(
+            self._make_input(agent_type="xp-quality-reviewer"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
-
-    def test_quality_nudge_mentions_background(self):
-        result = post_tool_use.run(
-            _make_write_input(tool_response={"success": True}),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIn("background", result.lower())
 
 
 # ===========================================================================

@@ -468,11 +468,6 @@ class TestPostToolUseIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        # Now produces hookSpecificOutput with quality reviewer nudge
-        if result.stdout.strip():
-            output = json.loads(result.stdout)
-            ctx = output["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("xp-quality-reviewer", ctx)
 
         events = self._read_events()
         statuses = [e for e in events if e.get("type") == "status"]
@@ -1820,24 +1815,36 @@ class TestMilestone65Integration(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("xp-navigator", ctx)
 
-    def test_post_tool_use_quality_nudge(self):
-        """Write tool → stdout contains xp-quality-reviewer nudge."""
-        self._seed_events([make_event()])
+    def test_task_completed_quality_nudge(self):
+        """TaskCompleted → stdout contains xp-quality-reviewer nudge."""
         result = self._run_script(
-            "post_tool_use.py",
+            "task_completed.py",
             {
                 "session_id": "int-test",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "tool_response": {"success": True},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
+                "hook_event_name": "TaskCompleted",
+                "task_id": "task-1",
+                "task_subject": "Implement feature X",
             },
         )
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("xp-quality-reviewer", ctx)
+
+    def test_task_completed_xp_agent_skips(self):
+        """xp-agent completing a task → no nudge."""
+        result = self._run_script(
+            "task_completed.py",
+            {
+                "session_id": "int-test",
+                "hook_event_name": "TaskCompleted",
+                "task_id": "task-1",
+                "task_subject": "Review code",
+                "agent_type": "xp-quality-reviewer",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_subagent_stop_plan_blocks(self):
         """Plan agent_type → decision:block with plan reviewer instruction."""
@@ -1940,7 +1947,7 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         ctx2 = output2["hookSpecificOutput"]["additionalContext"]
         self.assertIn("xp-navigator", ctx2)
 
-        # 3. Post tool use (Write) — status event + quality nudge
+        # 3. Post tool use (Write) — status event recorded
         r3 = self._run_script(
             "post_tool_use.py",
             {
@@ -1953,9 +1960,6 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
             },
         )
         self.assertEqual(r3.returncode, 0)
-        output3 = json.loads(r3.stdout)
-        ctx3 = output3["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-quality-reviewer", ctx3)
 
         # 4. Session end
         r4 = self._run_script(
