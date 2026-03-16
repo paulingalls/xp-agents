@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common
 
 _MAX_PROMPT_LENGTH = 10_000
+_GOAL_NUDGE_TRACKER = ".goal-nudge-sent"
+_BLOCK_GOALS = "block_goals"
+_NUDGE_MESSAGE = "REMINDER: No project goals recorded yet. Run /xp-customer-proxy."
+_BLOCK_REASON = "No project goals recorded. Run /xp-customer-proxy."
 
 _SECURITY_REVIEW_PATTERN = re.compile(
     r"(?:/security-review\b|security\s+review|security\s+audit)", re.IGNORECASE
@@ -55,14 +59,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     events = _common.read_events_raw(smm_dir)
     has_goals = any(e.get("type") == _common.GOAL for e in events)
     if not has_goals:
-        tracker = smm_dir / ".goal-nudge-sent"
+        tracker = smm_dir / _GOAL_NUDGE_TRACKER
         if not tracker.exists():
             tracker.write_text("")
-            return "block_goals"
-        return (
-            "REMINDER: No project goals recorded yet. Invoke the "
-            "xp-customer-proxy subagent to collect goals."
-        )
+            return _BLOCK_GOALS
+        return _NUDGE_MESSAGE
 
     return None
 
@@ -70,21 +71,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
-    if result == "block_goals":
+    if result == _BLOCK_GOALS:
         import json
 
-        print(
-            json.dumps(
-                {
-                    "decision": "block",
-                    "reason": (
-                        "No project goals recorded. Invoke the "
-                        "xp-customer-proxy subagent to ask the user "
-                        "about project goals before proceeding."
-                    ),
-                }
-            )
-        )
+        print(json.dumps({"decision": "block", "reason": _BLOCK_REASON}))
     elif result:
         _common.hook_output("UserPromptSubmit", result)
     sys.exit(0)

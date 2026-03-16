@@ -2864,6 +2864,36 @@ class TestUserPromptLog(_HookTestCase):
         ci = [e for e in events if e.get("type") == "customer_input"]
         self.assertEqual(len(ci[0]["content"]), 10000)
 
+    def test_no_goals_first_prompt_blocks_with_slash_command(self):
+        """Block message must say 'Run /xp-customer-proxy' so agent auto-invokes."""
+        result = user_prompt_log.run(
+            {"session_id": "t", "prompt": "lets get started"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result, user_prompt_log._BLOCK_GOALS)
+        # Tracker created so second prompt nudges instead of blocks
+        tracker = self.smm_dir / user_prompt_log._GOAL_NUDGE_TRACKER
+        self.assertTrue(tracker.exists())
+
+    def test_no_goals_second_prompt_nudges_with_slash_command(self):
+        """After block, nudge message must say 'Run /xp-customer-proxy'."""
+        # Simulate tracker already set (block already fired)
+        (self.smm_dir / user_prompt_log._GOAL_NUDGE_TRACKER).write_text("")
+        result = user_prompt_log.run(
+            {"session_id": "t", "prompt": "do something"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result, user_prompt_log._NUDGE_MESSAGE)
+
+    def test_goals_present_no_block(self):
+        """With goals recorded, prompt proceeds normally."""
+        self._write_events([make_event("goal", content="Ship MVP")])
+        result = user_prompt_log.run(
+            {"session_id": "t", "prompt": "do something"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
 
 # ===========================================================================
 # subagent_stop.py tests — Milestone 3.4

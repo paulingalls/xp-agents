@@ -9,8 +9,10 @@ import concurrent.futures
 import fcntl
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -24,87 +26,122 @@ INIT_SH = ROOT / "smm" / "init.sh"
 APPEND_SH = ROOT / "smm" / "append.sh"
 
 
-def run_append(*args: str) -> subprocess.CompletedProcess:
-    """Run append.sh with given arguments."""
-    env = os.environ.copy()
-    env["CLAUDE_PLUGIN_ROOT"] = str(ROOT)
-    return subprocess.run(
-        [str(APPEND_SH), *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(ROOT),
-    )
+class _TempRepoTestCase(unittest.TestCase):
+    """Base class: creates an isolated temp git repo per test class.
+
+    Prevents subprocess tests (init.sh, append.sh) from touching the real SMM.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmpdir = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        # Clean up the SMM project dir created under ~/.claude/xp-agents/<hash>/
+        smm_dir = getattr(cls, "_smm_dir_cache", None)
+        if smm_dir is not None:
+            shutil.rmtree(smm_dir.parent, ignore_errors=True)
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    @classmethod
+    def _run_init(cls) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [str(INIT_SH)], capture_output=True, text=True, cwd=str(cls.tmpdir)
+        )
+
+    @classmethod
+    def _get_smm_dir(cls) -> Path:
+        if not hasattr(cls, "_smm_dir_cache"):
+            result = cls._run_init()
+            assert result.returncode == 0, f"init.sh failed: {result.stderr}"
+            cls._smm_dir_cache = Path(result.stdout.strip())
+        return cls._smm_dir_cache
+
+    @classmethod
+    def _run_append(cls, *args: str) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_ROOT"] = str(ROOT)
+        return subprocess.run(
+            [str(APPEND_SH), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(cls.tmpdir),
+        )
 
 
-def run_init() -> subprocess.CompletedProcess:
-    """Run init.sh and return the result."""
-    return subprocess.run(
-        [str(INIT_SH)],
-        capture_output=True,
-        text=True,
-        cwd=str(ROOT),
-    )
-
-
-def get_smm_dir() -> str:
-    """Get the SMM directory path."""
-    result = run_init()
-    assert result.returncode == 0, f"init.sh failed: {result.stderr}"
-    return result.stdout.strip()
-
-
-class TestInit(unittest.TestCase):
+class TestInit(_TempRepoTestCase):
     """Tests for smm/init.sh."""
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.smm_dir = cls._get_smm_dir()
+
+    def setUp(self) -> None:
+        # Reset events.jsonl before each test to prevent state leakage
+        (self.smm_dir / "events.jsonl").write_text("")
+
     def test_init_succeeds(self):
-        result = run_init()
+        result = self._run_init()
         self.assertEqual(result.returncode, 0)
         smm_dir = result.stdout.strip()
         self.assertTrue(Path(smm_dir).is_dir())
 
     def test_init_idempotent(self):
-        r1 = run_init()
-        r2 = run_init()
+        r1 = self._run_init()
+        r2 = self._run_init()
         self.assertEqual(r1.returncode, 0)
         self.assertEqual(r2.returncode, 0)
         self.assertEqual(r1.stdout.strip(), r2.stdout.strip())
 
     def test_init_creates_structure(self):
-        smm_dir = Path(get_smm_dir())
+        smm_dir = self._get_smm_dir()
         self.assertTrue((smm_dir / "events.jsonl").exists())
         self.assertTrue((smm_dir / "events.lock").exists())
         self.assertTrue((smm_dir / "retrospectives").is_dir())
 
     def test_init_events_file_permissions(self):
-        smm_dir = Path(get_smm_dir())
+        smm_dir = self._get_smm_dir()
         events_file = smm_dir / "events.jsonl"
         mode = events_file.stat().st_mode & 0o777
         self.assertEqual(mode, 0o600, f"events.jsonl mode is {oct(mode)}")
 
     def test_init_lock_file_permissions(self):
-        smm_dir = Path(get_smm_dir())
+        smm_dir = self._get_smm_dir()
         lock_file = smm_dir / "events.lock"
         mode = lock_file.stat().st_mode & 0o777
         self.assertEqual(mode, 0o600, f"events.lock mode is {oct(mode)}")
 
     def test_init_smm_dir_permissions(self):
-        smm_dir = Path(get_smm_dir())
+        smm_dir = self._get_smm_dir()
         mode = smm_dir.stat().st_mode & 0o777
         self.assertEqual(mode, 0o700, f"SMM dir mode is {oct(mode)}")
 
     def test_init_retrospectives_dir_permissions(self):
-        smm_dir = Path(get_smm_dir())
+        smm_dir = self._get_smm_dir()
         retro_dir = smm_dir / "retrospectives"
         mode = retro_dir.stat().st_mode & 0o777
         self.assertEqual(mode, 0o700, f"retrospectives dir mode is {oct(mode)}")
 
     def test_init_does_not_truncate_existing(self):
-        smm_dir = get_smm_dir()
-        events_file = Path(smm_dir) / "events.jsonl"
+        smm_dir = self._get_smm_dir()
+        events_file = smm_dir / "events.jsonl"
         events_file.write_text("existing content\n")
 
-        run_init()
+        self._run_init()
 
         self.assertEqual(events_file.read_text(), "existing content\n")
 
@@ -312,13 +349,14 @@ class TestValidateEvent(unittest.TestCase):
         self.assertEqual(_append_impl.validate_event(event), [])
 
 
-class TestAppendIntegration(unittest.TestCase):
+class TestAppendIntegration(_TempRepoTestCase):
     """Integration tests using append.sh subprocess."""
 
     @classmethod
     def setUpClass(cls):
-        cls.smm_dir = get_smm_dir()
-        cls.events_file = Path(cls.smm_dir) / "events.jsonl"
+        super().setUpClass()
+        cls.smm_dir = cls._get_smm_dir()
+        cls.events_file = cls.smm_dir / "events.jsonl"
 
     def setUp(self):
         # Clear events before each test
@@ -329,7 +367,7 @@ class TestAppendIntegration(unittest.TestCase):
         return [json.loads(line) for line in lines if line]
 
     def test_append_status(self):
-        r = run_append(
+        r = self._run_append(
             "--type",
             "status",
             "--agent",
@@ -346,7 +384,7 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertEqual(events[0]["working_on"], ["f.py"])
 
     def test_append_question_with_emoji(self):
-        r = run_append(
+        r = self._run_append(
             "--type",
             "question",
             "--agent",
@@ -361,7 +399,7 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertEqual(events[0]["priority"], "\U0001f534")
 
     def test_append_decision_with_topic(self):
-        r = run_append(
+        r = self._run_append(
             "--type",
             "decision",
             "--agent",
@@ -376,7 +414,7 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertEqual(events[0]["topic"], "database")
 
     def test_append_with_references(self):
-        r = run_append(
+        r = self._run_append(
             "--type",
             "answer",
             "--agent",
@@ -391,27 +429,29 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertEqual(events[0]["references"], ["id-1", "id-2"])
 
     def test_reject_invalid_type(self):
-        r = run_append("--type", "invalid", "--agent", "main", "--content", "bad")
+        r = self._run_append("--type", "invalid", "--agent", "main", "--content", "bad")
         self.assertNotEqual(r.returncode, 0)
 
     def test_reject_missing_working_on(self):
-        r = run_append("--type", "status", "--agent", "main", "--content", "x")
+        r = self._run_append("--type", "status", "--agent", "main", "--content", "x")
         self.assertNotEqual(r.returncode, 0)
 
     def test_reject_missing_topic(self):
-        r = run_append("--type", "decision", "--agent", "main", "--content", "x")
+        r = self._run_append("--type", "decision", "--agent", "main", "--content", "x")
         self.assertNotEqual(r.returncode, 0)
 
     def test_reject_missing_priority(self):
-        r = run_append("--type", "question", "--agent", "main", "--content", "x")
+        r = self._run_append("--type", "question", "--agent", "main", "--content", "x")
         self.assertNotEqual(r.returncode, 0)
 
     def test_reject_missing_tool_name(self):
-        r = run_append("--type", "pair_guidance", "--agent", "main", "--content", "x")
+        r = self._run_append(
+            "--type", "pair_guidance", "--agent", "main", "--content", "x"
+        )
         self.assertNotEqual(r.returncode, 0)
 
     def test_event_has_uuid_and_timestamp(self):
-        r = run_append(
+        r = self._run_append(
             "--type", "discovery", "--agent", "main", "--content", "found it"
         )
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -492,7 +532,7 @@ class TestAppendIntegration(unittest.TestCase):
         ]
         for args in cases:
             with self.subTest(type=args[1]):
-                r = run_append(*args)
+                r = self._run_append(*args)
                 self.assertEqual(r.returncode, 0, f"Failed for {args[1]}: {r.stderr}")
 
         events = self._read_events()
@@ -500,7 +540,7 @@ class TestAppendIntegration(unittest.TestCase):
         self.assertEqual(len(types), 15, f"Expected 15 types, got {types}")
 
     def test_session_end_optional_fields(self):
-        r = run_append(
+        r = self._run_append(
             "--type",
             "session_end",
             "--agent",
@@ -535,7 +575,7 @@ class TestAppendIntegration(unittest.TestCase):
             [{"content": "Slow", "event_refs": ["e2"], "xp_value": "communication"}]
         )
         try_items = json.dumps([{"content": "Mob", "event_refs": ["e3"]}])
-        r = run_append(
+        r = self._run_append(
             "--type",
             "retrospective",
             "--agent",
@@ -595,16 +635,20 @@ class TestLockTimeout(unittest.TestCase):
             shutil.rmtree(smm_dir)
 
 
-class TestConcurrentWrites(unittest.TestCase):
+class TestConcurrentWrites(_TempRepoTestCase):
     """Test atomic append under concurrent load."""
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.smm_dir = cls._get_smm_dir()
+
     def test_20_concurrent_writes(self):
-        smm_dir = get_smm_dir()
-        events_file = Path(smm_dir) / "events.jsonl"
+        events_file = self.smm_dir / "events.jsonl"
         events_file.write_text("")
 
         def do_append(i: int) -> int:
-            r = run_append(
+            r = self._run_append(
                 "--type",
                 "status",
                 "--agent",
