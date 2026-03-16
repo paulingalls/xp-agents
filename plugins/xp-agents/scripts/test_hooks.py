@@ -2184,7 +2184,7 @@ import task_completed  # noqa: E402
 
 
 class TestTaskCompleted(_HookTestCase):
-    """TaskCompleted hook nudges xp-quality-reviewer once per task."""
+    """TaskCompleted hook gates navigator, nudges quality reviewer."""
 
     def _make_input(self, **overrides) -> dict:
         data = {
@@ -2196,16 +2196,34 @@ class TestTaskCompleted(_HookTestCase):
         data.update(overrides)
         return data
 
-    def test_nudges_quality_reviewer(self):
+    def _seed_guidance(self):
+        """Seed a pair_guidance event so navigator gate passes."""
+        self._write_events(
+            [make_event("pair_guidance", content="Looks good", tool_name="Write")]
+        )
+
+    def test_blocks_without_navigator_guidance(self):
+        with self.assertRaises(_common.BlockedError) as ctx:
+            task_completed.run(self._make_input(), smm_dir=self.smm_dir)
+        self.assertIn("xp-navigator", str(ctx.exception))
+
+    def test_passes_with_navigator_guidance(self):
+        self._seed_guidance()
         result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("xp-quality-reviewer", result)
 
-    def test_nudge_mentions_background(self):
+    def test_second_attempt_passes_without_guidance(self):
+        """Second attempt allows through to prevent infinite loops."""
+        # First attempt blocks and writes gate event
+        with self.assertRaises(_common.BlockedError):
+            task_completed.run(self._make_input(), smm_dir=self.smm_dir)
+        # Second attempt passes
         result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        self.assertIn("background", result.lower())
+        self.assertIsNotNone(result)
+        self.assertIn("xp-quality-reviewer", result)
 
-    def test_xp_agent_skips_nudge(self):
+    def test_xp_agent_skips(self):
         result = task_completed.run(
             self._make_input(agent_type="xp-quality-reviewer"),
             smm_dir=self.smm_dir,

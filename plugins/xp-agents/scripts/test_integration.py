@@ -1815,8 +1815,25 @@ class TestMilestone65Integration(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("xp-navigator", ctx)
 
-    def test_task_completed_quality_nudge(self):
-        """TaskCompleted → stdout contains xp-quality-reviewer nudge."""
+    def test_task_completed_blocks_without_guidance(self):
+        """TaskCompleted → blocks when no navigator guidance exists."""
+        result = self._run_script(
+            "task_completed.py",
+            {
+                "session_id": "int-test",
+                "hook_event_name": "TaskCompleted",
+                "task_id": "task-1",
+                "task_subject": "Implement feature X",
+            },
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("xp-navigator", result.stderr)
+
+    def test_task_completed_passes_with_guidance(self):
+        """TaskCompleted → passes when pair_guidance event exists."""
+        self._seed_events(
+            [make_event("pair_guidance", content="Looks good", tool_name="Write")]
+        )
         result = self._run_script(
             "task_completed.py",
             {
