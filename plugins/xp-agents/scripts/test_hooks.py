@@ -4294,18 +4294,17 @@ class TestMilestone6Files(unittest.TestCase):
         self.assertTrue(path.is_file(), f"Missing: {path}")
 
     def test_behavioral_guide_token_budget(self):
-        """BEHAVIORAL_GUIDE.md word count should estimate 2,000-4,000 tokens."""
+        """BEHAVIORAL_GUIDE.md word count should estimate 300-2,000 tokens."""
         path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
         if not path.exists():
             self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
         words = len(path.read_text().split())
-        # Rough token estimate: 1 token ≈ 0.75 words → tokens ≈ words / 0.75
         estimated_tokens = words / 0.75
         self.assertGreaterEqual(
-            estimated_tokens, 2000, f"Too short: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 300, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
-            estimated_tokens, 4000, f"Too long: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 2000, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
 
     def test_skill_directories_exist(self):
@@ -4442,8 +4441,8 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             if hasattr(session_start, "_load_behavioral_guide"):
                 session_start._load_behavioral_guide.cache_clear()
 
-    def test_behavioral_guide_before_gupp(self):
-        """Guide should appear before GUPP in injection order."""
+    def test_behavioral_guide_after_gupp(self):
+        """Guide should appear after GUPP (reference material, not action items)."""
         import session_start
 
         self._write_events([make_event()])
@@ -4454,7 +4453,7 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
         if result and "Honesty Principle" in result:
             guide_pos = result.index("Honesty Principle")
             gupp_pos = result.index("Resume immediately")
-            self.assertLess(guide_pos, gupp_pos, "Guide should appear before GUPP")
+            self.assertGreater(guide_pos, gupp_pos, "Guide should appear after GUPP")
 
     def test_behavioral_guide_after_smm(self):
         """Guide should appear after SMM content."""

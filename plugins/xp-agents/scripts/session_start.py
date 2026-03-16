@@ -103,29 +103,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     materialize.materialize_to_file(smm_dir)
     smm_content = materialize.materialize(smm_dir)
 
-    # Build context: SMM + enforcement + GUPP + skills
+    # Build context: nudges FIRST (highest salience) → SMM → GUPP → skills → guide
     parts: list[str] = []
 
-    if smm_content:
-        parts.append(_common.wrap_smm_context(smm_content))
-
-    # Inject enforcement indicator for advisory mode
-    # (also emitted per-tool by pre_tool_use.py to survive compaction)
-    enforcement = _common.load_enforcement_mode()
-    if enforcement == _common.ENFORCEMENT_ADVISORY:
-        parts.append("\n[enforcement: advisory]")
-
-    # Behavioral guide — XP rules for the main agent
-    guide = _load_behavioral_guide()
-    if guide:
-        parts.append(guide)
-
-    # Customer proxy subagent nudge — check for missing goals or open questions
+    # Action-required nudges go first so they aren't buried under 11K of guide
     import _append_impl
 
     events = _common.read_events_raw(smm_dir)
     has_goals = any(e.get("type") == _common.GOAL for e in events)
-    # Filter out answered questions to avoid false positive nudges
     resolutions = _append_impl.compute_resolutions(events)
     answered_ids = resolutions["answered_question_ids"]
     has_open_questions = any(
@@ -134,27 +119,36 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         and e.get("id") not in answered_ids
         for e in events
     )
-    parts.append(GUPP_TEXT)
-    parts.append(SKILLS_TEXT)
-
-    # Customer proxy nudge goes LAST for maximum salience.
-    # No goals = first session on this project — critical to establish direction.
     if not has_goals:
         parts.append(
-            "\n\n---\n"
             "**IMPORTANT — FIRST ACTION REQUIRED:** No project goals have been "
             "recorded yet. Before doing ANY other work, invoke the "
             "xp-customer-proxy subagent to ask the user about project goals. "
             "This is a first-session requirement — goals guide all subsequent "
-            "decisions, reviews, and retrospectives."
+            "decisions, reviews, and retrospectives.\n\n---\n"
         )
     elif has_open_questions:
         parts.append(
-            "\n\n---\n"
             "**ACTION REQUIRED:** There are unresolved blocking or assumed "
             "questions. Invoke the xp-customer-proxy subagent to triage them "
-            "before proceeding with work."
+            "before proceeding with work.\n\n---\n"
         )
+
+    if smm_content:
+        parts.append(_common.wrap_smm_context(smm_content))
+
+    # Inject enforcement indicator for advisory mode
+    enforcement = _common.load_enforcement_mode()
+    if enforcement == _common.ENFORCEMENT_ADVISORY:
+        parts.append("\n[enforcement: advisory]")
+
+    parts.append(GUPP_TEXT)
+    parts.append(SKILLS_TEXT)
+
+    # Behavioral guide at the end — reference material, not action items
+    guide = _load_behavioral_guide()
+    if guide:
+        parts.append(guide)
 
     return "".join(parts)
 
