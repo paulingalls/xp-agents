@@ -2393,6 +2393,39 @@ class TestLintCheck(_HookTestCase):
             smm_dir=fake_dir,
         )
 
+    def test_ruff_skips_json_file(self):
+        """ruff should not run against .json files — they are not Python."""
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            with patch("lint_check.shutil.which", return_value="/usr/bin/ruff"):
+                result = lint_check.run_linter("ruff", str(tmpdir / "hooks.json"))
+            self.assertIsNone(result)
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_ruff_runs_on_python_file(self):
+        """ruff should still run on .py files."""
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = type(
+                    "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+                )()
+                result = lint_check.run_linter("ruff", str(tmpdir / "app.py"))
+            self.assertIsNone(result)  # clean — no errors
+            mock_run.assert_called_once()
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
 
 # ===========================================================================
 # bash_post_tool.py tests — Milestone 3.3

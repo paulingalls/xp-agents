@@ -46,6 +46,25 @@ _LINTER_COMMANDS = {
     "flake8": ["flake8"],
 }
 
+# File extensions each linter understands. Skip the file silently if it doesn't match.
+_LINTER_EXTENSIONS: dict[str, set[str]] = {
+    "ruff": {".py", ".pyi", ".ipynb"},
+    "flake8": {".py", ".pyi"},
+    "eslint": {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".vue"},
+    "prettier": {
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".css",
+        ".scss",
+        ".json",
+        ".md",
+        ".yaml",
+        ".yml",
+    },
+}
+
 _LINTER_BINARIES = {
     "ruff": "ruff",
     "eslint": "npx",
@@ -96,6 +115,11 @@ def run_linter(linter_name: str, file_path: str) -> str | None:
 
     # Guard against argument injection: reject paths that look like flags
     if file_path.startswith("-"):
+        return None
+
+    # Skip files the linter doesn't understand
+    allowed = _LINTER_EXTENSIONS.get(linter_name)
+    if allowed is not None and Path(file_path).suffix not in allowed:
         return None
 
     # Use "--" to separate flags from the filename argument
