@@ -10,7 +10,6 @@ allowed-tools:
   - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/preload.sh)
   - Bash(*/skills/*/scripts/*)
 ---
 
