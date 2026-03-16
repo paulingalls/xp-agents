@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.9.17 — Skill-Based Agent Execution
+
+### Added
+- `docs/PLUGIN_TOOLS.md` — comprehensive reference for all plugin tool types (hooks, skills, subagents) and their data flows
+- `skills/xp-goal-collection/` — inline skill for first-session goal collection (split from customer-proxy)
+- `skills/xp-question-triage/` — inline skill for question triage and intent reconciliation (split from customer-proxy)
+- `skills/xp-navigator/` — forked skill wrapping the navigator subagent with `!`command`` preload
+- `skills/xp-quality-reviewer/` — forked skill wrapping the quality reviewer subagent
+- `skills/xp-plan-reviewer/` — forked skill wrapping the plan reviewer subagent
+- `skills/xp-retrospective/` — forked skill wrapping the retrospective subagent
+- `skills/xp-subagent-reviewer/` — forked skill wrapping the subagent reviewer subagent
+- `skills/_preload_base.sh` — shared preload base for deterministic SMM state injection via `!`command``
+- Security review carryforward — when diff between last reviewed commit and HEAD contains only non-code files, carry forward the review instead of blocking
+- `_common.is_code_file()` and `_common.diff_has_code_changes()` — shared code/non-code classification for security review carryforward
+
+### Changed
+- All hook nudge messages now say "Run /skill-name" instead of "Invoke the subagent"
+- Customer-proxy functionality split into two focused skills for better auto-matching
+- `lefthook.yml` — shellcheck now uses `-x -e SC1091` for source following
+
+### Removed
+- `agents/xp-customer-proxy.md` — replaced by inline skills `/xp-goal-collection` and `/xp-question-triage`
+- `skills/xp-customer-proxy/` — replaced by the two focused skills above
+
+### Design decisions
+- **Inline skills for user interaction** — customer-facing skills run inline in the main agent for full tool access (AskUserQuestion, Bash)
+- **Forked skills for analysis** — reviewer/navigator skills use `context: fork` + `agent:` to delegate to existing subagents with preloaded SMM state
+- **`!`command`` for deterministic setup** — preload scripts run before skill content loads, agent cannot skip them
+- **Security review carryforward** — fail-closed design: assumes code changes on error, only skips review when diff is provably non-code
+- **Split customer-proxy** — single-responsibility: goal collection is first-run, question triage is ongoing. Better description matching for auto-invocation
+
 ## v0.9.0 — Milestone 8: Hardening & Optimization
 
 ### Added
