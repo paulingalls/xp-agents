@@ -20,8 +20,8 @@ _SECURITY_REVIEW_PATTERN = re.compile(
 )
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Core UserPromptSubmit logic."""
+def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+    """Core UserPromptSubmit logic. Returns additionalContext or None."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -50,10 +50,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if isinstance(prompt, str) and _SECURITY_REVIEW_PATTERN.search(prompt):
         _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
+    # Goal collection nudge — fires on every prompt until goals exist.
+    # UserPromptSubmit additionalContext has high salience because it's
+    # injected right alongside the user's prompt, not at session start.
+    events = _common.read_events_raw(smm_dir)
+    has_goals = any(e.get("type") == _common.GOAL for e in events)
+    if not has_goals:
+        return (
+            "IMPORTANT: No project goals recorded yet. Before responding "
+            "to this prompt, first invoke the xp-customer-proxy subagent "
+            "to ask the user what the project goals are. Then proceed "
+            "with their request."
+        )
+
     return None
 
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    run(input_data)
+    result = run(input_data)
+    if result:
+        _common.hook_output("UserPromptSubmit", result)
     sys.exit(0)

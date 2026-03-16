@@ -652,13 +652,27 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
             "user_prompt_log.py", {"session_id": "int-test", "prompt": "hello world"}
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
+        # No goals → nudge output expected
+        if result.stdout.strip():
+            output = json.loads(result.stdout)
+            self.assertIn(
+                "goals", output["hookSpecificOutput"]["additionalContext"].lower()
+            )
 
         events = self._read_events()
         ci = [e for e in events if e.get("type") == "customer_input"]
         self.assertEqual(len(ci), 1)
         self.assertEqual(ci[0]["content"], "hello world")
         self.assertEqual(ci[0]["agent_id"], "customer")
+
+    def test_no_goal_nudge_when_goals_exist(self):
+        """No additionalContext when goals already recorded."""
+        self._seed_events([make_event("goal", content="Build an app")])
+        result = self._run_script(
+            "user_prompt_log.py", {"session_id": "int-test", "prompt": "hello"}
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_truncates_long_prompt(self):
         long = "x" * 15000
