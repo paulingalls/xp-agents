@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common
 
 _NUDGE = (
-    "Invoke the xp-quality-reviewer subagent in the background "
+    "Run /xp-quality-reviewer in the background "
     "to review code changes made during this task."
 )
 

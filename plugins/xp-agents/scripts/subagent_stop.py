@@ -91,14 +91,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
         raise _common.BlockedError(
-            "Plan review required. Invoke the xp-plan-reviewer subagent "
+            "Plan review required. Run /xp-plan-reviewer "
             "to review this plan before proceeding."
         )
 
     # Subagent reviewer nudge for non-xp subagents
     return (
-        "Invoke the xp-subagent-reviewer subagent in the background "
-        "to review this subagent's output."
+        "Run /xp-subagent-reviewer in the background to review this subagent's output."
     )
 
 

@@ -156,7 +156,7 @@ def _build_context_summary(
     parts.append("Read .retro-input.json from the SMM directory for full data.")
     parts.append(
         "\n\n---\n"
-        "**ACTION REQUIRED:** Invoke the xp-retrospective subagent NOW "
+        "**ACTION REQUIRED:** Run /xp-retrospective NOW "
         "to perform Keep/Fix/Try analysis before starting any new work. "
         "Retrospectives surface cross-session learning and unresolved issues."
     )

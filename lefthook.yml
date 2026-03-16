@@ -9,7 +9,7 @@ pre-commit:
       run: ruff format --check {staged_files}
     shellcheck:
       glob: "*.sh"
-      run: shellcheck {staged_files}
+      run: shellcheck -x -e SC1091 {staged_files}
     tests:
       run: python3 -m unittest plugins/xp-agents/smm/test_smm.py
     tests-engine:

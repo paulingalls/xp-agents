@@ -122,15 +122,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not has_goals:
         parts.append(
             "**IMPORTANT — FIRST ACTION REQUIRED:** No project goals have been "
-            "recorded yet. Before doing ANY other work, invoke the "
-            "xp-customer-proxy subagent to ask the user about project goals. "
+            "recorded yet. Before doing ANY other work, Run /xp-customer-proxy "
+            "to collect project goals from the user. "
             "This is a first-session requirement — goals guide all subsequent "
             "decisions, reviews, and retrospectives.\n\n---\n"
         )
     elif has_open_questions:
         parts.append(
             "**ACTION REQUIRED:** There are unresolved blocking or assumed "
-            "questions. Invoke the xp-customer-proxy subagent to triage them "
+            "questions. Run /xp-customer-proxy to triage them "
             "before proceeding with work.\n\n---\n"
         )
 
