@@ -1901,7 +1901,7 @@ class TestRetrospectiveNudge(_HookTestCase):
 
 
 class TestSessionStartCustomerNudge(_HookTestCase):
-    """M6.5: session_start.py should nudge invoking xp-customer-proxy."""
+    """M6.5: session_start.py should nudge goal-collection / question-triage."""
 
     def setUp(self):
         super().setUp()
@@ -1915,7 +1915,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
         session_start._load_behavioral_guide.cache_clear()
         super().tearDown()
 
-    def test_no_goals_nudges_customer_proxy(self):
+    def test_no_goals_nudges_goal_collection(self):
         import session_start
 
         self._write_events([make_event("status", content="working")])
@@ -1923,7 +1923,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("xp-customer-proxy", result)
+        self.assertIn("xp-goal-collection", result)
         self.assertIn("goals", result.lower())
 
     def test_has_goals_no_questions_no_nudge(self):
@@ -1934,9 +1934,9 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertNotIn("xp-customer-proxy", result)
+        self.assertNotIn("xp-goal-collection", result)
 
-    def test_open_questions_nudges_customer_proxy(self):
+    def test_open_questions_nudges_question_triage(self):
         import session_start
 
         self._write_events(
@@ -1951,7 +1951,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("xp-customer-proxy", result)
+        self.assertIn("xp-question-triage", result)
 
 
 # ===========================================================================
@@ -2905,7 +2905,7 @@ class TestUserPromptLog(_HookTestCase):
         self.assertEqual(len(ci[0]["content"]), 10000)
 
     def test_no_goals_first_prompt_blocks_with_slash_command(self):
-        """Block message must say 'Run /xp-customer-proxy' so agent auto-invokes."""
+        """Block message must say 'Run /xp-goal-collection' so agent auto-invokes."""
         result = user_prompt_log.run(
             {"session_id": "t", "prompt": "lets get started"},
             smm_dir=self.smm_dir,
@@ -2916,7 +2916,7 @@ class TestUserPromptLog(_HookTestCase):
         self.assertTrue(tracker.exists())
 
     def test_no_goals_second_prompt_nudges_with_slash_command(self):
-        """After block, nudge message must say 'Run /xp-customer-proxy'."""
+        """After block, nudge message must say 'Run /xp-goal-collection'."""
         # Simulate tracker already set (block already fired)
         (self.smm_dir / user_prompt_log._GOAL_NUDGE_TRACKER).write_text("")
         result = user_prompt_log.run(

@@ -16,8 +16,8 @@ import _common
 _MAX_PROMPT_LENGTH = 10_000
 _GOAL_NUDGE_TRACKER = ".goal-nudge-sent"
 _BLOCK_GOALS = "block_goals"
-_NUDGE_MESSAGE = "REMINDER: No project goals recorded yet. Run /xp-customer-proxy."
-_BLOCK_REASON = "No project goals recorded. Run /xp-customer-proxy."
+_NUDGE_MESSAGE = "REMINDER: No project goals recorded yet. Run /xp-goal-collection."
+_BLOCK_REASON = "No project goals recorded. Run /xp-goal-collection."
 
 _SECURITY_REVIEW_PATTERN = re.compile(
     r"(?:/security-review\b|security\s+review|security\s+audit)", re.IGNORECASE

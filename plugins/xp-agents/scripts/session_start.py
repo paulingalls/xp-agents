@@ -122,7 +122,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not has_goals:
         parts.append(
             "**IMPORTANT — FIRST ACTION REQUIRED:** No project goals have been "
-            "recorded yet. Before doing ANY other work, Run /xp-customer-proxy "
+            "recorded yet. Before doing ANY other work, Run /xp-goal-collection "
             "to collect project goals from the user. "
             "This is a first-session requirement — goals guide all subsequent "
             "decisions, reviews, and retrospectives.\n\n---\n"
@@ -130,7 +130,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     elif has_open_questions:
         parts.append(
             "**ACTION REQUIRED:** There are unresolved blocking or assumed "
-            "questions. Run /xp-customer-proxy to triage them "
+            "questions. Run /xp-question-triage to triage them "
             "before proceeding with work.\n\n---\n"
         )
 

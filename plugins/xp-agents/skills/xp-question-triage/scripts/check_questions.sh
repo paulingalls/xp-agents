@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+# Preload for xp-question-triage: check for open questions and intents.
+# shellcheck source=../../_preload_base.sh
+source "$(dirname "$0")/../../_preload_base.sh"
+
+SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
+
+# Check for open questions
+if [ -f "$SMM_FILE" ] && grep -q "Blocking Questions\|## Questions" "$SMM_FILE" 2>/dev/null; then
+    echo "### Open Questions:"
+    grep -A 30 "Questions" "$SMM_FILE" | sed '/^## [^Q]/,$d' | head -20
+else
+    echo "### Open Questions: none"
+fi
+
+echo ""
+
+# Check for customer intent
+if [ -f "$SMM_FILE" ] && grep -q "## Customer Intent" "$SMM_FILE" 2>/dev/null; then
+    echo "### Customer Intent:"
+    grep -A 30 "## Customer Intent" "$SMM_FILE" | sed '/^## [^C]/,$d' | head -20
+else
+    echo "### Customer Intent: none tracked"
+fi

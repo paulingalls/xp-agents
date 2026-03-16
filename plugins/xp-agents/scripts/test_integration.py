@@ -1928,8 +1928,8 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         # Should have behavioral guide + GUPP + skills
         self.assertIn("Resume immediately", ctx)
         self.assertIn("smm-protocol", ctx)
-        # Customer proxy nudge for missing goals
-        self.assertIn("xp-customer-proxy", ctx)
+        # Goal collection nudge for missing goals
+        self.assertIn("xp-goal-collection", ctx)
 
         # 2. Pre tool use (Write) — navigator nudge
         r2 = self._run_script(
@@ -2370,7 +2370,7 @@ class TestEmptyProject(_IntegrationTestCase):
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         # Should nudge for goals
-        self.assertIn("xp-customer-proxy", ctx)
+        self.assertIn("xp-goal-collection", ctx)
         self.assertIn("goals", ctx.lower())
         # No crash
         self.assertIn("Resume immediately", ctx)
