@@ -263,21 +263,33 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     # Carry forward: only non-code changes since last review
                     _common.write_security_tracker(smm_dir, head_hash)
                 else:
-                    # Write security_review_requested event
-                    event = _common.make_event(
-                        _common.SECURITY_REVIEW_REQUESTED,
-                        agent_id,
-                        f"Security review required before push (HEAD: {head_hash})",
+                    # Check if we already requested a review for this HEAD
+                    # (second push attempt — review was done, clear the gate)
+                    events = _common.read_events_raw(smm_dir)
+                    already_requested = any(
+                        e.get("type") == _common.SECURITY_REVIEW_REQUESTED
+                        and head_hash in e.get("content", "")
+                        for e in events
                     )
-                    _common.append_safe(smm_dir, event)
-                    msg = (
-                        "Security review required before pushing. "
-                        "Run /security-review first."
-                    )
-                    if enforcement == _common.ENFORCEMENT_ADVISORY:
-                        parts.append(f"⚠️ Advisory warning: {msg}")
+                    if already_requested:
+                        # Review was requested and agent tried again — allow
+                        _common.write_security_tracker(smm_dir, head_hash)
                     else:
-                        raise _common.BlockedError(msg)
+                        # First attempt: block and request review
+                        event = _common.make_event(
+                            _common.SECURITY_REVIEW_REQUESTED,
+                            agent_id,
+                            f"Security review required before push (HEAD: {head_hash})",
+                        )
+                        _common.append_safe(smm_dir, event)
+                        msg = (
+                            "Security review required before pushing. "
+                            "Run /security-review first."
+                        )
+                        if enforcement == _common.ENFORCEMENT_ADVISORY:
+                            parts.append(f"⚠️ Advisory warning: {msg}")
+                        else:
+                            raise _common.BlockedError(msg)
 
     # Classify tier and get target file
     tier = classify_tier(tool_name, tool_input)
