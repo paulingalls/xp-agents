@@ -534,6 +534,92 @@ def mark_security_reviewed(smm_dir: Path, cwd: str = ".") -> None:
         write_security_tracker(smm_dir, head_hash)
 
 
+def find_last_reviewed_hash(smm_dir: Path) -> str | None:
+    """Find the commit hash from the most recent security tracker file."""
+    for f in smm_dir.glob(".security-reviewed-*"):
+        if f.is_symlink():
+            continue
+        suffix = f.name.removeprefix(".security-reviewed-")
+        if _COMMIT_HASH_RE.match(suffix):
+            return suffix
+    return None
+
+
+# Non-code suffixes shared with simplify_gate.py for consistent classification
+_NON_CODE_SUFFIXES = frozenset(
+    {
+        ".md",
+        ".txt",
+        ".rst",
+        ".adoc",
+        ".tex",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".webp",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".csv",
+        ".plist",
+        ".pbxproj",
+        ".xcworkspacedata",
+        ".xcscheme",
+        ".lock",
+        ".license",
+        ".gitignore",
+        ".gitattributes",
+        ".env",
+        ".env.example",
+        ".dockerignore",
+    }
+)
+
+_NON_CODE_NAMES = frozenset(
+    {"license", "changelog", "readme", "makefile", "dockerfile"}
+)
+
+
+def is_code_file(path: str) -> bool:
+    """Return True if the file is likely code (not docs/config/images)."""
+    suffix = Path(path).suffix.lower()
+    if suffix in _NON_CODE_SUFFIXES:
+        return False
+    return Path(path).name.lower() not in _NON_CODE_NAMES
+
+
+def diff_has_code_changes(reviewed_hash: str, head_hash: str, cwd: str = ".") -> bool:
+    """Check if git diff between two commits contains code file changes.
+
+    Returns True if any changed file passes is_code_file(). Returns True
+    on error (fail-open would skip review; fail-closed is safer).
+    """
+    try:
+        result = subprocess.check_output(
+            ["git", "diff", "--name-only", f"{reviewed_hash}..{head_hash}"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            cwd=cwd,
+            timeout=5,
+        )
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        return True  # fail-closed: assume code changes on error
+
+    files = [f.strip() for f in result.strip().splitlines() if f.strip()]
+    if not files:
+        return False
+    return any(is_code_file(f) for f in files)
+
+
 # ---------------------------------------------------------------------------
 # Enforcement mode
 # ---------------------------------------------------------------------------

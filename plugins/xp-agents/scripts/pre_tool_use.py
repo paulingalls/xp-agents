@@ -254,21 +254,30 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if head_hash is not None and not _common.security_tracker_exists(
                 smm_dir, head_hash
             ):
-                # Write security_review_requested event
-                event = _common.make_event(
-                    _common.SECURITY_REVIEW_REQUESTED,
-                    agent_id,
-                    f"Security review required before push (HEAD: {head_hash})",
-                )
-                _common.append_safe(smm_dir, event)
-                msg = (
-                    "Security review required before pushing. "
-                    "Run /security-review first."
-                )
-                if enforcement == _common.ENFORCEMENT_ADVISORY:
-                    parts.append(f"⚠️ Advisory warning: {msg}")
+                # Check if a previous review can carry forward
+                # (only non-code changes since last reviewed commit)
+                reviewed_hash = _common.find_last_reviewed_hash(smm_dir)
+                if reviewed_hash is not None and not _common.diff_has_code_changes(
+                    reviewed_hash, head_hash, cwd
+                ):
+                    # Carry forward: only non-code changes since last review
+                    _common.write_security_tracker(smm_dir, head_hash)
                 else:
-                    raise _common.BlockedError(msg)
+                    # Write security_review_requested event
+                    event = _common.make_event(
+                        _common.SECURITY_REVIEW_REQUESTED,
+                        agent_id,
+                        f"Security review required before push (HEAD: {head_hash})",
+                    )
+                    _common.append_safe(smm_dir, event)
+                    msg = (
+                        "Security review required before pushing. "
+                        "Run /security-review first."
+                    )
+                    if enforcement == _common.ENFORCEMENT_ADVISORY:
+                        parts.append(f"⚠️ Advisory warning: {msg}")
+                    else:
+                        raise _common.BlockedError(msg)
 
     # Classify tier and get target file
     tier = classify_tier(tool_name, tool_input)

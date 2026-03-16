@@ -3371,29 +3371,32 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
         content = (self.agents_dir / "xp-navigator.md").read_text()
         self.assertIn("contradict", content.lower())
 
-    # AC 4: first session asks for goals
-    def test_customer_proxy_goal_collection(self):
-        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
+    # AC 4: first session asks for goals (now in skill)
+    def test_goal_collection_skill(self):
+        skill_dir = Path(__file__).parent.parent / "skills" / "xp-goal-collection"
+        content = (skill_dir / "SKILL.md").read_text()
         self.assertIn("Goal Collection", content)
-        self.assertIn("Project Goals", content)
         self.assertIn('--type "goal"', content)
 
-    # AC 5: customer proxy distills intents
-    def test_customer_proxy_intent_distillation(self):
-        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
+    # AC 5: question triage distills intents (now in skill)
+    def test_question_triage_intent_distillation(self):
+        skill_dir = Path(__file__).parent.parent / "skills" / "xp-question-triage"
+        content = (skill_dir / "SKILL.md").read_text()
         self.assertIn("Intent Reconciliation", content)
         self.assertIn("customer_input", content)
         self.assertIn("--intent-status", content)
 
     # AC 7: delivered intents by event log activity
-    def test_customer_proxy_delivery_by_events(self):
-        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
+    def test_question_triage_delivery_by_events(self):
+        skill_dir = Path(__file__).parent.parent / "skills" / "xp-question-triage"
+        content = (skill_dir / "SKILL.md").read_text()
         self.assertIn("delivered", content)
         self.assertIn("recent events", content.lower())
 
     # AC 8: ambiguous keeps intent open
-    def test_customer_proxy_err_toward_open(self):
-        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
+    def test_question_triage_err_toward_open(self):
+        skill_dir = Path(__file__).parent.parent / "skills" / "xp-question-triage"
+        content = (skill_dir / "SKILL.md").read_text()
         self.assertIn("Err toward keeping intents open", content)
 
     # AC 10: navigator debt awareness
@@ -4548,7 +4551,6 @@ _SUBAGENT_NAMES = (
     "xp-navigator",
     "xp-quality-reviewer",
     "xp-retrospective",
-    "xp-customer-proxy",
     "xp-plan-reviewer",
     "xp-subagent-reviewer",
 )
@@ -4647,13 +4649,6 @@ class TestAgentFilesM65(unittest.TestCase):
             parts = content.split("---", 2)
             fm = parts[1]
             self.assertIn("background: true", fm, f"{name} should be background")
-
-    def test_foreground_subagents(self):
-        """Customer proxy must NOT have background: true (needs AskUserQuestion)."""
-        content = (self.agents_dir / "xp-customer-proxy.md").read_text()
-        parts = content.split("---", 2)
-        fm = parts[1]
-        self.assertNotIn("background:", fm, "customer-proxy should be foreground")
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""

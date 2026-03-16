@@ -1890,13 +1890,12 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertIn("xp-retrospective", ctx)
 
     def test_agent_files_exist(self):
-        """All 6 agent .md files exist in agents/ directory."""
+        """All 5 agent .md files exist in agents/ directory."""
         agents_dir = Path(__file__).parent.parent / "agents"
         for name in (
             "xp-navigator",
             "xp-quality-reviewer",
             "xp-retrospective",
-            "xp-customer-proxy",
             "xp-plan-reviewer",
             "xp-subagent-reviewer",
         ):
