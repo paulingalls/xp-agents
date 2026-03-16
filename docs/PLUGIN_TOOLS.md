@@ -54,17 +54,18 @@ What a Claude Code plugin can ship, what each tool can do, and how data flows be
 
 **What they are:** Subagents that run in response to hook events. They can inspect files and run commands, then return an allow/block decision.
 
-**When to use:** Judgment calls that require reading code or running commands — checking conventions, verifying output quality, validating against patterns. Use when the decision requires more than deterministic logic but doesn't need the full main agent context.
+**When to use:** In theory, judgment calls that require reading code or running commands. **In practice, agent hooks are currently broken platform-wide** — they crash with "Messages are required for agent hooks. This is a bug." on all events tested (PostToolUse, UserPromptSubmit). This is a Claude Code platform issue, not fixable from the plugin side. Use command/prompt hooks or plugin subagents (wrapped in forked skills) instead.
 
-**Key limitation:** Can only return allow/block. Cannot inject `additionalContext`. Cannot modify tool inputs.
+**Key limitation:** Can only return allow/block. Cannot inject `additionalContext`. Cannot modify tool inputs. Currently non-functional due to platform bug.
 
 | Aspect | Value |
 |--------|-------|
 | **Receives** | Hook JSON + limited context |
-| **Tools available** | Read, Grep, Glob, Bash, WebFetch, WebSearch (configurable) |
+| **Tools available** | Documented as full inheritance, but crashes before spawning |
 | **Returns** | `{"ok": true}` or `{"ok": false, "reason": "..."}` |
 | **Can inject context?** | No — allow/block only |
 | **Async support?** | Yes (`"async": true` in hook definition) |
+| **Status** | **Broken** — crashes on all events with "Messages are required" error |
 
 ---
 
@@ -94,7 +95,7 @@ What a Claude Code plugin can ship, what each tool can do, and how data flows be
 **Key properties:**
 - The main agent already has all context (SMM state, conversation history, etc.)
 - `!`command`` provides deterministic pre-execution the agent cannot skip
-- `allowed-tools` can pre-grant permissions (e.g., `Bash(python *)`)
+- `allowed-tools` can pre-grant permissions (e.g., `Bash(python *)`) — this also covers `!` command permissions, which go through the same Bash permission check as user commands. Use `Bash(*/skills/*/scripts/*)` to pre-approve all skill preload scripts
 - `description` field is the **only** mechanism for auto-triggering
 
 | Aspect | Value |
@@ -270,9 +271,9 @@ Skill/Subagent description → Agent matches against current task → May or may
 | Tool | Permission Source | Can Pre-grant? |
 |------|------------------|----------------|
 | Command hooks | OS-level (subprocess) | N/A — always has full OS access |
-| Agent hooks | Hook definition | Configurable in hook definition |
+| Agent hooks | Hook definition | Configurable in hook definition (but currently broken — see above) |
 | Prompt hooks | None (no tools) | N/A |
-| Skills (inline) | Main agent's permissions | Yes — `allowed-tools` field |
-| Skills (forked) | Agent type defaults | Partially — via `allowed-tools` |
+| Skills (inline) | Main agent's permissions | Yes — `allowed-tools` field (also covers `!` command permissions) |
+| Skills (forked) | Agent type defaults | Partially — via `allowed-tools` (use `Bash(*/skills/*/scripts/*)` for preloads) |
 | Plugin subagents | `tools` field in agent def | No — user must approve at runtime |
 | Background subagents | User pre-approval at launch | Sort of — user prompted upfront, but can't interact during execution |

@@ -273,7 +273,7 @@ Add a test that asserts 1 == 2, run it, then stop
 ```
 
 **Verify:**
-- The TDD prompt hook (`tdd_check.md`) blocks the stop because tests are failing
+- The TDD stop gate (`tdd_stop_gate.py`) blocks the stop because tests are failing
 - Claude is told to fix the failing test before stopping
 - After fixing the test and re-running, the stop is allowed
 

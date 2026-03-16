@@ -1,10 +1,12 @@
 # Changelog
 
-## v0.9.20 — Security Review Hook, TDD unittest Detection
+## v0.9.20 — Security Review Hook, TDD unittest Detection, Preload Permission Fix
 
 ### Fixed
 - **Push gate proper fix** — replaced second-push bypass with PostToolUse:Skill hook (`security_review_done.py`) that writes the `.security-reviewed-{hash}` tracker only when `/security-review` actually completes
 - **TDD stop gate blind to unittest** — `bash_post_tool.py` only detected pytest/jest/go test. Added `python3 -m unittest` detection and result parsing so the TDD stop gate has data to work with
+- **Skill preload permissions** — `!` command preloads go through the same Bash permission check as user commands. Fixed by adding `allowed-tools` patterns (e.g., `Bash(*/skills/*/scripts/*)`) to skill frontmatter to pre-approve preload scripts
+- **Navigator allowed-tools cleanup** — removed redundant `Bash(*/preload.sh)` from navigator skill; `Bash(*/skills/*/scripts/*)` already covers it
 
 ### Added
 - `scripts/security_review_done.py` — PostToolUse:Skill hook that writes security tracker after `/security-review` completes
@@ -14,6 +16,7 @@
 
 ### Discovered
 - **bash_failure.py false positive** — lefthook ruff formatting failures get misclassified as "Test run failed (pytest)" because the full lefthook output contains test-like patterns. The TDD stop gate then blocks on a non-test failure. Needs investigation.
+- **Plugin cache requires version bump** — `/reload-plugins` alone isn't sufficient if the version in `plugin.json` hasn't changed. Bump version to force cache invalidation.
 
 ## v0.9.19 — Preload Fix, Navigator Gate, Push Gate Fix
 

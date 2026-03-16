@@ -3378,9 +3378,9 @@ class TestPromptFilesM5(unittest.TestCase):
     def setUp(self):
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
 
-    def test_tdd_check_md_still_exists(self):
-        """tdd_check.md kept for reference but no longer registered as hook."""
-        self.assertTrue((self.prompts_dir / "tdd_check.md").exists())
+    def test_tdd_check_md_deleted(self):
+        """tdd_check.md removed — replaced by tdd_stop_gate.py command hook."""
+        self.assertFalse((self.prompts_dir / "tdd_check.md").exists())
 
 
 # ===========================================================================
