@@ -5,11 +5,14 @@ description: >-
   unresolved blocking or assumed questions that need user input.
 allowed-tools:
   - Bash(*/append.sh *)
+  - Bash(*/init.sh)
 ---
+
+!`${CLAUDE_SKILL_DIR}/scripts/check_questions.sh`
 
 # Question Triage & Intent Reconciliation
 
-Check the Shared Mental Model context (already in this conversation from SessionStart) for **Questions** and **Customer Intent** sections.
+The current state above was preloaded automatically.
 
 ## Question Triage
 

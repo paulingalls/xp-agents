@@ -12,14 +12,6 @@ allowed-tools:
   - Bash(git diff *)
 ---
 
-## Data Loading
+!`${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-First, resolve the SMM path and read the current state:
-```bash
-SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
-```
-Then use Read to load `$SMM_DIR/SHARED_MENTAL_MODEL.md`. Also run `git diff HEAD~1 --stat` to see recent changes.
-
-## Task
-
-Review the subagent's recent output against the SMM state. Check convention adherence, complexity, and alignment with project decisions. Record concerns to the event log.
+Review the subagent's recent output against the SMM state above. Check convention adherence, complexity, and alignment with project decisions. Record concerns to the event log.

@@ -13,4 +13,6 @@ allowed-tools:
   - Bash(python3 */materialize.py)
 ---
 
-Analyze the retrospective data using the Keep/Fix/Try framework with XP values as lenses. Record findings to the event log and retrospectives directory.
+!`${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+
+Analyze the retrospective data above using the Keep/Fix/Try framework with XP values as lenses. Record findings to the event log and retrospectives directory.

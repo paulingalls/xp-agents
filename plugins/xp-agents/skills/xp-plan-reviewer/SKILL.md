@@ -11,14 +11,6 @@ allowed-tools:
   - Bash(*/init.sh)
 ---
 
-## Data Loading
+!`${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-First, resolve the SMM path and read the current state:
-```bash
-SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
-```
-Then use Read to load `$SMM_DIR/SHARED_MENTAL_MODEL.md`.
-
-## Task
-
-Review the plan in progress against the SMM state. Check plan size, TDD ordering, milestone boundaries, and decision conflicts. Record assumptions and draft decisions to the event log.
+Review the plan in progress against the SMM state above. Check plan size, TDD ordering, milestone boundaries, and decision conflicts. Record assumptions and draft decisions to the event log.
