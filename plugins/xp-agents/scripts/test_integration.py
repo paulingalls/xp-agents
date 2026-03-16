@@ -1364,6 +1364,25 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         concerns = [e for e in events if e.get("type") == "concern"]
         self.assertTrue(len(concerns) >= 1)
 
+    def test_unittest_results_create_events(self):
+        """python3 -m unittest output → status event."""
+        result = self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 -m unittest tests/test_foo.py -v"},
+                "tool_response": {"stdout": "Ran 50 tests in 1.2s\n\nOK"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) >= 1)
+        self.assertTrue(any("50 passed" in s["content"] for s in statuses))
+
     def test_npm_test_detected(self):
         """npm test → recognized as jest framework."""
         result = self._run_script(

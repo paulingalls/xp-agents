@@ -32,6 +32,8 @@ def is_test_run(command: str) -> str | None:
         r"python3?\s+-m\s+pytest\b", command
     ):
         return "pytest"
+    if re.search(r"python3?\s+-m\s+unittest\b", command):
+        return "unittest"
     if re.search(r"\b(npx\s+)?jest\b", command) or re.search(
         r"\bnpm\s+test\b", command
     ):
@@ -119,6 +121,18 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 and re.search(r"^FAIL\s+", tool_response, re.MULTILINE)
             ):
                 result["failed"] = 1
+
+        case "unittest":
+            # "Ran 821 tests in 32.346s\n\nOK" or "FAILED (failures=2, errors=1)"
+            m = re.search(r"Ran\s+(\d+)\s+tests?", tool_response)
+            total = int(m.group(1)) if m else 0
+            m = re.search(r"failures=(\d+)", tool_response)
+            failures = int(m.group(1)) if m else 0
+            m = re.search(r"errors=(\d+)", tool_response)
+            errors = int(m.group(1)) if m else 0
+            result["failed"] = failures + errors
+            result["errors"] = errors
+            result["passed"] = max(0, total - result["failed"])
 
     return result
 

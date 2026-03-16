@@ -2545,6 +2545,26 @@ class TestParseTestResults(unittest.TestCase):
         result = bash_post_tool.parse_test_results(output, "go")
         self.assertEqual(result["failed"], 1)
 
+    def test_unittest_pass(self):
+        output = "Ran 821 tests in 32.346s\n\nOK"
+        result = bash_post_tool.parse_test_results(output, "unittest")
+        self.assertEqual(result["passed"], 821)
+        self.assertEqual(result["failed"], 0)
+
+    def test_unittest_fail(self):
+        output = "Ran 50 tests in 1.2s\n\nFAILED (failures=2, errors=1)"
+        result = bash_post_tool.parse_test_results(output, "unittest")
+        self.assertEqual(result["passed"], 47)
+        self.assertEqual(result["failed"], 3)
+        self.assertEqual(result["errors"], 1)
+
+    def test_is_test_run_unittest(self):
+        self.assertEqual(
+            bash_post_tool.is_test_run("python3 -m unittest tests/test_foo.py -v"),
+            "unittest",
+        )
+        self.assertIsNone(bash_post_tool.is_test_run("echo unittest"))
+
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_auto_drafts_decision(self):
