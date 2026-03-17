@@ -57,10 +57,8 @@ _MAX_STATUS_SAMPLES = 10
 
 def _normalize_concern_content(content: str) -> str:
     """Normalize content for dedup: replace digits, strip backtick-quoted."""
-    import re as _re
-
-    normalized = _re.sub(r"\d+", "N", content)
-    normalized = _re.sub(r"`[^`]*`", "``", normalized)
+    normalized = re.sub(r"\d+", "N", content)
+    normalized = re.sub(r"`[^`]*`", "``", normalized)
     return normalized.strip()
 
 

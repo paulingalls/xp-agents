@@ -648,24 +648,29 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
     if not events:
         return
 
-    # Validate all events up front — fail before acquiring lock
+    # Strip ANSI without mutating caller's dicts
+    cleaned = []
     for event in events:
-        if "content" in event:
-            event["content"] = _strip_ansi(event["content"])
+        if "content" in event and _ANSI_RE.search(event["content"]):
+            event = {**event, "content": _strip_ansi(event["content"])}
+        cleaned.append(event)
+
+    # Validate all events up front — fail before acquiring lock
+    for event in cleaned:
         errors = validate_event(event)
         if errors:
             raise ValueError(f"Invalid event: {'; '.join(errors)}")
 
     # Serialize all lines
-    lines: list[str] = []
-    for event in events:
+    lines: list[bytes] = []
+    for event in cleaned:
         line = json.dumps(event, ensure_ascii=False) + "\n"
-        if len(line.encode("utf-8")) > MAX_EVENT_BYTES:
+        encoded = line.encode("utf-8")
+        if len(encoded) > MAX_EVENT_BYTES:
             raise ValueError(
-                f"Serialized event too large "
-                f"({len(line.encode('utf-8'))} > {MAX_EVENT_BYTES} bytes)"
+                f"Serialized event too large ({len(encoded)} > {MAX_EVENT_BYTES} bytes)"
             )
-        lines.append(line)
+        lines.append(encoded)
 
     # Single lock acquisition, write all lines
     events_file = smm_dir / "events.jsonl"
@@ -692,7 +697,7 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
 
         ev_fd = _safe_open_nofollow(events_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
         try:
-            with os.fdopen(ev_fd, "a", encoding="utf-8") as f:
+            with os.fdopen(ev_fd, "wb") as f:
                 for line in lines:
                     f.write(line)
         except Exception:
@@ -705,7 +710,7 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
             lock_fd.close()
 
     # Notify on blocking questions — after write succeeds
-    for event in events:
+    for event in cleaned:
         _notify_blocking_question(event)
 
 

@@ -162,6 +162,16 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> None:
     import _append_impl
 
     events = _common.read_events_raw(smm_dir)
+
+    # Early exit: skip expensive compute_resolutions if no test concerns exist
+    has_test_concern = any(
+        e.get("type") == _common.CONCERN
+        and _common.TEST_CONCERN_RE.search(e.get("content", ""))
+        for e in events
+    )
+    if not has_test_concern:
+        return
+
     resolutions = _append_impl.compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
 
