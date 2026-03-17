@@ -480,8 +480,11 @@ def render_markdown(
     if unack_concerns:
         lines = ["## Unacknowledged Concerns"]
         for c in unack_concerns:
+            content = c.get("content", "")
+            if len(content) > 500:
+                content = content[:500] + "..."
             lines.append(
-                f"- ⚠️ {c.get('content', '')} "
+                f"- ⚠️ {content} "
                 f"[{c.get('agent_id', '')}, {short_id(c['id'])}] "
                 f"— unacknowledged"
             )

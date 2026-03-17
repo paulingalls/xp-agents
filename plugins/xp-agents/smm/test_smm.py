@@ -597,6 +597,50 @@ class TestAppendIntegration(_TempRepoTestCase):
         self.assertEqual(e["try"][0]["content"], "Mob")
 
 
+class TestAnsiStripping(unittest.TestCase):
+    """Test that ANSI escape codes are stripped from event content at write time."""
+
+    def setUp(self):
+        self.smm_dir = Path(tempfile.mkdtemp())
+        (self.smm_dir / "events.jsonl").touch()
+        (self.smm_dir / "events.lock").touch()
+
+    def tearDown(self):
+        shutil.rmtree(self.smm_dir)
+
+    def test_ansi_stripped_from_content(self):
+        """ANSI escape codes should be removed from content field."""
+        event = {
+            "id": "test-id",
+            "ts": "2026-03-12T00:00:00+00:00",
+            "type": "concern",
+            "agent_id": "main",
+            "content": "\x1b[31mError:\x1b[0m something \x1b[1;32mfailed\x1b[0m",
+            "schema_version": 1,
+        }
+        _append_impl.append_event(self.smm_dir, event)
+        line = (self.smm_dir / "events.jsonl").read_text().strip()
+        written = json.loads(line)
+        self.assertEqual(written["content"], "Error: something failed")
+        self.assertNotIn("\x1b", written["content"])
+
+    def test_content_without_ansi_unchanged(self):
+        """Content without ANSI codes should pass through unchanged."""
+        event = {
+            "id": "test-id-2",
+            "ts": "2026-03-12T00:00:00+00:00",
+            "type": "status",
+            "agent_id": "main",
+            "content": "Normal text without escapes",
+            "working_on": ["app.py"],
+            "schema_version": 1,
+        }
+        _append_impl.append_event(self.smm_dir, event)
+        line = (self.smm_dir / "events.jsonl").read_text().strip()
+        written = json.loads(line)
+        self.assertEqual(written["content"], "Normal text without escapes")
+
+
 class TestLockTimeout(unittest.TestCase):
     """Test that lock timeout raises instead of degrading."""
 

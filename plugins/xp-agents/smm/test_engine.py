@@ -1049,6 +1049,19 @@ class TestLifecycleRendering(_SMMTestCase):
         self.assertNotIn("## Project Goals", md)
         self.assertIn("## Completed Goals", md)
 
+    def test_concern_content_truncated(self):
+        """Long concern content should be truncated in rendering."""
+        long_content = "x" * 600
+        c = make_event("concern", content=long_content)
+        self._write_events([c])
+        md = materialize.materialize(self.smm_dir)
+        concern_section = md.split("## Unacknowledged Concerns")[1].split("##")[0]
+        # Content should be truncated to 500 chars + "..."
+        self.assertNotIn("x" * 600, concern_section)
+        self.assertIn("...", concern_section)
+        # Should still contain the first 500 chars
+        self.assertIn("x" * 100, concern_section)
+
 
 # ===========================================================================
 # Materialize — File Writing

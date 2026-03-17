@@ -540,12 +540,25 @@ def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
         raise
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    return _ANSI_RE.sub("", text)
+
+
 def append_event(smm_dir: Path, event: dict) -> None:
     """Append event as a single JSON line to events.jsonl with flock.
 
+    Strips ANSI escape codes from content before writing.
     Raises LockTimeoutError if the lock cannot be acquired within 2 seconds.
     Raises OSError if lock or events file is a symlink.
     """
+    # Strip ANSI escape codes from content to prevent garbage in the log
+    if "content" in event:
+        event["content"] = _strip_ansi(event["content"])
+
     events_file = smm_dir / "events.jsonl"
     lock_file = smm_dir / "events.lock"
     line = json.dumps(event, ensure_ascii=False) + "\n"
