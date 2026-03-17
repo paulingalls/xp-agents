@@ -87,11 +87,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if isinstance(last_message, str) and _detect_security_review(last_message):
         _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
-    # Plan reviewer nudge — don't block, blocking prevents the plan output
-    # from reaching the main agent which causes infinite re-planning loops
+    # Plan review gate — write marker event for PreToolUse to detect.
+    # Don't block (causes re-planning loops) or nudge via reason (silently dropped).
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
-        return "Run /xp-plan-reviewer to review this plan before proceeding."
+        gate_event = _common.make_event(
+            _common.STATUS,
+            agent_id,
+            "plan_awaiting_review: Plan completed, run /xp-plan-reviewer",
+            working_on=[],
+        )
+        _common.append_safe(smm_dir, gate_event)
+        return None
 
     # Subagent reviewer nudge for non-xp subagents
     return (

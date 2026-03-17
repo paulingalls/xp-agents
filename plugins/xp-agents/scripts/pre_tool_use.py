@@ -328,6 +328,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             debt_lines.append("</smm-debt-context>")
             parts.append("\n".join(debt_lines))
 
+    # Plan review gate — nudge review before implementing an unreviewed plan
+    if tool_name in _FULL_TOOLS and smm_dir:
+        if events is None:
+            events = _common.read_events_raw(smm_dir)
+        has_unreviewed_plan = False
+        for e in reversed(events):
+            content = e.get("content", "")
+            if "plan_reviewed:" in content:
+                break
+            if "plan_awaiting_review:" in content:
+                has_unreviewed_plan = True
+                break
+        if has_unreviewed_plan:
+            parts.append(
+                "Run /xp-plan-reviewer to review the plan before implementing."
+            )
+
     # TDD order check
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)

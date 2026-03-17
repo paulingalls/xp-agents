@@ -1817,8 +1817,8 @@ class TestMilestone65Integration(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertNotIn("xp-navigator", ctx)
 
-    def test_subagent_stop_plan_nudges(self):
-        """Plan agent_type → decision:approve with plan reviewer nudge."""
+    def test_subagent_stop_plan_writes_gate_marker(self):
+        """Plan agent_type → writes plan_awaiting_review marker event."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -1829,9 +1829,10 @@ class TestMilestone65Integration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        data = json.loads(result.stdout)
-        self.assertEqual(data["decision"], "approve")
-        self.assertIn("xp-plan-reviewer", data["reason"])
+        self.assertEqual(result.stdout.strip(), "")
+        events = self._read_events()
+        gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
+        self.assertEqual(len(gate), 1)
 
     def test_subagent_stop_reviewer_nudge(self):
         """Regular subagent → decision:approve with xp-subagent-reviewer nudge."""
@@ -1992,9 +1993,10 @@ class TestPlanReviewFlow(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        data = json.loads(result.stdout)
-        self.assertEqual(data["decision"], "approve")
-        self.assertIn("xp-plan-reviewer", data["reason"])
+        self.assertEqual(result.stdout.strip(), "")
+        events = self._read_events()
+        gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
+        self.assertEqual(len(gate), 1)
 
     def test_regular_subagent_nudges_reviewer(self):
         """Non-Plan subagent → decision:approve with xp-subagent-reviewer nudge."""

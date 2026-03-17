@@ -1894,6 +1894,87 @@ class TestPreToolUseNoNavigatorNudge(_HookTestCase):
         self.assertIn("Auth middleware is insecure", result)
 
 
+class TestPreToolUsePlanReviewGate(_HookTestCase):
+    """PreToolUse nudges plan review for writes when plan is unreviewed."""
+
+    def test_unreviewed_plan_nudges_review(self):
+        """Write after plan_completed should nudge plan review."""
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="plan_awaiting_review: Plan completed",
+                    agent_id="plan-1",
+                    working_on=[],
+                ),
+            ]
+        )
+        result = pre_tool_use.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-plan-reviewer", result)
+
+    def test_reviewed_plan_no_nudge(self):
+        """Write after plan_reviewed should not nudge."""
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="plan_awaiting_review: Plan completed",
+                    agent_id="plan-1",
+                    working_on=[],
+                ),
+                make_event(
+                    "status",
+                    content="plan_reviewed: Review complete",
+                    agent_id="xp-plan-reviewer",
+                    working_on=[],
+                ),
+            ]
+        )
+        result = pre_tool_use.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("Run /xp-plan-reviewer", result)
+
+    def test_no_plan_no_nudge(self):
+        """Write without any plan should not nudge."""
+        result = pre_tool_use.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-plan-reviewer", result)
+
+    def test_read_tool_no_plan_nudge(self):
+        """Non-write tools should not get plan review nudge."""
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="plan_awaiting_review: Plan completed",
+                    agent_id="plan-1",
+                ),
+            ]
+        )
+        result = pre_tool_use.run(
+            {
+                "session_id": "t",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "src/app.ts"},
+                "cwd": "/tmp",
+                "agent_id": "main",
+            },
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-plan-reviewer", result)
+
+
 class TestRetrospectiveNudge(_HookTestCase):
     """M6.5: retrospective.py should nudge invoking xp-retrospective."""
 
@@ -3089,11 +3170,11 @@ class TestSubagentStop(_HookTestCase):
         self.assertEqual(len(concerns), 0)
 
 
-class TestSubagentStopPlanNudge(_HookTestCase):
-    """M6.5: subagent_stop.py should nudge (not block) for Plan subagents."""
+class TestSubagentStopPlanGate(_HookTestCase):
+    """SubagentStop writes plan_awaiting_review marker for Plan subagents."""
 
-    def test_plan_agent_type_nudges_not_blocks(self):
-        """Plan subagent should get a nudge to run plan reviewer, not a block."""
+    def test_plan_writes_awaiting_review_marker(self):
+        """Plan subagent should write plan_awaiting_review event."""
         result = subagent_stop.run(
             {
                 "session_id": "t",
@@ -3103,11 +3184,15 @@ class TestSubagentStopPlanNudge(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("xp-plan-reviewer", result)
+        self.assertIsNone(result)
+        events = _common.read_events_raw(self.smm_dir)
+        gate_events = [
+            e for e in events if "plan_awaiting_review" in e.get("content", "")
+        ]
+        self.assertEqual(len(gate_events), 1)
 
-    def test_plan_nudge_still_records_status(self):
-        """Status event should be written when nudging."""
+    def test_plan_records_completion_status(self):
+        """Both completion status and gate marker should be written."""
         subagent_stop.run(
             {
                 "session_id": "t",
@@ -3119,7 +3204,7 @@ class TestSubagentStopPlanNudge(_HookTestCase):
         )
         events = _common.read_events_raw(self.smm_dir)
         statuses = [e for e in events if e.get("type") == "status"]
-        self.assertTrue(len(statuses) >= 1)
+        self.assertEqual(len(statuses), 2)  # completion + gate
 
 
 class TestSubagentStopReviewerNudge(_HookTestCase):
