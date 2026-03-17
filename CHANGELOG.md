@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.34 — Decision Resolution & Stop Message Cleanup
+
+### Fixed
+- **Resolved decisions still flagged as stale drift** — `compute_resolutions()` now tracks `decision_resolutions` alongside concern/goal/debt resolutions. `detect_drift_signals()` skips topics where all decisions are resolved. Eliminates false "stale decision" drift signals for completed work.
+
+### Changed
+- **Quality gate stop messages simplified** — pending-agents message now just says count and to wait. Quality review message shortened to "Run the /xp-quality-review skill before stopping."
+- 2 new tests (900 total)
+
 ## v0.9.33 — Auto-Resolve Lint Concerns
 
 ### Added
