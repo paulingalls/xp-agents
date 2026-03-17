@@ -402,14 +402,29 @@ class TestSessionStart(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_clear_source_skips(self):
+    def test_clear_source_returns_context(self):
+        """clear is a fresh start — should return GUPP + skills."""
         import session_start
 
+        self._write_events([make_event()])
         result = session_start.run(
             {"session_id": "test", "source": "clear"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("Resume immediately", result)
+
+    def test_clear_source_sets_marker(self):
+        """clear should set .needs-session-review marker like startup."""
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "clear"},
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".needs-session-review"
+        self.assertTrue(marker.exists())
 
     def test_startup_returns_context(self):
         import session_start
@@ -551,6 +566,30 @@ class TestSessionStart(_HookTestCase):
         )
         marker = self.smm_dir / ".needs-session-review"
         self.assertTrue(marker.exists())
+
+    def test_resume_does_not_set_marker(self):
+        """resume is mid-session — should NOT set .needs-session-review."""
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".needs-session-review"
+        self.assertFalse(marker.exists())
+
+    def test_compact_does_not_set_marker(self):
+        """compact is mid-session — should NOT set .needs-session-review."""
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".needs-session-review"
+        self.assertFalse(marker.exists())
 
     def test_no_smm_in_context(self):
         """session_start should NOT inject SMM content into context."""

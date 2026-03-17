@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """SessionStart hook: initialize SMM, inject context.
 
-Runs on startup, resume, and compact. Ensures SMM exists, materializes
-the current view, and injects it as additionalContext with behavioral
-guide, GUPP, and skills.
+Handles all SessionStart sources (startup, resume, compact, clear).
+Ensures SMM exists, materializes the current view, and injects GUPP
+and skills as additionalContext. Sets .needs-session-review marker
+on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
 
@@ -52,10 +53,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    # Skip on clear
     source = input_data.get("source", "")
-    if source == "clear":
-        return None
 
     # Ensure SMM exists via init.sh
     if smm_dir is None or not smm_dir.exists():
@@ -84,10 +82,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # The fresh SMM will be injected after /xp-session-review completes.
     materialize.materialize_to_file(smm_dir)
 
-    # Write .needs-session-review marker only on fresh session starts.
-    # "resume", "compact", "clear" all fire mid-session (e.g., after
-    # Stop hook blocks, context compression, or /clear).
-    if source == "startup":
+    # Write .needs-session-review marker on fresh starts.
+    # "startup" = new session, "clear" = user reset context (treat as fresh).
+    # "resume" and "compact" fire mid-session — no marker needed.
+    if source in ("startup", "clear"):
         marker = smm_dir / ".needs-session-review"
         marker.touch()
 
