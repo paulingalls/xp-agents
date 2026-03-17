@@ -11,6 +11,7 @@ Hooks-driven Claude Code plugin. XP practices enforced through command hooks (de
 ├── events.jsonl              ← append-only, one JSON event per line
 ├── SHARED_MENTAL_MODEL.md    ← materialized view, auto-generated
 ├── .watermark-{agent-id}     ← per-agent read position
+├── .needs-session-review     ← gate marker, cleared by /xp-session-review
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts (.json)
 ```
@@ -47,12 +48,12 @@ Two tiers: **Active Context** (needs attention now) above **Reference** (informs
 # Shared Mental Model
 
 ## ACTIVE CONTEXT
-- Project Goals (🎯, pinned)
+- Project Goals (🎯, unresolved only — resolved goals move to Reference)
 - Conflict Alerts (working_on overlap, assumption contradictions, convention violations)
 - Blocking Questions (🔴, awaiting answer)
-- Unacknowledged Concerns
+- Unacknowledged Concerns (content truncated to 500 chars)
 - Customer Intent (open items only)
-- Agent Status (latest per agent + working_on)
+- Agent Status (current session only — prior session agents omitted)
 - Navigator Guidance (current session only)
 
 ## REFERENCE
@@ -61,8 +62,9 @@ Two tiers: **Active Context** (needs attention now) above **Reference** (informs
 - Questions (resolved + assumed)
 - Discoveries
 - Assumptions (unverified + contradicted)
-- Technical Debt (with session-based aging: normal → ⚠️ 4-6 sessions → 🔴 7+)
+- Technical Debt (open only, with session-based aging: normal → ⚠️ 4-6 sessions → 🔴 7+)
 - Resolved Concerns
+- Completed Goals (✅, ages out after N sessions)
 - Drift Signals (superseded decisions, ignored conventions, stale decisions, contradicted assumptions)
 - Velocity Signal (events per session, decision churn detection)
 ```
@@ -86,9 +88,9 @@ All hooks are `type: "command"`. Agent hooks (`type: "agent"`) are broken platfo
 
 | Event | Matcher | Script | What It Does |
 |---|---|---|---|
-| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM, inject SMM + behavioral guide + GUPP + skills, nudge /xp-goal-collection or /xp-question-triage |
-| **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json`, nudge xp-retrospective |
-| **PreToolUse** | `*` | `pre_tool_use.py` | Delta injection (tiered), conflict blocking, TDD order check, push security gate, nudge xp-navigator (Write/Edit) |
+| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM, materialize to file, write `.needs-session-review` marker, inject behavioral guide + GUPP + skills (NO SMM in context) |
+| **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
+| **PreToolUse** | `*` | `pre_tool_use.py` | Session review gate (blocks ALL tools if marker exists), delta injection (tiered), conflict blocking, TDD order check, push security gate, nudge xp-navigator (Write/Edit) |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection, nudge xp-quality-reviewer |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing |
@@ -102,6 +104,7 @@ All hooks are `type: "command"`. Agent hooks (`type: "agent"`) are broken platfo
 | **SessionEnd** | | `session_end.py` | Append session_end event |
 | **PreCompact** | | `pre_compact.py` | Back up SMM state |
 | **UserPromptSubmit** | | `user_prompt_log.py` | Log as customer_input event |
+| **UserPromptSubmit** | | `session_review_gate.py` | Block prompts until `/xp-session-review` runs (allows the command itself through) |
 
 ### Plugin Subagents (agents/ directory)
 
@@ -115,7 +118,11 @@ Subagents have full tool access (Read, Grep, Glob, Bash, Write). Command hooks t
 | `xp-plan-reviewer` | SubagentStop (Plan) | **Block** (exit 2) | Plan size, TDD ordering, decision conflicts. Writes assumption/decision events |
 | `xp-subagent-reviewer` | SubagentStop | Nudge | Convention adherence, complexity, decision alignment. `background: true` |
 
-Customer-proxy functionality replaced by inline skills: `/xp-goal-collection` (first-session goal collection) and `/xp-question-triage` (ongoing question triage). Inline skills run in the main agent for full tool access (AskUserQuestion, Bash).
+Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
+- `/xp-session-review` — orchestrator, sequences retro → goals → housekeeping at session start. Clears `.needs-session-review` marker on completion.
+- `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`.
+- `/xp-goal-collection` — first-session goal collection
+- `/xp-question-triage` — ongoing question triage
 
 All subagents preload `smm-protocol` skill. Navigator and plan reviewer also preload `pair-programming` and `xp-values` respectively.
 
@@ -131,19 +138,20 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 
 | When | What's Injected |
 |---|---|
-| Session start | SMM + behavioral guide + GUPP + skills + subagent nudges |
+| Session start | Behavioral guide + GUPP + skills (NO SMM — deferred to session review) |
+| After session review | Fresh post-lifecycle SMM via PreToolUse delta |
 | Before tool use | Delta since agent's watermark (tiered) + navigator nudge for writes |
 | After tool use | Quality reviewer nudge for writes |
 | Subagent spawn | Full materialized SMM |
 | After compaction | Full SMM + behavioral guide re-injection |
 
 Injection order in SessionStart `additionalContext`:
-1. SMM (materialized view)
-2. Enforcement indicator (advisory mode only)
-3. Behavioral guide (from `BEHAVIORAL_GUIDE.md`)
-4. Goal collection / question triage nudge (if goals missing or open questions)
-5. GUPP ("Resume immediately")
-6. Skills list
+1. Enforcement indicator (advisory mode only)
+2. GUPP ("Resume immediately")
+3. Skills list
+4. Behavioral guide (from `BEHAVIORAL_GUIDE.md`)
+
+SMM is NOT injected at SessionStart. The agent gets the fresh SMM after `/xp-session-review` completes, via PreToolUse delta injection. This ensures the agent sees the post-lifecycle SMM (resolved items filtered, goals confirmed, concerns triaged) rather than a stale pre-review version.
 
 All injection via `additionalContext`. Never in system prompt (preserves prompt cache).
 
@@ -165,11 +173,22 @@ Critical conflicts → exit 2 (strict) or warning (advisory). Non-critical → e
 
 ### Session Start
 ```
-SessionStart → session_start.py: init SMM, inject context, nudge goal-collection/question-triage
-             → retrospective.py: prepare retro data, nudge xp-retrospective
-             → Main agent runs /xp-retrospective (if nudged)
-             → Main agent runs /xp-goal-collection or /xp-question-triage (if nudged)
-             → Work begins
+SessionStart → session_start.py: init SMM, materialize to file, write .needs-session-review marker
+               inject behavioral guide + GUPP + skills (NO SMM in context)
+             → retrospective.py: prepare .retro-input.json
+
+User types   → session_review_gate.py blocks: "Run /xp-session-review"
+             → User runs /xp-session-review
+
+/xp-session-review:
+             1. Retro (if .retro-input.json exists) → /xp-retrospective
+             2. Goals (if none recorded) → /xp-goal-collection
+             3. Housekeeping (if open items) → /xp-housekeeping
+             4. Materialize fresh SMM, clear .needs-session-review marker
+
+Next prompt  → Gates pass through (marker cleared)
+             → PreToolUse injects fresh delta
+             → Work begins with post-lifecycle SMM
 ```
 
 ### Mid-Session
@@ -217,7 +236,7 @@ plugins/xp-agents/
 │   ├── xp-retrospective.md
 │   ├── xp-plan-reviewer.md
 │   └── xp-subagent-reviewer.md
-├── skills/                          ← forked skills wrap subagents, inline skills replace customer-proxy
+├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── smm-protocol/SKILL.md
 │   ├── xp-values/SKILL.md
 │   ├── pair-programming/SKILL.md
@@ -226,8 +245,10 @@ plugins/xp-agents/
 │   ├── xp-plan-reviewer/SKILL.md
 │   ├── xp-retrospective/SKILL.md
 │   ├── xp-subagent-reviewer/SKILL.md
-│   ├── xp-goal-collection/SKILL.md ← inline, replaces customer-proxy (first-session)
-│   └── xp-question-triage/SKILL.md ← inline, replaces customer-proxy (ongoing)
+│   ├── xp-session-review/SKILL.md  ← inline, orchestrates session start lifecycle
+│   ├── xp-housekeeping/SKILL.md    ← inline, lifecycle triage for open items
+│   ├── xp-goal-collection/SKILL.md ← inline, first-session goal collection
+│   └── xp-question-triage/SKILL.md ← inline, ongoing question triage
 ├── hooks/hooks.json                 ← command hooks only
 ├── scripts/                         ← command hooks (Python 3.10+, stdlib only)
 │   ├── _common.py
@@ -246,6 +267,7 @@ plugins/xp-agents/
 │   ├── simplify_gate.py
 │   ├── tdd_stop_gate.py
 │   ├── security_review_done.py
+│   ├── session_review_gate.py
 │   └── task_completed.py
 ├── prompts/                         ← empty (tdd_check.md removed, replaced by tdd_stop_gate.py)
 └── smm/
@@ -308,9 +330,38 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** SMM injection, status/working_on tracking, conflict detection, customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate, plan review block, navigator gate on TaskCompleted.
+**Fully enforced (no agent compliance needed):** SMM injection, status/working_on tracking, conflict detection, customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate, plan review block, navigator gate on TaskCompleted, session review gate (dual: UserPromptSubmit + PreToolUse), ANSI stripping at write time.
 
-**Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (navigator, quality reviewer, retrospective, goal collection, question triage).
+**Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (navigator, quality reviewer, retrospective), running `/xp-session-review` sub-skills (retro, goals, housekeeping) when orchestrator directs.
+
+## Event Lifecycle
+
+Events are resolved explicitly via `metadata.resolves` — no heuristic aging or pruning. The materializer is a pure view: it renders open vs. resolved, nothing more.
+
+### Resolution Mechanism
+
+Any event can resolve another by including `metadata: {"resolves": ["target-event-id"]}`. Questions use a separate mechanism: `answer` events that reference the question via `references`.
+
+| Type | Resolution Pattern | Who Drives Closure | Active → Reference |
+|------|-------------------|-------------------|-------------------|
+| Goal | `metadata.resolves` | `/xp-housekeeping` | Unresolved in A1, completed in R8 |
+| Concern | `metadata.resolves` | `/xp-housekeeping` + agents mid-session | Unresolved in A4, resolved in R7 |
+| Debt | `metadata.resolves` | `/xp-housekeeping` + quality reviewer | Open in R6 (with aging), resolved omitted |
+| Decision (draft) | New decision with `draft: false` on same topic | `/xp-housekeeping` | Drafts in R1, rejected omitted |
+| Question | `answer` event with `references` | `/xp-question-triage` | Blocking in A3, resolved in R3 |
+
+### Session Review Gate (Enforcement)
+
+Session review is enforced by dual gates:
+- **UserPromptSubmit** (`session_review_gate.py`): blocks user prompts until `/xp-session-review` runs. Allows the command itself through.
+- **PreToolUse** (`pre_tool_use.py`): blocks ALL tools when `.needs-session-review` marker exists. Defense-in-depth for edge cases.
+
+Both respect `enforcement` setting (strict = blocks, advisory = allows).
+
+## Data Quality
+
+- **ANSI stripping**: `_append_impl.py` strips ANSI escape codes from event `content` at write time via `_strip_ansi()`. Prevents terminal garbage from entering the log.
+- **Content truncation**: `materialize.py` truncates concern content to 500 chars in rendered output. Prevents oversized concerns from bloating the SMM.
 
 ## Design Principles
 
@@ -346,7 +397,7 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 
 ### Autonomous Decision-Making (M11)
 
-- **Draft decision lifecycle.** Drafts with no concerns after N sessions get promoted to confirmed. Drafts with concerns get escalated to 🔴 questions. Same aging pattern as debt, applied in reverse — time without problems builds confidence.
+- **Draft decision lifecycle.** Foundation in 1.0: `/xp-housekeeping` reviews drafts and asks user to confirm or reject. 2.0 adds auto-promotion: drafts with no concerns after N sessions get promoted to confirmed. Drafts with concerns get escalated to 🔴 questions.
 - **Convention-based gates.** Conventions can require explicit customer approval for specific domains (e.g., "all auth decisions require approval"). Navigator and plan reviewer already enforce conventions — this is configuration, not new code.
 - **Retrospective feedback loop.** Analyst tracks draft decision outcomes. High revision/contradiction rate → Fix item: "too many auto-decisions revised in {domain}, increase customer involvement." Evidence-based calibration.
 - **Promotion thresholds** configurable in `settings.json` — sessions-to-promote, concern-count-to-escalate. Conservative defaults.

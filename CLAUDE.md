@@ -120,7 +120,7 @@ All scripts resolve the SMM path this way. Never hardcode paths. Never use `.cla
 
 ## Event Appending
 
-Use `smm/append.sh` for all event writes. Never write directly to `events.jsonl`.
+Use `smm/append.sh` for all event writes. Never write directly to `events.jsonl`. ANSI escape codes are stripped from content automatically at write time.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
@@ -129,6 +129,21 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --content "Description here" \
   --working-on '["src/api/users.ts"]'
 ```
+
+### Resolving Events
+
+To resolve a goal, concern, or debt item, include `metadata.resolves`:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "status" \
+  --agent "xp-housekeeping" \
+  --content "Goal completed: description" \
+  --working-on '[]' \
+  --metadata '{"resolves": ["target-event-id"]}'
+```
+
+Resolution is the sole lifecycle mechanism — no aging, no pruning. The materializer renders open items in ACTIVE CONTEXT and resolved items in REFERENCE.
 
 ## Hook Registration (hooks.json)
 
@@ -184,10 +199,14 @@ plugins/xp-agents/
 ├── BEHAVIORAL_GUIDE.md                ← loaded by session_start.py
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
-├── scripts/*.py                       ← command hooks
+├── scripts/*.py                       ← command hooks (incl. session_review_gate.py)
 ├── agents/*.md                        ← subagent definitions
 ├── prompts/*.md                       ← agent/prompt hook definitions
-├── skills/{smm-protocol,xp-values,pair-programming}/SKILL.md
+├── skills/                            ← forked + inline skills
+│   ├── {smm-protocol,xp-values,pair-programming}/SKILL.md
+│   ├── xp-session-review/SKILL.md    ← session start orchestrator
+│   ├── xp-housekeeping/SKILL.md      ← lifecycle triage
+│   └── {xp-goal-collection,xp-question-triage}/SKILL.md
 └── smm/{init.sh,append.sh,materialize.py,read_delta.py,schema.json}
 ```
 
