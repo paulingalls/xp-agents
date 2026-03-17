@@ -236,23 +236,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         smm_dir = _common.resolve_smm_dir()
     smm_dir = _common.try_validate_smm_dir(smm_dir)
 
-    # Session review gate: block ALL tools until session review runs
-    if smm_dir is not None:
-        marker = smm_dir / ".needs-session-review"
-        if marker.exists():
-            enforcement = _common.load_enforcement_mode()
-            if enforcement != _common.ENFORCEMENT_ADVISORY:
-                raise _common.BlockedError(
-                    "Session review required. Run /xp-session-review before proceeding."
-                )
-
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     agent_id = input_data.get("agent_id", "main")
     cwd = input_data.get("cwd", ".")
 
-    # Load enforcement mode
+    # Load enforcement mode (used by session review gate, push gate, etc.)
     enforcement = _common.load_enforcement_mode()
+
+    # Session review gate: block ALL tools until session review runs
+    # Defense-in-depth: UserPromptSubmit gate is primary, this catches edge cases
+    if smm_dir is not None:
+        marker = smm_dir / ".needs-session-review"
+        if marker.exists() and enforcement != _common.ENFORCEMENT_ADVISORY:
+            raise _common.BlockedError(
+                "Session review required. Run /xp-session-review before proceeding."
+            )
 
     parts: list[str] = []
 

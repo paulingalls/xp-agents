@@ -41,12 +41,14 @@ If the preload shows "HOUSEKEEPING_NEEDED", invoke the housekeeping skill now.
 
 If not needed, skip to step 4.
 
-## 4. Materialize Fresh SMM
+## 4. Materialize Fresh SMM and Clear Gate
 
-After all actions are complete, materialize the fresh SMM:
+After all actions are complete, materialize the fresh SMM and clear the session review gate:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/materialize.py
+SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
+rm -f "$SMM_DIR/.needs-session-review"
 ```
 
 Then read and summarize the updated `SHARED_MENTAL_MODEL.md` for the user.
