@@ -538,6 +538,41 @@ class TestSessionStart(_HookTestCase):
         )
         self.assertNotIn("[enforcement:", result)
 
+    def test_writes_needs_session_review_marker(self):
+        """session_start writes .needs-session-review marker file."""
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".needs-session-review"
+        self.assertTrue(marker.exists())
+
+    def test_no_smm_in_context(self):
+        """session_start should NOT inject SMM content into context."""
+        import session_start
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertNotIn("<smm-context>", result)
+        self.assertNotIn("Project Goals", result)
+
+    def test_no_goal_nudge_in_context(self):
+        """Goal nudge removed — handled by /xp-session-review."""
+        import session_start
+
+        self._write_events([make_event("status", content="working")])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertNotIn("xp-goal-collection", result)
+
 
 # ===========================================================================
 # retrospective.py tests
@@ -1921,7 +1956,8 @@ class TestSessionStartCustomerNudge(_HookTestCase):
         session_start._load_behavioral_guide.cache_clear()
         super().tearDown()
 
-    def test_no_goals_nudges_goal_collection(self):
+    def test_no_goal_nudge_removed(self):
+        """Goal nudge removed — handled by /xp-session-review."""
         import session_start
 
         self._write_events([make_event("status", content="working")])
@@ -1929,27 +1965,19 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("xp-goal-collection", result)
-        self.assertIn("goals", result.lower())
-
-    def test_has_goals_no_questions_no_nudge(self):
-        import session_start
-
-        self._write_events([make_event("goal", content="Build the app")])
-        result = session_start.run(
-            {"session_id": "test", "source": "startup"},
-            smm_dir=self.smm_dir,
-        )
         self.assertNotIn("xp-goal-collection", result)
 
-    def test_open_questions_nudges_question_triage(self):
+    def test_no_question_nudge_removed(self):
+        """Question nudge removed — handled by /xp-session-review."""
         import session_start
 
         self._write_events(
             [
                 make_event("goal", content="Build the app"),
                 make_event(
-                    "question", content="Which DB?", priority=_common.PRIORITY_BLOCKING
+                    "question",
+                    content="Which DB?",
+                    priority=_common.PRIORITY_BLOCKING,
                 ),
             ]
         )
@@ -1957,7 +1985,121 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("xp-question-triage", result)
+        self.assertNotIn("xp-question-triage", result)
+
+
+# ===========================================================================
+# session_review_gate.py tests
+# ===========================================================================
+
+
+class TestSessionReviewGate(_HookTestCase):
+    """Tests for UserPromptSubmit session review gate."""
+
+    def test_blocks_when_marker_exists(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").touch()
+        result = session_review_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["decision"], "block")
+
+    def test_allows_session_review_command(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").touch()
+        result = session_review_gate.run(
+            {"session_id": "test", "prompt": "/xp-session-review"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_passes_when_no_marker(self):
+        import session_review_gate
+
+        result = session_review_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_xp_agent_skips(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").touch()
+        result = session_review_gate.run(
+            {
+                "session_id": "test",
+                "prompt": "work",
+                "agent_type": "xp-nav",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_advisory_mode_allows(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").touch()
+        with _override_settings({"enforcement": "advisory"}):
+            result = session_review_gate.run(
+                {"session_id": "test", "prompt": "do work"},
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+
+class TestPreToolUseSessionReviewGate(_HookTestCase):
+    """Tests for PreToolUse hard enforcement of session review marker."""
+
+    def test_blocks_any_tool_when_marker_exists(self):
+        import pre_tool_use
+
+        self._write_events([make_event()])
+        (self.smm_dir / ".needs-session-review").touch()
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_use.run(
+                {
+                    "session_id": "test",
+                    "tool_name": "Read",
+                    "tool_input": {"file_path": "foo.py"},
+                },
+                smm_dir=self.smm_dir,
+            )
+
+    def test_passes_when_no_marker(self):
+        import pre_tool_use
+
+        self._write_events([make_event()])
+        result = pre_tool_use.run(
+            {
+                "session_id": "test",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "foo.py"},
+            },
+            smm_dir=self.smm_dir,
+        )
+        # Should not raise, may return context or None
+        self.assertTrue(result is None or isinstance(result, str))
+
+    def test_xp_agent_skips_marker_check(self):
+        import pre_tool_use
+
+        self._write_events([make_event()])
+        (self.smm_dir / ".needs-session-review").touch()
+        result = pre_tool_use.run(
+            {
+                "session_id": "test",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "foo.py"},
+                "agent_type": "xp-navigator",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
 
 
 # ===========================================================================
@@ -4182,7 +4324,8 @@ class TestPreToolUsePushGate(_HookTestCase):
 
     def test_push_no_smm_degrades(self):
         """git push with no SMM dir passes through (no crash)."""
-        self.pre_tool_use.run(self._push_input(), smm_dir=None)
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        self.pre_tool_use.run(self._push_input(), smm_dir=fake_dir)
         # No BlockedError — graceful degradation
 
     def test_push_no_hash_degrades(self):
@@ -4606,8 +4749,8 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             gupp_pos = result.index("Resume immediately")
             self.assertGreater(guide_pos, gupp_pos, "Guide should appear after GUPP")
 
-    def test_behavioral_guide_after_smm(self):
-        """Guide should appear after SMM content."""
+    def test_no_smm_in_session_start(self):
+        """SMM is no longer injected by session_start (deferred to session-review)."""
         import session_start
 
         self._write_events([make_event()])
@@ -4615,10 +4758,7 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        if result and "Honesty Principle" in result:
-            smm_pos = result.index("smm-context")
-            guide_pos = result.index("Honesty Principle")
-            self.assertLess(smm_pos, guide_pos, "SMM should appear before guide")
+        self.assertNotIn("<smm-context>", result)
 
 
 # ===========================================================================

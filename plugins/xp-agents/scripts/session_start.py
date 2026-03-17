@@ -99,43 +99,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Graceful: return GUPP + skills even without SMM
         return GUPP_TEXT + SKILLS_TEXT
 
-    # Materialize events into SMM markdown
+    # Materialize to file (for preloads to read), but don't inject into context.
+    # The fresh SMM will be injected after /xp-session-review completes.
     materialize.materialize_to_file(smm_dir)
-    smm_content = materialize.materialize(smm_dir)
 
-    # Build context: nudges FIRST (highest salience) → SMM → GUPP → skills → guide
+    # Write .needs-session-review marker — gates enforce this runs before work
+    marker = smm_dir / ".needs-session-review"
+    marker.touch()
+
+    # Build context: GUPP + skills + behavioral guide only. No SMM, no nudges.
     parts: list[str] = []
-
-    # Action-required nudges go first so they aren't buried under 11K of guide
-    import _append_impl
-
-    events = _common.read_events_raw(smm_dir)
-    has_goals = any(e.get("type") == _common.GOAL for e in events)
-    resolutions = _append_impl.compute_resolutions(events)
-    answered_ids = resolutions["answered_question_ids"]
-    has_open_questions = any(
-        e.get("type") == _common.QUESTION
-        and e.get("priority") in (_common.PRIORITY_BLOCKING, _common.PRIORITY_ASSUMED)
-        and e.get("id") not in answered_ids
-        for e in events
-    )
-    if not has_goals:
-        parts.append(
-            "**IMPORTANT — FIRST ACTION REQUIRED:** No project goals have been "
-            "recorded yet. Before doing ANY other work, Run /xp-goal-collection "
-            "to collect project goals from the user. "
-            "This is a first-session requirement — goals guide all subsequent "
-            "decisions, reviews, and retrospectives.\n\n---\n"
-        )
-    elif has_open_questions:
-        parts.append(
-            "**ACTION REQUIRED:** There are unresolved blocking or assumed "
-            "questions. Run /xp-question-triage to triage them "
-            "before proceeding with work.\n\n---\n"
-        )
-
-    if smm_content:
-        parts.append(_common.wrap_smm_context(smm_content))
 
     # Inject enforcement indicator for advisory mode
     enforcement = _common.load_enforcement_mode()

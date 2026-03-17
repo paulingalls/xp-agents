@@ -1960,11 +1960,14 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         self.assertEqual(r1.returncode, 0)
         output = json.loads(r1.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        # Should have behavioral guide + GUPP + skills
+        # Should have GUPP + skills (no SMM, no nudges)
         self.assertIn("Resume immediately", ctx)
         self.assertIn("smm-protocol", ctx)
-        # Goal collection nudge for missing goals
-        self.assertIn("xp-goal-collection", ctx)
+        # Marker written
+        self.assertTrue((self.smm_dir / ".needs-session-review").exists())
+
+        # Clear marker so pre_tool_use doesn't block
+        (self.smm_dir / ".needs-session-review").unlink()
 
         # 2. Pre tool use (Write) — navigator nudge
         r2 = self._run_script(
@@ -2394,7 +2397,7 @@ class TestEmptyProject(_IntegrationTestCase):
     """M7: Fresh git repo, no events — graceful degradation."""
 
     def test_session_start_empty_project(self):
-        """session_start with no events — customer proxy nudge."""
+        """session_start with no events — marker written, no SMM in context."""
         # Clear events (setUp created SMM with empty events.jsonl)
         (self.smm_dir / "events.jsonl").write_text("")
         result = self._run_script(
@@ -2404,9 +2407,11 @@ class TestEmptyProject(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        # Should nudge for goals
-        self.assertIn("xp-goal-collection", ctx)
-        self.assertIn("goals", ctx.lower())
+        # No SMM or goal nudge (handled by /xp-session-review)
+        self.assertNotIn("<smm-context>", ctx)
+        self.assertNotIn("xp-goal-collection", ctx)
+        # Marker file written
+        self.assertTrue((self.smm_dir / ".needs-session-review").exists())
         # No crash
         self.assertIn("Resume immediately", ctx)
 
