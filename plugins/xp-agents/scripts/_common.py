@@ -287,8 +287,19 @@ def detect_conflicts(
     """Detect structural conflicts in the event log. Returns concern event dicts.
 
     When file_path/cwd are None, skip pattern 1 (overlapping working_on).
+    Deduplicates: skips concerns whose content already exists in the event log.
     """
+    # Collect existing concern content for deduplication
+    existing_concerns = {
+        e.get("content", "") for e in events if e.get("type") == CONCERN
+    }
     concerns: list[dict] = []
+
+    def _add_concern(content: str, severity: str) -> None:
+        """Append concern only if not already in the event log."""
+        if content not in existing_concerns:
+            concerns.append(make_concern(content, severity, agent_id))
+            existing_concerns.add(content)
 
     # 1. Overlapping working_on — another agent claims same file
     if file_path is not None and cwd is not None:
@@ -303,13 +314,10 @@ def detect_conflicts(
                 continue
             norm_files = {normalize_path(f, cwd) for f in files}
             if normalized in norm_files:
-                concerns.append(
-                    make_concern(
-                        f"Overlapping working_on: agent '{aid}' is also working on "
-                        f"'{file_path}'. Coordinate to avoid conflicts.",
-                        "medium",
-                        agent_id,
-                    )
+                _add_concern(
+                    f"Overlapping working_on: agent '{aid}' is also working on "
+                    f"'{file_path}'. Coordinate to avoid conflicts.",
+                    "medium",
                 )
 
     # 2. Assumption contradicted by discovery
@@ -320,13 +328,10 @@ def detect_conflicts(
         elif e.get("type") == DISCOVERY:
             for ref in e.get("references", []):
                 if ref in assumptions:
-                    concerns.append(
-                        make_concern(
-                            f"Assumption contradicted: '{assumptions[ref]['content']}' "
-                            f"contradicted by discovery '{e['content']}'.",
-                            "high",
-                            agent_id,
-                        )
+                    _add_concern(
+                        f"Assumption contradicted: '{assumptions[ref]['content']}' "
+                        f"contradicted by discovery '{e['content']}'.",
+                        "high",
                     )
 
     # 3. Convention violation — decision diverges from convention on same topic
@@ -343,13 +348,10 @@ def detect_conflicts(
                 refs = set(e.get("references", []))
                 conv_ids = {c["id"] for c in conventions_by_topic[topic]}
                 if not refs & conv_ids:
-                    concerns.append(
-                        make_concern(
-                            f"Convention violation: decision on '{topic}' "
-                            "diverges from established convention.",
-                            "medium",
-                            agent_id,
-                        )
+                    _add_concern(
+                        f"Convention violation: decision on '{topic}' "
+                        "diverges from established convention.",
+                        "medium",
                     )
 
     # 4. Stale question — 🔴 question with no answer after 20+ subsequent events
@@ -366,13 +368,10 @@ def detect_conflicts(
     total = len(events)
     for qid, pos in question_positions.items():
         if qid not in answered_ids and (total - pos - 1) >= 20:
-            concerns.append(
-                make_concern(
-                    f"Stale question: blocking question (id {qid[:8]}) has had "
-                    f"{total - pos - 1} events without an answer.",
-                    "medium",
-                    agent_id,
-                )
+            _add_concern(
+                f"Stale question: blocking question (id {qid[:8]}) "
+                f"has not been answered.",
+                "medium",
             )
 
     # 5. Superseded decision — two decisions on same topic with no concern between
@@ -398,13 +397,10 @@ def detect_conflicts(
                 lo < len(concern_pos_list) and concern_pos_list[lo] < curr_pos
             )
             if not has_concern_between:
-                concerns.append(
-                    make_concern(
-                        f"Superseded decision: topic '{topic}' has multiple decisions "
-                        f"without an intervening concern.",
-                        "low",
-                        agent_id,
-                    )
+                _add_concern(
+                    f"Superseded decision: topic '{topic}' has multiple decisions "
+                    f"without an intervening concern.",
+                    "low",
                 )
 
     return concerns

@@ -3161,34 +3161,34 @@ class TestSubagentStop(_HookTestCase):
         self.assertEqual(len(concerns), 0)
 
 
-class TestSubagentStopPlanBlock(_HookTestCase):
-    """M6.5: subagent_stop.py should block for Plan subagents."""
+class TestSubagentStopPlanNudge(_HookTestCase):
+    """M6.5: subagent_stop.py should nudge (not block) for Plan subagents."""
 
-    def test_plan_agent_type_blocks(self):
-        with self.assertRaises(_common.BlockedError) as cm:
-            subagent_stop.run(
-                {
-                    "session_id": "t",
-                    "agent_id": "plan-1",
-                    "agent_type": "Plan",
-                    "last_assistant_message": "1. Write tests\n2. Implement",
-                },
-                smm_dir=self.smm_dir,
-            )
-        self.assertIn("xp-plan-reviewer", str(cm.exception))
+    def test_plan_agent_type_nudges_not_blocks(self):
+        """Plan subagent should get a nudge to run plan reviewer, not a block."""
+        result = subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "plan-1",
+                "agent_type": "Plan",
+                "last_assistant_message": "1. Write tests\n2. Implement",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-plan-reviewer", result)
 
-    def test_plan_block_still_records_status(self):
-        """Status event should be written even when blocking."""
-        with contextlib.suppress(_common.BlockedError):
-            subagent_stop.run(
-                {
-                    "session_id": "t",
-                    "agent_id": "plan-1",
-                    "agent_type": "Plan",
-                    "last_assistant_message": "1. Do stuff",
-                },
-                smm_dir=self.smm_dir,
-            )
+    def test_plan_nudge_still_records_status(self):
+        """Status event should be written when nudging."""
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "plan-1",
+                "agent_type": "Plan",
+                "last_assistant_message": "1. Do stuff",
+            },
+            smm_dir=self.smm_dir,
+        )
         events = _common.read_events_raw(self.smm_dir)
         statuses = [e for e in events if e.get("type") == "status"]
         self.assertTrue(len(statuses) >= 1)
@@ -3347,6 +3347,68 @@ class TestDetectConflictsCommon(_HookTestCase):
         ]
         concerns = _common.detect_conflicts(events, "main")
         self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
+
+    def test_no_duplicate_convention_violation(self):
+        """Should not re-generate concern if one already exists for same conflict."""
+        conv = make_event("convention", topic="naming", content="Use camelCase")
+        dec = make_event("decision", topic="naming", content="Use snake_case")
+        existing_concern = make_event(
+            "concern",
+            content="Convention violation: decision on 'naming' "
+            "diverges from established convention.",
+        )
+        events = [conv, dec, existing_concern]
+        concerns = _common.detect_conflicts(events, "main")
+        convention_concerns = [
+            c for c in concerns if "convention" in c["content"].lower()
+        ]
+        self.assertEqual(len(convention_concerns), 0)
+
+    def test_no_duplicate_superseded_decision(self):
+        """Should not re-generate concern if one already exists for same conflict."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        existing_concern = make_event(
+            "concern",
+            content="Superseded decision: topic 'db' has multiple "
+            "decisions without an intervening concern.",
+        )
+        d2 = make_event("decision", topic="db", content="Use MySQL")
+        events = [d1, existing_concern, d2]
+        concerns = _common.detect_conflicts(events, "main")
+        superseded_concerns = [
+            c for c in concerns if "superseded" in c["content"].lower()
+        ]
+        self.assertEqual(len(superseded_concerns), 0)
+
+    def test_no_duplicate_assumption_contradicted(self):
+        """Should not re-generate concern if one already exists for same conflict."""
+        a = make_event("assumption", content="API is REST")
+        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        existing_concern = make_event(
+            "concern",
+            content="Assumption contradicted: 'API is REST' "
+            "contradicted by discovery 'Actually GraphQL'.",
+        )
+        events = [a, d, existing_concern]
+        concerns = _common.detect_conflicts(events, "main")
+        contradiction_concerns = [
+            c for c in concerns if "contradict" in c["content"].lower()
+        ]
+        self.assertEqual(len(contradiction_concerns), 0)
+
+    def test_no_duplicate_stale_question(self):
+        """No duplicate concern for same stale question."""
+        q = make_event("question", priority="\U0001f534", content="Blocking?")
+        filler = [make_event(content=f"filler {i}") for i in range(21)]
+        existing_concern = make_event(
+            "concern",
+            content="Stale question: blocking question "
+            f"(id {q['id'][:8]}) has not been answered.",
+        )
+        events = [q, *filler, existing_concern]
+        concerns = _common.detect_conflicts(events, "main")
+        stale_concerns = [c for c in concerns if "stale" in c["content"].lower()]
+        self.assertEqual(len(stale_concerns), 0)
 
 
 # ===========================================================================

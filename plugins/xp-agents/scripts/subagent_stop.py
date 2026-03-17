@@ -87,13 +87,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if isinstance(last_message, str) and _detect_security_review(last_message):
         _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
-    # Plan reviewer block — highest-leverage review, must not be skipped
+    # Plan reviewer nudge — don't block, blocking prevents the plan output
+    # from reaching the main agent which causes infinite re-planning loops
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
-        raise _common.BlockedError(
-            "Plan review required. Run /xp-plan-reviewer "
-            "to review this plan before proceeding."
-        )
+        return "Run /xp-plan-reviewer to review this plan before proceeding."
 
     # Subagent reviewer nudge for non-xp subagents
     return (

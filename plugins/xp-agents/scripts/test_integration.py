@@ -1863,8 +1863,8 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), "")
 
-    def test_subagent_stop_plan_blocks(self):
-        """Plan agent_type → decision:block with plan reviewer instruction."""
+    def test_subagent_stop_plan_nudges(self):
+        """Plan agent_type → decision:approve with plan reviewer nudge."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -1876,7 +1876,7 @@ class TestMilestone65Integration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
-        self.assertEqual(data["decision"], "block")
+        self.assertEqual(data["decision"], "approve")
         self.assertIn("xp-plan-reviewer", data["reason"])
 
     def test_subagent_stop_reviewer_nudge(self):
@@ -2039,7 +2039,7 @@ class TestPlanReviewFlow(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
-        self.assertEqual(data["decision"], "block")
+        self.assertEqual(data["decision"], "approve")
         self.assertIn("xp-plan-reviewer", data["reason"])
 
     def test_regular_subagent_nudges_reviewer(self):
