@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.33 — Auto-Resolve Lint Concerns
+
+### Added
+- **Auto-resolve lint concerns** — `lint_check.py` now resolves unresolved lint concerns when lint passes for a file. Matches by file path so only concerns for the specific file are resolved. Mirrors the existing test concern auto-resolve pattern.
+- **`LINT_CONCERN_PREFIX`** constant in `_common.py` — shared prefix for lint concern content matching.
+- **`resolve_concerns()` shared helper** in `_common.py` — parameterized concern resolution accepting a matcher function, agent ID, and label. Eliminates duplication between test and lint resolution.
+- 4 new tests (898 total)
+
+### Changed
+- **`_resolve_test_concerns`** in `bash_post_tool.py` — now delegates to `_common.resolve_concerns()` instead of duplicating the resolution logic.
+- **Resolved Concerns section** in materializer — shows summary count instead of per-item listing to reduce SMM bloat.
+
+### Removed (via /simplify)
+- **`_make_event()` / `_append_safe()` wrappers** in `bash_post_tool.py` — redundant pass-through wrappers replaced with direct `_common.*` calls.
+
 ## v0.9.32 — Async Agent Timing Fix
 
 ### Fixed

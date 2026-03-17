@@ -743,8 +743,7 @@ class TestRenderMarkdown(_SMMTestCase):
         self._write_events([c, r])
         md = materialize.materialize(self.smm_dir)
         self.assertIn("## Resolved Concerns", md)
-        self.assertIn("✅", md)
-        self.assertIn("resolved", md)
+        self.assertIn("1 concern(s) resolved", md)
 
     def test_concerns_split_active_and_reference(self):
         """Unresolved in Active, resolved in Reference."""

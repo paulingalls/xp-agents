@@ -218,6 +218,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
             severity="medium",
         )
         _common.append_safe(smm_dir, concern)
+    else:
+        prefix = f"{_common.LINT_CONCERN_PREFIX}{normalized}:"
+        _common.resolve_concerns(
+            smm_dir,
+            lambda c, p=prefix: c.startswith(p),
+            "lint-check",
+            "Lint concern resolved",
+        )
 
     return None
 

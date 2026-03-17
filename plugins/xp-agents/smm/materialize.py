@@ -679,20 +679,16 @@ def render_markdown(
             )
         ref_sections.append("\n".join(lines))
 
-    # R7. Resolved Concerns
-    resolved_concerns = [
-        c for c in concerns if c["id"] in indices["concern_resolutions"]
-    ]
-    if resolved_concerns:
-        lines = ["## Resolved Concerns"]
-        for c in resolved_concerns:
-            resolver = indices["concern_resolutions"][c["id"]]
-            lines.append(
-                f"- ✅ {c.get('content', '')} "
-                f"[{c.get('agent_id', '')}, {short_id(c['id'])}] "
-                f"— resolved → {short_id(resolver['id'])}"
-            )
-        ref_sections.append("\n".join(lines))
+    # R7. Resolved Concerns (summary only — detail in event log)
+    resolved_concern_count = sum(
+        1 for c in concerns if c["id"] in indices["concern_resolutions"]
+    )
+    if resolved_concern_count:
+        ref_sections.append(
+            f"## Resolved Concerns\n"
+            f"{resolved_concern_count} concern(s) resolved. "
+            f"See event log for details."
+        )
 
     # R8. Completed Goals
     completed_goals = [g for g in goals if g["id"] in indices["goal_resolutions"]]

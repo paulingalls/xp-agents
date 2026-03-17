@@ -159,52 +159,12 @@ def load_commit_threshold() -> int:
 
 def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> None:
     """Auto-resolve unresolved test-failure concerns when tests pass."""
-    import _append_impl
-
-    events = _common.read_events_raw(smm_dir)
-
-    # Early exit: skip expensive compute_resolutions if no test concerns exist
-    has_test_concern = any(
-        e.get("type") == _common.CONCERN
-        and _common.TEST_CONCERN_RE.search(e.get("content", ""))
-        for e in events
+    _common.resolve_concerns(
+        smm_dir,
+        _common.TEST_CONCERN_RE.search,
+        agent_id,
+        "Test concern resolved",
     )
-    if not has_test_concern:
-        return
-
-    resolutions = _append_impl.compute_resolutions(events)
-    resolved_ids = resolutions["resolved_concern_ids"]
-
-    unresolved = [
-        e
-        for e in events
-        if e.get("type") == _common.CONCERN
-        and e.get("id", "") not in resolved_ids
-        and _common.TEST_CONCERN_RE.search(e.get("content", ""))
-    ]
-
-    if not unresolved:
-        return
-
-    resolution_events = [
-        _make_event(
-            _common.STATUS,
-            agent_id,
-            f"Test concern resolved: {c['content'][:60]}",
-            working_on=[],
-            metadata={"resolves": [c["id"]]},
-        )
-        for c in unresolved
-    ]
-    _common.bulk_append_safe(smm_dir, resolution_events)
-
-
-def _append_safe(smm_dir: Path, event: dict) -> None:
-    _common.append_safe(smm_dir, event)
-
-
-def _make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
-    return _common.make_event(event_type, agent_id, content, **extra)
 
 
 # ---------------------------------------------------------------------------
@@ -241,26 +201,26 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         if msg:
             # Auto-draft decision
             topic = msg[:50].lower().replace(" ", "-")
-            decision = _make_event(
+            decision = _common.make_event(
                 _common.DECISION,
                 agent_id,
                 msg,
                 topic=topic,
                 metadata={"draft": True},
             )
-            _append_safe(smm_dir, decision)
+            _common.append_safe(smm_dir, decision)
 
             # Commit size check
             threshold = load_commit_threshold()
             file_count = count_commit_files(cwd)
             if file_count >= threshold:
-                concern = _make_event(
+                concern = _common.make_event(
                     _common.CONCERN,
                     agent_id,
                     f"Commit touches {file_count} files — consider smaller commits.",
                     severity="medium",
                 )
-                _append_safe(smm_dir, concern)
+                _common.append_safe(smm_dir, concern)
 
         return None
 
@@ -271,22 +231,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         passed = results["passed"]
         failed = results["failed"]
 
-        status = _make_event(
+        status = _common.make_event(
             _common.STATUS,
             agent_id,
             f"Tests: {passed} passed, {failed} failed ({framework})",
             working_on=[],
         )
-        _append_safe(smm_dir, status)
+        _common.append_safe(smm_dir, status)
 
         if failed > 0:
-            concern = _make_event(
+            concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
                 f"Test failures detected: {failed} failed ({framework})",
                 severity="high",
             )
-            _append_safe(smm_dir, concern)
+            _common.append_safe(smm_dir, concern)
         elif failed == 0:
             _resolve_test_concerns(smm_dir, agent_id)
 

@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 # Make smm/ importable so we can use _append_impl as the foundational module
@@ -296,6 +297,56 @@ def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:
 TEST_CONCERN_RE = re.compile(
     r"Test (?:failures? detected|run failed|command failed)", re.IGNORECASE
 )
+
+LINT_CONCERN_PREFIX = "Lint errors in "
+
+
+def resolve_concerns(
+    smm_dir: Path,
+    matcher: Callable[[str], object],
+    agent_id: str,
+    label: str,
+) -> None:
+    """Auto-resolve unresolved concerns whose content matches *matcher*.
+
+    *matcher* receives the event's ``content`` string; any truthy return
+    means it matches (works with both ``re.search`` and ``str.startswith``).
+    """
+    import _append_impl
+
+    events = read_events_raw(smm_dir)
+
+    if not any(
+        e.get("type") == CONCERN and matcher(e.get("content", "")) for e in events
+    ):
+        return
+
+    resolved_ids = _append_impl.compute_resolutions(events)["resolved_concern_ids"]
+
+    unresolved = [
+        e
+        for e in events
+        if e.get("type") == CONCERN
+        and e.get("id", "") not in resolved_ids
+        and matcher(e.get("content", ""))
+    ]
+    if not unresolved:
+        return
+
+    bulk_append_safe(
+        smm_dir,
+        [
+            make_event(
+                STATUS,
+                agent_id,
+                f"{label}: {c['content'][:60]}",
+                working_on=[],
+                metadata={"resolves": [c["id"]]},
+            )
+            for c in unresolved
+        ],
+    )
+
 
 # ---------------------------------------------------------------------------
 # Conflict detection (shared by post_tool_use.py and subagent_stop.py)

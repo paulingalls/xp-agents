@@ -5509,6 +5509,108 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestAutoResolveLintConcerns(_HookTestCase):
+    """Tests for auto-resolve of lint concerns when lint passes."""
+
+    def setUp(self):
+        super().setUp()
+        self._lint_tmpdir = Path(tempfile.mkdtemp())
+        (self._lint_tmpdir / "ruff.toml").touch()
+
+    def tearDown(self):
+        import shutil as sh
+
+        sh.rmtree(self._lint_tmpdir, ignore_errors=True)
+        super().tearDown()
+
+    def _normalized(self, rel_path: str) -> str:
+        """Return the normalized absolute path lint_check will use."""
+        return _common.normalize_path(rel_path, str(self._lint_tmpdir))
+
+    def _run_lint_clean(self, file_path="src/app.py"):
+        """Run lint_check with a clean lint result for file_path."""
+        with (
+            patch(
+                "lint_check.shutil.which",
+                return_value="/usr/bin/ruff",
+            ),
+            patch("lint_check.run_linter", return_value=None),
+        ):
+            lint_check.run(
+                _make_write_input(
+                    tool_input={
+                        "file_path": file_path,
+                        "content": "x",
+                    },
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+
+    def test_lint_pass_resolves_concern_for_same_file(self):
+        """Seed lint concern for src/app.py, pass lint → resolved."""
+        norm = self._normalized("src/app.py")
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
+            severity="medium",
+        )
+        self._write_events([concern])
+        self._run_lint_clean("src/app.py")
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+        self.assertIn(
+            concern["id"],
+            resolutions[0]["metadata"]["resolves"],
+        )
+
+    def test_lint_pass_no_resolve_for_different_file(self):
+        """Lint concern for src/other.py not resolved by src/app.py."""
+        norm_other = self._normalized("src/other.py")
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm_other}:\nE302",
+            severity="medium",
+        )
+        self._write_events([concern])
+        self._run_lint_clean("src/app.py")
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_no_lint_concerns_no_resolution(self):
+        """No lint concerns in events → no resolution events."""
+        self._run_lint_clean("src/app.py")
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_already_resolved_not_re_resolved(self):
+        """Already-resolved lint concern not re-resolved."""
+        norm = self._normalized("src/app.py")
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm}:\nE302",
+            severity="medium",
+        )
+        resolver = make_event(
+            "status",
+            content="Lint concern resolved",
+            working_on=[],
+            metadata={"resolves": [concern["id"]]},
+        )
+        self._write_events([concern, resolver])
+        self._run_lint_clean("src/app.py")
+        events = self._read_events()
+        new_resolutions = [
+            e
+            for e in events[2:]  # skip seeded events
+            if e.get("metadata", {}).get("resolves")
+        ]
+        self.assertEqual(len(new_resolutions), 0)
+
+
 class TestRetroDigest(_HookTestCase):
     """Tests for retrospective digest helpers."""
 
