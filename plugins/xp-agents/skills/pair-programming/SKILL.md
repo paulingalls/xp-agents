@@ -9,12 +9,12 @@ description: >-
 
 ## You Are the Driver
 
-In this pair programming setup, you (the main agent) are the **driver** — you write the code. Two hook-based agents play supporting roles:
+In this pair programming setup, you (the main agent) are the **driver** — you write the code. Two systems play supporting roles:
 
-- **Navigator** (`navigator.md`, PreToolUse agent hook) — reviews every Write/Edit/MultiEdit *before* it happens. Provides strategic guidance. Can block changes that contradict existing decisions.
-- **Quality Reviewer** (`quality_reviewer.md`, PostToolUse async agent hook) — reviews every Write/Edit/MultiEdit *after* it happens. Checks courage (are hard issues addressed?) and simplicity (is it over-engineered?). Writes `concern` events.
+- **Navigator** (`navigator.md`, PreToolUse plugin subagent) — reviews every Write/Edit/MultiEdit *before* it happens. Provides strategic guidance. Can block changes that contradict existing decisions.
+- **Quality Review** (`/xp-quality-review` skill, Stop gate) — reviews code *after* simplify completes. Applies Clean Code principles, catches skipped simplify recommendations, and records unaddressed issues as technical debt.
 
-Both run automatically via hooks. You don't invoke them — they invoke themselves.
+The navigator runs automatically via hooks. The quality review is triggered by a Stop gate after `/simplify` passes.
 
 ## Navigator Guidance
 
@@ -35,7 +35,6 @@ The navigator writes a `pair_guidance` event to the SMM with its advice. This ev
 **Disagree:** You can proceed despite navigator guidance, but:
 1. Record a `concern` event explaining why you're diverging
 2. Be specific — "I disagree because X" not "I'll handle it later"
-3. The quality reviewer will independently evaluate the result
 
 **Push back:** If the navigator is wrong about a fact (e.g., cites a decision that was superseded):
 1. Record a `discovery` event with the correct information
@@ -56,40 +55,38 @@ When blocked:
 
 In advisory mode, blocks become warnings in `additionalContext`.
 
-## Quality Reviewer Concerns
+## Quality Review at Stop
 
-### Severity Levels
+### How It Works
 
-The quality reviewer writes `concern` events with severity:
+After `/simplify` runs and you try to stop, the quality review gate fires:
+1. Reviews what `/simplify` recommended vs what was actually applied
+2. Reads modified files and applies Clean Code principles
+3. Fixes skipped items directly (courage) or records them as `debt`
 
-- **high** — Empty catch blocks, silently swallowed errors, security vulnerabilities, data loss risks
-- **medium** — Unnecessary complexity, premature abstraction, growing file size, missing error handling at system boundaries
-- **low** — Style issues, minor naming concerns, potential simplification opportunities
+### Clean Code Checks
 
-### How to Address Concerns
+The quality review applies these principles:
+- **Single Responsibility** — each function does one thing
+- **Small functions** — extract when functions grow beyond one level of abstraction
+- **Meaningful names** — variables and functions clearly describe their purpose
+- **DRY** — duplicated logic is extracted
+- **Dead code** — unused imports, unreachable branches are removed
+- **Error handling** — exceptions are handled properly, not swallowed
 
-- **high severity:** Fix immediately. These are correctness or safety issues.
-- **medium severity:** Address in the current loop if touching that file. Otherwise, record as `debt`.
-- **low severity:** Consider during refactoring. Fine to defer.
+### Addressing Findings
 
-If you disagree with a concern, record a `decision` event explaining your rationale. Don't silently ignore it.
+The quality review either fixes issues directly or records them as `debt` events. If it records debt, address it in the current session if touching that file. Otherwise, acknowledge it.
 
-## Conflict Resolution
-
-When navigator and quality reviewer disagree (navigator approves a change, quality reviewer flags it):
-
-1. **Quality reviewer wins on safety** — if the concern is about correctness, data loss, or security
-2. **Navigator wins on architecture** — if the concern is about style or preference and the change aligns with project decisions
-3. **Record the conflict** — write a `concern` event documenting the disagreement for the retrospective
+If you disagree with a finding, record a `decision` event explaining your rationale. Don't silently ignore it.
 
 ## Debt in Pair Programming
 
 When you encounter debt while working:
 
 1. The navigator will nudge you if the target file has associated `debt` events
-2. If you address the debt, the quality reviewer notes it positively
-3. If you can't address it now, acknowledge it — don't pretend it's not there
-4. Record new debt as `debt` events with the `files` array listing affected files
+2. If you can't address it now, acknowledge it — don't pretend it's not there
+3. Record new debt as `debt` events with the `files` array listing affected files
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
@@ -117,10 +114,8 @@ A typical loop with pair programming active:
 2. **Plan** — write a status event with your approach and target files
 3. **Write test** — TDD: test first, watch it fail
 4. **Write implementation** — navigator reviews before the write, may provide guidance or block
-5. **PostToolUse fires** — quality reviewer evaluates the change asynchronously, writes concerns
-6. **Run tests** — verify the implementation passes
-7. **Check concerns** — address any quality reviewer concerns from your delta
-8. **Refactor** — clean up, then the loop repeats for the next change
-9. **Stop** — simplify gate fires if files changed, TDD check verifies tests pass
+5. **Run tests** — verify the implementation passes
+6. **Refactor** — clean up, then the loop repeats for the next change
+7. **Stop** — simplify gate fires, quality review gate fires, TDD check verifies tests pass
 
-The navigator and quality reviewer are your pair partners throughout this flow. They see the same SMM you do and their feedback is grounded in project context, not generic rules.
+The navigator is your pair partner throughout this flow. It sees the same SMM you do and its feedback is grounded in project context, not generic rules.

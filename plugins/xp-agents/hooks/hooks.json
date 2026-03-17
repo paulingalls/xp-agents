@@ -161,6 +161,10 @@
           },
           {
             "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/quality_review_gate.py"
+          },
+          {
+            "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py"
           }
         ]

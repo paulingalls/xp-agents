@@ -103,9 +103,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # The fresh SMM will be injected after /xp-session-review completes.
     materialize.materialize_to_file(smm_dir)
 
-    # Write .needs-session-review marker — gates enforce this runs before work
-    marker = smm_dir / ".needs-session-review"
-    marker.touch()
+    # Write .needs-session-review marker only on fresh session starts.
+    # "resume", "compact", "clear" all fire mid-session (e.g., after
+    # Stop hook blocks, context compression, or /clear).
+    if source == "startup":
+        marker = smm_dir / ".needs-session-review"
+        marker.touch()
 
     # Build context: GUPP + skills + behavioral guide only. No SMM, no nudges.
     parts: list[str] = []

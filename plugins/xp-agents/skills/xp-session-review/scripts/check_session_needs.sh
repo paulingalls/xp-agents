@@ -58,9 +58,10 @@ fi
 if [ "$NEEDS_RETRO" = false ] && [ "$NEEDS_GOALS" = false ] && [ "$NEEDS_HOUSEKEEPING" = false ]; then
     echo "### NONE"
     echo "No session review actions needed."
-    # Clear marker immediately when nothing to do
-    rm -f "$MARKER"
 fi
-# NOTE: Marker is NOT cleared here on purpose. It stays until step 4 of
-# the skill completes (see SKILL.md). This ensures the gate stays active
-# if the review is aborted mid-way.
+
+# Always clear the marker here. This preload runs as a !`command` before
+# any tool calls, so the gate must be lifted for the review itself to
+# proceed. If the review is aborted, session_start.py will recreate the
+# marker on the next session.
+rm -f "$MARKER"

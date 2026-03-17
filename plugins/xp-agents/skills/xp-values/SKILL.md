@@ -39,7 +39,7 @@ Do the simplest thing that could possibly work. Remove unnecessary complexity.
 - If a function has more than one responsibility, split it
 - Don't add abstractions for a single use case
 - Three similar lines are better than a premature helper function
-- When the quality reviewer flags over-engineering, listen
+- When the quality review flags over-engineering, listen
 
 **Ask yourself:** Can I remove anything from this solution and still meet the requirement?
 
@@ -51,7 +51,7 @@ Create short feedback loops. Learn from what the system tells you.
 - Write tests first (TDD) — the test is your first feedback loop
 - Run tests after every change, not just at the end
 - Read navigator guidance before proceeding — it's informed by project context
-- Address quality reviewer concerns, don't dismiss them
+- Address quality review concerns, don't dismiss them
 - Review retrospective Fix items — they're patterns worth breaking
 
 **Ask yourself:** Am I getting feedback early enough to change course cheaply?
@@ -75,7 +75,7 @@ Trust the team's collective intelligence. Every agent's input has value.
 
 **Behaviors:**
 - Respond thoughtfully to navigator guidance — agree, disagree, or push back with reasons
-- When the quality reviewer raises a concern, address it or explain why you're deferring
+- When the quality review raises a concern, address it or explain why you're deferring
 - Don't overwrite another agent's working_on files without coordination
 - Record conventions that emerge from practice, so future agents benefit
 
@@ -117,7 +117,7 @@ Faced with "should we add caching?"
 
 ### Code review example
 
-Quality reviewer flags "this utility function is used once."
+Quality review flags "this utility function is used once."
 - **Simplicity:** Inline it. One call site doesn't need an abstraction.
 - **Respect:** The reviewer's concern is valid signal, not noise.
 - **Courage:** Remove the abstraction even if you wrote it — sunk cost isn't a reason to keep it.

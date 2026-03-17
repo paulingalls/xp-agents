@@ -81,7 +81,7 @@ def _is_code_file(path: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _find_last_customer_input(events: list[dict]) -> tuple[int, dict] | None:
+def find_last_customer_input(events: list[dict]) -> tuple[int, dict] | None:
     """Find last customer_input event. Returns (index, event) or None."""
     for i in range(len(events) - 1, -1, -1):
         if events[i].get("type") == _common.CUSTOMER_INPUT:
@@ -89,7 +89,7 @@ def _find_last_customer_input(events: list[dict]) -> tuple[int, dict] | None:
     return None
 
 
-def _has_code_changes_since(events: list[dict], start_idx: int) -> bool:
+def has_code_changes_since(events: list[dict], start_idx: int) -> bool:
     """Check for status events with code files in working_on after start_idx."""
     for e in events[start_idx + 1 :]:
         if e.get("type") == _common.STATUS:
@@ -110,7 +110,7 @@ def _tracker_path(smm_dir: Path, agent_id: str) -> Path:
     return smm_dir / f".simplify-{agent_id}.json"
 
 
-def _load_tracker(smm_dir: Path, agent_id: str) -> dict:
+def load_tracker(smm_dir: Path, agent_id: str) -> dict:
     try:
         return json.loads(_tracker_path(smm_dir, agent_id).read_text())
     except (FileNotFoundError, json.JSONDecodeError, ValueError):
@@ -144,12 +144,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not events:
         return None
 
-    boundary = _find_last_customer_input(events)
+    boundary = find_last_customer_input(events)
     if boundary is None:
         return None
 
     start_idx, ci_event = boundary
-    if not _has_code_changes_since(events, start_idx):
+    if not has_code_changes_since(events, start_idx):
         return None
 
     # Check tracker — same loop_id means simplify already ran
@@ -159,7 +159,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except ValueError:
         return None
     loop_id = ci_event.get("id", "")
-    tracker = _load_tracker(smm_dir, agent_id)
+    tracker = load_tracker(smm_dir, agent_id)
     if tracker.get("loop_id") == loop_id:
         return None
 

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""TaskCompleted hook: gate navigator, nudge quality reviewer.
+"""TaskCompleted hook: gate navigator guidance.
 
 Blocks task completion unless navigator guidance has been provided
 (pair_guidance event exists since last task completion). On second
 attempt for the same task, allows through to prevent infinite loops.
-Also nudges the quality reviewer.
 """
 
 import sys
@@ -13,11 +12,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
-
-_QUALITY_NUDGE = (
-    "Run /xp-quality-reviewer in the background "
-    "to review code changes made during this task."
-)
 
 _NAV_BLOCK_MSG = (
     "Run /xp-navigator to review your work before completing this task. "
@@ -53,7 +47,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         smm_dir = _common.resolve_smm_dir()
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
-        return _QUALITY_NUDGE
+        return None
 
     enforcement = _common.load_enforcement_mode()
     events = _common.read_events_raw(smm_dir)
@@ -68,7 +62,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         if already_blocked:
             # Second attempt — allow through
-            return _QUALITY_NUDGE
+            return None
 
         # First attempt — record gate event and block
         agent_id = input_data.get("agent_id", "main")
@@ -81,11 +75,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         _common.append_safe(smm_dir, event)
 
         if enforcement == _common.ENFORCEMENT_ADVISORY:
-            return f"⚠️ Advisory: {_NAV_BLOCK_MSG}\n\n{_QUALITY_NUDGE}"
+            return f"⚠️ Advisory: {_NAV_BLOCK_MSG}"
 
         raise _common.BlockedError(_NAV_BLOCK_MSG)
 
-    return _QUALITY_NUDGE
+    return None
 
 
 if __name__ == "__main__":

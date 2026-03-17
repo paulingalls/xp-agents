@@ -1268,7 +1268,7 @@ class TestLintCheckIntegrationExtended(_IntegrationTestCase):
                 "tool_input": {"file_path": "src/app.py", "content": "x"},
                 "cwd": str(self.tmpdir),
                 "agent_id": "main",
-                "agent_type": "xp-quality-reviewer",
+                "agent_type": "xp-navigator",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -1863,12 +1863,10 @@ class TestMilestone65Integration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-quality-reviewer", ctx)
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_task_completed_xp_agent_skips(self):
-        """xp-agent completing a task → no nudge."""
+        """xp-agent completing a task → no output."""
         result = self._run_script(
             "task_completed.py",
             {
@@ -1876,7 +1874,7 @@ class TestMilestone65Integration(_IntegrationTestCase):
                 "hook_event_name": "TaskCompleted",
                 "task_id": "task-1",
                 "task_subject": "Review code",
-                "agent_type": "xp-quality-reviewer",
+                "agent_type": "xp-navigator",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -1926,11 +1924,10 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertIn("xp-retrospective", ctx)
 
     def test_agent_files_exist(self):
-        """All 5 agent .md files exist in agents/ directory."""
+        """All 4 agent .md files exist in agents/ directory."""
         agents_dir = Path(__file__).parent.parent / "agents"
         for name in (
             "xp-navigator",
-            "xp-quality-reviewer",
             "xp-retrospective",
             "xp-plan-reviewer",
             "xp-subagent-reviewer",

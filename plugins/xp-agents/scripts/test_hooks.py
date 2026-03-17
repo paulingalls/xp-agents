@@ -2052,56 +2052,6 @@ class TestSessionReviewGate(_HookTestCase):
         self.assertIsNone(result)
 
 
-class TestPreToolUseSessionReviewGate(_HookTestCase):
-    """Tests for PreToolUse hard enforcement of session review marker."""
-
-    def test_blocks_any_tool_when_marker_exists(self):
-        import pre_tool_use
-
-        self._write_events([make_event()])
-        (self.smm_dir / ".needs-session-review").touch()
-        with self.assertRaises(_common.BlockedError):
-            pre_tool_use.run(
-                {
-                    "session_id": "test",
-                    "tool_name": "Read",
-                    "tool_input": {"file_path": "foo.py"},
-                },
-                smm_dir=self.smm_dir,
-            )
-
-    def test_passes_when_no_marker(self):
-        import pre_tool_use
-
-        self._write_events([make_event()])
-        result = pre_tool_use.run(
-            {
-                "session_id": "test",
-                "tool_name": "Read",
-                "tool_input": {"file_path": "foo.py"},
-            },
-            smm_dir=self.smm_dir,
-        )
-        # Should not raise, may return context or None
-        self.assertTrue(result is None or isinstance(result, str))
-
-    def test_xp_agent_skips_marker_check(self):
-        import pre_tool_use
-
-        self._write_events([make_event()])
-        (self.smm_dir / ".needs-session-review").touch()
-        result = pre_tool_use.run(
-            {
-                "session_id": "test",
-                "tool_name": "Read",
-                "tool_input": {"file_path": "foo.py"},
-                "agent_type": "xp-navigator",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-
 # ===========================================================================
 # post_tool_use.py tests — Milestone 3.3
 # ===========================================================================
@@ -2332,7 +2282,7 @@ import task_completed  # noqa: E402
 
 
 class TestTaskCompleted(_HookTestCase):
-    """TaskCompleted hook gates navigator, nudges quality reviewer."""
+    """TaskCompleted hook gates navigator guidance."""
 
     def _make_input(self, **overrides) -> dict:
         data = {
@@ -2358,8 +2308,7 @@ class TestTaskCompleted(_HookTestCase):
     def test_passes_with_navigator_guidance(self):
         self._seed_guidance()
         result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-quality-reviewer", result)
+        self.assertIsNone(result)
 
     def test_second_attempt_passes_without_guidance(self):
         """Second attempt allows through to prevent infinite loops."""
@@ -2368,12 +2317,11 @@ class TestTaskCompleted(_HookTestCase):
             task_completed.run(self._make_input(), smm_dir=self.smm_dir)
         # Second attempt passes
         result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-quality-reviewer", result)
+        self.assertIsNone(result)
 
     def test_xp_agent_skips(self):
         result = task_completed.run(
-            self._make_input(agent_type="xp-quality-reviewer"),
+            self._make_input(agent_type="xp-navigator"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
@@ -3590,12 +3538,6 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
         content = (self.agents_dir / "xp-navigator.md").read_text()
         self.assertIn("Debt Awareness", content)
 
-    # AC 11: quality reviewer flags ignored debt
-    def test_quality_reviewer_flags_ignored_debt(self):
-        content = (self.agents_dir / "xp-quality-reviewer.md").read_text()
-        self.assertIn('--type "debt"', content)
-        self.assertIn("debt", content.lower())
-
     # AC 12: retrospective escalates aging debt
     def test_retrospective_escalates_aging_debt(self):
         content = (self.agents_dir / "xp-retrospective.md").read_text()
@@ -3894,6 +3836,142 @@ class TestSimplifyGateSecurity(_HookTestCase):
 
 
 # ===========================================================================
+# Quality Review Gate
+# ===========================================================================
+
+
+import quality_review_gate  # noqa: E402
+
+
+class TestQualityReviewGate(_HookTestCase):
+    """Tests for quality_review_gate.py Stop command hook."""
+
+    def setUp(self):
+        super().setUp()
+        self.mod = quality_review_gate
+
+    def _seed_simplify_done(self, loop_id: str) -> None:
+        """Write a simplify tracker showing simplify completed for loop_id."""
+        import json
+
+        tracker = self.smm_dir / ".simplify-main.json"
+        tracker.write_text(json.dumps({"loop_id": loop_id}))
+
+    def test_xp_agent_skips(self):
+        inp = _make_stop_input(agent_type="xp-nav")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_stop_hook_active_skips(self):
+        inp = _make_stop_input(stop_hook_active=True)
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_smm_dir_degrades(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
+        self.assertIsNone(result)
+
+    def test_no_events_passes(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_simplify_tracker_passes(self):
+        """If simplify hasn't run yet, quality gate stays silent."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_simplify_done_blocks(self):
+        """After simplify runs, quality gate blocks."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_tracker_prevents_retrigger(self):
+        """Second call after quality review gate fires passes."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        result1 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result1)
+        # Second call — tracker prevents re-trigger
+        result2 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result2)
+
+    def test_simplify_tracker_wrong_loop_passes(self):
+        """Simplify tracker from a different loop doesn't trigger gate."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        self._seed_simplify_done("different-loop-id")
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_non_code_changes_pass(self):
+        """Only docs/config modified — quality gate doesn't fire."""
+        ci = make_event("customer_input", content="update docs")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["README.md"]),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_tracker_written_with_loop_id(self):
+        """Quality review tracker file has correct structure."""
+        import json
+
+        ci = make_event("customer_input", content="build")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/x.ts"]),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        self.mod.run(inp, smm_dir=self.smm_dir)
+
+        tracker_file = self.smm_dir / ".quality-review-main.json"
+        self.assertTrue(tracker_file.exists())
+        tracker = json.loads(tracker_file.read_text())
+        self.assertEqual(tracker["loop_id"], ci["id"])
+
+
+# ===========================================================================
 # TDD Stop Gate (replaces tdd_check.md prompt hook)
 # ===========================================================================
 
@@ -4079,13 +4157,13 @@ class TestHooksJsonM54(_HooksJsonTestCase):
             "tdd_stop_gate.py command hook missing from Stop",
         )
 
-    def test_stop_has_two_hooks(self):
+    def test_stop_has_three_hooks(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
         self.assertEqual(
-            len(all_hooks), 2, f"Expected 2 Stop hooks, got {len(all_hooks)}"
+            len(all_hooks), 3, f"Expected 3 Stop hooks, got {len(all_hooks)}"
         )
 
 
@@ -4767,13 +4845,12 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
 
 _SUBAGENT_NAMES = (
     "xp-navigator",
-    "xp-quality-reviewer",
     "xp-retrospective",
     "xp-plan-reviewer",
     "xp-subagent-reviewer",
 )
 
-_BACKGROUND_SUBAGENTS = frozenset({"xp-quality-reviewer", "xp-subagent-reviewer"})
+_BACKGROUND_SUBAGENTS = frozenset({"xp-subagent-reviewer"})
 
 
 class TestHooksJsonM65(_HooksJsonTestCase):
