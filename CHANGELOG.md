@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.35 — Session Review Gate Fix for /clear
+
+### Fixed
+- **Session review gate not firing after `/clear`** — `session_start.py` previously returned `None` immediately for `source="clear"`, skipping marker creation and context injection. After `/clear`, the session review gate never blocked, allowing retrospectives to be silently skipped. Now treats "clear" as a fresh start like "startup": sets `.needs-session-review` marker and injects GUPP + skills context.
+
+### Changed
+- **Module docstring updated** — reflects all handled SessionStart sources (startup, resume, compact, clear)
+- 4 new tests (903 total)
+
 ## v0.9.34 — Decision Resolution & Stop Message Cleanup
 
 ### Fixed
