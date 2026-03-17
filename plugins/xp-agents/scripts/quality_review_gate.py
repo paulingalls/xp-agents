@@ -121,10 +121,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Write tracker and block
     _write_tracker(smm_dir, agent_id, {"loop_id": loop_id})
-    return (
-        "Run /xp-quality-review to review code quality before stopping. "
-        "Check for skipped /simplify recommendations and Clean Code issues."
-    )
+    return "Run the /xp-quality-review skill before stopping."
 
 
 # ---------------------------------------------------------------------------
