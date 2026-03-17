@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.30 — Plan Review Gate via PreToolUse + Documentation Update
+
+### Changed
+- **Plan review mechanism** — SubagentStop writes `plan_awaiting_review` marker event instead of blocking. PreToolUse detects unreviewed plans and injects `additionalContext` nudge before writes. Two-step mechanism replaces the exit-2 block that caused planning loops.
+- **Documentation updated** — ARCHITECTURE.md and README.md updated to reflect v0.9.29 changes: navigator removal, TaskCompleted removal, plan review gate, concern deduplication, quality review drift management, SMM injection trigger change, platform findings.
+
 ## v0.9.29 — Remove Navigator & TaskCompleted, Fix Planning Loop
 
 ### Fixed

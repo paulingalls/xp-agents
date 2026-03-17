@@ -4,7 +4,7 @@ A Claude Code plugin that makes your agents — solo or in teams — write bette
 
 ## TL;DR
 
-**What it does:** Command hooks fire automatically on every tool call — injecting project context, blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a navigator reviews code changes, a quality reviewer flags issues, and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection and question triage. Everything is broadcast through a shared event log visible to every agent.
+**What it does:** Command hooks fire automatically on every tool call — injecting project context, blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a quality reviewer flags issues and checks drift against decisions, a plan reviewer validates plans, and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection and question triage. Everything is broadcast through a shared event log visible to every agent.
 
 **How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (code review, plan analysis, retrospectives) lives in plugin subagents with full tool access, triggered by command hook nudges or blocks.
 
@@ -76,7 +76,7 @@ $ claude
 ```
 
 From here, the system takes over:
-- **Before every write** — SMM delta injected (two-tier: Active Context for quick checks, full SMM for writes), navigator subagent nudged for strategic guidance
+- **Before every write** — SMM delta injected (two-tier: Active Context for quick checks, full SMM for writes), plan review gate checks for unreviewed plans
 - **After every write** — status auto-updated, quality reviewer subagent nudged (runs in background), linter runs
 - **Every user prompt** — logged and distilled into trackable customer intent
 - **Every conflict** — detected and surfaced automatically
@@ -126,22 +126,21 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
-| **PreToolUse** (Write/Edit) | SMM delta injection, `working_on` conflict blocking, TDD order check, navigator subagent nudge | Communication, Pair Programming, TDD |
+| **PreToolUse** (Write/Edit) | SMM delta injection, `working_on` conflict blocking, TDD order check, plan review gate | Communication, TDD, Planning Game |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check, quality reviewer subagent nudge | Standup, Coding Standards, Courage, Simplicity |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
-| **SubagentStop** (Plan) | Block until plan reviewer subagent invoked | Planning Game, Simple Design |
+| **SubagentStop** (Plan) | Write `plan_awaiting_review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-session-review` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
 | **UserPromptSubmit** | Log user prompt as `customer_input` event | On-Site Customer |
 | **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
 | **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
-| **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; SMM + behavioral guide injection when `/xp-session-review` completes | Coding Standards, Communication |
+| **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; SMM + behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
 | **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if files changed and `/simplify` not run | TDD, Refactoring |
-| **TaskCompleted** | Navigator gate (block until `pair_guidance` event exists) + quality reviewer nudge | Pair Programming |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 
-The navigator, quality reviewer, retrospective analyst, plan reviewer, and subagent reviewer are plugin subagents with full tool access. Goal collection and question triage run as inline skills. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer uses exit-2 blocking (like the simplify gate) for deterministic triggering.
+The quality reviewer, retrospective analyst, plan reviewer, and subagent reviewer are plugin subagents with full tool access. Goal collection and question triage run as inline skills. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer is triggered via a two-step mechanism: SubagentStop writes a `plan_awaiting_review` marker event, then PreToolUse detects unreviewed plans and nudges the agent to invoke the reviewer before writes.
 
 ### The Shared Mental Model
 
@@ -158,7 +157,7 @@ Instead of point-to-point mailboxes, xp-agents introduces a broadcast event log 
 
 The SMM lives at user level (`~/.claude/`), not in the project's `.claude/`. This means Agent Team teammates in different git worktrees all share the same event log.
 
-The materialized view has two tiers: **Active Context** (goals, conflicts, blocking questions, undelivered customer intent, concerns, drift signals, agent status, navigator guidance) and **Reference** (decisions, conventions, resolved questions, assumptions, technical debt, discoveries). Non-write tools get Active Context only — cheap and focused. Write tools get the full SMM.
+The materialized view has two tiers: **Active Context** (goals, conflicts, blocking questions, undelivered customer intent, concerns, drift signals, agent status) and **Reference** (decisions, conventions, resolved questions, assumptions, technical debt, discoveries). Non-write tools get Active Context only — cheap and focused. Write tools get the full SMM.
 
 Events are semantically typed — each carries different synchronization semantics:
 
@@ -175,7 +174,7 @@ Events are semantically typed — each carries different synchronization semanti
 | `question` | Customer input needed (🔴 blocking / 🟡 assumed) | Agent |
 | `assumption` | Stated beliefs — escalates if contradicted | Agent + subagent (plan reviewer) |
 | `debt` | Acknowledged tradeoff — ages and escalates across sessions | Subagent (quality reviewer + retrospective) |
-| `pair_guidance` | Navigator strategic direction | Skill (xp-navigator) via PreToolUse nudge + TaskCompleted gate |
+| `pair_guidance` | (legacy — no longer generated) | — |
 | `session_end` | Session summary with unresolved items | Command hook (automatic) |
 | `retrospective` | Keep/Fix/Try analysis + session stats | Subagent (retrospective) |
 
@@ -187,7 +186,7 @@ At session start, if there's unanalyzed data from a previous session, the comman
 - **Fix**: What needs improvement — Honesty: were status events truthful? Courage: were concerns raised? Simplicity: was anything over-engineered? Communication: were decisions broadcast? Respect: were conventions followed?
 - **Try**: Behavioral experiments for this session — informed by Fix items
 
-The retrospective also analyzes **session stats** for plugin health: navigator effectiveness (guidance count vs. file writes), concern resolution rate, decision recording rate. If the quality reviewer hasn't flagged anything in a session with 20 file writes, the retrospective asks why.
+The retrospective also analyzes **session stats** for plugin health: concern resolution rate, decision recording rate, quality reviewer coverage. If the quality reviewer hasn't flagged anything in a session with 20 file writes, the retrospective asks why.
 
 The retrospective runs at session *start*, not session end — resilient to force-quit, crash, Ctrl+C. The event log is append-only and durable.
 
@@ -204,7 +203,7 @@ The retrospective runs at session *start*, not session end — resilient to forc
 xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored at user level, every teammate in every worktree automatically gets:
 
 - SMM delta injection before every tool call
-- Quality review and navigation on every code change
+- Quality review on every code change
 - `working_on` conflict detection across teammates
 - Decisions visible to every other teammate
 - A team-wide retrospective at next session start
@@ -223,7 +222,7 @@ xp-agents works out of the box with zero configuration. One setting is available
 }
 ```
 
-- **`strict`** (default) — TDD blocks on test failure, working_on conflicts block, plan review blocks until invoked, security review required before push.
+- **`strict`** (default) — TDD blocks on test failure, working_on conflicts block, plan review nudge before writes, security review required before push.
 - **`advisory`** — same hooks fire, same events recorded, same subagents nudged — but nothing blocks. All blocks become warnings. The system still tracks everything; it just doesn't stop you.
 
 The goal is to reach a point where `strict` and `advisory` produce the same behavior — because tests always pass, agents never overlap, and decisions are consistent. When that happens, you're ready for autonomous teams.
@@ -283,9 +282,9 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 
 | Practice | Enforcement | Mechanism |
 |---|---|---|
-| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). Navigator flags implementation-before-tests. unittest/pytest/jest/go test detection. | `tdd_stop_gate.py`, `pre_tool_use.py`, `bash_post_tool.py` |
-| **Pair Programming** | Subagent: navigator before every significant write, quality reviewer after. | `xp-navigator`, `xp-quality-reviewer` |
-| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Block via exit 2. Skills: goal collection + question triage replace customer proxy. | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
+| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go test detection. | `tdd_stop_gate.py`, `pre_tool_use.py`, `bash_post_tool.py` |
+| **Pair Programming** | Subagent: quality reviewer after every write (courage + simplicity + drift management). | `xp-quality-reviewer` |
+| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Nudge via PreToolUse plan review gate. Skills: goal collection + question triage replace customer proxy. | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
 | **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security review before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_use.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
@@ -301,7 +300,6 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 |---|---|---|---|
 | PreToolUse delta (full) | 50-500 tokens | Every Write/Edit/Commit | Watermarks prevent duplicates |
 | PreToolUse delta (minimal) | 10-50 tokens | Every Bash/Read/Grep | 🔴 questions only |
-| Navigator subagent | 5,000-10,000 tokens | Every Write/Edit (if invoked) | Self-filters trivial changes |
 | Quality reviewer subagent | 5,000-10,000 tokens | Every Write/Edit (background) | Async, no latency cost |
 | SessionStart full SMM | 2,000-5,000 tokens | Once per session | One-time cost |
 | Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
@@ -315,7 +313,7 @@ Technical debt events age across sessions. The materializer counts `session_end`
 - **4-6 sessions**: rendered with ⚠️, retrospective flags in Fix items
 - **7+ sessions**: rendered with 🔴, retrospective escalates urgency
 
-Repayment pressure comes from three sources: navigator nudges when modifying files with debt, quality reviewer writes concern if debt not addressed, retrospective escalates aging debt in Fix items.
+Repayment pressure comes from two sources: quality reviewer writes concern if debt not addressed, retrospective escalates aging debt in Fix items.
 
 ### Architecture: Why Subagents Instead of Agent Hooks
 
