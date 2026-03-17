@@ -426,6 +426,17 @@ class TestBuildIndicesResolutions(_SMMTestCase):
         indices = materialize.build_indices([goal, resolver])
         self.assertIn(goal["id"], indices["goal_resolutions"])
 
+    def test_decision_resolutions_in_indices(self):
+        decision = make_event("decision", content="Use Redis", topic="caching")
+        resolver = make_event(
+            "status",
+            content="Confirmed",
+            working_on=[],
+            metadata={"resolves": [decision["id"]]},
+        )
+        indices = materialize.build_indices([decision, resolver])
+        self.assertIn(decision["id"], indices["decision_resolutions"])
+
     def test_debt_resolutions_in_indices(self):
         debt = make_event("debt", content="Legacy code", files=["old.py"])
         resolver = make_event(
@@ -2105,6 +2116,29 @@ class TestDriftSignals(_SMMTestCase):
         self.assertIn("Drift Signals", md)
         self.assertIn("stale decision", md.lower())
         self.assertIn("old-topic", md)
+
+    def test_resolved_decision_not_stale(self):
+        """Resolved decisions should not appear as stale drift signals."""
+        d = make_event(
+            "decision",
+            content="Old resolved decision",
+            topic="resolved-topic",
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        resolver = make_event(
+            "status",
+            content="Decision confirmed",
+            ts="2026-01-02T00:00:00+00:00",
+            metadata={"resolves": [d["id"]]},
+        )
+        sessions = self._make_sessions(6)
+        self._write_events([d, resolver, *sessions])
+        md = materialize.materialize(self.smm_dir)
+        if "Drift Signals" in md:
+            self.assertNotIn(
+                "resolved-topic",
+                md.split("Drift Signals")[1].split("##")[0],
+            )
 
     def test_no_stale_decision_with_recent_activity(self):
         """Decision with related events in recent sessions is not stale."""

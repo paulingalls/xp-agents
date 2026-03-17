@@ -168,6 +168,7 @@ def build_indices(events: list[dict]) -> dict:
     indices["concern_resolutions"] = resolutions["concern_resolutions"]
     indices["goal_resolutions"] = resolutions["goal_resolutions"]
     indices["debt_resolutions"] = resolutions["debt_resolutions"]
+    indices["decision_resolutions"] = resolutions["decision_resolutions"]
 
     return indices
 
@@ -291,8 +292,12 @@ def detect_drift_signals(events: list[dict], indices: dict) -> list[str]:
         # Pre-extract position list for bisect (O(S) once, not per topic)
         se_pos_list = [pos for pos, _ in session_end_positions]
 
+        decision_resolutions = indices["decision_resolutions"]
         for topic in sorted(indices["decisions_by_topic"]):
             decisions = indices["decisions_by_topic"][topic]
+            # Skip topics where all decisions are resolved
+            if all(d.get("id", "") in decision_resolutions for d in decisions):
+                continue
             # Find latest event position for this topic (any type)
             latest_pos = -1
             for d in decisions:

@@ -371,24 +371,28 @@ def compute_resolutions(events: list[dict]) -> dict:
 
     Resolution mechanism:
       - Questions: resolved by `answer` events that reference them
-      - Goals, concerns, debt: resolved via `metadata.resolves` array
-        (any event with metadata.resolves: ["target-id"] resolves the target)
+      - Goals, concerns, debt, decisions: resolved via `metadata.resolves`
+        array (any event with metadata.resolves: ["target-id"] resolves
+        the target)
 
     Returns dict with:
       - question_answers: dict mapping question event ID → answer event
       - concern_resolutions: dict mapping concern event ID → resolving event
       - goal_resolutions: dict mapping goal event ID → resolving event
       - debt_resolutions: dict mapping debt event ID → resolving event
+      - decision_resolutions: dict mapping decision event ID → resolving event
       - answered_question_ids: set of answered question IDs
       - resolved_concern_ids: set of resolved concern IDs
       - resolved_goal_ids: set of resolved goal IDs
       - resolved_debt_ids: set of resolved debt IDs
+      - resolved_decision_ids: set of resolved decision IDs
     """
     by_id: dict[str, dict] = {}
     question_answers: dict[str, dict] = {}
     concern_resolutions: dict[str, dict] = {}
     goal_resolutions: dict[str, dict] = {}
     debt_resolutions: dict[str, dict] = {}
+    decision_resolutions: dict[str, dict] = {}
 
     for event in events:
         event_id = event.get("id", "")
@@ -415,16 +419,20 @@ def compute_resolutions(events: list[dict]) -> dict:
                     goal_resolutions[full_id] = event
                 case "debt":
                     debt_resolutions[full_id] = event
+                case "decision":
+                    decision_resolutions[full_id] = event
 
     return {
         "question_answers": question_answers,
         "concern_resolutions": concern_resolutions,
         "goal_resolutions": goal_resolutions,
         "debt_resolutions": debt_resolutions,
+        "decision_resolutions": decision_resolutions,
         "answered_question_ids": set(question_answers.keys()),
         "resolved_concern_ids": set(concern_resolutions.keys()),
         "resolved_goal_ids": set(goal_resolutions.keys()),
         "resolved_debt_ids": set(debt_resolutions.keys()),
+        "resolved_decision_ids": set(decision_resolutions.keys()),
     }
 
 
