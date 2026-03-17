@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.9.24 — Event Lifecycle System
+
+### Added
+- **Event lifecycle resolution** — `metadata.resolves` mechanism for explicitly closing goals, concerns, and debt. The materializer is a pure view: renders open vs. resolved, no heuristic aging or pruning.
+- **`/xp-session-review`** — orchestrator skill that sequences retro → goals → housekeeping at session start. Enforced by dual gates.
+- **`/xp-housekeeping`** — lifecycle triage skill. Reviews open goals, unresolved concerns, draft decisions, and technical debt. Asks user for status, records resolutions.
+- **Session review gate (UserPromptSubmit)** — `session_review_gate.py` blocks prompts until `/xp-session-review` runs. Allows the command itself through.
+- **Session review gate (PreToolUse)** — defense-in-depth, blocks ALL tools when `.needs-session-review` marker exists. xp-agents skip via recursion prevention.
+- **Completed Goals** reference section in materialized SMM
+- **ANSI escape code stripping** at write time in `_append_impl.py`
+- **Concern content truncation** to 500 chars in materialized output
+- 28 new tests (858 total)
+
+### Changed
+- **`session_start.py` slimmed** — no longer injects SMM or nudges. Writes `.needs-session-review` marker, injects behavioral guide + GUPP + skills only. Fresh SMM is injected after session review completes via PreToolUse delta.
+- **`compute_resolutions()` rewritten** — uses `metadata.resolves` as sole resolution mechanism for goals, concerns, and debt. Old `references`-based concern resolution removed.
+- **Agent status scoped to current session** — prior session agents no longer appear in materialized SMM
+- **Open debt only** in Technical Debt section — resolved debt filtered out
+
+### Fixed
+- **`session_review_gate.py` SMM dir resolution** — was passing None to `try_validate_smm_dir`, making gate dead code in production
+- **Marker deletion timing** — marker now cleared only when session review completes (step 4), not when it starts. Prevents gate bypass if review aborted.
+
 ## v0.9.20 — Security Review Hook, TDD unittest Detection, Preload Permission Fix
 
 ### Fixed
