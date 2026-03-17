@@ -339,41 +339,63 @@ def validate_event(event: dict) -> list[str]:
 
 
 def compute_resolutions(events: list[dict]) -> dict:
-    """Single-pass computation of question answers and concern resolutions.
+    """Single-pass computation of question answers and event resolutions.
+
+    Resolution mechanism:
+      - Questions: resolved by `answer` events that reference them
+      - Goals, concerns, debt: resolved via `metadata.resolves` array
+        (any event with metadata.resolves: ["target-id"] resolves the target)
 
     Returns dict with:
       - question_answers: dict mapping question event ID → answer event
       - concern_resolutions: dict mapping concern event ID → resolving event
+      - goal_resolutions: dict mapping goal event ID → resolving event
+      - debt_resolutions: dict mapping debt event ID → resolving event
       - answered_question_ids: set of answered question IDs
       - resolved_concern_ids: set of resolved concern IDs
+      - resolved_goal_ids: set of resolved goal IDs
+      - resolved_debt_ids: set of resolved debt IDs
     """
     by_id: dict[str, dict] = {}
     question_answers: dict[str, dict] = {}
     concern_resolutions: dict[str, dict] = {}
+    goal_resolutions: dict[str, dict] = {}
+    debt_resolutions: dict[str, dict] = {}
 
     for event in events:
         event_id = event.get("id", "")
-        event_type = event.get("type", "")
         if event_id:
             by_id[event_id] = event
 
-        if event_type == "answer":
+        # Question-answer linking: answer events reference questions
+        if event.get("type") == "answer":
             for ref_id in event.get("references", []):
                 ref_event = by_id.get(ref_id)
                 if ref_event and ref_event.get("type") == "question":
                     question_answers[ref_id] = event
 
-        if event_type != "concern":
-            for ref_id in event.get("references", []):
-                ref_event = by_id.get(ref_id)
-                if ref_event and ref_event.get("type") == "concern":
-                    concern_resolutions[ref_id] = event
+        # Explicit resolution via metadata.resolves
+        for target_id in event.get("metadata", {}).get("resolves", []):
+            target = by_id.get(target_id)
+            if not target:
+                continue
+            match target.get("type"):
+                case "concern":
+                    concern_resolutions[target_id] = event
+                case "goal":
+                    goal_resolutions[target_id] = event
+                case "debt":
+                    debt_resolutions[target_id] = event
 
     return {
         "question_answers": question_answers,
         "concern_resolutions": concern_resolutions,
+        "goal_resolutions": goal_resolutions,
+        "debt_resolutions": debt_resolutions,
         "answered_question_ids": set(question_answers.keys()),
         "resolved_concern_ids": set(concern_resolutions.keys()),
+        "resolved_goal_ids": set(goal_resolutions.keys()),
+        "resolved_debt_ids": set(debt_resolutions.keys()),
     }
 
 

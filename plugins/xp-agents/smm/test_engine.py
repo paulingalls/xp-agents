@@ -16,7 +16,8 @@ from pathlib import Path
 
 # Allow importing from the same directory
 sys.path.insert(0, str(Path(__file__).parent))
-import materialize  # noqa: I001
+import _append_impl  # noqa: I001
+import materialize
 import read_delta
 
 
@@ -208,8 +209,8 @@ class TestBuildIndices(_SMMTestCase):
         resolver = make_event(
             "status",
             content="Added tests",
-            references=[c["id"]],
             working_on=["test.py"],
+            metadata={"resolves": [c["id"]]},
         )
         indices = materialize.build_indices([c, resolver])
         self.assertIn(c["id"], indices["concern_resolutions"])
@@ -266,6 +267,145 @@ class TestBuildIndices(_SMMTestCase):
         indices = materialize.build_indices([i1, i2, i3])
         self.assertEqual(len(indices["intent_by_status"]["open"]), 2)
         self.assertEqual(len(indices["intent_by_status"]["delivered"]), 1)
+
+
+# ===========================================================================
+# Resolution via metadata.resolves
+# ===========================================================================
+
+
+class TestMetadataResolves(unittest.TestCase):
+    """Tests for compute_resolutions() using metadata.resolves mechanism."""
+
+    def test_goal_resolved_via_metadata_resolves(self):
+        goal = make_event("goal", content="Ship v1.0")
+        resolver = make_event(
+            "status",
+            content="Goal completed",
+            working_on=["src/app.py"],
+            metadata={"resolves": [goal["id"]]},
+        )
+        result = _append_impl.compute_resolutions([goal, resolver])
+        self.assertIn(goal["id"], result["goal_resolutions"])
+        self.assertEqual(result["goal_resolutions"][goal["id"]], resolver)
+        self.assertIn(goal["id"], result["resolved_goal_ids"])
+
+    def test_concern_resolved_via_metadata_resolves(self):
+        concern = make_event("concern", content="Missing tests")
+        resolver = make_event(
+            "status",
+            content="Tests added",
+            working_on=["test.py"],
+            metadata={"resolves": [concern["id"]]},
+        )
+        result = _append_impl.compute_resolutions([concern, resolver])
+        self.assertIn(concern["id"], result["concern_resolutions"])
+        self.assertIn(concern["id"], result["resolved_concern_ids"])
+
+    def test_debt_resolved_via_metadata_resolves(self):
+        debt = make_event("debt", content="Hardcoded secret", files=["config.py"])
+        resolver = make_event(
+            "status",
+            content="Debt fixed",
+            working_on=["config.py"],
+            metadata={"resolves": [debt["id"]]},
+        )
+        result = _append_impl.compute_resolutions([debt, resolver])
+        self.assertIn(debt["id"], result["debt_resolutions"])
+        self.assertIn(debt["id"], result["resolved_debt_ids"])
+
+    def test_old_references_pattern_does_not_resolve_concern(self):
+        """The old pattern (references without metadata.resolves) no longer resolves."""
+        concern = make_event("concern", content="Missing tests")
+        non_resolver = make_event(
+            "status",
+            content="Added tests",
+            working_on=["test.py"],
+            references=[concern["id"]],  # old pattern, no metadata.resolves
+        )
+        result = _append_impl.compute_resolutions([concern, non_resolver])
+        self.assertNotIn(concern["id"], result["concern_resolutions"])
+
+    def test_multiple_resolves_in_one_event(self):
+        goal = make_event("goal", content="Ship v1.0")
+        concern = make_event("concern", content="Lint error")
+        resolver = make_event(
+            "status",
+            content="Cleaned up",
+            working_on=["app.py"],
+            metadata={"resolves": [goal["id"], concern["id"]]},
+        )
+        result = _append_impl.compute_resolutions([goal, concern, resolver])
+        self.assertIn(goal["id"], result["goal_resolutions"])
+        self.assertIn(concern["id"], result["concern_resolutions"])
+
+    def test_question_answer_still_works(self):
+        """Question-answer linking via answer type + references is unchanged."""
+        q = make_event("question", content="Which DB?")
+        a = make_event("answer", content="Postgres", references=[q["id"]])
+        result = _append_impl.compute_resolutions([q, a])
+        self.assertIn(q["id"], result["question_answers"])
+        self.assertIn(q["id"], result["answered_question_ids"])
+
+    def test_unresolved_items_not_in_results(self):
+        goal = make_event("goal", content="Ship v1.0")
+        concern = make_event("concern", content="Missing tests")
+        debt = make_event("debt", content="Tech debt", files=["old.py"])
+        result = _append_impl.compute_resolutions([goal, concern, debt])
+        self.assertEqual(len(result["goal_resolutions"]), 0)
+        self.assertEqual(len(result["concern_resolutions"]), 0)
+        self.assertEqual(len(result["debt_resolutions"]), 0)
+
+    def test_resolve_only_targets_known_events(self):
+        """metadata.resolves referencing unknown IDs are ignored."""
+        resolver = make_event(
+            "status",
+            content="Fixed stuff",
+            working_on=["app.py"],
+            metadata={"resolves": ["nonexistent-id"]},
+        )
+        result = _append_impl.compute_resolutions([resolver])
+        self.assertEqual(len(result["goal_resolutions"]), 0)
+        self.assertEqual(len(result["concern_resolutions"]), 0)
+        self.assertEqual(len(result["debt_resolutions"]), 0)
+
+
+class TestBuildIndicesResolutions(_SMMTestCase):
+    """Tests that build_indices() populates goal/debt resolution indices."""
+
+    def test_goal_resolutions_in_indices(self):
+        goal = make_event("goal", content="Ship v1.0")
+        resolver = make_event(
+            "status",
+            content="Done",
+            working_on=["app.py"],
+            metadata={"resolves": [goal["id"]]},
+        )
+        indices = materialize.build_indices([goal, resolver])
+        self.assertIn(goal["id"], indices["goal_resolutions"])
+
+    def test_debt_resolutions_in_indices(self):
+        debt = make_event("debt", content="Legacy code", files=["old.py"])
+        resolver = make_event(
+            "status",
+            content="Refactored",
+            working_on=["old.py"],
+            metadata={"resolves": [debt["id"]]},
+        )
+        indices = materialize.build_indices([debt, resolver])
+        self.assertIn(debt["id"], indices["debt_resolutions"])
+
+    def test_concern_resolution_uses_metadata_resolves(self):
+        """build_indices concern_resolutions uses metadata.resolves, not references."""
+        concern = make_event("concern", content="Bug found")
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=["fix.py"],
+            metadata={"resolves": [concern["id"]]},
+        )
+        indices = materialize.build_indices([concern, resolver])
+        self.assertIn(concern["id"], indices["concern_resolutions"])
 
 
 # ===========================================================================
@@ -553,7 +693,10 @@ class TestRenderMarkdown(_SMMTestCase):
     def test_resolved_concerns_in_reference(self):
         c = make_event("concern", content="Missing tests")
         r = make_event(
-            "status", content="Fixed", references=[c["id"]], working_on=["test.py"]
+            "status",
+            content="Fixed",
+            working_on=["test.py"],
+            metadata={"resolves": [c["id"]]},
         )
         self._write_events([c, r])
         md = materialize.materialize(self.smm_dir)
@@ -566,7 +709,10 @@ class TestRenderMarkdown(_SMMTestCase):
         c1 = make_event("concern", content="Unresolved issue")
         c2 = make_event("concern", content="Resolved issue")
         r = make_event(
-            "status", content="Fixed", references=[c2["id"]], working_on=["test.py"]
+            "status",
+            content="Fixed",
+            working_on=["test.py"],
+            metadata={"resolves": [c2["id"]]},
         )
         self._write_events([c1, c2, r])
         md = materialize.materialize(self.smm_dir)
@@ -797,6 +943,111 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertIn(d["id"][:8], md)
         # Full ID should NOT appear
         self.assertNotIn(d["id"], md)
+
+
+# ===========================================================================
+# Materialize — Lifecycle Rendering
+# ===========================================================================
+
+
+class TestLifecycleRendering(_SMMTestCase):
+    """Tests for open vs. resolved rendering with metadata.resolves."""
+
+    def test_resolved_goal_not_in_active(self):
+        """Resolved goals should NOT appear in Project Goals (A1)."""
+        g1 = make_event("goal", content="Active goal")
+        g2 = make_event("goal", content="Completed goal")
+        resolver = make_event(
+            "status",
+            content="Done",
+            working_on=["app.py"],
+            metadata={"resolves": [g2["id"]]},
+        )
+        self._write_events([g1, g2, resolver])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Project Goals", md)
+        goals_section = md.split("## Project Goals")[1].split("##")[0]
+        self.assertIn("Active goal", goals_section)
+        self.assertNotIn("Completed goal", goals_section)
+
+    def test_resolved_goal_in_reference(self):
+        """Resolved goals should appear in Completed Goals reference section."""
+        g = make_event("goal", content="Done goal")
+        resolver = make_event(
+            "status",
+            content="Finished",
+            working_on=["app.py"],
+            metadata={"resolves": [g["id"]]},
+        )
+        self._write_events([g, resolver])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Completed Goals", md)
+        self.assertIn("Done goal", md)
+        # Should be in REFERENCE section
+        ref_idx = md.index("## REFERENCE")
+        completed_idx = md.index("## Completed Goals")
+        self.assertGreater(completed_idx, ref_idx)
+
+    def test_agent_status_scoped_to_current_session(self):
+        """Agent status from prior sessions should not appear."""
+        old_status = make_event(
+            "status", agent_id="old-agent", content="Old work", working_on=["old.py"]
+        )
+        se = make_event("session_end", content="done")
+        new_status = make_event(
+            "status", agent_id="new-agent", content="New work", working_on=["new.py"]
+        )
+        self._write_events([old_status, se, new_status])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Agent Status", md)
+        status_section = md.split("## Agent Status")[1].split("##")[0]
+        self.assertIn("new-agent", status_section)
+        self.assertNotIn("old-agent", status_section)
+
+    def test_agent_status_all_shown_without_session_end(self):
+        """Without session_end, all agent statuses are shown."""
+        s1 = make_event(
+            "status", agent_id="agent-a", content="Work A", working_on=["a.py"]
+        )
+        s2 = make_event(
+            "status", agent_id="agent-b", content="Work B", working_on=["b.py"]
+        )
+        self._write_events([s1, s2])
+        md = materialize.materialize(self.smm_dir)
+        status_section = md.split("## Agent Status")[1].split("##")[0]
+        self.assertIn("agent-a", status_section)
+        self.assertIn("agent-b", status_section)
+
+    def test_resolved_debt_separated(self):
+        """Resolved debt should not appear in Technical Debt."""
+        d1 = make_event("debt", content="Open debt", files=["old.py"])
+        d2 = make_event("debt", content="Fixed debt", files=["fixed.py"])
+        resolver = make_event(
+            "status",
+            content="Refactored",
+            working_on=["fixed.py"],
+            metadata={"resolves": [d2["id"]]},
+        )
+        self._write_events([d1, d2, resolver])
+        md = materialize.materialize(self.smm_dir)
+        self.assertIn("## Technical Debt", md)
+        debt_section = md.split("## Technical Debt")[1].split("##")[0]
+        self.assertIn("Open debt", debt_section)
+        self.assertNotIn("Fixed debt", debt_section)
+
+    def test_no_goals_section_when_all_resolved(self):
+        """If all goals are resolved, no Project Goals section in active."""
+        g = make_event("goal", content="Only goal")
+        resolver = make_event(
+            "status",
+            content="Done",
+            working_on=["app.py"],
+            metadata={"resolves": [g["id"]]},
+        )
+        self._write_events([g, resolver])
+        md = materialize.materialize(self.smm_dir)
+        self.assertNotIn("## Project Goals", md)
+        self.assertIn("## Completed Goals", md)
 
 
 # ===========================================================================
@@ -2067,7 +2318,7 @@ class TestVelocitySignal(_SMMTestCase):
             "decision",
             content="Fix",
             topic="fix",
-            references=[c1["id"]],
+            metadata={"resolves": [c1["id"]]},
             ts="2026-01-03T00:00:00+00:00",
         )
         self._write_events([c1, c2, resolver])

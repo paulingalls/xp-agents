@@ -109,7 +109,6 @@ def build_indices(events: list[dict]) -> dict:
         "decisions_by_topic": defaultdict(list),
         "conventions_by_topic": defaultdict(list),
         "assumption_contradictions": {},
-        "concern_resolutions": {},
         "agent_ids": set(),
         "session_end_positions": [],
         "last_session_end_pos": -1,
@@ -163,10 +162,12 @@ def build_indices(events: list[dict]) -> dict:
                     if ref_event and ref_event.get("type") == "assumption":
                         indices["assumption_contradictions"][ref_id] = event
 
-    # Question-answer and concern-resolution tracking via shared utility
+    # Resolution tracking via shared utility
     resolutions = compute_resolutions(events)
     indices["question_answers"] = resolutions["question_answers"]
     indices["concern_resolutions"] = resolutions["concern_resolutions"]
+    indices["goal_resolutions"] = resolutions["goal_resolutions"]
+    indices["debt_resolutions"] = resolutions["debt_resolutions"]
 
     return indices
 
@@ -433,11 +434,12 @@ def render_markdown(
     # ===================================================================
     active_sections: list[str] = []
 
-    # A1. Project Goals
+    # A1. Project Goals — only unresolved
     goals = indices["by_type"].get("goal", [])
-    if goals:
+    active_goals = [g for g in goals if g["id"] not in indices["goal_resolutions"]]
+    if active_goals:
         lines = ["## Project Goals"]
-        for g in goals:
+        for g in active_goals:
             lines.append(
                 f"- 🎯 {g.get('content', '')} "
                 f"[{g.get('agent_id', '')}, {short_id(g.get('id', ''))}]"
@@ -501,12 +503,18 @@ def render_markdown(
             )
         active_sections.append("\n".join(lines))
 
-    # A6. Agent Status
+    # A6. Agent Status — scoped to current session
     latest = indices["latest_status"]
+    last_se_pos = indices["last_session_end_pos"]
     if latest:
         lines = ["## Agent Status"]
         for agent_id in sorted(latest):
             status = latest[agent_id]
+            # Skip agents whose latest status is from a prior session
+            if last_se_pos >= 0:
+                status_pos = indices["event_positions"].get(status.get("id", ""), -1)
+                if status_pos <= last_se_pos:
+                    continue
             working_on = status.get("working_on", [])
             content = status.get("content", "")
             if working_on:
@@ -514,7 +522,8 @@ def render_markdown(
                 lines.append(f"- **{agent_id}**: {content}. Working on: {files}")
             else:
                 lines.append(f"- **{agent_id}**: {content}. Idle.")
-        active_sections.append("\n".join(lines))
+        if len(lines) > 1:  # Only emit if there are agents beyond header
+            active_sections.append("\n".join(lines))
 
     # A7. Navigator Guidance — scoped to current session
     all_guidance = indices["by_type"].get("pair_guidance", [])
@@ -661,13 +670,14 @@ def render_markdown(
                 )
         ref_sections.append("\n".join(lines))
 
-    # R6. Technical Debt — with aging markers
+    # R6. Technical Debt — only open debt, with aging markers
     debts = indices["by_type"].get("debt", [])
-    if debts:
+    open_debts = [d for d in debts if d["id"] not in indices["debt_resolutions"]]
+    if open_debts:
         # Build sorted list of session_end timestamps for bisect
         se_timestamps = [ts for _, ts in indices["session_end_positions"]]
         lines = ["## Technical Debt"]
-        for d in debts:
+        for d in open_debts:
             debt_ts = d.get("ts", "")
             # Count session_ends after this debt: total - those at or before debt_ts
             sessions_after = len(se_timestamps) - bisect.bisect_right(
@@ -699,6 +709,19 @@ def render_markdown(
                 f"- ✅ {c.get('content', '')} "
                 f"[{c.get('agent_id', '')}, {short_id(c['id'])}] "
                 f"— resolved → {short_id(resolver['id'])}"
+            )
+        ref_sections.append("\n".join(lines))
+
+    # R8. Completed Goals
+    completed_goals = [g for g in goals if g["id"] in indices["goal_resolutions"]]
+    if completed_goals:
+        lines = ["## Completed Goals"]
+        for g in completed_goals:
+            resolver = indices["goal_resolutions"][g["id"]]
+            lines.append(
+                f"- ✅ {g.get('content', '')} "
+                f"[{g.get('agent_id', '')}, {short_id(g['id'])}] "
+                f"— completed → {short_id(resolver['id'])}"
             )
         ref_sections.append("\n".join(lines))
 

@@ -781,7 +781,10 @@ class TestRetrospective(_HookTestCase):
         c1 = make_event("concern", content="Issue A")
         c2 = make_event("concern", content="Issue B")
         resolver = make_event(
-            "status", content="Fixed", references=[c1["id"]], working_on=["test.py"]
+            "status",
+            content="Fixed",
+            working_on=["test.py"],
+            metadata={"resolves": [c1["id"]]},
         )
         events = [c1, c2, resolver, make_event(content="f1"), make_event(content="f2")]
         self._write_events(events)
@@ -928,7 +931,10 @@ class TestSessionEnd(_HookTestCase):
 
         c = make_event("concern", content="Missing tests")
         r = make_event(
-            "status", content="Fixed", references=[c["id"]], working_on=["test.py"]
+            "status",
+            content="Fixed",
+            working_on=["test.py"],
+            metadata={"resolves": [c["id"]]},
         )
         self._write_events([c, r])
         session_end.run(
