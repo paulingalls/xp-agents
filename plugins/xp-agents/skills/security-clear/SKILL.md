@@ -9,6 +9,6 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/clear.py`
+!`python3 ${CLAUDE_SKILL_DIR}/scripts/clear.py`
 
 The security review tracker has been written. You can now push.
