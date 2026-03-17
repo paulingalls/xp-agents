@@ -11,13 +11,8 @@ MARKER="${SMM_DIR}/.needs-session-review"
 echo "## Session Review Status"
 echo ""
 
-NEEDS_RETRO=false
-NEEDS_GOALS=false
-NEEDS_HOUSEKEEPING=false
-
 # 1. Check for retrospective data
 if [ -f "$RETRO_INPUT" ]; then
-    NEEDS_RETRO=true
     echo "### RETRO_NEEDED"
     echo "Unanalyzed events from previous session found."
     echo ""
@@ -27,38 +22,14 @@ fi
 if [ -f "$SMM_FILE" ] && grep -q "## Project Goals" "$SMM_FILE" 2>/dev/null; then
     echo "### Goals: PRESENT"
 else
-    NEEDS_GOALS=true
     echo "### GOALS_NEEDED"
     echo "No project goals recorded yet."
     echo ""
 fi
 
-# 3. Check for open items needing housekeeping
-HAS_OPEN_ITEMS=false
-if [ -f "$SMM_FILE" ]; then
-    if grep -q "## Unacknowledged Concerns" "$SMM_FILE" 2>/dev/null; then
-        HAS_OPEN_ITEMS=true
-    fi
-    if grep -q "(draft)" "$SMM_FILE" 2>/dev/null; then
-        HAS_OPEN_ITEMS=true
-    fi
-    if grep -q "## Technical Debt" "$SMM_FILE" 2>/dev/null; then
-        HAS_OPEN_ITEMS=true
-    fi
-fi
-
-if [ "$HAS_OPEN_ITEMS" = true ]; then
-    NEEDS_HOUSEKEEPING=true
-    echo "### HOUSEKEEPING_NEEDED"
-    echo "Open concerns, draft decisions, or technical debt found."
-    echo ""
-fi
-
-# Summary
-if [ "$NEEDS_RETRO" = false ] && [ "$NEEDS_GOALS" = false ] && [ "$NEEDS_HOUSEKEEPING" = false ]; then
-    echo "### NONE"
-    echo "No session review actions needed."
-fi
+# 3. Housekeeping always runs as the final step
+echo "### HOUSEKEEPING"
+echo "Housekeeping runs as final step (ensures SMM + behavioral guide injection)."
 
 # Always clear the marker here. This preload runs as a !`command` before
 # any tool calls, so the gate must be lifted for the review itself to

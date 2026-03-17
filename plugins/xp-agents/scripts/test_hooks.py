@@ -5024,7 +5024,7 @@ import session_review_done  # noqa: E402
 class TestSessionReviewDone(_HookTestCase):
     """PostToolUse:Skill hook injects SMM + behavioral guide after session review."""
 
-    def _skill_input(self, skill: str = "xp-session-review", **overrides) -> dict:
+    def _skill_input(self, skill: str = "xp-housekeeping", **overrides) -> dict:
         data = {
             "session_id": "t",
             "tool_name": "Skill",
@@ -5034,22 +5034,22 @@ class TestSessionReviewDone(_HookTestCase):
         data.update(overrides)
         return data
 
-    def test_injects_smm_on_session_review(self):
-        """Should inject materialized SMM after xp-session-review."""
+    def test_injects_smm_on_housekeeping(self):
+        """Should inject materialized SMM after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
         result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("Shared Mental Model", result)
 
     def test_injects_behavioral_guide(self):
-        """Should inject BEHAVIORAL_GUIDE.md content after session review."""
+        """Should inject BEHAVIORAL_GUIDE.md after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
         result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("XP Agent Behavioral Guide", result)
 
     def test_ignores_other_skills(self):
-        """Should return None for non-session-review skills."""
+        """Should return None for non-housekeeping skills."""
         self._write_events([make_event("goal", content="Ship v1")])
         result = session_review_done.run(
             self._skill_input("simplify"), smm_dir=self.smm_dir
@@ -5064,7 +5064,7 @@ class TestSessionReviewDone(_HookTestCase):
         self.assertIsNone(result)
 
     def test_smm_before_behavioral_guide(self):
-        """SMM should appear before behavioral guide in output."""
+        """SMM appears before behavioral guide in output."""
         self._write_events([make_event("goal", content="Ship v1")])
         result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)

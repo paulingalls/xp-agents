@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: inject SMM + behavioral guide after session review.
+"""PostToolUse:Skill hook: inject SMM + behavioral guide after housekeeping.
 
-When /xp-session-review completes, materializes the SMM and injects
-it along with BEHAVIORAL_GUIDE.md as additionalContext. This ensures
-the main agent has the fresh SMM and behavioral guide deterministically
-loaded together, in order.
+When /xp-housekeeping completes (the final step of session review),
+materializes the SMM and injects it along with BEHAVIORAL_GUIDE.md
+as additionalContext. Triggered on housekeeping rather than
+xp-session-review because the orchestrator skill returns immediately
+while the actual work happens in sub-skill invocations.
 """
 
 import functools
@@ -39,7 +40,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
 
-    if skill_name != "xp-session-review":
+    if skill_name != "xp-housekeeping":
         return None
 
     if smm_dir is None:
