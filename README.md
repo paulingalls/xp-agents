@@ -130,12 +130,12 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check, quality reviewer subagent nudge | Standup, Coding Standards, Courage, Simplicity |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
 | **SubagentStop** (Plan) | Block until plan reviewer subagent invoked | Planning Game, Simple Design |
-| **SessionStart** | SMM + behavioral guide injection, retrospective subagent nudge, goal collection / question triage nudge | Retrospective, On-Site Customer |
+| **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-session-review` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
 | **UserPromptSubmit** | Log user prompt as `customer_input` event | On-Site Customer |
 | **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
 | **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
-| **PostToolUse** (Skill) | Security review tracker — writes `.security-reviewed-{hash}` when `/security-review` completes | Coding Standards |
+| **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; SMM + behavioral guide injection when `/xp-session-review` completes | Coding Standards, Communication |
 | **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if files changed and `/simplify` not run | TDD, Refactoring |
 | **TaskCompleted** | Navigator gate (block until `pair_guidance` event exists) + quality reviewer nudge | Pair Programming |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |

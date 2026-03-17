@@ -88,9 +88,9 @@ All hooks are `type: "command"`. Agent hooks (`type: "agent"`) are broken platfo
 
 | Event | Matcher | Script | What It Does |
 |---|---|---|---|
-| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM, materialize to file, write `.needs-session-review` marker, inject behavioral guide + GUPP + skills (NO SMM in context) |
+| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM, materialize to file, write `.needs-session-review` marker, inject GUPP + skills (NO SMM, NO behavioral guide — deferred to session review) |
 | **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
-| **PreToolUse** | `*` | `pre_tool_use.py` | Session review gate (blocks ALL tools if marker exists), delta injection (tiered), conflict blocking, TDD order check, push security gate, nudge xp-navigator (Write/Edit) |
+| **PreToolUse** | `*` | `pre_tool_use.py` | Delta injection (tiered), conflict blocking, TDD order check, push security gate, nudge xp-navigator (Write/Edit) |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection, nudge xp-quality-reviewer |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing |
@@ -98,6 +98,7 @@ All hooks are `type: "command"`. Agent hooks (`type: "agent"`) are broken platfo
 | **SubagentStart** | | `subagent_start.py` | Full SMM injection + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, block Plan (xp-plan-reviewer), nudge xp-subagent-reviewer |
 | **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes |
+| **PostToolUse** | `Skill` | `session_review_done.py` | Inject SMM + behavioral guide after `/xp-session-review` completes, clear `.needs-session-review` marker |
 | **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if files changed) |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing (command hook, replaced prompt hook) |
 | **TaskCompleted** | | `task_completed.py` | Navigator gate (block until `pair_guidance` event exists) + quality reviewer nudge |
@@ -119,7 +120,7 @@ Subagents have full tool access (Read, Grep, Glob, Bash, Write). Command hooks t
 | `xp-subagent-reviewer` | SubagentStop | Nudge | Convention adherence, complexity, decision alignment. `background: true` |
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
-- `/xp-session-review` — orchestrator, sequences retro → goals → housekeeping at session start. Clears `.needs-session-review` marker on completion.
+- `/xp-session-review` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`session_review_done.py`) handles marker cleanup and SMM+guide injection on completion.
 - `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`.
 - `/xp-goal-collection` — first-session goal collection
 - `/xp-question-triage` — ongoing question triage
@@ -138,20 +139,23 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 
 | When | What's Injected |
 |---|---|
-| Session start | Behavioral guide + GUPP + skills (NO SMM — deferred to session review) |
-| After session review | Fresh post-lifecycle SMM via PreToolUse delta |
+| Session start | GUPP + skills only (NO SMM, NO behavioral guide — deferred to session review) |
+| After session review | Fresh SMM + behavioral guide via PostToolUse:Skill hook (`session_review_done.py`) |
 | Before tool use | Delta since agent's watermark (tiered) + navigator nudge for writes |
 | After tool use | Quality reviewer nudge for writes |
 | Subagent spawn | Full materialized SMM |
-| After compaction | Full SMM + behavioral guide re-injection |
+| After compaction | Full SMM re-injection |
 
 Injection order in SessionStart `additionalContext`:
 1. Enforcement indicator (advisory mode only)
 2. GUPP ("Resume immediately")
 3. Skills list
-4. Behavioral guide (from `BEHAVIORAL_GUIDE.md`)
 
-SMM is NOT injected at SessionStart. The agent gets the fresh SMM after `/xp-session-review` completes, via PreToolUse delta injection. This ensures the agent sees the post-lifecycle SMM (resolved items filtered, goals confirmed, concerns triaged) rather than a stale pre-review version.
+After `/xp-session-review` completes, `session_review_done.py` (PostToolUse:Skill hook) deterministically injects:
+1. Fresh materialized SMM (wrapped in `<smm-context>`)
+2. BEHAVIORAL_GUIDE.md
+
+This ensures the agent sees SMM and behavioral guide together, after lifecycle triage (resolved items filtered, goals confirmed, concerns triaged). The behavioral guide references the SMM repeatedly, so loading them together preserves coherence.
 
 All injection via `additionalContext`. Never in system prompt (preserves prompt cache).
 

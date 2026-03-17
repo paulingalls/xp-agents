@@ -196,7 +196,7 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json         ← plugin manifest
-├── BEHAVIORAL_GUIDE.md                ← loaded by session_start.py
+├── BEHAVIORAL_GUIDE.md                ← loaded by session_review_done.py (PostToolUse:Skill)
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks (incl. session_review_gate.py)
