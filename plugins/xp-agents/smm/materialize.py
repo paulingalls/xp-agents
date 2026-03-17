@@ -528,27 +528,6 @@ def render_markdown(
         if len(lines) > 1:  # Only emit if there are agents beyond header
             active_sections.append("\n".join(lines))
 
-    # A7. Navigator Guidance — scoped to current session
-    all_guidance = indices["by_type"].get("pair_guidance", [])
-    last_se_pos = indices["last_session_end_pos"]
-    if last_se_pos >= 0:
-        # Only guidance after last session_end
-        guidance = [
-            g
-            for g in all_guidance
-            if indices["event_positions"].get(g.get("id", ""), -1) > last_se_pos
-        ]
-    else:
-        guidance = all_guidance
-    if guidance:
-        lines = ["## Navigator Guidance"]
-        for g in guidance[-3:]:
-            lines.append(
-                f"- {g.get('content', '')} "
-                f"[{short_id(g.get('id', ''))}, for {g.get('agent_id', '')}]"
-            )
-        active_sections.append("\n".join(lines))
-
     # A8. Drift Signals
     drift_signals = detect_drift_signals(events, indices)
     if drift_signals:

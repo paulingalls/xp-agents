@@ -63,7 +63,30 @@ Read each modified code file (from the diff above) and check for:
 - Is error handling at system boundaries (user input, file I/O, network)?
 - Are error messages actionable?
 
-## Step 3: Take Action
+## Step 3: Drift Management
+
+Check if code changes contradict recorded decisions or conventions in the SMM:
+
+1. Read the SMM's **Architecture Decisions** and **Conventions** sections
+2. For each decision/convention with a topic that relates to the changed files, check whether the code changes align or contradict
+3. Examples of drift:
+   - Decision says "Use REST for API" but code adds GraphQL endpoint
+   - Convention says "All DB queries use ORM" but code adds raw SQL
+   - Decision says "Single responsibility per module" but new code adds unrelated responsibilities
+
+For each drift found, record a concern:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "concern" \
+  --agent "xp-quality-review" \
+  --content "Decision drift: [describe how code contradicts decision/convention]" \
+  --severity "medium"
+```
+
+If no decisions or conventions are recorded in the SMM, skip this step.
+
+## Step 4: Take Action (for Steps 1-3)
 
 For each finding:
 
@@ -81,7 +104,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --files '["path/to/file.py"]'
 ```
 
-## Step 4: Record Summary
+## Step 5: Record Summary
 
 After reviewing all files, record a summary:
 

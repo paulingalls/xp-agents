@@ -20,7 +20,7 @@ Ground truth is in the Shared Mental Model (SMM). Seven rules:
 - **Simplicity**: Solve today's problem. Three similar lines beat a premature abstraction.
 - **Feedback**: TDD — write tests first. Address reviewer concerns. Review retrospective Fix items.
 - **Courage**: Wrong design? Record a concern. Debt growing? Record it. Don't defer.
-- **Respect**: Respond to navigator guidance thoughtfully. Don't overwrite others' working_on.
+- **Respect**: Address reviewer concerns thoughtfully. Don't overwrite others' working_on.
 
 ## When to Record Events
 
@@ -34,7 +34,7 @@ Ground truth is in the Shared Mental Model (SMM). Seven rules:
 | Acknowledged tradeoff | `debt` (with files array) |
 | Design revisit needed | `concern` referencing the decision |
 
-Use `/smm-protocol` for field details. Use `/xp-values` at design trade-offs. Use `/pair-programming` when navigator/reviewer guidance gets complex.
+Use `/smm-protocol` for field details. Use `/xp-values` at design trade-offs. Use `/pair-programming` when reviewer guidance gets complex.
 
 ## Session Protocol
 

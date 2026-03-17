@@ -147,16 +147,6 @@
         ]
       }
     ],
-    "TaskCompleted": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/task_completed.py"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

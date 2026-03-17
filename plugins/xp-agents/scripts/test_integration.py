@@ -1799,8 +1799,8 @@ class TestMilestone6Integration(_IntegrationTestCase):
 
 
 class TestMilestone65Integration(_IntegrationTestCase):
-    def test_pre_tool_use_navigator_nudge(self):
-        """Write tool → stdout contains xp-navigator nudge."""
+    def test_pre_tool_use_no_navigator_nudge(self):
+        """Write tool → stdout should NOT contain xp-navigator nudge."""
         self._seed_events([make_event()])
         result = self._run_script(
             "pre_tool_use.py",
@@ -1815,53 +1815,7 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-navigator", ctx)
-
-    def test_task_completed_blocks_without_guidance(self):
-        """TaskCompleted → blocks when no navigator guidance exists."""
-        result = self._run_script(
-            "task_completed.py",
-            {
-                "session_id": "int-test",
-                "hook_event_name": "TaskCompleted",
-                "task_id": "task-1",
-                "task_subject": "Implement feature X",
-            },
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("xp-navigator", result.stderr)
-
-    def test_task_completed_passes_with_guidance(self):
-        """TaskCompleted → passes when pair_guidance event exists."""
-        self._seed_events(
-            [make_event("pair_guidance", content="Looks good", tool_name="Write")]
-        )
-        result = self._run_script(
-            "task_completed.py",
-            {
-                "session_id": "int-test",
-                "hook_event_name": "TaskCompleted",
-                "task_id": "task-1",
-                "task_subject": "Implement feature X",
-            },
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-
-    def test_task_completed_xp_agent_skips(self):
-        """xp-agent completing a task → no output."""
-        result = self._run_script(
-            "task_completed.py",
-            {
-                "session_id": "int-test",
-                "hook_event_name": "TaskCompleted",
-                "task_id": "task-1",
-                "task_subject": "Review code",
-                "agent_type": "xp-navigator",
-            },
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
+        self.assertNotIn("xp-navigator", ctx)
 
     def test_subagent_stop_plan_nudges(self):
         """Plan agent_type → decision:approve with plan reviewer nudge."""
@@ -1907,10 +1861,9 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertIn("xp-retrospective", ctx)
 
     def test_agent_files_exist(self):
-        """All 4 agent .md files exist in agents/ directory."""
+        """All 3 agent .md files exist in agents/ directory."""
         agents_dir = Path(__file__).parent.parent / "agents"
         for name in (
-            "xp-navigator",
             "xp-retrospective",
             "xp-plan-reviewer",
             "xp-subagent-reviewer",
@@ -1949,7 +1902,7 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         # Clear marker so pre_tool_use doesn't block
         (self.smm_dir / ".needs-session-review").unlink()
 
-        # 2. Pre tool use (Write) — navigator nudge
+        # 2. Pre tool use (Write) — no navigator nudge
         r2 = self._run_script(
             "pre_tool_use.py",
             {
@@ -1961,9 +1914,10 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
             },
         )
         self.assertEqual(r2.returncode, 0)
-        output2 = json.loads(r2.stdout)
-        ctx2 = output2["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-navigator", ctx2)
+        if r2.stdout.strip():
+            output2 = json.loads(r2.stdout)
+            ctx2 = output2["hookSpecificOutput"]["additionalContext"]
+            self.assertNotIn("xp-navigator", ctx2)
 
         # 3. Post tool use (Write) — status event recorded
         r3 = self._run_script(

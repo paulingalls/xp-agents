@@ -759,38 +759,10 @@ class TestRenderMarkdown(_SMMTestCase):
         status_section = md.split("## Agent Status")[1].split("##")[0]
         self.assertNotIn("First task", status_section)
 
-    def test_navigator_guidance_all_without_session_end(self):
-        """Without session_end, show all guidance (last 3)."""
+    def test_navigator_guidance_removed(self):
+        """Navigator Guidance section no longer rendered."""
         events = [
-            make_event("pair_guidance", content=f"Guidance {i}", tool_name="Write")
-            for i in range(5)
-        ]
-        self._write_events(events)
-        md = materialize.materialize(self.smm_dir)
-        self.assertIn("## Navigator Guidance", md)
-        self.assertNotIn("Guidance 0", md)
-        self.assertNotIn("Guidance 1", md)
-        self.assertIn("Guidance 2", md)
-        self.assertIn("Guidance 4", md)
-
-    def test_navigator_guidance_scoped_to_session(self):
-        """With session_end, only show guidance after last session_end."""
-        events = [
-            make_event("pair_guidance", content="Old guidance", tool_name="Write"),
-            make_event("session_end", content="done"),
-            make_event("pair_guidance", content="New guidance", tool_name="Edit"),
-        ]
-        self._write_events(events)
-        md = materialize.materialize(self.smm_dir)
-        self.assertIn("## Navigator Guidance", md)
-        self.assertNotIn("Old guidance", md)
-        self.assertIn("New guidance", md)
-
-    def test_navigator_no_guidance_after_session_end(self):
-        """All guidance before session_end → no Navigator section."""
-        events = [
-            make_event("pair_guidance", content="Old guidance", tool_name="Write"),
-            make_event("session_end", content="done"),
+            make_event("pair_guidance", content="Guidance 1", tool_name="Write"),
         ]
         self._write_events(events)
         md = materialize.materialize(self.smm_dir)

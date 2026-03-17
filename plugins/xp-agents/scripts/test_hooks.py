@@ -1553,16 +1553,15 @@ class TestPreToolUseRun(_HookTestCase):
             self.assertNotIn("smm-context", result)
             self.assertNotIn("smm-debt-context", result)
 
-    def test_bash_blocking_tier_gets_pair_guidance(self):
-        events = [make_event("pair_guidance", content="Use --dry-run")]
+    def test_bash_blocking_tier_gets_active_context(self):
+        events = [make_event("status", content="Working on API")]
         self._write_events(events)
         result = pre_tool_use.run(
             _make_bash_input(command="npm test"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        # Now uses Active Context (materialized), not delta format
-        self.assertIn("Navigator Guidance", result)
+        self.assertIn("smm-context", result)
 
     def test_bash_blocking_tier_includes_status(self):
         """TIER_BLOCKING now injects Active Context which includes Agent Status."""
@@ -1849,18 +1848,20 @@ class TestPreToolUsePerformance(_HookTestCase):
 # ===========================================================================
 
 
-class TestPreToolUseNavigatorNudge(_HookTestCase):
-    """M6.5: pre_tool_use.py should nudge invoking xp-navigator for writes."""
+class TestPreToolUseNoNavigatorNudge(_HookTestCase):
+    """Navigator nudge removed — concerns visible via SMM delta."""
 
-    def test_write_tool_has_navigator_nudge(self):
+    def test_write_no_navigator_nudge(self):
+        """Write tool should not contain navigator nudge."""
         result = pre_tool_use.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("xp-navigator", result)
+        if result:
+            self.assertNotIn("xp-navigator", result)
 
-    def test_edit_tool_has_navigator_nudge(self):
+    def test_edit_no_navigator_nudge(self):
+        """Edit tool should not contain navigator nudge."""
         result = pre_tool_use.run(
             {
                 "session_id": "t",
@@ -1875,46 +1876,22 @@ class TestPreToolUseNavigatorNudge(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
+        if result:
+            self.assertNotIn("xp-navigator", result)
+
+    def test_concerns_visible_in_delta(self):
+        """Concerns appear in SMM delta for writes (no separate injection needed)."""
+        self._write_events(
+            [
+                make_event("concern", content="Auth middleware is insecure"),
+            ]
+        )
+        result = pre_tool_use.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
-        self.assertIn("xp-navigator", result)
-
-    def test_read_tool_no_navigator_nudge(self):
-        result = pre_tool_use.run(
-            {
-                "session_id": "t",
-                "tool_name": "Read",
-                "tool_input": {"file_path": "src/app.ts"},
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-navigator", result)
-
-    def test_bash_tool_no_navigator_nudge(self):
-        result = pre_tool_use.run(
-            _make_bash_input(command="echo hi"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-navigator", result)
-
-    def test_git_commit_no_navigator_nudge(self):
-        """git commit is TIER_FULL but not a write tool — no navigator nudge."""
-        result = pre_tool_use.run(
-            _make_bash_input(command="git commit -m 'test'"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-navigator", result)
-
-    def test_xp_agent_no_navigator_nudge(self):
-        result = pre_tool_use.run(
-            _make_write_input(agent_type="xp-navigator"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
+        self.assertIn("Auth middleware is insecure", result)
 
 
 class TestRetrospectiveNudge(_HookTestCase):
@@ -2266,55 +2243,6 @@ class TestPostToolUse(_HookTestCase):
         statuses = [e for e in events if e.get("type") == "status"]
         refs = statuses[0].get("references", [])
         self.assertNotIn(d["id"], refs)
-
-
-import task_completed  # noqa: E402
-
-
-class TestTaskCompleted(_HookTestCase):
-    """TaskCompleted hook gates navigator guidance."""
-
-    def _make_input(self, **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "hook_event_name": "TaskCompleted",
-            "task_id": "task-1",
-            "task_subject": "Implement feature X",
-        }
-        data.update(overrides)
-        return data
-
-    def _seed_guidance(self):
-        """Seed a pair_guidance event so navigator gate passes."""
-        self._write_events(
-            [make_event("pair_guidance", content="Looks good", tool_name="Write")]
-        )
-
-    def test_blocks_without_navigator_guidance(self):
-        with self.assertRaises(_common.BlockedError) as ctx:
-            task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        self.assertIn("xp-navigator", str(ctx.exception))
-
-    def test_passes_with_navigator_guidance(self):
-        self._seed_guidance()
-        result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_second_attempt_passes_without_guidance(self):
-        """Second attempt allows through to prevent infinite loops."""
-        # First attempt blocks and writes gate event
-        with self.assertRaises(_common.BlockedError):
-            task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        # Second attempt passes
-        result = task_completed.run(self._make_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_xp_agent_skips(self):
-        result = task_completed.run(
-            self._make_input(agent_type="xp-navigator"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
 
 
 # ===========================================================================
@@ -3574,11 +3502,6 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
     def setUp(self):
         self.agents_dir = Path(__file__).parent.parent / "agents"
 
-    # AC 1: navigator mentions contradictions
-    def test_navigator_mentions_contradictions(self):
-        content = (self.agents_dir / "xp-navigator.md").read_text()
-        self.assertIn("contradict", content.lower())
-
     # AC 4: first session asks for goals (now in skill)
     def test_goal_collection_skill(self):
         skill_dir = Path(__file__).parent.parent / "skills" / "xp-goal-collection"
@@ -3606,11 +3529,6 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
         skill_dir = Path(__file__).parent.parent / "skills" / "xp-question-triage"
         content = (skill_dir / "SKILL.md").read_text()
         self.assertIn("Err toward keeping intents open", content)
-
-    # AC 10: navigator debt awareness
-    def test_navigator_debt_awareness(self):
-        content = (self.agents_dir / "xp-navigator.md").read_text()
-        self.assertIn("Debt Awareness", content)
 
     # AC 12: retrospective escalates aging debt
     def test_retrospective_escalates_aging_debt(self):
@@ -4866,7 +4784,6 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
 # ===========================================================================
 
 _SUBAGENT_NAMES = (
-    "xp-navigator",
     "xp-retrospective",
     "xp-plan-reviewer",
     "xp-subagent-reviewer",
