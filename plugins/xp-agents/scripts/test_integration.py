@@ -2693,5 +2693,83 @@ class TestMigrateIntegration(_IntegrationTestCase):
         self.assertEqual(migrated[0]["schema_version"], 2)
 
 
+# ===========================================================================
+# Quality Review Gate — pending subagents
+# ===========================================================================
+
+
+class TestQualityGatePendingSubagents(_IntegrationTestCase):
+    def _seed_simplify_tracker(self, loop_id: str) -> None:
+        """Write simplify tracker so quality gate can fire."""
+        tracker = self.smm_dir / ".simplify-main.json"
+        tracker.write_text(json.dumps({"loop_id": loop_id}))
+
+    def test_quality_gate_waits_for_pending_subagents(self):
+        """Full subprocess: pending subagent blocks, completed allows."""
+        ci = make_event("customer_input", content="build feature")
+        self._seed_events(
+            [
+                ci,
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/app.ts"],
+                ),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 started",
+                    working_on=[],
+                ),
+            ]
+        )
+        self._seed_simplify_tracker(ci["id"])
+
+        # Run 1: pending subagent → blocks with agent message
+        r1 = self._run_script(
+            "quality_review_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(r1.returncode, 0)
+        d1 = json.loads(r1.stdout)
+        self.assertEqual(d1["decision"], "block")
+        self.assertIn("explorer-1", d1["reason"])
+        self.assertNotIn("/xp-quality-review", d1["reason"])
+
+        # Add completion event
+        self._seed_events(
+            [
+                ci,
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/app.ts"],
+                ),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 started",
+                    working_on=[],
+                ),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 completed",
+                    working_on=[],
+                ),
+            ]
+        )
+
+        # Run 2: all completed → blocks with quality review
+        r2 = self._run_script(
+            "quality_review_gate.py",
+            {"session_id": "int-test", "agent_id": "main"},
+        )
+        self.assertEqual(r2.returncode, 0)
+        d2 = json.loads(r2.stdout)
+        self.assertEqual(d2["decision"], "block")
+        self.assertIn("/xp-quality-review", d2["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Write watermark at current event count
     _common.write_watermark(smm_dir, agent_id, len(events))
 
+    # Record start event (pairs with "completed" in SubagentStop)
+    start_event = _common.make_event(
+        _common.STATUS,
+        agent_id,
+        _common.subagent_started_content(agent_id),
+        working_on=[],
+    )
+    _common.append_safe(smm_dir, start_event)
+
     if smm_content:
         return _common.wrap_smm_context(smm_content)
     return None

@@ -60,6 +60,17 @@ PAIR_GUIDANCE = "pair_guidance"
 SESSION_END = "session_end"
 RETROSPECTIVE = "retrospective"
 
+
+def subagent_started_content(agent_id: str) -> str:
+    """Canonical content string for subagent start events."""
+    return f"Subagent {agent_id} started"
+
+
+def subagent_completed_content(agent_id: str) -> str:
+    """Canonical content string for subagent completion events."""
+    return f"Subagent {agent_id} completed"
+
+
 # Question priorities imported from _append_impl at module level
 
 

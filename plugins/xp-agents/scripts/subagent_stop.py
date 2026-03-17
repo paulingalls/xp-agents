@@ -71,7 +71,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     event = _common.make_event(
         _common.STATUS,
         agent_id,
-        f"Subagent {agent_id} completed",
+        _common.subagent_completed_content(agent_id),
         working_on=[],
     )
     _common.append_safe(smm_dir, event)

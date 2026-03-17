@@ -1292,6 +1292,38 @@ class TestSubagentStart(_HookTestCase):
         self.assertTrue(wm_file.exists())
 
 
+class TestSubagentStartEvent(_HookTestCase):
+    """Tests for SubagentStart event recording (async agent timing fix)."""
+
+    def test_start_records_status_event(self):
+        import subagent_start
+
+        self._write_events([make_event()])
+        subagent_start.run(
+            {"session_id": "test", "agent_id": "explorer-1"},
+            smm_dir=self.smm_dir,
+        )
+        events = self._read_events()
+        # Should have original event + new start event
+        self.assertEqual(len(events), 2)
+        start_ev = events[1]
+        self.assertEqual(start_ev["type"], "status")
+        self.assertEqual(start_ev["agent_id"], "explorer-1")
+        self.assertEqual(start_ev["content"], "Subagent explorer-1 started")
+
+    def test_xp_agent_no_event(self):
+        import subagent_start
+
+        self._write_events([make_event()])
+        subagent_start.run(
+            {"session_id": "test", "agent_id": "xp-nav-1", "agent_type": "xp-nav"},
+            smm_dir=self.smm_dir,
+        )
+        events = self._read_events()
+        # xp- agents should not write start events
+        self.assertEqual(len(events), 1)
+
+
 # ===========================================================================
 # pre_tool_use.py tests — Milestone 3.2
 # ===========================================================================
@@ -3962,11 +3994,6 @@ class TestQualityReviewGate(_HookTestCase):
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
-    def test_stop_hook_active_skips(self):
-        inp = _make_stop_input(stop_hook_active=True)
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
     def test_no_smm_dir_degrades(self):
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
@@ -4069,6 +4096,139 @@ class TestQualityReviewGate(_HookTestCase):
         self.assertTrue(tracker_file.exists())
         tracker = json.loads(tracker_file.read_text())
         self.assertEqual(tracker["loop_id"], ci["id"])
+
+
+class TestQualityReviewPendingSubagents(_HookTestCase):
+    """Tests for quality_review_gate pending-subagent detection."""
+
+    def setUp(self):
+        super().setUp()
+        self.mod = quality_review_gate
+
+    def _seed_simplify_done(self, loop_id: str) -> None:
+        import json
+
+        tracker = self.smm_dir / ".simplify-main.json"
+        tracker.write_text(json.dumps({"loop_id": loop_id}))
+
+    def test_pending_subagents_blocks_stop(self):
+        """Gate blocks with pending-agent message when subagents haven't completed."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 started",
+                    working_on=[],
+                ),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("background agent", result.lower())
+        self.assertIn("explorer-1", result)
+        # Should NOT contain quality review message
+        self.assertNotIn("/xp-quality-review", result)
+
+    def test_all_completed_fires_quality_review(self):
+        """Gate proceeds to quality review when all subagents completed."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 started",
+                    working_on=[],
+                ),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 completed",
+                    working_on=[],
+                ),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_no_subagents_fires_quality_review(self):
+        """No subagent events = normal quality review flow."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_stop_hook_active_still_checks_pending(self):
+        """Gate still blocks for pending subagents even with stop_hook_active=True."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 started",
+                    working_on=[],
+                ),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input(stop_hook_active=True)
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("explorer-1", result)
+
+    def test_stop_hook_active_with_completed_allows_quality_check(self):
+        """stop_hook_active + all completed → tracker already written → passes."""
+        ci = make_event("customer_input", content="build feature")
+        self._write_events(
+            [
+                ci,
+                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 started",
+                    working_on=[],
+                ),
+                make_event(
+                    "status",
+                    agent_id="explorer-1",
+                    content="Subagent explorer-1 completed",
+                    working_on=[],
+                ),
+            ]
+        )
+        self._seed_simplify_done(ci["id"])
+        inp = _make_stop_input()
+        # First call writes tracker and blocks with quality review message
+        result1 = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result1)
+        self.assertIn("/xp-quality-review", result1)
+        # Second call (stop_hook_active=True) — tracker prevents re-trigger
+        inp2 = _make_stop_input(stop_hook_active=True)
+        result2 = self.mod.run(inp2, smm_dir=self.smm_dir)
+        self.assertIsNone(result2)
 
 
 # ===========================================================================

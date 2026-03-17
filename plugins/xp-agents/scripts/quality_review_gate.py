@@ -37,6 +37,22 @@ def _write_tracker(smm_dir: Path, agent_id: str, tracker: dict) -> None:
     _common.write_json_atomic(_tracker_path(smm_dir, agent_id), tracker)
 
 
+def _pending_subagent_ids(events: list[dict], start_idx: int) -> set[str]:
+    """Return IDs of subagents started but not completed since start_idx."""
+    started: set[str] = set()
+    completed: set[str] = set()
+    for e in events[start_idx:]:
+        if e.get("type") != _common.STATUS:
+            continue
+        content = e.get("content", "")
+        aid = e.get("agent_id", "")
+        if content == _common.subagent_started_content(aid):
+            started.add(aid)
+        elif content == _common.subagent_completed_content(aid):
+            completed.add(aid)
+    return started - completed
+
+
 # ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
@@ -45,8 +61,6 @@ def _write_tracker(smm_dir: Path, agent_id: str, tracker: dict) -> None:
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Return stderr message if quality review needed, None otherwise."""
     if _common.is_xp_agent(input_data):
-        return None
-    if input_data.get("stop_hook_active"):
         return None
 
     if smm_dir is None:
@@ -96,6 +110,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Only trigger for code file changes
     if not simplify_gate.has_code_changes_since(events, start_idx):
         return None
+
+    # Block if subagents are still running (started but not completed)
+    pending = _pending_subagent_ids(events, start_idx)
+    if pending:
+        ids = ", ".join(sorted(pending))
+        return (
+            f"{len(pending)} background agent(s) still running (IDs: {ids}). "
+            "These agents may be making code changes from /simplify. "
+            "Quality review needs their output before it can run. "
+            "Continue other work or wait for them to finish, then try stopping again."
+        )
 
     # Write tracker and block
     _write_tracker(smm_dir, agent_id, {"loop_id": loop_id})
