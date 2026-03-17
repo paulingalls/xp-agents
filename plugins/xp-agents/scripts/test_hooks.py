@@ -4131,7 +4131,7 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("background agent", result.lower())
-        self.assertIn("explorer-1", result)
+        self.assertIn("wait for them to complete", result.lower())
         # Should NOT contain quality review message
         self.assertNotIn("/xp-quality-review", result)
 
@@ -4196,7 +4196,7 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         inp = _make_stop_input(stop_hook_active=True)
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
-        self.assertIn("explorer-1", result)
+        self.assertIn("background agent", result.lower())
 
     def test_stop_hook_active_with_completed_allows_quality_check(self):
         """stop_hook_active + all completed → tracker already written → passes."""

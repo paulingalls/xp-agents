@@ -114,12 +114,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Block if subagents are still running (started but not completed)
     pending = _pending_subagent_ids(events, start_idx)
     if pending:
-        ids = ", ".join(sorted(pending))
         return (
-            f"{len(pending)} background agent(s) still running (IDs: {ids}). "
-            "These agents may be making code changes from /simplify. "
-            "Quality review needs their output before it can run. "
-            "Continue other work or wait for them to finish, then try stopping again."
+            f"{len(pending)} background agent(s) still running. "
+            "Wait for them to complete, then try stopping again."
         )
 
     # Write tracker and block

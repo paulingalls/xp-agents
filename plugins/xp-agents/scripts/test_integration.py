@@ -2733,7 +2733,7 @@ class TestQualityGatePendingSubagents(_IntegrationTestCase):
         self.assertEqual(r1.returncode, 0)
         d1 = json.loads(r1.stdout)
         self.assertEqual(d1["decision"], "block")
-        self.assertIn("explorer-1", d1["reason"])
+        self.assertIn("background agent", d1["reason"].lower())
         self.assertNotIn("/xp-quality-review", d1["reason"])
 
         # Add completion event
