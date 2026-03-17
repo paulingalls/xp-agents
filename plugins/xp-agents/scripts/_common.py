@@ -279,6 +279,14 @@ def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test concern pattern (shared by bash_post_tool.py and tdd_stop_gate.py)
+# ---------------------------------------------------------------------------
+
+TEST_CONCERN_RE = re.compile(
+    r"Test (?:failures? detected|run failed|command failed)", re.IGNORECASE
+)
+
+# ---------------------------------------------------------------------------
 # Conflict detection (shared by post_tool_use.py and subagent_stop.py)
 # ---------------------------------------------------------------------------
 

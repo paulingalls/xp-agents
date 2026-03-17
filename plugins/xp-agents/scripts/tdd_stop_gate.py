@@ -16,9 +16,7 @@ import _common
 
 # Patterns that indicate test results in status/concern events
 _TEST_PASS_RE = re.compile(r"Tests?:.*\d+\s+passed.*0\s+failed", re.IGNORECASE)
-_TEST_FAIL_RE = re.compile(
-    r"Test (?:failures? detected|run failed|command failed)", re.IGNORECASE
-)
+_TEST_FAIL_RE = _common.TEST_CONCERN_RE
 
 
 def _find_last_test_signal(events: list[dict]) -> str | None:
