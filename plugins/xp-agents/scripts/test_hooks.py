@@ -1456,6 +1456,17 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_empty_working_on_clears_overlap(self):
+        """working_on=[] should clear the agent's file claim."""
+        events = [
+            make_event("status", agent_id="other", working_on=["src/app.ts"]),
+            make_event("status", agent_id="other", working_on=[]),
+        ]
+        result = pre_tool_use.check_working_on_overlap(
+            events, "main", "src/app.ts", "/project"
+        )
+        self.assertIsNone(result)
+
 
 class TestCheckTddOrder(_HookTestCase):
     def test_first_impl_no_nudge(self):
@@ -3314,6 +3325,18 @@ class TestDetectConflictsCommon(_HookTestCase):
     def test_no_overlap_different_file(self):
         events = [
             make_event("status", agent_id="other", working_on=["/tmp/src/other.ts"]),
+        ]
+        concerns = _common.detect_conflicts(
+            events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+        )
+        overlap_concerns = [c for c in concerns if "overlap" in c["content"].lower()]
+        self.assertEqual(len(overlap_concerns), 0)
+
+    def test_empty_working_on_clears_overlap(self):
+        """working_on=[] should clear agent's file list."""
+        events = [
+            make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
+            make_event("status", agent_id="other", working_on=[]),
         ]
         concerns = _common.detect_conflicts(
             events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"

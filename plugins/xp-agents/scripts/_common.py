@@ -317,7 +317,7 @@ def detect_conflicts(
         normalized = normalize_path(file_path, cwd)
         agent_files: dict[str, list[str]] = {}
         for e in events:
-            if e.get("type") == STATUS and e.get("working_on"):
+            if e.get("type") == STATUS and "working_on" in e:
                 agent_files[e.get("agent_id", "")] = e["working_on"]
 
         for aid, files in agent_files.items():
