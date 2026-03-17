@@ -26,10 +26,16 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
 
 3. **If the file exists**, it contains:
    - `unanalyzed_count` — number of events since the last retro
-   - `events_since_last_retro` — the full event list to analyze
+   - `digest` — **structured summary** (use this instead of raw events):
+     - `signal_events` — full event dicts for decisions, concerns, goals, debt, discoveries, questions, answers, assumptions, conventions, pair_guidance, customer_input (~30 events vs 200+ raw)
+     - `status_summary` — `{total, file_writes, test_runs, other, samples}` with counts and 10 newest samples per category
+     - `concern_groups` — deduplicated concerns grouped by normalized content, each with `{key, count, events}`
+   - `events_since_last_retro` — raw event list (kept for backward compat, prefer `digest`)
    - `previous_retros` — last 2-3 retrospective summaries for trend detection
    - `event_type_counts` — breakdown by event type
    - `session_stats` — navigator guidance count, concern resolution ratio, etc.
+
+**Use `digest` for analysis.** It contains the same information as `events_since_last_retro` but structured for efficient analysis. Status events are summarized as counts; signal events and concerns are preserved in full.
 
 ## Analysis Framework
 
