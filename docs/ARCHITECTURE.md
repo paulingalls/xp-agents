@@ -38,11 +38,9 @@ User-level storage, per-project isolation. `project-id` derived from `git rev-pa
 | `retrospective` | Subagent (retrospective) | Keep/Fix/Try analysis |
 | `security_review_requested` | Hook (PreToolUse push gate) | Security review needed before push |
 
-🔴/🟡 heuristic: default to 🟡 with stated assumption. Use 🔴 only when both paths create significant rework.
-
 ## Materialized View (SHARED_MENTAL_MODEL.md)
 
-Two tiers: **Active Context** (needs attention now) above **Reference** (informs decisions). Sections with no content are omitted.
+Two tiers: **Active Context** above **Reference**. Sections with no content omitted.
 
 ```markdown
 # Shared Mental Model
@@ -68,8 +66,6 @@ Two tiers: **Active Context** (needs attention now) above **Reference** (informs
 - Velocity Signal (events per session, decision churn detection)
 ```
 
-Drift Signals and Velocity Signal are event-log-only analysis computed during materialization — no codebase I/O. They surface evidence that decisions may not reflect reality and flag decision churn across sessions.
-
 ### Tiered Injection
 
 | Tool | What's Injected |
@@ -81,7 +77,7 @@ Drift Signals and Velocity Signal are event-log-only analysis computed during ma
 
 ## Hook Map
 
-All hooks are `type: "command"`. Agent hooks (`type: "agent"`) are broken platform-wide — they crash with "Messages are required for agent hooks. This is a bug." on all events tested (PostToolUse, UserPromptSubmit). Judgment work uses plugin subagents instead.
+All hooks are `type: "command"`. Judgment work uses plugin subagents.
 
 ### Command Hooks
 
@@ -107,7 +103,7 @@ All hooks are `type: "command"`. Agent hooks (`type: "agent"`) are broken platfo
 
 ### Plugin Subagents (agents/ directory)
 
-Subagents have full tool access (Read, Grep, Glob, Bash, Write). Command hooks trigger them via `additionalContext` nudge or exit 2 block. Each subagent is wrapped by a forked skill (`skills/xp-*/SKILL.md`) with `!` preloads for deterministic SMM state injection. The `allowed-tools` field in skill frontmatter (e.g., `Bash(*/skills/*/scripts/*)`) pre-approves preload script permissions.
+Subagents have full tool access. Command hooks trigger them via `additionalContext` nudge. Each wrapped by a forked skill with `!` preloads for deterministic SMM state injection.
 
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
@@ -148,13 +144,11 @@ Injection order in SessionStart `additionalContext`:
 2. GUPP ("Resume immediately")
 3. Skills list
 
-After `/xp-housekeeping` completes, `session_review_done.py` (PostToolUse:Skill hook) deterministically injects:
+After `/xp-housekeeping` completes, `session_review_done.py` (PostToolUse:Skill) injects:
 1. Fresh materialized SMM (wrapped in `<smm-context>`)
 2. BEHAVIORAL_GUIDE.md
 
-This ensures the agent sees SMM and behavioral guide together, after lifecycle triage (resolved items filtered, goals confirmed, concerns triaged). The behavioral guide references the SMM repeatedly, so loading them together preserves coherence.
-
-All injection via `additionalContext`. Never in system prompt (preserves prompt cache).
+All injection via `additionalContext`.
 
 ## Conflict Detection
 
@@ -300,15 +294,13 @@ Fail loud, never corrupt, always recoverable.
 
 ## Debt Aging
 
-Debt age computed at materialize time by counting `session_end` events after the debt timestamp. Append-only log preserved — no event mutation.
+| Age | Rendering |
+|---|---|
+| 0-3 sessions | Normal |
+| 4-6 sessions | ⚠️ |
+| 7+ sessions | 🔴 |
 
-| Age | Rendering | Repayment Pressure |
-|---|---|---|
-| 0-3 sessions | Normal | — |
-| 4-6 sessions | ⚠️ | Retrospective flags in Fix items |
-| 7+ sessions | 🔴 | Retrospective escalates as high-priority Fix |
-
-Debt referenced by multiple concerns gets highest priority regardless of age. Quality reviewer writes concern if debt not addressed.
+Age computed at materialize time by counting `session_end` events after debt timestamp.
 
 ## Agent Teams
 
@@ -328,11 +320,7 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 
 ## Event Lifecycle
 
-Events are resolved explicitly via `metadata.resolves` — no heuristic aging or pruning. The materializer is a pure view: it renders open vs. resolved, nothing more.
-
-### Resolution Mechanism
-
-Any event can resolve another by including `metadata: {"resolves": ["target-event-id"]}`. Questions use a separate mechanism: `answer` events that reference the question via `references`.
+Resolution via `metadata: {"resolves": ["target-event-id"]}`. Questions resolved by `answer` events with `references`.
 
 | Type | Resolution Pattern | Who Drives Closure | Active → Reference |
 |------|-------------------|-------------------|-------------------|
@@ -342,18 +330,15 @@ Any event can resolve another by including `metadata: {"resolves": ["target-even
 | Decision (draft) | New decision with `draft: false` on same topic | `/xp-housekeeping` | Drafts in R1, rejected omitted |
 | Question | `answer` event with `references` | `/xp-question-triage` | Blocking in A3, resolved in R3 |
 
-### Session Review Gate (Enforcement)
+### Session Review Gate
 
-Session review is enforced by dual gates:
-- **UserPromptSubmit** (`session_review_gate.py`): blocks user prompts until `/xp-session-review` runs. Allows the command itself through.
-- **PreToolUse** (`pre_tool_use.py`): blocks ALL tools when `.needs-session-review` marker exists. Defense-in-depth for edge cases.
-
-Both respect `enforcement` setting (strict = blocks, advisory = allows).
+Dual gate: `session_review_gate.py` (UserPromptSubmit) + `pre_tool_use.py` (PreToolUse). Both block until `/xp-session-review` runs. Both respect `enforcement` setting.
 
 ## Data Quality
 
-- **ANSI stripping**: `_append_impl.py` strips ANSI escape codes from event `content` at write time via `_strip_ansi()`. Prevents terminal garbage from entering the log.
-- **Content truncation**: `materialize.py` truncates concern content to 500 chars in rendered output. Prevents oversized concerns from bloating the SMM.
+- **ANSI stripping**: `_append_impl.py` strips ANSI escape codes from `content` at write time
+- **Content truncation**: `materialize.py` truncates concern content to 500 chars
+- **Concern deduplication**: `detect_conflicts()` checks existing unresolved concerns before generating new ones
 
 ## Design Principles
 
