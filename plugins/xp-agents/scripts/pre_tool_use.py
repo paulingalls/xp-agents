@@ -274,7 +274,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     _common.append_safe(smm_dir, event)
                     msg = (
                         "Security review required before pushing. "
-                        "Run /security-review first."
+                        "Either run /security-review to perform the "
+                        "review, or if you have already reviewed the "
+                        "code, run /security-clear to clear the gate."
                     )
                     if enforcement == _common.ENFORCEMENT_ADVISORY:
                         parts.append(f"⚠️ Advisory warning: {msg}")
