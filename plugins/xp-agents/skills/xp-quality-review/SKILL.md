@@ -10,6 +10,7 @@ allowed-tools:
   - Write
   - Grep
   - Glob
+  - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(python3 -m unittest *)
