@@ -157,6 +157,38 @@ def load_commit_threshold() -> int:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> None:
+    """Auto-resolve unresolved test-failure concerns when tests pass."""
+    import _append_impl
+
+    events = _common.read_events_raw(smm_dir)
+    resolutions = _append_impl.compute_resolutions(events)
+    resolved_ids = resolutions["resolved_concern_ids"]
+
+    unresolved = [
+        e
+        for e in events
+        if e.get("type") == _common.CONCERN
+        and e.get("id", "") not in resolved_ids
+        and _common.TEST_CONCERN_RE.search(e.get("content", ""))
+    ]
+
+    if not unresolved:
+        return
+
+    resolution_events = [
+        _make_event(
+            _common.STATUS,
+            agent_id,
+            f"Test concern resolved: {c['content'][:60]}",
+            working_on=[],
+            metadata={"resolves": [c["id"]]},
+        )
+        for c in unresolved
+    ]
+    _common.bulk_append_safe(smm_dir, resolution_events)
+
+
 def _append_safe(smm_dir: Path, event: dict) -> None:
     _common.append_safe(smm_dir, event)
 
@@ -245,6 +277,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
                 severity="high",
             )
             _append_safe(smm_dir, concern)
+        elif failed == 0:
+            _resolve_test_concerns(smm_dir, agent_id)
 
         return None
 

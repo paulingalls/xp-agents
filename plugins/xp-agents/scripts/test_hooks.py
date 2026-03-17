@@ -5219,5 +5219,135 @@ class TestBulkAppendSafe(_HookTestCase):
         self.assertEqual(len(events), 0)
 
 
+class TestAutoResolveTestConcerns(_HookTestCase):
+    """Tests for auto-resolve of test-failure concerns."""
+
+    def _run_bash(self, command, stdout="", **kw):
+        import bash_post_tool
+
+        data = _make_bash_input(command=command, stdout=stdout, **kw)
+        bash_post_tool.run(data, smm_dir=self.smm_dir)
+
+    def test_passing_resolves_prior_failure_concern(self):
+        """Seed failure concern, pass tests, verify resolution."""
+        concern = make_event(
+            "concern",
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        self._write_events([concern])
+        self._run_bash(
+            "python3 -m unittest test.py",
+            stdout="Ran 5 tests in 0.1s\n\nOK",
+        )
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+        self.assertIn(
+            concern["id"],
+            resolutions[0]["metadata"]["resolves"],
+        )
+
+    def test_passing_resolves_multiple_concerns(self):
+        """Two different failure concerns should both be resolved."""
+        c1 = make_event(
+            "concern",
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        c2 = make_event(
+            "concern",
+            content="Test run failed: 1 error",
+            severity="high",
+        )
+        self._write_events([c1, c2])
+        self._run_bash(
+            "python3 -m unittest test.py",
+            stdout="Ran 5 tests in 0.1s\n\nOK",
+        )
+        events = self._read_events()
+        all_resolved_ids = []
+        for e in events:
+            all_resolved_ids.extend(e.get("metadata", {}).get("resolves", []))
+        self.assertIn(c1["id"], all_resolved_ids)
+        self.assertIn(c2["id"], all_resolved_ids)
+
+    def test_no_resolve_when_no_prior_concerns(self):
+        """Clean state, no resolution events."""
+        self._run_bash(
+            "python3 -m unittest test.py",
+            stdout="Ran 5 tests in 0.1s\n\nOK",
+        )
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_skip_already_resolved_concerns(self):
+        """No duplicate resolutions."""
+        concern = make_event(
+            "concern",
+            content="Test failures detected: 1 failed (pytest)",
+            severity="high",
+        )
+        resolver = make_event(
+            "status",
+            content="Test concern resolved",
+            working_on=[],
+            metadata={"resolves": [concern["id"]]},
+        )
+        self._write_events([concern, resolver])
+        self._run_bash(
+            "python3 -m unittest test.py",
+            stdout="Ran 5 tests in 0.1s\n\nOK",
+        )
+        events = self._read_events()
+        new_resolutions = [
+            e
+            for e in events[2:]  # skip seeded events
+            if e.get("metadata", {}).get("resolves")
+        ]
+        self.assertEqual(len(new_resolutions), 0)
+
+    def test_failing_tests_no_auto_resolve(self):
+        """Still-failing tests should not resolve anything."""
+        concern = make_event(
+            "concern",
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        self._write_events([concern])
+        self._run_bash(
+            "python3 -m unittest test.py",
+            stdout="Ran 5 tests in 0.1s\n\nFAILED (failures=1)",
+        )
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_stop_gate_ignores_resolution_events(self):
+        """Resolution events should not confuse the TDD stop gate."""
+        import tdd_stop_gate
+
+        concern = make_event(
+            "concern",
+            content="Test failures detected: 1 failed (pytest)",
+            severity="high",
+        )
+        resolver = make_event(
+            "status",
+            content="Test concern resolved: 1 concern auto-resolved",
+            working_on=[],
+            metadata={"resolves": [concern["id"]]},
+        )
+        pass_status = make_event(
+            "status",
+            content="Tests: 5 passed, 0 failed (pytest)",
+            working_on=[],
+        )
+        self._write_events([concern, resolver, pass_status])
+        result = tdd_stop_gate.run({"session_id": "t"}, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
