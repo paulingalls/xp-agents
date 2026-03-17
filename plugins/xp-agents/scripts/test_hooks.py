@@ -3410,6 +3410,28 @@ class TestDetectConflictsCommon(_HookTestCase):
         stale_concerns = [c for c in concerns if "stale" in c["content"].lower()]
         self.assertEqual(len(stale_concerns), 0)
 
+    def test_resolved_concern_allows_re_detection(self):
+        """Resolved concerns should not suppress re-detection."""
+        conv = make_event("convention", topic="naming", content="Use camelCase")
+        dec = make_event("decision", topic="naming", content="Use snake_case")
+        concern_content = (
+            "Convention violation: decision on 'naming' "
+            "diverges from established convention."
+        )
+        old_concern = make_event("concern", content=concern_content)
+        # Resolve the old concern
+        resolution = make_event(
+            "status",
+            content="Concern resolved",
+            metadata={"resolves": [old_concern["id"]]},
+        )
+        events = [conv, dec, old_concern, resolution]
+        concerns = _common.detect_conflicts(events, "main")
+        convention_concerns = [
+            c for c in concerns if "convention" in c["content"].lower()
+        ]
+        self.assertEqual(len(convention_concerns), 1)
+
 
 # ===========================================================================
 # hooks.json M3.4 registration tests

@@ -101,12 +101,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-
-    try:
-        result = run(input_data)
-    except _common.BlockedError as e:
-        print(json.dumps({"decision": "block", "reason": str(e)}))
-        sys.exit(0)
+    result = run(input_data)
 
     if result:
         # SubagentStop doesn't support hookSpecificOutput/additionalContext.

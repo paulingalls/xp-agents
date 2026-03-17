@@ -289,14 +289,25 @@ def detect_conflicts(
     When file_path/cwd are None, skip pattern 1 (overlapping working_on).
     Deduplicates: skips concerns whose content already exists in the event log.
     """
-    # Collect existing concern content for deduplication
+    # Collect existing unresolved concern content for deduplication.
+    # Resolved concerns are excluded so recurring conflicts are re-detected.
+    import _append_impl
+
+    resolutions = _append_impl.compute_resolutions(events)
+    resolved_ids = resolutions["resolved_concern_ids"]
     existing_concerns = {
-        e.get("content", "") for e in events if e.get("type") == CONCERN
+        e.get("content", "")
+        for e in events
+        if e.get("type") == CONCERN and e.get("id", "") not in resolved_ids
     }
     concerns: list[dict] = []
 
     def _add_concern(content: str, severity: str) -> None:
-        """Append concern only if not already in the event log."""
+        """Append concern only if no unresolved duplicate exists.
+
+        Also tracks content within this call to prevent intra-run duplicates
+        (e.g., two patterns detecting the same structural conflict).
+        """
         if content not in existing_concerns:
             concerns.append(make_concern(content, severity, agent_id))
             existing_concerns.add(content)
@@ -355,14 +366,11 @@ def detect_conflicts(
                     )
 
     # 4. Stale question — 🔴 question with no answer after 20+ subsequent events
-    import _append_impl
-
     question_positions: dict[str, int] = {}
     for i, e in enumerate(events):
         if e.get("type") == QUESTION and e.get("priority") == PRIORITY_BLOCKING:
             question_positions[e.get("id", "")] = i
 
-    resolutions = _append_impl.compute_resolutions(events)
     answered_ids = resolutions["answered_question_ids"]
 
     total = len(events)
