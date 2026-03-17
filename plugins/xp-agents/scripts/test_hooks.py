@@ -483,12 +483,14 @@ class TestSessionStart(_HookTestCase):
         import session_start
 
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
-        result = session_start.run(
-            {"session_id": "test", "source": "startup"},
-            smm_dir=fake_dir,
-        )
-        # Should still return context (init.sh creates the dir)
-        # But if smm_dir doesn't exist and init.sh isn't called, graceful
+        # Mock resolve_plugin_root to prevent init.sh from resolving
+        # the real project's SMM dir (which would leak a marker file)
+        with patch.object(_common, "resolve_plugin_root", return_value=fake_dir):
+            result = session_start.run(
+                {"session_id": "test", "source": "startup"},
+                smm_dir=fake_dir,
+            )
+        # Should still return context even without SMM
         self.assertIsNotNone(result)
 
     def test_empty_events_file(self):
@@ -1943,18 +1945,6 @@ class TestRetrospectiveNudge(_HookTestCase):
 
 class TestSessionStartCustomerNudge(_HookTestCase):
     """M6.5: session_start.py should nudge goal-collection / question-triage."""
-
-    def setUp(self):
-        super().setUp()
-        import session_start
-
-        session_start._load_behavioral_guide.cache_clear()
-
-    def tearDown(self):
-        import session_start
-
-        session_start._load_behavioral_guide.cache_clear()
-        super().tearDown()
 
     def test_no_goal_nudge_removed(self):
         """Goal nudge removed — handled by /xp-session-review."""
@@ -4748,22 +4738,10 @@ class TestMilestone6Files(unittest.TestCase):
 
 
 class TestSessionStartBehavioralGuide(_HookTestCase):
-    """Tests for behavioral guide injection in session_start.py."""
+    """Behavioral guide moved to session_review_done."""
 
-    def setUp(self):
-        super().setUp()
-        import session_start
-
-        session_start._load_behavioral_guide.cache_clear()
-
-    def tearDown(self):
-        import session_start
-
-        session_start._load_behavioral_guide.cache_clear()
-        super().tearDown()
-
-    def test_session_start_includes_behavioral_guide(self):
-        """Output should include behavioral guide content."""
+    def test_session_start_no_behavioral_guide(self):
+        """session_start should NOT include behavioral guide."""
         import session_start
 
         self._write_events([make_event()])
@@ -4772,7 +4750,7 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("Honesty Principle", result)
+        self.assertNotIn("Honesty Principle", result)
 
     def test_session_start_includes_skills(self):
         """Output should still contain skill names."""
@@ -4786,46 +4764,6 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
         self.assertIn("smm-protocol", result)
         self.assertIn("xp-values", result)
         self.assertIn("pair-programming", result)
-
-    def test_session_start_no_guide_degrades(self):
-        """Missing BEHAVIORAL_GUIDE.md should not crash session_start."""
-        import session_start
-
-        self._write_events([make_event()])
-        # Temporarily point plugin root to a dir without the guide
-        tmpdir = Path(tempfile.mkdtemp())
-        try:
-            with patch.object(_common, "resolve_plugin_root", return_value=tmpdir):
-                # Clear any cached guide
-                if hasattr(session_start, "_load_behavioral_guide"):
-                    session_start._load_behavioral_guide.cache_clear()
-                result = session_start.run(
-                    {"session_id": "test", "source": "startup"},
-                    smm_dir=self.smm_dir,
-                )
-            self.assertIsNotNone(result)
-            # Should still have GUPP and skills
-            self.assertIn("Resume immediately", result)
-        finally:
-            import shutil
-
-            shutil.rmtree(tmpdir)
-            if hasattr(session_start, "_load_behavioral_guide"):
-                session_start._load_behavioral_guide.cache_clear()
-
-    def test_behavioral_guide_after_gupp(self):
-        """Guide should appear after GUPP (reference material, not action items)."""
-        import session_start
-
-        self._write_events([make_event()])
-        result = session_start.run(
-            {"session_id": "test", "source": "startup"},
-            smm_dir=self.smm_dir,
-        )
-        if result and "Honesty Principle" in result:
-            guide_pos = result.index("Honesty Principle")
-            gupp_pos = result.index("Resume immediately")
-            self.assertGreater(guide_pos, gupp_pos, "Guide should appear after GUPP")
 
     def test_no_smm_in_session_start(self):
         """SMM is no longer injected by session_start (deferred to session-review)."""
@@ -5074,6 +5012,73 @@ class TestPluginIntegrity(unittest.TestCase):
         self.assertTrue(path.is_file(), "Missing BEHAVIORAL_GUIDE.md")
         content = path.read_text()
         self.assertGreater(len(content), 1000, "BEHAVIORAL_GUIDE.md too short")
+
+
+# ===========================================================================
+# PostToolUse:Skill — session_review_done.py
+# ===========================================================================
+
+import session_review_done  # noqa: E402
+
+
+class TestSessionReviewDone(_HookTestCase):
+    """PostToolUse:Skill hook injects SMM + behavioral guide after session review."""
+
+    def _skill_input(self, skill: str = "xp-session-review", **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Skill",
+            "tool_input": {"skill": skill},
+            "agent_id": "main",
+        }
+        data.update(overrides)
+        return data
+
+    def test_injects_smm_on_session_review(self):
+        """Should inject materialized SMM after xp-session-review."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("Shared Mental Model", result)
+
+    def test_injects_behavioral_guide(self):
+        """Should inject BEHAVIORAL_GUIDE.md content after session review."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Agent Behavioral Guide", result)
+
+    def test_ignores_other_skills(self):
+        """Should return None for non-session-review skills."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = session_review_done.run(
+            self._skill_input("simplify"), smm_dir=self.smm_dir
+        )
+        self.assertIsNone(result)
+
+    def test_xp_agent_skips(self):
+        """Should skip for xp-agent types."""
+        result = session_review_done.run(
+            self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
+        )
+        self.assertIsNone(result)
+
+    def test_smm_before_behavioral_guide(self):
+        """SMM should appear before behavioral guide in output."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        smm_pos = result.find("Shared Mental Model")
+        guide_pos = result.find("XP Agent Behavioral Guide")
+        self.assertGreater(guide_pos, smm_pos)
+
+    def test_deletes_needs_session_review_marker(self):
+        """Should delete .needs-session-review marker after injection."""
+        marker = self.smm_dir / ".needs-session-review"
+        marker.touch()
+        self._write_events([make_event("goal", content="Ship v1")])
+        session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

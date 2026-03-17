@@ -1766,8 +1766,8 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
 
 
 class TestMilestone6Integration(_IntegrationTestCase):
-    def test_session_start_behavioral_guide(self):
-        """Subprocess: session_start.py stdout includes behavioral guide."""
+    def test_session_start_no_behavioral_guide(self):
+        """session_start no longer includes behavioral guide."""
         self._seed_events([make_event()])
         result = self._run_script(
             "session_start.py",
@@ -1776,10 +1776,11 @@ class TestMilestone6Integration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Honesty Principle", ctx)
-        self.assertIn("Courage", ctx)
+        # Guide moved to session_review_done.py
+        self.assertNotIn("Honesty Principle", ctx)
+        # Skills should still be present
         self.assertIn("smm-protocol", ctx)
-        self.assertIn("invoke these regularly", ctx.lower())
+        self.assertIn("Resume immediately", ctx)
 
     def test_skill_files_parseable(self):
         """All 3 SKILL.md files exist and are non-trivial."""
@@ -1790,24 +1791,6 @@ class TestMilestone6Integration(_IntegrationTestCase):
             content = skill_file.read_text()
             self.assertGreater(len(content), 500, f"{name} too short")
             self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
-
-    def test_session_start_without_guide_file(self):
-        """Subprocess: missing BEHAVIORAL_GUIDE.md degrades gracefully."""
-        self._seed_events([make_event()])
-        # Run with CLAUDE_PLUGIN_ROOT pointing to tmpdir (no guide file)
-        result = self._run_script_with_env(
-            "session_start.py",
-            {"session_id": "int-test", "source": "startup"},
-            {"CLAUDE_PLUGIN_ROOT": str(self.tmpdir)},
-        )
-        self.assertEqual(result.returncode, 0)
-        output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        # Should still have GUPP and skills
-        self.assertIn("Resume immediately", ctx)
-        self.assertIn("smm-protocol", ctx)
-        # Should NOT have guide content
-        self.assertNotIn("Honesty Principle", ctx)
 
 
 # ===========================================================================

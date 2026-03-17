@@ -7,7 +7,6 @@ guide, GUPP, and skills.
 Retrospective triggering is handled separately by retrospective.py.
 """
 
-import functools
 import os
 import subprocess
 import sys
@@ -40,24 +39,6 @@ SKILLS_TEXT = (
     "responding to navigator guidance, resolving reviewer conflicts, "
     "or starting complex work"
 )
-
-
-# ---------------------------------------------------------------------------
-# Behavioral guide loader
-# ---------------------------------------------------------------------------
-
-
-@functools.lru_cache(maxsize=1)
-def _load_behavioral_guide() -> str:
-    """Load BEHAVIORAL_GUIDE.md from plugin root. Returns empty string on failure."""
-    try:
-        plugin_root = _common.resolve_plugin_root()
-        guide_path = plugin_root / "BEHAVIORAL_GUIDE.md"
-        if guide_path.is_file():
-            return "\n\n" + guide_path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        pass
-    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -121,10 +102,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
 
-    # Behavioral guide at the end — reference material, not action items
-    guide = _load_behavioral_guide()
-    if guide:
-        parts.append(guide)
+    # BEHAVIORAL_GUIDE.md is now injected by session_review_done.py
+    # (PostToolUse:Skill hook) after /xp-session-review completes,
+    # together with the fresh SMM.
 
     return "".join(parts)
 

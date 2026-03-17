@@ -39,17 +39,7 @@ Run `/xp-housekeeping` to review open concerns, draft decisions, and technical d
 
 If the preload shows "HOUSEKEEPING_NEEDED", invoke the housekeeping skill now.
 
-If not needed, skip to step 4.
-
-## 4. Materialize Fresh SMM
-
-After all actions are complete, materialize the fresh SMM:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/materialize.py
-```
-
-Then read and summarize the updated `SHARED_MENTAL_MODEL.md` for the user.
+If not needed, the session review is complete.
 
 ## If NONE Needed
 
@@ -59,4 +49,4 @@ Report "Session review complete — no actions needed." and proceed with the use
 
 - Complete each step before moving to the next.
 - If the user says "skip" at any step, move to the next one.
-- After all steps complete, the SMM is fresh and work can begin.
+- The PostToolUse:Skill hook will automatically materialize the SMM and inject it (along with the behavioral guide) when this skill completes. No manual materialize step needed.
