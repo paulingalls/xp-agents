@@ -7,6 +7,7 @@ analyst agent hook to consume. Always exits 0.
 """
 
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -28,6 +29,101 @@ _MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
+
+# Signal event types — full event dicts preserved in digest
+_SIGNAL_TYPES = frozenset(
+    {
+        _common.CUSTOMER_INPUT,
+        _common.DECISION,
+        _common.CONCERN,
+        _common.GOAL,
+        _common.DEBT,
+        _common.DISCOVERY,
+        _common.QUESTION,
+        _common.ANSWER,
+        _common.ASSUMPTION,
+        _common.CONVENTION,
+        _common.PAIR_GUIDANCE,
+    }
+)
+
+# Status classification patterns
+_FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
+_TEST_RUN_RE = re.compile(r"Tests?:.*\d+\s+passed", re.IGNORECASE)
+
+_MAX_STATUS_SAMPLES = 10
+
+
+def _normalize_concern_content(content: str) -> str:
+    """Normalize content for dedup: replace digits, strip backtick-quoted."""
+    import re as _re
+
+    normalized = _re.sub(r"\d+", "N", content)
+    normalized = _re.sub(r"`[^`]*`", "``", normalized)
+    return normalized.strip()
+
+
+def _classify_status_events(
+    events: list[dict],
+) -> dict:
+    """Classify status events into file_writes, test_runs, other."""
+    file_writes: list[dict] = []
+    test_runs: list[dict] = []
+    other: list[dict] = []
+
+    for e in events:
+        if e.get("type") != _common.STATUS:
+            continue
+        content = e.get("content", "")
+        if _FILE_WRITE_RE.search(content):
+            file_writes.append(e)
+        elif _TEST_RUN_RE.search(content):
+            test_runs.append(e)
+        else:
+            other.append(e)
+
+    total = len(file_writes) + len(test_runs) + len(other)
+    return {
+        "total": total,
+        "file_writes": len(file_writes),
+        "test_runs": len(test_runs),
+        "other": len(other),
+        "samples": {
+            "file_writes": file_writes[-_MAX_STATUS_SAMPLES:],
+            "test_runs": test_runs[-_MAX_STATUS_SAMPLES:],
+            "other": other[-_MAX_STATUS_SAMPLES:],
+        },
+    }
+
+
+def _group_concerns(events: list[dict]) -> list[dict]:
+    """Deduplicate concerns by normalized content."""
+    groups: dict[str, dict] = {}
+    for e in events:
+        if e.get("type") != _common.CONCERN:
+            continue
+        key = _normalize_concern_content(e.get("content", ""))
+        if key not in groups:
+            groups[key] = {"key": key, "count": 0, "events": []}
+        groups[key]["count"] += 1
+        groups[key]["events"].append(e)
+    return list(groups.values())
+
+
+def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
+    """Build structured digest from unanalyzed events."""
+    unanalyzed = events[start_idx:]
+
+    signal_events = [e for e in unanalyzed if e.get("type") in _SIGNAL_TYPES]
+    status_summary = _classify_status_events(unanalyzed)
+    concern_groups = _group_concerns(unanalyzed)
+
+    return {
+        "signal_events": signal_events,
+        "status_summary": status_summary,
+        "concern_groups": concern_groups,
+    }
 
 
 def _find_unanalyzed_start(events: list[dict]) -> int:
@@ -114,12 +210,14 @@ def _build_retro_input(
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
+    digest = _build_retro_digest(events, start_idx)
     return {
         "unanalyzed_count": len(unanalyzed),
         "events_since_last_retro": unanalyzed[-MAX_EVENTS_IN_RETRO:],
         "previous_retros": retro_history,
         "event_type_counts": type_counts,
         "session_stats": session_stats,
+        "digest": digest,
     }
 
 

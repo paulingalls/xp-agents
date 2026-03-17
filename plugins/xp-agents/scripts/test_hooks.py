@@ -5349,5 +5349,157 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestRetroDigest(_HookTestCase):
+    """Tests for retrospective digest helpers."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def test_digest_signal_events(self):
+        """Decisions/concerns in signal_events, status excluded."""
+        import retrospective
+
+        events = [
+            make_event("decision", content="Use REST", topic="api"),
+            make_event("concern", content="Slow tests", severity="medium"),
+            make_event("status", content="Wrote file", working_on=["f.py"]),
+            make_event("status", content="More work", working_on=["g.py"]),
+            make_event("customer_input", content="Please fix"),
+        ]
+        self._write_events(events)
+        digest = retrospective._build_retro_digest(events, 0)
+        signal_types = {e["type"] for e in digest["signal_events"]}
+        self.assertIn("decision", signal_types)
+        self.assertIn("concern", signal_types)
+        self.assertIn("customer_input", signal_types)
+        self.assertNotIn("status", signal_types)
+
+    def test_digest_status_summary(self):
+        """Correct counts for file_writes/test_runs/other."""
+        import retrospective
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to src/app.ts",
+                working_on=["src/app.ts"],
+            ),
+            make_event(
+                "status",
+                content="Wrote to src/util.ts",
+                working_on=["src/util.ts"],
+            ),
+            make_event(
+                "status",
+                content="Tests: 5 passed, 0 failed (pytest)",
+                working_on=[],
+            ),
+            make_event(
+                "status",
+                content="Thinking about design",
+                working_on=[],
+            ),
+        ]
+        self._write_events(events)
+        digest = retrospective._build_retro_digest(events, 0)
+        ss = digest["status_summary"]
+        self.assertEqual(ss["total"], 4)
+        self.assertEqual(ss["file_writes"], 2)
+        self.assertEqual(ss["test_runs"], 1)
+        self.assertEqual(ss["other"], 1)
+
+    def test_digest_concern_groups_dedup(self):
+        """3 identical failure concerns -> 1 group with count=3."""
+        import retrospective
+
+        events = [
+            make_event(
+                "concern",
+                content="Test failures detected: 2 failed (pytest)",
+                severity="high",
+            )
+            for _ in range(3)
+        ]
+        self._write_events(events)
+        digest = retrospective._build_retro_digest(events, 0)
+        groups = digest["concern_groups"]
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["count"], 3)
+
+    def test_digest_concern_groups_unique(self):
+        """3 different concerns -> 3 groups with count=1."""
+        import retrospective
+
+        events = [
+            make_event("concern", content="Slow tests", severity="medium"),
+            make_event("concern", content="Missing docs", severity="low"),
+            make_event(
+                "concern",
+                content="Security issue",
+                severity="high",
+            ),
+        ]
+        self._write_events(events)
+        digest = retrospective._build_retro_digest(events, 0)
+        groups = digest["concern_groups"]
+        self.assertEqual(len(groups), 3)
+        for g in groups:
+            self.assertEqual(g["count"], 1)
+
+    def test_digest_preserves_event_ids(self):
+        """All signal event IDs present."""
+        import retrospective
+
+        events = [
+            make_event("decision", content="Use REST", topic="api"),
+            make_event("concern", content="Slow", severity="low"),
+        ]
+        self._write_events(events)
+        digest = retrospective._build_retro_digest(events, 0)
+        signal_ids = {e["id"] for e in digest["signal_events"]}
+        for e in events:
+            self.assertIn(e["id"], signal_ids)
+
+    def test_normalize_concern_strips_numbers(self):
+        """Numbers normalized for consistent grouping."""
+        import retrospective
+
+        k1 = retrospective._normalize_concern_content(
+            "Test failures detected: 2 failed (pytest)"
+        )
+        k2 = retrospective._normalize_concern_content(
+            "Test failures detected: 5 failed (pytest)"
+        )
+        self.assertEqual(k1, k2)
+
+    def test_retro_input_uses_digest(self):
+        """_build_retro_input should include digest keys."""
+        import retrospective
+
+        events = [
+            make_event("decision", content="Use REST", topic="api"),
+            make_event(
+                "status",
+                content="Wrote to f.py",
+                working_on=["f.py"],
+            ),
+            make_event(
+                "status",
+                content="Tests: 5 passed, 0 failed",
+                working_on=[],
+            ),
+            make_event("concern", content="Slow", severity="low"),
+            make_event("customer_input", content="Fix it"),
+        ]
+        self._write_events(events)
+        retro_input = retrospective._build_retro_input(events, 0, [])
+        self.assertIn("digest", retro_input)
+        digest = retro_input["digest"]
+        self.assertIn("signal_events", digest)
+        self.assertIn("status_summary", digest)
+        self.assertIn("concern_groups", digest)
+
+
 if __name__ == "__main__":
     unittest.main()
