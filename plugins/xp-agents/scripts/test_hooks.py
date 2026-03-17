@@ -5190,5 +5190,34 @@ class TestSessionReviewDone(_HookTestCase):
         self.assertFalse(marker.exists())
 
 
+class TestBulkAppendSafe(_HookTestCase):
+    """Tests for _common.bulk_append_safe()."""
+
+    def test_bulk_append_safe_skips_invalid(self):
+        """Invalid events filtered, valid ones written."""
+        good = make_event("status", content="OK", working_on=[])
+        bad = {"type": "status", "content": "no id"}
+        _common.bulk_append_safe(self.smm_dir, [good, bad])
+        events = self._read_events()
+        # Only valid event written
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["id"], good["id"])
+
+    def test_bulk_append_safe_all_valid(self):
+        """All valid events should be written."""
+        events_in = [
+            make_event("status", content=f"S{i}", working_on=[]) for i in range(3)
+        ]
+        _common.bulk_append_safe(self.smm_dir, events_in)
+        events = self._read_events()
+        self.assertEqual(len(events), 3)
+
+    def test_bulk_append_safe_empty(self):
+        """Empty list should be a no-op."""
+        _common.bulk_append_safe(self.smm_dir, [])
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

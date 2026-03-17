@@ -268,6 +268,16 @@ def append_safe(smm_dir: Path, event: dict) -> None:
             _append_impl.append_event(smm_dir, event)
 
 
+def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:
+    """Filter invalid events, then bulk-append valid ones atomically."""
+    import _append_impl
+
+    valid = [e for e in events if not _append_impl.validate_event(e)]
+    if valid:
+        with contextlib.suppress(_append_impl.LockTimeoutError, ValueError):
+            _append_impl.bulk_append(smm_dir, valid)
+
+
 # ---------------------------------------------------------------------------
 # Conflict detection (shared by post_tool_use.py and subagent_stop.py)
 # ---------------------------------------------------------------------------

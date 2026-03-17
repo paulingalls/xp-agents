@@ -337,6 +337,34 @@ def validate_event(event: dict) -> list[str]:
 # Event resolution tracking (shared by materialize, retrospective, hooks)
 # ---------------------------------------------------------------------------
 
+_UUID_FULL_LENGTH = 36  # Standard UUID: 8-4-4-4-12 with hyphens
+
+
+def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] | None:
+    """Resolve an event ID, supporting short-prefix fallback.
+
+    If target_id is a full UUID, does an O(1) dict lookup. If it's shorter
+    (e.g. 8-char prefix from materialized output), scans keys for a unique
+    prefix match. Returns (full_id, event) or None if not found / ambiguous.
+    """
+    event = by_id.get(target_id)
+    if event:
+        return target_id, event
+
+    if len(target_id) >= _UUID_FULL_LENGTH:
+        return None
+
+    match_id: str | None = None
+    for k in by_id:
+        if k.startswith(target_id):
+            if match_id is not None:
+                return None  # Ambiguous — two or more matches
+            match_id = k
+
+    if match_id is not None:
+        return match_id, by_id[match_id]
+    return None
+
 
 def compute_resolutions(events: list[dict]) -> dict:
     """Single-pass computation of question answers and event resolutions.
@@ -376,16 +404,17 @@ def compute_resolutions(events: list[dict]) -> dict:
 
         # Explicit resolution via metadata.resolves
         for target_id in event.get("metadata", {}).get("resolves", []):
-            target = by_id.get(target_id)
-            if not target:
+            resolved = resolve_prefix(target_id, by_id)
+            if not resolved:
                 continue
+            full_id, target = resolved
             match target.get("type"):
                 case "concern":
-                    concern_resolutions[target_id] = event
+                    concern_resolutions[full_id] = event
                 case "goal":
-                    goal_resolutions[target_id] = event
+                    goal_resolutions[full_id] = event
                 case "debt":
-                    debt_resolutions[target_id] = event
+                    debt_resolutions[full_id] = event
 
     return {
         "question_answers": question_answers,
@@ -605,6 +634,79 @@ def append_event(smm_dir: Path, event: dict) -> None:
 
     # Notify on blocking questions — after write succeeds, never fails the write
     _notify_blocking_question(event)
+
+
+def bulk_append(smm_dir: Path, events: list[dict]) -> None:
+    """Append multiple events atomically with a single lock acquisition.
+
+    Validates all events before acquiring the lock — fail-fast, no partial
+    writes. Strips ANSI from content. Same safety guarantees as append_event().
+
+    Raises ValueError if any event fails validation.
+    Raises LockTimeoutError if the lock cannot be acquired within 2 seconds.
+    """
+    if not events:
+        return
+
+    # Validate all events up front — fail before acquiring lock
+    for event in events:
+        if "content" in event:
+            event["content"] = _strip_ansi(event["content"])
+        errors = validate_event(event)
+        if errors:
+            raise ValueError(f"Invalid event: {'; '.join(errors)}")
+
+    # Serialize all lines
+    lines: list[str] = []
+    for event in events:
+        line = json.dumps(event, ensure_ascii=False) + "\n"
+        if len(line.encode("utf-8")) > MAX_EVENT_BYTES:
+            raise ValueError(
+                f"Serialized event too large "
+                f"({len(line.encode('utf-8'))} > {MAX_EVENT_BYTES} bytes)"
+            )
+        lines.append(line)
+
+    # Single lock acquisition, write all lines
+    events_file = smm_dir / "events.jsonl"
+    lock_file = smm_dir / "events.lock"
+    lock_fd = None
+    raw_fd = None
+
+    try:
+        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        try:
+            lock_fd = os.fdopen(raw_fd, "a")
+        except Exception:
+            os.close(raw_fd)
+            raise
+        raw_fd = None
+
+        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
+        try:
+            signal.alarm(2)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, old_handler)
+
+        ev_fd = _safe_open_nofollow(events_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        try:
+            with os.fdopen(ev_fd, "a", encoding="utf-8") as f:
+                for line in lines:
+                    f.write(line)
+        except Exception:
+            os.close(ev_fd)
+            raise
+
+    finally:
+        if lock_fd is not None:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+    # Notify on blocking questions — after write succeeds
+    for event in events:
+        _notify_blocking_question(event)
 
 
 def replace_events_file(smm_dir: Path, events: list[dict]) -> str:

@@ -369,6 +369,48 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(len(result["concern_resolutions"]), 0)
         self.assertEqual(len(result["debt_resolutions"]), 0)
 
+    def test_resolve_via_short_id_prefix(self):
+        """metadata.resolves with 8-char prefix should match full UUID."""
+        concern = make_event("concern", content="Test failure")
+        goal = make_event("goal", content="Fix tests")
+        debt = make_event("debt", content="Legacy code", files=["old.py"])
+        resolver = make_event(
+            "status",
+            content="All fixed",
+            working_on=[],
+            metadata={
+                "resolves": [
+                    concern["id"][:8],
+                    goal["id"][:8],
+                    debt["id"][:8],
+                ]
+            },
+        )
+        result = _append_impl.compute_resolutions([concern, goal, debt, resolver])
+        self.assertIn(concern["id"], result["concern_resolutions"])
+        self.assertIn(goal["id"], result["goal_resolutions"])
+        self.assertIn(debt["id"], result["debt_resolutions"])
+
+    def test_resolve_prefix_ambiguous_skipped(self):
+        """If a prefix matches multiple events, skip it (ambiguous)."""
+        # Create two concerns with the same 8-char prefix (unlikely in
+        # practice but we should handle it gracefully).
+        c1 = make_event("concern", content="First concern")
+        c2 = make_event("concern", content="Second concern")
+        # Force same prefix by overwriting IDs
+        shared = "abcdef12"
+        c1["id"] = shared + "-0000-0000-0000-000000000001"
+        c2["id"] = shared + "-0000-0000-0000-000000000002"
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [shared]},
+        )
+        result = _append_impl.compute_resolutions([c1, c2, resolver])
+        # Ambiguous — neither should be resolved
+        self.assertEqual(len(result["concern_resolutions"]), 0)
+
 
 class TestBuildIndicesResolutions(_SMMTestCase):
     """Tests that build_indices() populates goal/debt resolution indices."""
@@ -2475,6 +2517,60 @@ class TestPerformanceBenchmarks(_SMMTestCase):
         for e in events:
             self.assertIn("id", e)
             self.assertIn("type", e)
+
+
+class TestBulkAppend(_SMMTestCase):
+    """Tests for bulk_append() — multi-event atomic writes."""
+
+    def test_bulk_append_empty_noop(self):
+        """Empty list should not touch events.jsonl or acquire lock."""
+        _append_impl.bulk_append(self.smm_dir, [])
+        content = (self.smm_dir / "events.jsonl").read_text()
+        self.assertEqual(content, "")
+
+    def test_bulk_append_multiple_events(self):
+        """Three valid events should all appear in events.jsonl."""
+        events = [
+            make_event("status", content=f"Status {i}", working_on=[]) for i in range(3)
+        ]
+        _append_impl.bulk_append(self.smm_dir, events)
+        lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
+        self.assertEqual(len(lines), 3)
+        for i, line in enumerate(lines):
+            parsed = json.loads(line)
+            self.assertEqual(parsed["id"], events[i]["id"])
+
+    def test_bulk_append_strips_ansi(self):
+        """ANSI escape codes should be stripped from content."""
+        event = make_event(
+            "status",
+            content="\x1b[31mRed text\x1b[0m",
+            working_on=[],
+        )
+        _append_impl.bulk_append(self.smm_dir, [event])
+        lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
+        parsed = json.loads(lines[0])
+        self.assertEqual(parsed["content"], "Red text")
+
+    def test_bulk_append_validates_all_before_write(self):
+        """If any event is invalid, none should be written."""
+        good = make_event("status", content="OK", working_on=[])
+        bad = {"type": "status", "content": "no id"}  # missing required fields
+        with self.assertRaises(ValueError):
+            _append_impl.bulk_append(self.smm_dir, [good, bad])
+        content = (self.smm_dir / "events.jsonl").read_text()
+        self.assertEqual(content, "")
+
+    def test_bulk_append_appends_to_existing(self):
+        """bulk_append should append, not overwrite existing events."""
+        existing = make_event("customer_input", content="First")
+        _append_impl.append_event(self.smm_dir, existing)
+        new_events = [
+            make_event("status", content="Second", working_on=[]),
+        ]
+        _append_impl.bulk_append(self.smm_dir, new_events)
+        lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
+        self.assertEqual(len(lines), 2)
 
 
 if __name__ == "__main__":
