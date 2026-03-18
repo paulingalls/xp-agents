@@ -2879,5 +2879,55 @@ class TestPrepareCurationIntegration(_IntegrationTestCase):
         self.assertEqual(len(data["new_since_last_curation"]["customer_inputs"]), 1)
 
 
+# ===========================================================================
+# save_smm.py integration (M2)
+# ===========================================================================
+
+
+class TestSaveSMMIntegration(_IntegrationTestCase):
+    """Integration test for save_smm.py helper script."""
+
+    def _run_save_smm(self, content: str) -> subprocess.CompletedProcess:
+        script = (
+            Path(__file__).parent.parent
+            / "skills"
+            / "xp-housekeeping"
+            / "scripts"
+            / "save_smm.py"
+        )
+        return subprocess.run(
+            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
+            input=content,
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+
+    def test_pipe_markdown_writes_file(self):
+        """Pipe four-pillar markdown into save_smm.py, verify file written."""
+        content = "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
+        result = self._run_save_smm(content)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        self.assertTrue(smm_file.exists())
+        self.assertEqual(smm_file.read_text(), content)
+
+    def test_watermark_updated_after_save(self):
+        """Watermark reflects event count after save."""
+        self._seed_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+                make_event("decision", topic="db", content="Use PG"),
+            ]
+        )
+        result = self._run_save_smm("# SMM\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        wm_file = self.smm_dir / ".curation-watermark"
+        self.assertTrue(wm_file.exists())
+        wm = json.loads(wm_file.read_text())
+        self.assertEqual(wm["event_count"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

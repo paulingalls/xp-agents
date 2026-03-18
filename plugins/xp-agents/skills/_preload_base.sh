@@ -16,8 +16,10 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
     exit 0
 }
 
-# Materialize to get current state
-python3 "${PLUGIN_ROOT}/smm/materialize.py" >/dev/null 2>&1 || true
+# Materialize only if no curated SMM exists yet (prevents overwriting four-pillar SMM)
+if [ ! -f "${SMM_DIR}/.curation-watermark" ]; then
+    python3 "${PLUGIN_ROOT}/smm/materialize.py" >/dev/null 2>&1 || true
+fi
 
 dump_smm() {
     local smm_file="${SMM_DIR}/SHARED_MENTAL_MODEL.md"

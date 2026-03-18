@@ -49,8 +49,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    # Materialize fresh SMM
-    md = materialize.materialize(smm_dir)
+    # Read curated SMM file if it exists, otherwise fall back to materializer
+    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
+    if smm_file.is_file():
+        md = smm_file.read_text(encoding="utf-8")
+    else:
+        md = materialize.materialize(smm_dir)
 
     # Clean up session review marker
     (smm_dir / ".needs-session-review").unlink(missing_ok=True)

@@ -2,7 +2,7 @@
 """Preload script for housekeeping: output curation data as JSON.
 
 Calls prepare_curation_data() from materialize.py and prints the
-structured JSON that housekeeping uses for five-pillar curation.
+structured JSON that housekeeping uses for four-pillar curation.
 
 Usage:
     python3 prepare_curation.py [--smm-dir DIR]

@@ -5359,6 +5359,32 @@ class TestSessionReviewDone(_HookTestCase):
         guide_pos = result.find("XP Agent Behavioral Guide")
         self.assertGreater(guide_pos, smm_pos)
 
+    def test_reads_four_pillar_smm_file(self):
+        """When SMM file exists on disk, reads it instead of materializing."""
+        four_pillar = (
+            "# Shared Mental Model\n\n"
+            "## Intent\n- Ship v1\n\n"
+            "## Constraints\n- Use Postgres\n\n"
+            "## Risks\n- No tests\n\n"
+            "## Wisdom\n- Write tests first\n"
+        )
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(four_pillar)
+        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("## Intent", result)
+        self.assertIn("## Constraints", result)
+        self.assertIn("## Wisdom", result)
+
+    def test_falls_back_to_materializer(self):
+        """When no SMM file exists, falls back to materialize()."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        # Ensure no SMM file on disk
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.unlink(missing_ok=True)
+        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("Shared Mental Model", result)
+
     def test_deletes_needs_session_review_marker(self):
         """Should delete .needs-session-review marker after injection."""
         marker = self.smm_dir / ".needs-session-review"
@@ -5887,6 +5913,79 @@ class TestSaveRetrospective(_HookTestCase):
             retro_data["analysis_notes"],
             "Cross-session trend: navigator silent for 4 retros",
         )
+
+
+# ---------------------------------------------------------------------------
+# save_smm.py tests (M2)
+# ---------------------------------------------------------------------------
+
+
+class TestSaveSMM(_HookTestCase):
+    """Tests for save_smm.py helper script."""
+
+    def setUp(self):
+        super().setUp()
+        # Add skill scripts to path so we can import save_smm
+        skill_scripts = (
+            Path(__file__).parent.parent / "skills" / "xp-housekeeping" / "scripts"
+        )
+        if str(skill_scripts) not in sys.path:
+            sys.path.insert(0, str(skill_scripts))
+
+    def test_writes_smm_file(self):
+        """save_smm.run() writes markdown content to SHARED_MENTAL_MODEL.md."""
+        import save_smm
+
+        content = "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
+        save_smm.run(content, smm_dir=self.smm_dir)
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        self.assertTrue(smm_file.exists())
+        self.assertEqual(smm_file.read_text(), content)
+
+    def test_updates_curation_watermark(self):
+        """save_smm.run() updates .curation-watermark with event count."""
+        import save_smm
+
+        # Seed some events
+        self._write_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+            ]
+        )
+        save_smm.run("# SMM\n", smm_dir=self.smm_dir)
+        import materialize as _mat
+
+        wm = _mat.read_curation_watermark(self.smm_dir)
+        self.assertEqual(wm["event_count"], 2)
+        self.assertEqual(wm["agent_id"], "xp-housekeeping")
+
+    def test_overwrites_existing_smm(self):
+        """save_smm.run() overwrites an existing SHARED_MENTAL_MODEL.md."""
+        import save_smm
+
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("old content")
+        save_smm.run("new content", smm_dir=self.smm_dir)
+        self.assertEqual(smm_file.read_text(), "new content")
+
+    def test_file_permissions(self):
+        """Written SMM file has mode 0o600."""
+        import save_smm
+
+        save_smm.run("# SMM\n", smm_dir=self.smm_dir)
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        mode = smm_file.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
+    def test_empty_content_writes_empty_file(self):
+        """Empty string input produces an empty file."""
+        import save_smm
+
+        save_smm.run("", smm_dir=self.smm_dir)
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        self.assertTrue(smm_file.exists())
+        self.assertEqual(smm_file.read_text(), "")
 
 
 if __name__ == "__main__":

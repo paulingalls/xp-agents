@@ -861,7 +861,7 @@ def _extract_retro_history(retro_events: list[dict]) -> dict:
 def prepare_curation_data(smm_dir: Path) -> dict:
     """Prepare structured data for housekeeping curation.
 
-    Reuses parse_events() and build_indices() to extract five-pillar
+    Reuses parse_events() and build_indices() to extract four-pillar
     data from the event log. Returns a dict matching the schema in
     docs/SMM_DESIGN.md.
     """

@@ -10,8 +10,10 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
     exit 0
 }
 
-# Materialize after triage so resolved items are reflected
-python3 "${PLUGIN_ROOT}/smm/materialize.py" >/dev/null 2>&1 || true
+# Only materialize if no curated SMM exists (prevents overwriting four-pillar file)
+if [ ! -f "${SMM_DIR}/.curation-watermark" ]; then
+    python3 "${PLUGIN_ROOT}/smm/materialize.py" >/dev/null 2>&1 || true
+fi
 
 echo "SMM_FILE=${SMM_DIR}/SHARED_MENTAL_MODEL.md"
 echo "GUIDE_FILE=${PLUGIN_ROOT}/BEHAVIORAL_GUIDE.md"
