@@ -14,6 +14,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+
 import _append_impl
 import _common
 import materialize
