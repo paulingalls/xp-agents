@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.9.41 — Event Log Compaction (M6), Prompt Nugget Rewrite, Doc Alignment
+
+### Added
+- **M6: Event log compaction** — New `compact_after_curation()` uses curation watermark as the compaction boundary instead of session count. Retains post-watermark events, last 3 session_ends, and SMM-referenced events. Resolved permanent events before the watermark are now archivable (the curated SMM is the durable record). Team safety via min(watermark) across agents.
+- **`compact_log.py`** — Housekeeping script (step 9 in SKILL.md) that runs compaction after curation.
+- **`_collect_smm_referenced_ids()`** — Collects IDs of active SMM items (unresolved goals, decisions, concerns, etc.) for retention during compaction.
+- **`_read_all_curation_watermarks()`** — Supports team mode by reading all `.curation-watermark-*` files and using the oldest as the safe boundary.
+- 12 new compaction tests in `TestCompactAfterCuration` (969 total)
+
+### Changed
+- **Prompt nugget rewrite** — `prompt_nugget.py` now uses `read_delta` with a dedicated watermark to show only new signal events (concerns, decisions, goals, debt, questions) since last prompt, instead of parsing `SHARED_MENTAL_MODEL.md` directly.
+- **Quality review gate** — No longer blocks while simplify subagents are pending. Lets stops through until all subagents complete, then blocks for quality review on the next stop.
+- **`compact()` delegates** — Legacy `compact()` function now delegates to `compact_after_curation()`. `PERMANENT_TYPES` constant and `--keep-sessions` CLI arg removed (dead code after policy change).
+- **Watermark management** — Compaction resets `.watermark-prompt-nugget` to post-compaction count, updates `.curation-watermark`, and removes orphaned `.watermark-*` files.
+
+### Docs
+- **SMM_DESIGN.md** — Updated nugget model: "stop nuggets" replaced with "prompt nuggets (UserPromptSubmit)" throughout. Injection model table, mid-session nuggets section, and layer 3 description all updated.
+- **SMM_REFACTOR_MILESTONES.md** — M5 title and body updated for prompt nuggets. Migration safety table updated.
+- **README.md** — Token cost model updated: PreToolUse delta rows replaced with single prompt nugget row.
+- **xp-subagent-reviewer.md** — Updated delivery mechanism reference from PreToolUse delta to prompt nugget.
+
+### Tech Debt Recorded
+- TOCTOU race in `compact_after_curation()` — unlocked read before locked replace
+- Stale team watermarks not updated after compaction (solo mode only for now)
+- JSONL parsing duplicated in 5 places (M7 cleanup scope)
+- Conflict nugget missing from PreToolUse (design spec calls for informational nugget alongside blocking)
+
 ## v0.9.40 — Fix Retrospective Preload Overflow, Move Prompt Nugget to UserPromptSubmit
 
 ### Fixed

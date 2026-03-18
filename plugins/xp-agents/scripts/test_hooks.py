@@ -4084,8 +4084,8 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         tracker = self.smm_dir / ".simplify-main.json"
         tracker.write_text(json.dumps({"loop_id": loop_id}))
 
-    def test_pending_subagents_blocks_stop(self):
-        """Gate blocks with pending-agent message when subagents haven't completed."""
+    def test_pending_subagents_lets_stop_through(self):
+        """Gate returns None (no block) while subagents are still running."""
         ci = make_event("customer_input", content="build feature")
         self._write_events(
             [
@@ -4102,14 +4102,7 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         self._seed_simplify_done(ci["id"])
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("background agent", result.lower())
-        self.assertIn(
-            "wait at least 30 seconds for the subagents to complete",
-            result.lower(),
-        )
-        # Should NOT contain quality review message
-        self.assertNotIn("/xp-quality-review", result)
+        self.assertIsNone(result)
 
     def test_all_completed_fires_quality_review(self):
         """Gate proceeds to quality review when all subagents completed."""
@@ -4153,8 +4146,8 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-    def test_stop_hook_active_still_checks_pending(self):
-        """Gate still blocks for pending subagents even with stop_hook_active=True."""
+    def test_stop_hook_active_pending_lets_through(self):
+        """Gate returns None for pending subagents even with stop_hook_active=True."""
         ci = make_event("customer_input", content="build feature")
         self._write_events(
             [
@@ -4171,8 +4164,7 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         self._seed_simplify_done(ci["id"])
         inp = _make_stop_input(stop_hook_active=True)
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("background agent", result.lower())
+        self.assertIsNone(result)
 
     def test_stop_hook_active_with_completed_allows_quality_check(self):
         """stop_hook_active + all completed → tracker already written → passes."""

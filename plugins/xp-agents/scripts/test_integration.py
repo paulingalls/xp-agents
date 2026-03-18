@@ -2710,8 +2710,8 @@ class TestQualityGatePendingSubagents(_IntegrationTestCase):
         tracker = self.smm_dir / ".simplify-main.json"
         tracker.write_text(json.dumps({"loop_id": loop_id}))
 
-    def test_quality_gate_waits_for_pending_subagents(self):
-        """Full subprocess: pending subagent blocks, completed allows."""
+    def test_quality_gate_lets_pending_through_blocks_after_complete(self):
+        """Full subprocess: pending subagent passes, completed blocks."""
         ci = make_event("customer_input", content="build feature")
         self._seed_events(
             [
@@ -2731,16 +2731,13 @@ class TestQualityGatePendingSubagents(_IntegrationTestCase):
         )
         self._seed_simplify_tracker(ci["id"])
 
-        # Run 1: pending subagent → blocks with agent message
+        # Run 1: pending subagent → no output (pass through)
         r1 = self._run_script(
             "quality_review_gate.py",
             {"session_id": "int-test", "agent_id": "main"},
         )
         self.assertEqual(r1.returncode, 0)
-        d1 = json.loads(r1.stdout)
-        self.assertEqual(d1["decision"], "block")
-        self.assertIn("background agent", d1["reason"].lower())
-        self.assertNotIn("/xp-quality-review", d1["reason"])
+        self.assertEqual(r1.stdout.strip(), "")
 
         # Add completion event
         self._seed_events(

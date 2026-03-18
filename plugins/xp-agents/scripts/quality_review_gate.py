@@ -111,15 +111,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not simplify_gate.has_code_changes_since(events, start_idx):
         return None
 
-    # Block if subagents are still running (started but not completed)
+    # Let stops through while subagents are still running — don't block
+    # until all simplify background agents have completed
     pending = _pending_subagent_ids(events, start_idx)
     if pending:
-        return (
-            f"{len(pending)} background agent(s) still running. "
-            "Please wait at least 30 seconds for the subagents to complete."
-        )
+        return None
 
-    # Write tracker and block
+    # All subagents done — write tracker and block for quality review
     _write_tracker(smm_dir, agent_id, {"loop_id": loop_id})
     return "Run the /xp-quality-review skill before stopping."
 
