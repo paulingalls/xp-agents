@@ -1222,6 +1222,56 @@ class TestCompactAfterCuration(_SMMTestCase):
         # Curation watermark preserved
         self.assertTrue((self.smm_dir / ".curation-watermark").exists())
 
+    def test_reads_events_under_lock(self):
+        """compact_after_curation uses read_with_lock, not unlocked read_text."""
+        import compact
+
+        # Seed events and set watermark
+        events = self._make_session(session_num=1)
+        self._write_events(events)
+        self._set_curation_watermark(len(events))
+
+        # Monkey-patch read_with_lock to confirm it is called
+        called = {"count": 0}
+        original_rwl = _append_impl.read_with_lock
+
+        def tracking_rwl(path):
+            called["count"] += 1
+            return original_rwl(path)
+
+        compact.read_with_lock = tracking_rwl
+        try:
+            compact.compact_after_curation(self.smm_dir)
+        finally:
+            compact.read_with_lock = original_rwl
+
+        self.assertEqual(called["count"], 1, "read_with_lock should be called once")
+
+    def test_updates_all_team_watermarks_after_compaction(self):
+        """All team curation watermarks are adjusted after compaction."""
+        import compact
+
+        # 3 sessions (4 events each = 12 total) + 1 post-watermark event
+        all_events = []
+        for s in range(1, 4):
+            all_events.extend(self._make_session(session_num=s))
+        post = make_event("status", content="post", ts="2026-03-04T00:00:00+00:00")
+        all_events.append(post)
+        self._write_events(all_events)
+
+        # Primary watermark at 4, agent-a at 8
+        self._set_curation_watermark(4)
+        wm_a = self.smm_dir / ".curation-watermark-agent-a"
+        wm_a.write_text(json.dumps({"event_count": 8, "agent_id": "agent-a"}))
+
+        result = compact.compact_after_curation(self.smm_dir)
+        archived = result["archived"]
+        self.assertGreater(archived, 0)
+
+        # Agent-a watermark should be adjusted by archived_count
+        wm_a_data = json.loads(wm_a.read_text())
+        self.assertEqual(wm_a_data["event_count"], 8 - archived)
+
     def test_team_safety_uses_oldest_watermark(self):
         """With multiple curation watermarks, uses min(event_count)."""
         import compact
@@ -1423,6 +1473,23 @@ class TestRepair(_SMMTestCase):
         self.assertEqual(result["invalid"], 1)
         self.assertEqual(result["duplicates"], 1)
         self.assertEqual(result["retained"], 2)
+
+    def test_repair_single_pass_no_double_parse(self):
+        """repair() uses single-pass — no parse_jsonl import needed."""
+        import repair
+
+        # Verify parse_jsonl is not imported (single-pass, no double parse)
+        self.assertFalse(
+            hasattr(repair, "parse_jsonl"),
+            "repair should not import parse_jsonl",
+        )
+
+        e1 = make_event(content="good")
+        self._write_raw_lines([json.dumps(e1), "bad json", '"a string"'])
+        result = repair.repair(self.smm_dir, dry_run=True)
+        self.assertEqual(result["malformed"], 1)
+        self.assertEqual(result["invalid"], 1)
+        self.assertEqual(result["retained"], 1)
 
 
 # ===========================================================================

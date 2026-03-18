@@ -26,6 +26,7 @@ from _append_impl import (
     _validate_smm_dir,
     compute_resolutions,
     parse_jsonl,
+    read_with_lock,
     replace_events_file,
     resolve_smm_dir,
     write_watermark,
@@ -149,7 +150,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
     if not events_file.exists():
         return {"archived": 0, "retained": 0, "smm_referenced": 0}
 
-    raw = events_file.read_text(encoding="utf-8")
+    raw = read_with_lock(events_file)
     events = _parse_events(raw)
 
     if not events:
@@ -223,6 +224,22 @@ def compact_after_curation(smm_dir: Path) -> dict:
     # is at (retained pre-watermark count)
     pre_retained_count = len(retained) - len(post_watermark)
     write_curation_watermark(smm_dir, pre_retained_count, watermarks[0]["agent_id"])
+
+    # Adjust all team curation watermarks by archived count
+    archived_count = len(archived)
+    if archived_count > 0:
+        for wm_file in smm_dir.glob(".curation-watermark-*"):
+            try:
+                wm_data = json.loads(wm_file.read_text(encoding="utf-8"))
+                if isinstance(wm_data, dict) and "event_count" in wm_data:
+                    wm_data["event_count"] = max(
+                        0, int(wm_data["event_count"]) - archived_count
+                    )
+                    wm_file.write_text(
+                        json.dumps(wm_data, ensure_ascii=False), encoding="utf-8"
+                    )
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
 
     # Remove orphaned watermark files (keep prompt-nugget and curation)
     for wm in smm_dir.glob(".watermark-*"):

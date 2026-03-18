@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _append_impl import (
     LockTimeoutError,
     _validate_smm_dir,
-    parse_jsonl,
     replace_events_file,
     resolve_smm_dir,
 )
@@ -55,40 +54,39 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     if not raw.strip():
         return dict(_EMPTY_RESULT)
 
-    # Phase 1: Parse and validate
-    parsed, skipped = parse_jsonl(raw)
-
-    # parse_jsonl merges JSON parse errors and non-dict values into
-    # skipped. repair.py distinguishes: malformed = parse errors,
-    # invalid = non-dict + missing fields. Count true parse errors.
+    # Phase 1: Single-pass parse, validate, dedup
     malformed = 0
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            json.loads(line)
-        except json.JSONDecodeError:
-            malformed += 1
-
-    # Non-dict valid JSON lines = skipped - malformed
-    invalid = skipped - malformed
+    invalid = 0
     duplicates = 0
     valid_events: list[dict] = []
     seen_ids: set[str] = set()
 
-    for event in parsed:
-        if not _REQUIRED_FIELDS.issubset(event.keys()):
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            malformed += 1
+            continue
+
+        if not isinstance(obj, dict):
             invalid += 1
             continue
 
-        event_id = event["id"]
+        if not _REQUIRED_FIELDS.issubset(obj.keys()):
+            invalid += 1
+            continue
+
+        event_id = obj["id"]
         if event_id in seen_ids:
             duplicates += 1
             continue
         seen_ids.add(event_id)
 
-        valid_events.append(event)
+        valid_events.append(obj)
 
     # Phase 2: Sort by timestamp
     original_order = [e["id"] for e in valid_events]

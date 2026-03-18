@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -121,6 +122,14 @@ def run_linter(linter_name: str, file_path: str) -> str | None:
     allowed = _LINTER_EXTENSIONS.get(linter_name)
     if allowed is not None and Path(file_path).suffix not in allowed:
         return None
+
+    # Debounce: skip if file was modified less than 1 second ago (mid-edit)
+    try:
+        mtime = Path(file_path).stat().st_mtime
+        if time.time() - mtime < 1.0:
+            return None
+    except OSError:
+        pass
 
     # Use "--" to separate flags from the filename argument
     cmd = _LINTER_COMMANDS[linter_name] + ["--", file_path]

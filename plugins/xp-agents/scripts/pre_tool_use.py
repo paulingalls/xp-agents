@@ -268,6 +268,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if target_file and smm_dir:
         conflict = check_working_on_overlap(smm_dir, agent_id, target_file, cwd)
         if conflict:
+            concern_event = _common.make_event(
+                _common.CONCERN,
+                agent_id,
+                f"File conflict: {conflict}",
+                severity="high",
+            )
+            _common.append_safe(smm_dir, concern_event)
             if enforcement == _common.ENFORCEMENT_ADVISORY:
                 parts.append(f"⚠️ Advisory warning: {conflict}")
             else:

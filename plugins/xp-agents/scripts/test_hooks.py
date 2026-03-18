@@ -1572,6 +1572,20 @@ class TestPreToolUseRun(_HookTestCase):
             )
         self.assertIn("other-agent", str(cm.exception))
 
+    def test_conflict_appends_concern_event(self):
+        """Conflict detection appends a high-severity concern to SMM."""
+        _common.update_coordination(self.smm_dir, "other-agent", ["src/app.ts"])
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_use.run(
+                _make_write_input(),
+                smm_dir=self.smm_dir,
+            )
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0]["severity"], "high")
+        self.assertIn("File conflict", concerns[0]["content"])
+
     def test_no_smm_dir_degrades_gracefully(self):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         result = pre_tool_use.run(
@@ -2547,6 +2561,51 @@ class TestLintCheck(_HookTestCase):
                 )()
                 result = lint_check.run_linter("ruff", str(tmpdir / "app.py"))
             self.assertIsNone(result)  # clean — no errors
+            mock_run.assert_called_once()
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_debounce_skips_recently_modified_file(self):
+        """Lint is skipped if file mtime is less than 1 second ago."""
+        tmpdir = Path(tempfile.mkdtemp())
+        target = tmpdir / "app.py"
+        target.write_text("x = 1\n")
+        # File was just written — mtime is < 1s ago
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+            ):
+                result = lint_check.run_linter("ruff", str(target))
+            self.assertIsNone(result)
+            mock_run.assert_not_called()
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_no_debounce_for_old_file(self):
+        """Lint runs normally if file mtime is more than 1 second ago."""
+        import os
+        import time
+
+        tmpdir = Path(tempfile.mkdtemp())
+        target = tmpdir / "app.py"
+        target.write_text("x = 1\n")
+        # Set mtime to 2 seconds ago
+        old_time = time.time() - 2.0
+        os.utime(str(target), (old_time, old_time))
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = type(
+                    "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+                )()
+                lint_check.run_linter("ruff", str(target))
             mock_run.assert_called_once()
         finally:
             import shutil as sh
