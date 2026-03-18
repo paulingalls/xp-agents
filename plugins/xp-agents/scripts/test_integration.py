@@ -2825,5 +2825,59 @@ class TestLoadContext(_IntegrationTestCase):
         self.assertIn("Test concern for rematerialization", smm_content)
 
 
+# ===========================================================================
+# Curation preload script (M1)
+# ===========================================================================
+
+
+class TestPrepareCurationIntegration(_IntegrationTestCase):
+    """Integration test for prepare_curation.py preload script."""
+
+    def _run_prepare_curation(self) -> subprocess.CompletedProcess:
+        script = (
+            Path(__file__).parent.parent
+            / "skills"
+            / "xp-housekeeping"
+            / "scripts"
+            / "prepare_curation.py"
+        )
+        return subprocess.run(
+            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+
+    def test_empty_project_returns_valid_json(self):
+        """Script outputs valid JSON with expected schema on empty project."""
+        result = self._run_prepare_curation()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        for key in (
+            "current_smm",
+            "new_since_last_curation",
+            "retro_history",
+            "aging",
+            "health",
+        ):
+            self.assertIn(key, data)
+
+    def test_with_events_returns_populated_data(self):
+        """Script returns populated curation data when events exist."""
+        self._seed_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+                make_event("customer_input", content="Add auth"),
+            ]
+        )
+        result = self._run_prepare_curation()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["health"]["intent_count"], 1)
+        self.assertEqual(data["health"]["risks_count"], 1)
+        self.assertEqual(len(data["new_since_last_curation"]["customer_inputs"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
