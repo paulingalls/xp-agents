@@ -6,11 +6,8 @@ prepares structured curation data for the housekeeping skill.
 """
 
 import bisect
-import contextlib
 import json
-import os
-import sys
-import tempfile
+import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +19,8 @@ from _append_impl import (
     read_with_lock as _read_with_lock,
 )
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Curation watermark (M1)
 # ---------------------------------------------------------------------------
@@ -31,6 +30,8 @@ _CURATION_WM_DEFAULTS = {"event_count": 0, "timestamp": "", "agent_id": ""}
 
 def write_curation_watermark(smm_dir: Path, event_count: int, agent_id: str) -> None:
     """Atomic write of curation watermark via tempfile + rename."""
+    from _append_impl import write_json_atomic
+
     wm_file = smm_dir / ".curation-watermark"
     if wm_file.is_symlink():
         raise OSError(f"Curation watermark path is a symlink: {wm_file}")
@@ -40,16 +41,7 @@ def write_curation_watermark(smm_dir: Path, event_count: int, agent_id: str) -> 
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "agent_id": agent_id,
     }
-    fd, tmp = tempfile.mkstemp(dir=smm_dir, prefix=".curation-wm-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, wm_file)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    write_json_atomic(wm_file, data)
 
 
 def read_curation_watermark(smm_dir: Path) -> dict:
@@ -85,41 +77,27 @@ def short_id(event_id: str) -> str:
 
 
 def parse_events(smm_dir: Path) -> tuple[list[dict], int]:
-    """Read events.jsonl under shared flock, skip malformed lines."""
+    """Read events.jsonl under shared flock, validate required fields.
+
+    Uses parse_jsonl() for core JSONL parsing, then validates that each
+    event has 'id' and 'type' fields.
+    """
+    from _append_impl import parse_jsonl
+
     raw = _read_with_lock(smm_dir / "events.jsonl")
     if not raw.strip():
         return [], 0
 
-    events: list[dict] = []
-    skipped = 0
+    parsed, skipped = parse_jsonl(raw)
 
-    for line_num, line in enumerate(raw.splitlines(), 1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if not isinstance(event, dict):
-                print(
-                    f"Warning: Line {line_num} is not a JSON object, skipping",
-                    file=sys.stderr,
-                )
-                skipped += 1
-                continue
-            if "id" not in event or "type" not in event:
-                print(
-                    f"Warning: Line {line_num} missing id or type, skipping",
-                    file=sys.stderr,
-                )
-                skipped += 1
-                continue
-            events.append(event)
-        except json.JSONDecodeError:
-            print(
-                f"Warning: Line {line_num} is malformed JSON, skipping",
-                file=sys.stderr,
-            )
+    # Additional validation: require id and type fields
+    events: list[dict] = []
+    for event in parsed:
+        if "id" not in event or "type" not in event:
+            logger.warning("Event missing id or type, skipping")
             skipped += 1
+            continue
+        events.append(event)
 
     return events, skipped
 

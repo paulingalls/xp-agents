@@ -335,8 +335,6 @@ if __name__ == "__main__":
     try:
         result = run(input_data)
     except _common.BlockedError as e:
-        if e.system_message:
-            print(json.dumps({"systemMessage": e.system_message}))
         print(str(e), file=sys.stderr)
         sys.exit(2)
 

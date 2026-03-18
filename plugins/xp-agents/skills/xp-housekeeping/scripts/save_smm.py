@@ -9,17 +9,15 @@ Usage:
 """
 
 import argparse
-import contextlib
-import os
 import sys
-import tempfile
 from pathlib import Path
 
-# Add smm/ to path so we can import materialize
+# Add smm/ to path so we can import materialize and _append_impl
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
 import materialize  # noqa: E402
+from _append_impl import write_text_atomic  # noqa: E402
 
 
 def run(content: str, smm_dir: Path) -> None:
@@ -35,17 +33,7 @@ def run(content: str, smm_dir: Path) -> None:
     if target.is_symlink():
         raise OSError(f"SMM path is a symlink: {target}")
 
-    # Atomic write via tempfile + rename
-    fd, tmp = tempfile.mkstemp(dir=smm_dir, suffix=".smm.tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, target)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    write_text_atomic(target, content)
 
     # Update curation watermark with current event count
     events, _ = materialize.parse_events(smm_dir)

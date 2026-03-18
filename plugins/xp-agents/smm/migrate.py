@@ -7,7 +7,6 @@ Events with schema_version > CURRENT_VERSION pass through unchanged
 """
 
 import argparse
-import json
 import re
 import sys
 from collections.abc import Callable
@@ -18,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _append_impl import (
     LockTimeoutError,
     _validate_smm_dir,
+    parse_jsonl,
     replace_events_file,
     resolve_smm_dir,
 )
@@ -90,24 +90,12 @@ def migrate_file(smm_dir: Path) -> dict:
     if not raw.strip():
         return {"migrated": 0, "unchanged": 0}
 
-    events: list[dict] = []
+    parsed, skipped = parse_jsonl(raw)
     migrated_count = 0
-    unchanged_count = 0
+    unchanged_count = skipped
 
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if not isinstance(event, dict):
-                events.append(event)
-                unchanged_count += 1
-                continue
-        except json.JSONDecodeError:
-            unchanged_count += 1
-            continue
-
+    events: list[dict] = []
+    for event in parsed:
         version = event.get("schema_version", 1)
         migrated = migrate_event(event)
 

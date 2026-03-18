@@ -14,7 +14,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,6 +25,7 @@ from _append_impl import (
     PRIORITY_BLOCKING,
     PRIORITY_INFO,  # noqa: F401
     _validate_agent_id,  # noqa: F401
+    parse_jsonl,
     write_watermark,  # noqa: F401
 )
 from _append_impl import _validate_smm_dir as validate_smm_dir
@@ -36,14 +36,9 @@ from _append_impl import _validate_smm_dir as validate_smm_dir
 
 
 class BlockedError(Exception):
-    """Raised when a tool call should be blocked (exit 2 with stderr message).
+    """Raised when a tool call should be blocked (exit 2 with stderr message)."""
 
-    Optional system_message is shown to the user (not the agent).
-    """
-
-    def __init__(self, message: str, system_message: str | None = None) -> None:
-        super().__init__(message)
-        self.system_message = system_message
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -203,18 +198,7 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
     except (FileNotFoundError, OSError):
         return []
 
-    events: list[dict] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if isinstance(event, dict):
-                events.append(event)
-        except json.JSONDecodeError:
-            continue
-
+    events, _ = parse_jsonl(raw)
     return events
 
 
@@ -285,16 +269,9 @@ def write_json_atomic(file_path: Path, data: dict) -> None:
     """
     if file_path.is_symlink():
         raise ValueError(f"Refusing to write to symlink: {file_path}")
-    fd, tmp = tempfile.mkstemp(dir=file_path.parent, suffix=".json")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, file_path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    from _append_impl import write_json_atomic as _write_json_atomic
+
+    _write_json_atomic(file_path, data)
 
 
 def append_safe(smm_dir: Path, event: dict) -> None:

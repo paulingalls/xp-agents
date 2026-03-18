@@ -5,12 +5,12 @@ Reads new events since an agent's last read position.
 Watermark advances after each read.
 """
 
-import json
 from pathlib import Path
 
 from _append_impl import (
     _validate_agent_id,
     _validate_smm_dir,
+    parse_jsonl,
     write_watermark,
 )
 from _append_impl import (
@@ -53,17 +53,9 @@ def read_events_from(smm_dir: Path, start_line: int) -> tuple[list[dict], int]:
     lines = raw.splitlines()
     total = len(lines)
 
-    events: list[dict] = []
-    for line in lines[start_line:]:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if isinstance(event, dict):
-                events.append(event)
-        except json.JSONDecodeError:
-            continue
+    # Parse only the lines after the watermark
+    tail = "\n".join(lines[start_line:])
+    events, _ = parse_jsonl(tail)
 
     return events, total
 

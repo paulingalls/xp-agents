@@ -426,6 +426,34 @@ def compute_resolutions(events: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Shared JSONL parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_jsonl(raw: str) -> tuple[list[dict], int]:
+    """Parse JSONL text into dicts. Returns (events, skipped_count).
+
+    Skips blank lines, malformed JSON, and non-dict values silently.
+    This is the canonical JSONL parser — all callers should use it.
+    """
+    events: list[dict] = []
+    skipped = 0
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, dict):
+                events.append(obj)
+            else:
+                skipped += 1
+        except json.JSONDecodeError:
+            skipped += 1
+    return events, skipped
+
+
+# ---------------------------------------------------------------------------
 # Desktop notification for blocking questions
 # ---------------------------------------------------------------------------
 
@@ -554,16 +582,31 @@ def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
     if wm_file.is_symlink():
         raise OSError(f"Watermark path is a symlink: {wm_file}")
 
-    fd, tmp = tempfile.mkstemp(dir=smm_dir, prefix=f".wm-{agent_id}-", suffix=".tmp")
+    write_text_atomic(wm_file, str(line_count))
+
+
+def write_text_atomic(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """Atomic write of text content via tempfile + rename.
+
+    Creates tempfile in same directory as target, writes content,
+    sets permissions to 0o600, then atomically renames.
+    """
+    target_dir = path.parent
+    fd, tmp = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
-            f.write(str(line_count))
+        with os.fdopen(fd, "w", encoding=encoding) as f:
+            f.write(content)
         os.chmod(tmp, 0o600)
-        os.rename(tmp, wm_file)
+        os.rename(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
+
+
+def write_json_atomic(path: Path, data: dict) -> None:
+    """Atomic write of JSON data via tempfile + rename."""
+    write_text_atomic(path, json.dumps(data))
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")

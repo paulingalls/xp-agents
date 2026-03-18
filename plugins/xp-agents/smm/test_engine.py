@@ -83,6 +83,51 @@ class _SMMTestCase(unittest.TestCase):
 
 
 # ===========================================================================
+# parse_jsonl — Shared JSONL parsing
+# ===========================================================================
+
+
+class TestParseJsonl(unittest.TestCase):
+    """Tests for _append_impl.parse_jsonl()."""
+
+    def test_empty_string(self):
+        events, skipped = _append_impl.parse_jsonl("")
+        self.assertEqual(events, [])
+        self.assertEqual(skipped, 0)
+
+    def test_blank_lines_only(self):
+        events, skipped = _append_impl.parse_jsonl("\n\n  \n")
+        self.assertEqual(events, [])
+        self.assertEqual(skipped, 0)
+
+    def test_valid_events(self):
+        raw = '{"id": "a", "type": "status"}\n{"id": "b", "type": "goal"}\n'
+        events, skipped = _append_impl.parse_jsonl(raw)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["id"], "a")
+        self.assertEqual(events[1]["id"], "b")
+        self.assertEqual(skipped, 0)
+
+    def test_malformed_json_skipped(self):
+        raw = '{"id": "a"}\nnot-json\n{"id": "b"}\n'
+        events, skipped = _append_impl.parse_jsonl(raw)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(skipped, 1)
+
+    def test_non_dict_skipped(self):
+        raw = '{"id": "a"}\n[1, 2, 3]\n"just a string"\n{"id": "b"}\n'
+        events, skipped = _append_impl.parse_jsonl(raw)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(skipped, 2)
+
+    def test_mixed_valid_and_invalid(self):
+        raw = '{"ok": true}\n\nbad\n{"ok": false}\n'
+        events, skipped = _append_impl.parse_jsonl(raw)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(skipped, 1)
+
+
+# ===========================================================================
 # Materialize — Parsing
 # ===========================================================================
 
@@ -1948,6 +1993,52 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertEqual(len(new["customer_inputs"]), 1)
         self.assertEqual(len(new["decisions"]), 1)
         self.assertEqual(len(new["concerns"]), 1)
+
+
+# ===========================================================================
+# write_text_atomic / write_json_atomic — Shared atomic write utilities
+# ===========================================================================
+
+
+class TestWriteAtomic(_SMMTestCase):
+    """Tests for _append_impl.write_text_atomic() and write_json_atomic()."""
+
+    def test_write_text_creates_file(self):
+        """write_text_atomic creates a new file with expected content."""
+        target = self.smm_dir / "hello.txt"
+        _append_impl.write_text_atomic(target, "hello world")
+        self.assertEqual(target.read_text(), "hello world")
+
+    def test_write_text_overwrites(self):
+        """write_text_atomic overwrites existing file with latest content."""
+        target = self.smm_dir / "overwrite.txt"
+        _append_impl.write_text_atomic(target, "first")
+        _append_impl.write_text_atomic(target, "second")
+        self.assertEqual(target.read_text(), "second")
+
+    def test_write_text_permissions(self):
+        """write_text_atomic sets file permissions to 0o600."""
+        target = self.smm_dir / "perms.txt"
+        _append_impl.write_text_atomic(target, "secret")
+        mode = target.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
+    def test_write_text_no_temp_files(self):
+        """write_text_atomic leaves no .tmp files behind."""
+        target = self.smm_dir / "clean.txt"
+        _append_impl.write_text_atomic(target, "data")
+        tmp_files = list(self.smm_dir.glob("*.tmp"))
+        self.assertEqual(tmp_files, [])
+
+    def test_write_json_roundtrip(self):
+        """write_json_atomic writes JSON that round-trips correctly."""
+        target = self.smm_dir / "data.json"
+        data = {"key": "value", "count": 42, "nested": {"a": [1, 2, 3]}}
+        _append_impl.write_json_atomic(target, data)
+        import json as _json
+
+        loaded = _json.loads(target.read_text())
+        self.assertEqual(loaded, data)
 
 
 if __name__ == "__main__":

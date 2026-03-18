@@ -25,6 +25,7 @@ from _append_impl import (
     LockTimeoutError,
     _validate_smm_dir,
     compute_resolutions,
+    parse_jsonl,
     replace_events_file,
     resolve_smm_dir,
     write_watermark,
@@ -38,17 +39,7 @@ from materialize import read_curation_watermark, write_curation_watermark
 
 def _parse_events(raw: str) -> list[dict]:
     """Parse JSONL text into a list of event dicts, skipping bad lines."""
-    events: list[dict] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-            if isinstance(event, dict):
-                events.append(event)
-        except json.JSONDecodeError:
-            continue
+    events, _ = parse_jsonl(raw)
     return events
 
 
