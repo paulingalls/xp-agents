@@ -93,3 +93,13 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 - If the user says "skip" or "later", move on. Items persist until resolved.
 - If there are no open items in a category, skip it silently.
 - Extract the event IDs from the `[short-id]` markers in the SMM output. Use the full event ID from the events.jsonl if needed.
+
+## 5. Load Session Context
+
+After completing all triage steps, load the full context:
+
+1. Run: `${CLAUDE_SKILL_DIR}/scripts/load_context.sh`
+2. Read the file at the SMM_FILE path from the output
+3. Read the file at the GUIDE_FILE path from the output
+
+This ensures the full Shared Mental Model and Behavioral Guide are in your conversation context.

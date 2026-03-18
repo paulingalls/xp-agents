@@ -2771,5 +2771,60 @@ class TestQualityGatePendingSubagents(_IntegrationTestCase):
         self.assertIn("/xp-quality-review", d2["reason"])
 
 
+# ===========================================================================
+# Load context helper (SMM + Behavioral Guide)
+# ===========================================================================
+
+
+class TestLoadContext(_IntegrationTestCase):
+    def _run_load_context(self) -> subprocess.CompletedProcess:
+        """Run load_context.sh as a subprocess."""
+        script = (
+            Path(__file__).parent.parent
+            / "skills"
+            / "xp-housekeeping"
+            / "scripts"
+            / "load_context.sh"
+        )
+        return subprocess.run(
+            ["bash", str(script)],
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+
+    def _assert_output_file_exists(
+        self, result: subprocess.CompletedProcess, prefix: str
+    ) -> str:
+        """Assert stdout has one line with prefix pointing to existing file."""
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.strip().splitlines()
+        matched = [line for line in lines if line.startswith(prefix)]
+        self.assertEqual(len(matched), 1, f"Expected one {prefix} line, got: {lines}")
+        path = matched[0].split("=", 1)[1]
+        self.assertTrue(Path(path).exists(), f"File does not exist: {path}")
+        return path
+
+    def test_outputs_smm_file_path(self):
+        """load_context.sh outputs SMM_FILE= pointing to existing file."""
+        result = self._run_load_context()
+        self._assert_output_file_exists(result, "SMM_FILE=")
+
+    def test_outputs_guide_file_path(self):
+        """load_context.sh outputs GUIDE_FILE= pointing to existing file."""
+        result = self._run_load_context()
+        self._assert_output_file_exists(result, "GUIDE_FILE=")
+
+    def test_smm_rematerialized_after_changes(self):
+        """load_context.sh re-materializes so recent events are reflected."""
+        self._seed_events(
+            [make_event("concern", content="Test concern for rematerialization")]
+        )
+        result = self._run_load_context()
+        smm_path = self._assert_output_file_exists(result, "SMM_FILE=")
+        smm_content = Path(smm_path).read_text()
+        self.assertIn("Test concern for rematerialization", smm_content)
+
+
 if __name__ == "__main__":
     unittest.main()
