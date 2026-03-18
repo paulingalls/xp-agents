@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""SMM Log Compaction: archive old events, keep permanent + recent sessions.
+"""SMM Log Compaction: curation-watermark-based event archival.
 
-Retention policy:
-- Keep events from the last N sessions (delimited by session_end events)
-- Permanent events never archived: decision, convention, goal, debt,
-  assumption, retrospective
-- Unresolved questions/concerns retained
-- Archived events written to backups/archive-{timestamp}.jsonl
-- All .watermark-* files removed after compaction
+Retention policy (compact_after_curation):
+- Keep all events after the curation watermark (not yet curated)
+- From pre-watermark events, keep:
+  - Last 3 session_end events (for aging calculations)
+  - Events referenced by current SMM (unresolved goals, decisions, etc.)
+- Archive everything else to backups/archive-{timestamp}.jsonl
+- Reset prompt-nugget watermark, update curation watermark
+- Remove orphaned .watermark-* files
 - Atomic replacement via tempfile + rename under exclusive flock
 """
 
@@ -29,22 +30,6 @@ from _append_impl import (
     write_watermark,
 )
 from materialize import read_curation_watermark, write_curation_watermark
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-PERMANENT_TYPES = frozenset(
-    {
-        "decision",
-        "convention",
-        "goal",
-        "debt",
-        "assumption",
-        "retrospective",
-    }
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -111,9 +96,8 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if intent_status == "open":
                     referenced.add(eid)
             case "assumption":
-                # Assumptions are risks — keep if unresolved
-                if eid not in resolutions.get("resolved_assumption_ids", set()):
-                    referenced.add(eid)
+                # Assumptions have no resolution mechanism — always retained
+                referenced.add(eid)
             case "retrospective":
                 referenced.add(eid)
 
@@ -251,8 +235,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
 
     # Remove orphaned watermark files (keep prompt-nugget and curation)
     for wm in smm_dir.glob(".watermark-*"):
-        name = wm.name
-        if name == ".watermark-prompt-nugget":
+        if wm.name == ".watermark-prompt-nugget":
             continue
         with contextlib.suppress(OSError):
             wm.unlink()
@@ -302,12 +285,6 @@ def main() -> None:
         description="Compact SMM event log: archive old events"
     )
     parser.add_argument(
-        "--keep-sessions",
-        type=int,
-        default=3,
-        help="Number of recent sessions to keep (default: 3)",
-    )
-    parser.add_argument(
         "--smm-dir",
         type=Path,
         help="Override SMM directory (default: auto-detect from git)",
@@ -323,7 +300,7 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        result = compact(smm_dir, keep_sessions=args.keep_sessions)
+        result = compact(smm_dir)
     except LockTimeoutError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

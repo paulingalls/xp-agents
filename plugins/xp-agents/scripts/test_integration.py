@@ -2537,8 +2537,6 @@ class TestCompactIntegration(_IntegrationTestCase):
             [
                 "python3",
                 str(Path(__file__).parent.parent / "smm" / "compact.py"),
-                "--keep-sessions",
-                "1",
                 "--smm-dir",
                 str(self.smm_dir),
             ],
