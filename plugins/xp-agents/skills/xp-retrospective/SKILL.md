@@ -12,6 +12,8 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */materialize.py)
+  - Bash(python3 */save_retrospective.py)
+  - Bash(cat *| python3 */save_retrospective.py)
 ---
 
 !`${CLAUDE_SKILL_DIR}/scripts/preload.sh`

@@ -174,7 +174,6 @@ Events are semantically typed — each carries different synchronization semanti
 | `question` | Customer input needed (🔴 blocking / 🟡 assumed) | Agent |
 | `assumption` | Stated beliefs — escalates if contradicted | Agent + subagent (plan reviewer) |
 | `debt` | Acknowledged tradeoff — ages and escalates across sessions | Subagent (quality reviewer + retrospective) |
-| `pair_guidance` | (legacy — no longer generated) | — |
 | `session_end` | Session summary with unresolved items | Command hook (automatic) |
 | `retrospective` | Keep/Fix/Try analysis + session stats | Subagent (retrospective) |
 

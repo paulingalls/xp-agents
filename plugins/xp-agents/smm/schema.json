@@ -30,7 +30,6 @@
         "question",
         "answer",
         "assumption",
-        "pair_guidance",
         "session_end",
         "retrospective",
         "security_review_requested"
@@ -78,10 +77,6 @@
       "type": "string",
       "enum": ["\ud83d\udd34", "\ud83d\udfe1", "\ud83d\udfe2"],
       "description": "Question priority: blocking, assumed, informational"
-    },
-    "tool_name": {
-      "type": "string",
-      "description": "The tool that triggered this guidance (pair_guidance)"
     },
     "files": {
       "type": "array",
@@ -184,14 +179,6 @@
       },
       "then": {
         "required": ["priority"]
-      }
-    },
-    {
-      "if": {
-        "properties": { "type": { "const": "pair_guidance" } }
-      },
-      "then": {
-        "required": ["tool_name"]
       }
     },
     {

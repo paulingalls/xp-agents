@@ -90,7 +90,6 @@ VALID_TYPES = sorted(
         "question",
         "answer",
         "assumption",
-        "pair_guidance",
         "session_end",
         "retrospective",
         "security_review_requested",
@@ -172,10 +171,6 @@ def build_event(args: argparse.Namespace) -> dict:
         case "question":
             if args.priority is not None:
                 event["priority"] = args.priority
-
-        case "pair_guidance":
-            if args.tool_name is not None:
-                event["tool_name"] = args.tool_name
 
         case "session_end":
             if args.duration_seconds is not None:
@@ -291,12 +286,6 @@ def validate_event(event: dict) -> list[str]:
                     f"Invalid priority: {event['priority']}"
                     " (must be \U0001f534/\U0001f7e1/\U0001f7e2)"
                 )
-
-        case "pair_guidance":
-            if "tool_name" not in event:
-                errors.append("Field 'tool_name' is required for type 'pair_guidance'")
-            elif not isinstance(event["tool_name"], str):
-                errors.append("Field 'tool_name' must be a string")
 
         case "session_end":
             _check = {
@@ -810,7 +799,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--severity",
         choices=["high", "medium", "low"],
     )
-    parser.add_argument("--tool-name", help="Tool name")
 
     # debt specific
     parser.add_argument("--files", help="JSON array of file paths (debt)")

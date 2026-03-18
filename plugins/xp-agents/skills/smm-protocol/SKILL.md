@@ -29,7 +29,6 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 | `status` | What you're working on right now | content, working_on (file list) |
 | `concern` | Problem needing attention | content, severity (low/medium/high) |
 | `question` | Need customer input | content, priority |
-| `pair_guidance` | Navigator direction before writes | content |
 | `customer_input` | (Auto-logged by hook) | content |
 | `customer_intent` | Distilled customer request | content, intent_status (open/delivered/superseded) |
 
@@ -93,7 +92,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 The SMM has two tiers:
 
 **Active Context** (top) — needs attention now:
-- Project Goals, Conflict Alerts, Blocking Questions, Unacknowledged Concerns, Customer Intent, Agent Status, Navigator Guidance
+- Project Goals, Conflict Alerts, Blocking Questions, Unacknowledged Concerns, Customer Intent, Agent Status
 
 **Reference** (bottom) — informs decisions:
 - Architecture Decisions, Conventions, Resolved Questions, Discoveries, Assumptions, Technical Debt, Resolved Concerns

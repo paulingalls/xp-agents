@@ -34,7 +34,7 @@ Ground truth is in the Shared Mental Model (SMM). Seven rules:
 | Acknowledged tradeoff | `debt` (with files array) |
 | Design revisit needed | `concern` referencing the decision |
 
-Use `/smm-protocol` for field details. Use `/xp-values` at design trade-offs. Use `/pair-programming` when reviewer guidance gets complex.
+Use `/smm-protocol` for field details. Use `/xp-values` at design trade-offs.
 
 ## Session Protocol
 

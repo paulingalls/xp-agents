@@ -478,7 +478,6 @@ class TestSessionStart(_HookTestCase):
         )
         self.assertIn("smm-protocol", result)
         self.assertIn("xp-values", result)
-        self.assertIn("pair-programming", result)
 
     def test_no_retro_instruction_in_output(self):
         import session_start
@@ -812,25 +811,6 @@ class TestRetrospective(_HookTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertIn("session_stats", data)
-
-    def test_session_stats_pair_guidance_count(self):
-        import retrospective
-
-        events = [
-            make_event("pair_guidance", content="Check tests", tool_name="Write"),
-            make_event("pair_guidance", content="Add types", tool_name="Edit"),
-            make_event(content="filler 1"),
-            make_event(content="filler 2"),
-            make_event(content="filler 3"),
-        ]
-        self._write_events(events)
-        retrospective.run(
-            {"session_id": "test", "source": "startup"},
-            smm_dir=self.smm_dir,
-        )
-        with open(self.smm_dir / ".retro-input.json") as f:
-            data = json.load(f)
-        self.assertEqual(data["session_stats"]["pair_guidance_count"], 2)
 
     def test_session_stats_status_count(self):
         import retrospective
@@ -3720,7 +3700,7 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
         content = (self.agents_dir / "xp-retrospective.md").read_text()
         self.assertIn("Plugin Health", content)
         self.assertIn("session_stats", content)
-        self.assertIn("pair_guidance", content)
+        self.assertIn("concern", content)
 
     # AC 14: cross-session trends
     def test_retrospective_cross_session_trends(self):
@@ -4980,7 +4960,7 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_directories_exist(self):
         """All 3 skill dirs must exist with SKILL.md."""
-        for name in ("smm-protocol", "xp-values", "pair-programming"):
+        for name in ("smm-protocol", "xp-values"):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
 
@@ -4988,7 +4968,7 @@ class TestMilestone6Files(unittest.TestCase):
         """Each SKILL.md must have valid YAML frontmatter with name + description."""
         import re
 
-        for name in ("smm-protocol", "xp-values", "pair-programming"):
+        for name in ("smm-protocol", "xp-values"):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -5013,7 +4993,7 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_token_budgets(self):
         """Each SKILL.md should be within 1,000-2,000 token estimate."""
-        for name in ("smm-protocol", "xp-values", "pair-programming"):
+        for name in ("smm-protocol", "xp-values"):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -5072,7 +5052,6 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
         )
         self.assertIn("smm-protocol", result)
         self.assertIn("xp-values", result)
-        self.assertIn("pair-programming", result)
 
     def test_no_smm_in_session_start(self):
         """SMM is no longer injected by session_start (deferred to session-review)."""
@@ -5286,7 +5265,7 @@ class TestPluginIntegrity(unittest.TestCase):
     def test_all_skill_files_exist(self):
         """All 3 SKILL.md files exist in skills/ directory."""
         skills_dir = self.plugin_root / "skills"
-        for name in ("smm-protocol", "xp-values", "pair-programming"):
+        for name in ("smm-protocol", "xp-values"):
             path = skills_dir / name / "SKILL.md"
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
 
@@ -5800,6 +5779,114 @@ class TestRetroDigest(_HookTestCase):
         self.assertIn("signal_events", digest)
         self.assertIn("status_summary", digest)
         self.assertIn("concern_groups", digest)
+
+
+class TestSaveRetrospective(_HookTestCase):
+    """Tests for save_retrospective.py helper script."""
+
+    def setUp(self):
+        super().setUp()
+        # Create retrospectives directory (init.sh normally does this)
+        (self.smm_dir / "retrospectives").mkdir(exist_ok=True)
+
+    def _valid_kft(self) -> dict:
+        return {
+            "keep": [
+                {
+                    "content": "TDD discipline held",
+                    "event_refs": ["abc123"],
+                    "values": ["Feedback"],
+                }
+            ],
+            "fix": [
+                {
+                    "content": "Navigator silent",
+                    "event_refs": ["def456"],
+                    "xp_value": "Communication",
+                }
+            ],
+            "try": [
+                {
+                    "content": "Investigate navigator pipeline",
+                    "event_refs": ["ghi789"],
+                }
+            ],
+        }
+
+    def test_valid_kft_creates_event_and_file(self):
+        import save_retrospective
+
+        result = save_retrospective.run(self._valid_kft(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("event_id", result)
+        self.assertIn("retro_file", result)
+
+        # Verify event in events.jsonl
+        events = self._read_events()
+        retro_events = [e for e in events if e["type"] == "retrospective"]
+        self.assertEqual(len(retro_events), 1)
+        ev = retro_events[0]
+        self.assertEqual(len(ev["keep"]), 1)
+        self.assertEqual(ev["keep"][0]["content"], "TDD discipline held")
+        self.assertEqual(len(ev["fix"]), 1)
+        self.assertEqual(ev["fix"][0]["xp_value"], "Communication")
+        self.assertEqual(len(ev["try"]), 1)
+        self.assertEqual(ev["try"][0]["content"], "Investigate navigator pipeline")
+        self.assertIn("1 keeps, 1 fixes, 1 tries", ev["content"])
+
+        # Verify retrospective file exists
+        retro_file = Path(result["retro_file"])
+        self.assertTrue(retro_file.exists())
+        retro_data = json.loads(retro_file.read_text())
+        self.assertIn("keep", retro_data)
+        self.assertIn("fix", retro_data)
+        self.assertIn("try", retro_data)
+        self.assertIn("timestamp", retro_data)
+
+    def test_missing_content_field_errors(self):
+        import save_retrospective
+
+        bad_kft = {"keep": [{"event_refs": ["abc"]}], "fix": [], "try": []}
+        result = save_retrospective.run(bad_kft, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        # No event should be written
+        events = self._read_events()
+        retro_events = [e for e in events if e["type"] == "retrospective"]
+        self.assertEqual(len(retro_events), 0)
+
+    def test_empty_arrays_succeeds(self):
+        import save_retrospective
+
+        empty_kft = {"keep": [], "fix": [], "try": []}
+        result = save_retrospective.run(empty_kft, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+        events = self._read_events()
+        retro_events = [e for e in events if e["type"] == "retrospective"]
+        self.assertEqual(len(retro_events), 1)
+        self.assertIn("0 keeps, 0 fixes, 0 tries", retro_events[0]["content"])
+
+    def test_invalid_json_stdin(self):
+        """When called as main with invalid JSON on stdin, should exit 1."""
+        import save_retrospective
+
+        result = save_retrospective.run(None, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_optional_analysis_notes(self):
+        import save_retrospective
+
+        kft = self._valid_kft()
+        kft["analysis_notes"] = "Cross-session trend: navigator silent for 4 retros"
+        result = save_retrospective.run(kft, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+        retro_file = Path(result["retro_file"])
+        retro_data = json.loads(retro_file.read_text())
+        self.assertEqual(
+            retro_data["analysis_notes"],
+            "Cross-session trend: navigator silent for 4 retros",
+        )
 
 
 if __name__ == "__main__":

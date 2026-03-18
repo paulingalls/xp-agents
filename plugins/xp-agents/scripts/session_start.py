@@ -35,10 +35,7 @@ SKILLS_TEXT = (
     "- `/smm-protocol` — Event recording reference. Invoke when recording "
     "decisions, questions, concerns, assumptions, discoveries, or debt\n"
     "- `/xp-values` — XP values as behavioral guide. Invoke when making "
-    "design decisions, resolving trade-offs, or evaluating code quality\n"
-    "- `/pair-programming` — Pair programming protocol. Invoke when "
-    "responding to navigator guidance, resolving reviewer conflicts, "
-    "or starting complex work"
+    "design decisions, resolving trade-offs, or evaluating code quality"
 )
 
 

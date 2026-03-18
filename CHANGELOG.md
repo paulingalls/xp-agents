@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.9.38 — Retrospective Helper & Navigator Cleanup
+
+### Added
+- **`save_retrospective.py` helper script** — encapsulates retrospective write-side plumbing (event append, file write, materialize) into a single script that accepts K/F/T JSON on stdin. Reduces retrospective agent tool calls from ~17 to ~3.
+- 5 new tests for `save_retrospective.py` (907 total)
+
+### Removed
+- **`pair_guidance` event type** — removed from schema, validation, formatting, and stats. The navigator was deleted in v0.9.37 (SubagentStop limitation); this completes the cleanup.
+- **`pair-programming` skill** — dead code since navigator removal. Quality review functionality already covered by `/xp-quality-review`.
+- **Navigator health check in retrospective** — stopped false "CRITICAL: 0 navigator guidance" alarm that fired in 4 consecutive retrospectives.
+
+### Changed
+- **Retrospective agent prompt** — Actions section simplified from 3 manual steps (append.sh + Write + materialize) to a single `save_retrospective.py` pipe command.
+- **Session start SKILLS_TEXT** — removed `/pair-programming` reference (2 skills remain: `/smm-protocol`, `/xp-values`).
+
+### Fixed
+- **Stale lint concerns** — recorded as technical debt. Lint hook fires on intermediate file states during rapid edits, producing false positives that auto-resolve but clutter the SMM.
+
 ## v0.9.37 — Hook UX & Materializer Bug Fix
 
 ### Added

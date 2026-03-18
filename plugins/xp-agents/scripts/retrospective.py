@@ -44,7 +44,6 @@ _SIGNAL_TYPES = frozenset(
         _common.ANSWER,
         _common.ASSUMPTION,
         _common.CONVENTION,
-        _common.PAIR_GUIDANCE,
     }
 )
 
@@ -160,7 +159,6 @@ def _compute_session_stats(events: list[dict]) -> dict:
     import _append_impl
 
     stats = {
-        "pair_guidance_count": 0,
         "status_count": 0,
         "concerns_raised": 0,
         "concerns_resolved": 0,
@@ -174,8 +172,6 @@ def _compute_session_stats(events: list[dict]) -> dict:
 
     for e in events:
         match e.get("type", ""):
-            case _common.PAIR_GUIDANCE:
-                stats["pair_guidance_count"] += 1
             case _common.STATUS:
                 stats["status_count"] += 1
             case _common.CONCERN:
@@ -258,12 +254,6 @@ def _build_context_summary(
     # Session health signals
     if session_stats:
         health: list[str] = []
-        pg = session_stats.get("pair_guidance_count", 0)
-        sc = session_stats.get("status_count", 0)
-        if pg == 0 and sc > 5:
-            health.append(f"CRITICAL: 0 navigator guidance with {sc} status events")
-        elif pg:
-            health.append(f"{pg} navigator guidance events")
         cr = session_stats.get("concerns_raised", 0)
         cres = session_stats.get("concerns_resolved", 0)
         if cr:

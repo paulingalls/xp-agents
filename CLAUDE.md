@@ -203,7 +203,7 @@ plugins/xp-agents/
 ├── agents/*.md                        ← subagent definitions
 ├── prompts/*.md                       ← agent/prompt hook definitions
 ├── skills/                            ← forked + inline skills
-│   ├── {smm-protocol,xp-values,pair-programming}/SKILL.md
+│   ├── {smm-protocol,xp-values}/SKILL.md
 │   ├── xp-session-review/SKILL.md    ← session start orchestrator
 │   ├── xp-housekeeping/SKILL.md      ← lifecycle triage
 │   └── {xp-goal-collection,xp-question-triage}/SKILL.md

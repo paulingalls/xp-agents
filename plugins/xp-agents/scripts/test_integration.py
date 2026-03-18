@@ -1099,7 +1099,6 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertIn("session_stats", data)
-        self.assertIn("pair_guidance_count", data["session_stats"])
         self.assertIn("status_count", data["session_stats"])
         self.assertIn("concerns_raised", data["session_stats"])
 
@@ -1783,9 +1782,9 @@ class TestMilestone6Integration(_IntegrationTestCase):
         self.assertIn("Resume immediately", ctx)
 
     def test_skill_files_parseable(self):
-        """All 3 SKILL.md files exist and are non-trivial."""
+        """All skill SKILL.md files exist and are non-trivial."""
         plugin_root = Path(__file__).parent.parent
-        for name in ("smm-protocol", "xp-values", "pair-programming"):
+        for name in ("smm-protocol", "xp-values"):
             skill_file = plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
             content = skill_file.read_text()

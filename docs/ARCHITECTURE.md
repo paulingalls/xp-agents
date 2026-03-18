@@ -33,7 +33,6 @@ User-level storage, per-project isolation. `project-id` derived from `git rev-pa
 | `question` | Agent | Customer input needed: 🔴 blocking, 🟡 assumed, 🟢 info |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
-| `pair_guidance` | (legacy — no longer generated) | Strategic direction before writes |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
 | `retrospective` | Subagent (retrospective) | Keep/Fix/Try analysis |
 | `security_review_requested` | Hook (PreToolUse push gate) | Security review needed before push |
@@ -226,7 +225,6 @@ plugins/xp-agents/
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── smm-protocol/SKILL.md
 │   ├── xp-values/SKILL.md
-│   ├── pair-programming/SKILL.md
 │   ├── xp-quality-review/SKILL.md
 │   ├── xp-plan-reviewer/SKILL.md
 │   ├── xp-retrospective/SKILL.md

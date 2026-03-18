@@ -100,7 +100,6 @@ def filter_by_tier(events: list[dict], tier: str) -> list[dict]:
                     e.get("type") == "question"
                     and e.get("priority") == PRIORITY_BLOCKING
                 )
-                or e.get("type") == "pair_guidance"
             ]
         case "red-only":
             return [
@@ -164,9 +163,6 @@ def format_delta(events: list[dict]) -> str:
             case "status":
                 files = ", ".join(e.get("working_on", []))
                 lines.append(f"STATUS [{agent}]: {content} (working on: {files})")
-            case "pair_guidance":
-                tool = e.get("tool_name", "")
-                lines.append(f"NAVIGATOR [{eid}] (for {tool}): {content}")
             case "customer_input":
                 lines.append(f"CUSTOMER: {content}")
             case _:

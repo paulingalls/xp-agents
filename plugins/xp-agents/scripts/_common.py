@@ -64,7 +64,6 @@ DISCOVERY = "discovery"
 QUESTION = "question"
 ANSWER = "answer"
 ASSUMPTION = "assumption"
-PAIR_GUIDANCE = "pair_guidance"
 SESSION_END = "session_end"
 RETROSPECTIVE = "retrospective"
 

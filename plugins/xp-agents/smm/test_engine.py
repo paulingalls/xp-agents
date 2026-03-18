@@ -43,8 +43,6 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
             event["topic"] = kwargs.pop("topic", "default-topic")
         case "question":
             event["priority"] = kwargs.pop("priority", "\U0001f534")
-        case "pair_guidance":
-            event["tool_name"] = kwargs.pop("tool_name", "Write")
         case "goal":
             pass  # No extra required fields
         case "debt":
@@ -811,15 +809,6 @@ class TestRenderMarkdown(_SMMTestCase):
         status_section = md.split("## Agent Status")[1].split("##")[0]
         self.assertNotIn("First task", status_section)
 
-    def test_navigator_guidance_removed(self):
-        """Navigator Guidance section no longer rendered."""
-        events = [
-            make_event("pair_guidance", content="Guidance 1", tool_name="Write"),
-        ]
-        self._write_events(events)
-        md = materialize.materialize(self.smm_dir)
-        self.assertNotIn("## Navigator Guidance", md)
-
     def test_goals_render_with_prefix(self):
         g = make_event("goal", content="Ship v2.0")
         self._write_events([g])
@@ -995,14 +984,13 @@ class TestRenderMarkdown(_SMMTestCase):
             q,
             make_event("answer", content="Yes", references=[q["id"]]),
             make_event("assumption", content="REST API"),
-            make_event("pair_guidance", content="Check tests", tool_name="Write"),
             make_event("session_end", content="Done"),
             make_event("retrospective", content="Review"),
         ]
         self._write_events(events)
         md = materialize.materialize(self.smm_dir)
         self.assertIn("# Shared Mental Model", md)
-        self.assertIn("15 events", md)
+        self.assertIn("14 events", md)
 
     def test_short_id_in_output(self):
         d = make_event("decision", topic="db", content="Use Postgres")
@@ -1356,23 +1344,18 @@ class TestFilterByTier(_SMMTestCase):
             make_event("status", working_on=["f.py"]),
             make_event("question", priority="\U0001f534", content="Blocking Q"),
             make_event("question", priority="\U0001f7e1", content="Yellow Q"),
-            make_event("pair_guidance", tool_name="Write", content="Check tests"),
             make_event("decision", topic="db", content="Use Postgres"),
         ]
 
     def test_full_returns_all(self):
         result = read_delta.filter_by_tier(self.events, "full")
-        self.assertEqual(len(result), 6)
+        self.assertEqual(len(result), 5)
 
-    def test_blocking_returns_red_and_guidance(self):
+    def test_blocking_returns_red_questions(self):
         result = read_delta.filter_by_tier(self.events, "blocking")
-        self.assertEqual(len(result), 2)
-        types = {e["type"] for e in result}
-        self.assertIn("question", types)
-        self.assertIn("pair_guidance", types)
-        for e in result:
-            if e["type"] == "question":
-                self.assertEqual(e["priority"], "\U0001f534")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["type"], "question")
+        self.assertEqual(result[0]["priority"], "\U0001f534")
 
     def test_red_only_returns_red_questions(self):
         result = read_delta.filter_by_tier(self.events, "red-only")
@@ -1432,12 +1415,6 @@ class TestFormatDelta(_SMMTestCase):
         result = read_delta.format_delta([s])
         self.assertIn("STATUS [main]", result)
         self.assertIn("working on: f.py", result)
-
-    def test_pair_guidance_format(self):
-        g = make_event("pair_guidance", content="Check tests", tool_name="Write")
-        result = read_delta.format_delta([g])
-        self.assertIn("NAVIGATOR", result)
-        self.assertIn("for Write", result)
 
     def test_convention_format(self):
         c = make_event("convention", topic="naming", content="camelCase")
@@ -2485,7 +2462,6 @@ def _generate_mixed_events(count: int) -> list[dict]:
         ("question", 8),
         ("answer", 5),
         ("assumption", 4),
-        ("pair_guidance", 8),
         ("session_end", 2),
         ("goal", 1),
         ("debt", 1),

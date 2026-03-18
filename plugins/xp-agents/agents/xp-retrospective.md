@@ -27,13 +27,13 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
 3. **If the file exists**, it contains:
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — **structured summary** (use this instead of raw events):
-     - `signal_events` — full event dicts for decisions, concerns, goals, debt, discoveries, questions, answers, assumptions, conventions, pair_guidance, customer_input (~30 events vs 200+ raw)
+     - `signal_events` — full event dicts for decisions, concerns, goals, debt, discoveries, questions, answers, assumptions, conventions, customer_input (~30 events vs 200+ raw)
      - `status_summary` — `{total, file_writes, test_runs, other, samples}` with counts and 10 newest samples per category
      - `concern_groups` — deduplicated concerns grouped by normalized content, each with `{key, count, events}`
    - `events_since_last_retro` — raw event list (kept for backward compat, prefer `digest`)
    - `previous_retros` — last 2-3 retrospective summaries for trend detection
    - `event_type_counts` — breakdown by event type
-   - `session_stats` — navigator guidance count, concern resolution ratio, etc.
+   - `session_stats` — concern resolution ratio, decision counts, etc.
 
 **Use `digest` for analysis.** It contains the same information as `events_since_last_retro` but structured for efficient analysis. Status events are summarized as counts; signal events and concerns are preserved in full.
 
@@ -91,7 +91,6 @@ Debt items with aging markers in the SMM's **Technical Debt** section must appea
 
 Use the `session_stats` object to flag anomalies:
 
-- **0 `pair_guidance` with many `status` events** — navigator may not be providing guidance
 - **High unresolved concern ratio** (concerns_raised >> concerns_resolved) — concerns not being addressed
 - **0 `decisions` with significant work** — no decisions are being recorded
 - **Compare stats against `previous_retros`** for cross-session trends
@@ -106,32 +105,28 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 ## Actions
 
-### 1. Write retrospective event to the event log:
+### 1. Save the retrospective (event + file + materialize):
+
+Build a JSON object with your Keep/Fix/Try analysis and pipe it to the save script:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "retrospective" \
-  --agent "xp-retrospective" \
-  --content "Session retrospective: N keeps, N fixes, N tries" \
-  --keep '[{"content": "description", "event_refs": ["id1"], "values": ["Courage"]}]' \
-  --fix '[{"content": "description", "event_refs": ["id2"], "xp_value": "Simplicity"}]' \
-  --try '[{"content": "description", "event_refs": ["id3"]}]'
+cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
+{
+  "keep": [{"content": "description", "event_refs": ["id1"], "values": ["Courage"]}],
+  "fix": [{"content": "description", "event_refs": ["id2"], "xp_value": "Simplicity"}],
+  "try": [{"content": "description", "event_refs": ["id3"]}],
+  "analysis_notes": "Optional cross-session trend notes"
+}
+RETRO_JSON
 ```
 
-### 2. Write detailed analysis to retrospectives directory:
+This single command:
+- Writes the retrospective event to events.jsonl
+- Saves a timestamped JSON file to the retrospectives directory
+- Materializes the updated SMM
+- Outputs `EVENT_ID=<id>` and `RETRO_FILE=<path>`
 
-```bash
-SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
-```
-Write a JSON file to `$SMM_DIR/retrospectives/<timestamp>.json` with the full Keep/Fix/Try analysis.
-
-### 3. Update the materialized view:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/materialize.py
-```
-
-### 4. Return summary to the main agent:
+### 2. Return summary to the main agent:
 
 Provide a concise Keep/Fix/Try summary that the main agent can act on immediately.
 

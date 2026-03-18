@@ -201,10 +201,6 @@ class TestValidateEvent(unittest.TestCase):
         event = self._base_event(type="assumption")
         self.assertEqual(_append_impl.validate_event(event), [])
 
-    def test_valid_pair_guidance(self):
-        event = self._base_event(type="pair_guidance", tool_name="Write")
-        self.assertEqual(_append_impl.validate_event(event), [])
-
     def test_valid_session_end_minimal(self):
         event = self._base_event(type="session_end")
         self.assertEqual(_append_impl.validate_event(event), [])
@@ -261,11 +257,6 @@ class TestValidateEvent(unittest.TestCase):
         event = self._base_event(type="question")
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("priority" in e for e in errors))
-
-    def test_pair_guidance_missing_tool_name(self):
-        event = self._base_event(type="pair_guidance")
-        errors = _append_impl.validate_event(event)
-        self.assertTrue(any("tool_name" in e for e in errors))
 
     # --- Invalid field values ---
 
@@ -444,12 +435,6 @@ class TestAppendIntegration(_TempRepoTestCase):
         r = self._run_append("--type", "question", "--agent", "main", "--content", "x")
         self.assertNotEqual(r.returncode, 0)
 
-    def test_reject_missing_tool_name(self):
-        r = self._run_append(
-            "--type", "pair_guidance", "--agent", "main", "--content", "x"
-        )
-        self.assertNotEqual(r.returncode, 0)
-
     def test_event_has_uuid_and_timestamp(self):
         r = self._run_append(
             "--type", "discovery", "--agent", "main", "--content", "found it"
@@ -466,7 +451,7 @@ class TestAppendIntegration(_TempRepoTestCase):
         self.assertIn("T", event["ts"])
         self.assertIn("+", event["ts"])
 
-    def test_all_15_types_succeed(self):
+    def test_all_14_types_succeed(self):
         """Ensure every event type can be appended with valid arguments."""
         cases = [
             ["--type", "customer_input", "--agent", "m", "--content", "x"],
@@ -517,16 +502,6 @@ class TestAppendIntegration(_TempRepoTestCase):
             ],
             ["--type", "answer", "--agent", "m", "--content", "x"],
             ["--type", "assumption", "--agent", "m", "--content", "x"],
-            [
-                "--type",
-                "pair_guidance",
-                "--agent",
-                "m",
-                "--content",
-                "x",
-                "--tool-name",
-                "Write",
-            ],
             ["--type", "session_end", "--agent", "m", "--content", "x"],
             ["--type", "retrospective", "--agent", "m", "--content", "x"],
         ]
@@ -537,7 +512,7 @@ class TestAppendIntegration(_TempRepoTestCase):
 
         events = self._read_events()
         types = {e["type"] for e in events}
-        self.assertEqual(len(types), 15, f"Expected 15 types, got {types}")
+        self.assertEqual(len(types), 14, f"Expected 14 types, got {types}")
 
     def test_session_end_optional_fields(self):
         r = self._run_append(
@@ -883,9 +858,9 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
-    def test_schema_has_16_types(self):
+    def test_schema_has_15_types(self):
         types = self.schema["properties"]["type"]["enum"]
-        self.assertEqual(len(types), 16)
+        self.assertEqual(len(types), 15)
         expected = {
             "customer_input",
             "customer_intent",
@@ -899,7 +874,6 @@ class TestSchemaJson(unittest.TestCase):
             "question",
             "answer",
             "assumption",
-            "pair_guidance",
             "session_end",
             "retrospective",
             "security_review_requested",
@@ -920,7 +894,6 @@ class TestSchemaJson(unittest.TestCase):
             "topic",
             "severity",
             "priority",
-            "tool_name",
             "duration_seconds",
             "event_count",
             "unresolved_items",
@@ -959,7 +932,6 @@ class TestSchemaJson(unittest.TestCase):
         self.assertIn("topic", conditional_reqs.get("decision", []))
         self.assertIn("topic", conditional_reqs.get("convention", []))
         self.assertIn("priority", conditional_reqs.get("question", []))
-        self.assertIn("tool_name", conditional_reqs.get("pair_guidance", []))
         self.assertIn("files", conditional_reqs.get("debt", []))
         self.assertIn("intent_status", conditional_reqs.get("customer_intent", []))
 
