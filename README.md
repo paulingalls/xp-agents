@@ -76,9 +76,9 @@ $ claude
 ```
 
 From here, the system takes over:
-- **Before every write** — SMM delta injected (two-tier: Active Context for quick checks, full SMM for writes), plan review gate checks for unreviewed plans
+- **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
+- **Before every write** — plan review gate checks for unreviewed plans, conflict detection via `.coordination.json`
 - **After every write** — status auto-updated, quality reviewer subagent nudged (runs in background), linter runs
-- **Every user prompt** — logged and distilled into trackable customer intent
 - **Every conflict** — detected and surfaced automatically
 - **Technical debt** — tracked, aged across sessions, escalated when ignored
 - **Tests must pass** before the agent can stop
@@ -126,17 +126,18 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
-| **PreToolUse** (Write/Edit) | SMM delta injection, `working_on` conflict blocking, TDD order check, plan review gate | Communication, TDD, Planning Game |
+| **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, session review gate | Communication, On-Site Customer |
+| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate | TDD, Planning Game |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check, quality reviewer subagent nudge | Standup, Coding Standards, Courage, Simplicity |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
 | **SubagentStop** (Plan) | Write `plan_awaiting_review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-session-review` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
-| **UserPromptSubmit** | Log user prompt as `customer_input` event | On-Site Customer |
+| **UserPromptSubmit** | Log user prompt as `customer_input` event, session review gate | On-Site Customer |
 | **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
 | **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
 | **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; SMM + behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
-| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if files changed and `/simplify` not run | TDD, Refactoring |
+| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if subagent reviews pending (`quality_review_gate.py`), block if files changed and `/simplify` not run | TDD, Refactoring |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 
@@ -149,15 +150,22 @@ Instead of point-to-point mailboxes, xp-agents introduces a broadcast event log 
 ```
 ~/.claude/xp-agents/{project-id}/smm/
 ├── events.jsonl              ← append-only log
-├── SHARED_MENTAL_MODEL.md    ← materialized view
-├── .watermark-{agent-id}     ← per-agent read position
+├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
+├── .curation-watermark       ← last-curated event position
+├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
 
 The SMM lives at user level (`~/.claude/`), not in the project's `.claude/`. This means Agent Team teammates in different git worktrees all share the same event log.
 
-The materialized view has two tiers: **Active Context** (goals, conflicts, blocking questions, undelivered customer intent, concerns, drift signals, agent status) and **Reference** (decisions, conventions, resolved questions, assumptions, technical debt, discoveries). Non-write tools get Active Context only — cheap and focused. Write tools get the full SMM.
+The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
+- **Intent** — project goals and active customer intents
+- **Constraints** — confirmed decisions, conventions, and architectural boundaries
+- **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity)
+- **Wisdom** — lessons learned, retrospective insights, behavioral experiments
+
+Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and full SMM injection at subagent spawn.
 
 Events are semantically typed — each carries different synchronization semantics:
 
@@ -201,7 +209,7 @@ The retrospective runs at session *start*, not session end — resilient to forc
 
 xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored at user level, every teammate in every worktree automatically gets:
 
-- SMM delta injection before every tool call
+- Prompt nuggets at each user prompt and full SMM at subagent spawn
 - Quality review on every code change
 - `working_on` conflict detection across teammates
 - Decisions visible to every other teammate
@@ -289,7 +297,7 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
 | **Refactoring** | Subagent + gate: quality reviewer flags complexity, `/simplify` runs at loop end. | `xp-quality-reviewer`, `simplify_gate.py` |
 | **Simple Design** | Subagent: quality reviewer flags over-engineering, plan reviewer flags oversized plans. | `xp-quality-reviewer`, `xp-plan-reviewer` |
-| **Collective Code Ownership** | Deterministic: SMM injected into all agents automatically. Global hooks. | `pre_tool_use.py`, `subagent_start.py` |
+| **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, full SMM at subagent spawn. Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
 | **On-Site Customer** | Deterministic: prompts logged, notifications sent. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
 

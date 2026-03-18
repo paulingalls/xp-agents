@@ -9,11 +9,6 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
     exit 0
 }
 
-# Only materialize if no curated SMM exists yet (first-ever curation)
-if [ ! -f "${SMM_DIR}/.curation-watermark" ]; then
-    python3 "${PLUGIN_ROOT}/smm/materialize.py" >/dev/null 2>&1 || true
-fi
-
 echo "## Existing SMM"
 echo ""
 if [ -f "${SMM_DIR}/SHARED_MENTAL_MODEL.md" ]; then

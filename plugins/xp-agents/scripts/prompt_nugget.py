@@ -54,7 +54,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         new_events = read_delta.read_delta(
             smm_dir,
             _WATERMARK_ID,
-            tier=read_delta.TIER_FULL,
         )
     except Exception:
         return None

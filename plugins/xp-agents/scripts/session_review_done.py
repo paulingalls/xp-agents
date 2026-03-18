@@ -2,7 +2,7 @@
 """PostToolUse:Skill hook: inject SMM + behavioral guide after housekeeping.
 
 When /xp-housekeeping completes (the final step of session review),
-materializes the SMM and injects it along with BEHAVIORAL_GUIDE.md
+reads the curated SMM and injects it along with BEHAVIORAL_GUIDE.md
 as additionalContext. Triggered on housekeeping rather than
 xp-session-review because the orchestrator skill returns immediately
 while the actual work happens in sub-skill invocations.
@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import materialize
 
 
 @functools.lru_cache(maxsize=1)
@@ -49,12 +48,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    # Read curated SMM file if it exists, otherwise fall back to materializer
+    # Read curated SMM file (written by housekeeping)
     smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    if smm_file.is_file():
+    try:
         md = smm_file.read_text(encoding="utf-8")
-    else:
-        md = materialize.materialize(smm_dir)
+    except FileNotFoundError:
+        md = ""
 
     # Clean up session review marker
     (smm_dir / ".needs-session-review").unlink(missing_ok=True)

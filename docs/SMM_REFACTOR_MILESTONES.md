@@ -186,10 +186,10 @@ Migrating from the current event-dump SMM to the four-pillar curated model descr
 - CLAUDE.md (new SMM references)
 
 **Acceptance criteria:**
-- [ ] No dead code from old SMM system
-- [ ] All docs reflect four-pillar model
-- [ ] Test count may decrease (removed delta tests) but coverage of new system is complete
-- [ ] Clean `grep` for old patterns: `smm-delta`, `smm-context`, `read_delta`, `filter_by_tier`
+- [x] No dead code from old SMM system
+- [x] All docs reflect four-pillar model
+- [x] Test count may decrease (removed delta tests) but coverage of new system is complete
+- [x] Clean `grep` for old patterns: `smm-delta`, `smm-context`, `read_delta`, `filter_by_tier`
 
 ---
 

@@ -2,9 +2,8 @@
 """SessionStart hook: initialize SMM, inject context.
 
 Handles all SessionStart sources (startup, resume, compact, clear).
-Ensures SMM exists, materializes the current view, and injects GUPP
-and skills as additionalContext. Sets .needs-session-review marker
-on fresh starts (startup, clear).
+Ensures SMM exists and injects GUPP and skills as additionalContext.
+Sets .needs-session-review marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
 
@@ -17,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import materialize
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -74,10 +72,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         # Graceful: return GUPP + skills even without SMM
         return GUPP_TEXT + SKILLS_TEXT
-
-    # Materialize to file (for preloads to read), but don't inject into context.
-    # The fresh SMM will be injected after /xp-session-review completes.
-    materialize.materialize_to_file(smm_dir)
 
     # Write .needs-session-review marker on fresh starts.
     # "startup" = new session, "clear" = user reset context (treat as fresh).

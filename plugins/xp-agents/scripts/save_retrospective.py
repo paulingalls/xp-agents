@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Save retrospective analysis: write event + file + materialize.
+"""Save retrospective analysis: write event + file.
 
 Accepts Keep/Fix/Try JSON on stdin, writes:
 1. Timestamped JSON file to $SMM_DIR/retrospectives/
 2. Retrospective event to events.jsonl
-3. Materializes the SMM
 
 Outputs EVENT_ID=<id> and RETRO_FILE=<path> to stdout.
 """
 
-import contextlib
 import json
 import sys
 from pathlib import Path
@@ -19,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _append_impl
 import _common
-import materialize
 
 
 def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | None:
@@ -88,10 +85,6 @@ def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | 
         file_data["analysis_notes"] = kft_data["analysis_notes"]
 
     _common.write_json_atomic(retro_file, file_data)
-
-    # Materialize (best-effort, direct import like other scripts)
-    with contextlib.suppress(Exception):
-        materialize.materialize_to_file(smm_dir)
 
     return {"event_id": event["id"], "retro_file": str(retro_file)}
 

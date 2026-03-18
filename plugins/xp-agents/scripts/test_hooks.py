@@ -1264,7 +1264,8 @@ class TestSubagentStart(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_returns_smm_content(self):
+    def test_returns_none_without_smm_file(self):
+        """Without curated SMM file on disk, returns None."""
         import subagent_start
 
         self._write_events([make_event()])
@@ -1272,8 +1273,7 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Shared Mental Model", result)
+        self.assertIsNone(result)
 
     def test_reads_curated_smm_from_disk(self):
         """M5: SubagentStart reads curated SMM from disk when available."""
@@ -1314,8 +1314,8 @@ class TestSubagentStart(_HookTestCase):
         ]
         self.assertEqual(len(start_events), 1)
 
-    def test_falls_back_to_materializer(self):
-        """Without curated SMM on disk, falls back to materialize()."""
+    def test_falls_back_to_empty_without_smm_file(self):
+        """Without curated SMM on disk, returns None (no context injection)."""
         import subagent_start
 
         self._write_events([make_event("goal", content="Ship v1")])
@@ -1324,8 +1324,7 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Shared Mental Model", result)
+        self.assertIsNone(result)
 
 
 class TestSubagentStartEvent(_HookTestCase):
@@ -1548,8 +1547,8 @@ class TestPreToolUseRun(_HookTestCase):
             self.assertNotIn("smm-delta", result)
             self.assertNotIn("smm-context", result)
 
-    def test_read_gets_red_only(self):
-        # Write a status event (not red) — Read should NOT get it
+    def test_read_tool_no_injection(self):
+        # Write a status event — Read tool should NOT get injection
         events = [make_event("status", content="working")]
         self._write_events(events)
         result = pre_tool_use.run(
@@ -1562,7 +1561,6 @@ class TestPreToolUseRun(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        # Red-only tier filters out status events, so no delta
         self.assertIsNone(result)
 
     def test_conflict_raises_blocked(self):
@@ -1652,8 +1650,8 @@ class TestPreToolUseNoDelta(_HookTestCase):
             self.assertNotIn("smm-delta", result)
             self.assertNotIn("smm-context", result)
 
-    def test_read_gets_red_only(self):
-        """TIER_RED_ONLY: Read tool still gets red-only (unchanged)."""
+    def test_read_tool_no_injection(self):
+        """Read tool does not get SMM context injection."""
         import pre_tool_use
 
         events = [make_event("status", content="Working")]
@@ -5302,6 +5300,9 @@ class TestSessionReviewDone(_HookTestCase):
     def test_smm_before_behavioral_guide(self):
         """SMM appears before behavioral guide in output."""
         self._write_events([make_event("goal", content="Ship v1")])
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
+            "# Shared Mental Model\n## Intent\n- Ship v1\n"
+        )
         result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         smm_pos = result.find("Shared Mental Model")
@@ -5324,15 +5325,16 @@ class TestSessionReviewDone(_HookTestCase):
         self.assertIn("## Constraints", result)
         self.assertIn("## Wisdom", result)
 
-    def test_falls_back_to_materializer(self):
-        """When no SMM file exists, falls back to materialize()."""
+    def test_falls_back_to_empty_without_smm_file(self):
+        """When no SMM file exists, returns guide-only (no SMM context tag)."""
         self._write_events([make_event("goal", content="Ship v1")])
         # Ensure no SMM file on disk
         smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
         smm_file.unlink(missing_ok=True)
         result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("Shared Mental Model", result)
+        if result is not None:
+            # Should not contain the SMM context wrapper tag
+            self.assertNotIn("<smm-context>", result)
 
     def test_deletes_needs_session_review_marker(self):
         """Should delete .needs-session-review marker after injection."""

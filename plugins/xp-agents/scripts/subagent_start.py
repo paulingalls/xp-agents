@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject SMM for subagents.
 
-Reads the curated four-pillar SMM from disk (written by housekeeping),
-falling back to materialize() if no curated SMM exists yet. Injects
-the SMM as additionalContext so subagents start with full project context.
+Reads the curated four-pillar SMM from disk (written by housekeeping).
+Injects the SMM as additionalContext so subagents start with full
+project context.
 """
 
 import sys
@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import materialize
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -35,21 +34,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = input_data.get("agent_id", "subagent")
 
-    # Prefer curated four-pillar SMM from disk (written by housekeeping)
+    # Read curated four-pillar SMM from disk (written by housekeeping)
     smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    if smm_file.exists():
+    try:
         smm_content = smm_file.read_text(encoding="utf-8")
-    else:
-        # Fall back to old materializer for first session before housekeeping
-        events, skipped = materialize.parse_events(smm_dir)
-        if not events and skipped == 0:
-            smm_content = ""
-        else:
-            indices = materialize.build_indices(events)
-            conflicts = materialize.detect_conflicts(events, indices)
-            smm_content = materialize.render_markdown(
-                events, indices, conflicts, skipped
-            )
+    except FileNotFoundError:
+        smm_content = ""
 
     # Record start event (pairs with "completed" in SubagentStop)
     start_event = _common.make_event(

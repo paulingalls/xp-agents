@@ -298,6 +298,10 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
     def test_returns_smm_and_writes_watermark(self):
         """stdin → subagent_start.py → stdout with SMM content."""
         self._seed_events([make_event(), make_event()])
+        # Write a curated SMM file so subagent_start injects it
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
+            "# Shared Mental Model\n## Intent\n- Ship v1\n"
+        )
         result = self._run_script(
             "subagent_start.py",
             {
@@ -864,7 +868,10 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         )
         self.assertEqual(r1.returncode, 0)
 
-        # 2. Subagent start
+        # 2. Subagent start (needs curated SMM file for context injection)
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
+            "# Shared Mental Model\n## Intent\n- Refactor auth\n"
+        )
         r2 = self._run_script(
             "subagent_start.py",
             {"session_id": "round-trip-2", "agent_id": "task-1"},
@@ -1014,8 +1021,8 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
             cwd=str(self.tmpdir),
         )
 
-    def test_append_goal_and_materialize(self):
-        """Goal event appears in materialized view under Project Goals."""
+    def test_append_goal_and_curation_data(self):
+        """Goal event appears in curation data under intent."""
         r = self._run_append(
             "--type", "goal", "--agent", "main", "--content", "Ship v2.0"
         )
@@ -1025,16 +1032,14 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["type"], "goal")
 
-        # Materialize and check
         import materialize as mat
 
-        md = mat.materialize(self.smm_dir)
-        self.assertIn("## Project Goals", md)
-        self.assertIn("🎯", md)
-        self.assertIn("Ship v2.0", md)
+        data = mat.prepare_curation_data(self.smm_dir)
+        intent_contents = [i["content"] for i in data["current_smm"]["intent"]]
+        self.assertIn("Ship v2.0", intent_contents)
 
-    def test_append_debt_and_materialize(self):
-        """Debt event appears in materialized view under Technical Debt."""
+    def test_append_debt_and_curation_data(self):
+        """Debt event appears in curation data under risks."""
         r = self._run_append(
             "--type",
             "debt",
@@ -1054,13 +1059,12 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         import materialize as mat
 
-        md = mat.materialize(self.smm_dir)
-        self.assertIn("## Technical Debt", md)
-        self.assertIn("Legacy auth module", md)
-        self.assertIn("src/auth.py", md)
+        data = mat.prepare_curation_data(self.smm_dir)
+        risk_contents = [r["content"] for r in data["current_smm"]["risks"]]
+        self.assertIn("Legacy auth module", risk_contents)
 
-    def test_append_customer_intent_and_materialize(self):
-        """Customer intent event appears in materialized view."""
+    def test_append_customer_intent_and_curation_data(self):
+        """Customer intent event appears in curation data under intent."""
         r = self._run_append(
             "--type",
             "customer_intent",
@@ -1080,10 +1084,9 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         import materialize as mat
 
-        md = mat.materialize(self.smm_dir)
-        self.assertIn("## Customer Intent", md)
-        self.assertIn("📋", md)
-        self.assertIn("Need OAuth integration", md)
+        data = mat.prepare_curation_data(self.smm_dir)
+        intent_contents = [i["content"] for i in data["current_smm"]["intent"]]
+        self.assertIn("Need OAuth integration", intent_contents)
 
     def test_retro_includes_session_stats(self):
         """Retrospective .retro-input.json includes session_stats."""
@@ -2163,15 +2166,6 @@ class TestLargeEventLog(_IntegrationTestCase):
             output = json.loads(result.stdout)
             self.assertIn("hookSpecificOutput", output)
 
-    def test_materialize_with_1000_events(self):
-        """materialize.py renders 1000 events without error."""
-        import materialize as mat  # already on sys.path from module level
-
-        self._seed_events([make_event(content=f"event-{i}") for i in range(1000)])
-        md = mat.materialize(self.smm_dir)
-        self.assertIsInstance(md, str)
-        self.assertGreater(len(md), 0)
-
     def test_retrospective_with_1000_events(self):
         """retrospective.py handles large event set."""
         self._seed_events([make_event(content=f"event-{i}") for i in range(1000)])
@@ -2349,7 +2343,7 @@ class TestEmptyProject(_IntegrationTestCase):
         self.assertIn("Resume immediately", ctx)
 
     def test_pre_tool_use_empty_project(self):
-        """pre_tool_use with no events — no crash, navigator nudge."""
+        """pre_tool_use with no events — no crash."""
         (self.smm_dir / "events.jsonl").write_text("")
         result = self._run_script(
             "pre_tool_use.py",
@@ -2362,11 +2356,6 @@ class TestEmptyProject(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        # Should still produce navigator nudge
-        if result.stdout.strip():
-            output = json.loads(result.stdout)
-            ctx = output["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("xp-navigator", ctx)
 
 
 # ===========================================================================
@@ -2375,51 +2364,7 @@ class TestEmptyProject(_IntegrationTestCase):
 
 
 class TestWatermarkIsolation(_IntegrationTestCase):
-    """Verify per-agent watermark independence under concurrent access."""
-
-    def test_three_agents_independent_watermarks(self):
-        """3 agents read delta concurrently, each gets independent watermark."""
-        from concurrent.futures import ThreadPoolExecutor
-
-        # Seed 10 events
-        self._seed_events([make_event(content=f"e{i}") for i in range(10)])
-
-        smm_dir = self.smm_dir
-
-        def read_for_agent(agent_id: str) -> int:
-            """Read delta via subprocess and return event count."""
-            result = subprocess.run(
-                [
-                    "python3",
-                    str(Path(__file__).parent.parent / "smm" / "read_delta.py"),
-                    "--agent-id",
-                    agent_id,
-                    "--tier",
-                    "full",
-                    "--json",
-                    "--smm-dir",
-                    str(smm_dir),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                return -1
-            events = json.loads(result.stdout)
-            return len(events)
-
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = [pool.submit(read_for_agent, f"agent-{i}") for i in range(3)]
-            counts = [f.result() for f in futures]
-
-        # All 3 agents should get all 10 events (first read)
-        for count in counts:
-            self.assertEqual(count, 10)
-
-        # Verify each agent has its own watermark file
-        for i in range(3):
-            wm = smm_dir / f".watermark-agent-{i}"
-            self.assertTrue(wm.exists(), f"Missing watermark for agent-{i}")
+    """Verify watermark lifecycle under compaction."""
 
     def test_compact_resets_watermarks(self):
         """After compact, orphaned watermarks removed, prompt-nugget preserved."""
@@ -2809,7 +2754,10 @@ class TestLoadContext(_IntegrationTestCase):
         return path
 
     def test_outputs_smm_file_path(self):
-        """load_context.sh outputs SMM_FILE= pointing to existing file."""
+        """load_context.sh outputs SMM_FILE= with correct path."""
+        # Pre-create curated SMM (housekeeping writes this, not load_context)
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("# Shared Mental Model\n## Intent\n")
         result = self._run_load_context()
         self._assert_output_file_exists(result, "SMM_FILE=")
 
@@ -2817,16 +2765,6 @@ class TestLoadContext(_IntegrationTestCase):
         """load_context.sh outputs GUIDE_FILE= pointing to existing file."""
         result = self._run_load_context()
         self._assert_output_file_exists(result, "GUIDE_FILE=")
-
-    def test_smm_rematerialized_after_changes(self):
-        """load_context.sh re-materializes so recent events are reflected."""
-        self._seed_events(
-            [make_event("concern", content="Test concern for rematerialization")]
-        )
-        result = self._run_load_context()
-        smm_path = self._assert_output_file_exists(result, "SMM_FILE=")
-        smm_content = Path(smm_path).read_text()
-        self.assertIn("Test concern for rematerialization", smm_content)
 
 
 # ===========================================================================

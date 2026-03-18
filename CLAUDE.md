@@ -143,7 +143,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --metadata '{"resolves": ["target-event-id"]}'
 ```
 
-Resolution is the sole lifecycle mechanism — no aging, no pruning. The materializer renders open items in ACTIVE CONTEXT and resolved items in REFERENCE.
+Resolution is the sole lifecycle mechanism — no aging, no pruning. Housekeeping curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and omits resolved items.
 
 ## Hook Registration (hooks.json)
 
@@ -207,7 +207,7 @@ plugins/xp-agents/
 │   ├── xp-session-review/SKILL.md    ← session start orchestrator
 │   ├── xp-housekeeping/SKILL.md      ← lifecycle triage
 │   └── {xp-goal-collection,xp-question-triage}/SKILL.md
-└── smm/{init.sh,append.sh,materialize.py,read_delta.py,schema.json}
+└── smm/{init.sh,append.sh,materialize.py,read_delta.py,compact.py,schema.json}
 ```
 
 ## Error Handling
@@ -240,7 +240,7 @@ python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -k TestUserPromptLog
 | Suite | File | What it tests |
 |-------|------|---------------|
 | SMM Foundation | `smm/test_smm.py` | init.sh, append.sh, `_append_impl.py`, schema, concurrency, notifications |
-| SMM Engine | `smm/test_engine.py` | materialize.py, read_delta.py. Provides `_SMMTestCase` base class and `make_event()` helper used by all other suites |
+| SMM Engine | `smm/test_engine.py` | materialize.py (prepare_curation_data), read_delta.py, compact.py. Provides `_SMMTestCase` base class and `make_event()` helper used by all other suites |
 | Hook unit tests | `scripts/test_hooks.py` | `_common.py` and all command hook `run()` functions with temp SMM dirs (no subprocess) |
 | Integration tests | `scripts/test_integration.py` | Full subprocess pipeline: creates temp git repo, runs init.sh, pipes JSON to each script, verifies events on disk and stdout/stderr/exit codes |
 
@@ -263,7 +263,7 @@ python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -k TestUserPromptLog
 - Hooks-first — all XP agents are hook handlers
 - SMM at `~/.claude/xp-agents/{project-id}/smm/` (user level, shared across worktrees)
 - Install at user scope (`--scope user`)
-- PreToolUse delivers context, PostToolUse records to event log
+- Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
 - Navigator is required (PreToolUse plugin subagent), not opt-in
 - Quality reviewer is PostToolUse async plugin subagent (combined courage + simplicity)
 - Retrospective runs at session start, not session end
