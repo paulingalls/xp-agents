@@ -130,6 +130,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     except _append_impl.LockTimeoutError as e:
         print(f"session_end lock error: {e}", file=sys.stderr)
 
+    # Clear agent's coordination entry
+    agent_id = input_data.get("agent_id", "main")
+    _common.clear_coordination_agent(smm_dir, agent_id)
+
     return None
 
 

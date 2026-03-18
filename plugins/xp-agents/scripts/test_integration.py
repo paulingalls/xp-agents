@@ -361,17 +361,15 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
 
     def test_working_on_conflict_blocks(self):
         """Exit 2 + stderr when another agent is working on the same file."""
-        self._seed_events(
-            [
-                make_event(
-                    "status",
-                    agent_id="other-agent",
-                    working_on=[
-                        str(self.tmpdir / "src" / "app.ts"),
-                    ],
-                ),
-            ]
-        )
+        from datetime import datetime, timezone
+
+        coord = {
+            "other-agent": {
+                "working_on": [str(self.tmpdir / "src" / "app.ts")],
+                "updated": datetime.now(timezone.utc).isoformat(),
+            }
+        }
+        (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
         result = self._run_script(
             "pre_tool_use.py",
             {
@@ -1502,15 +1500,15 @@ class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
 
     def test_conflict_warns_instead_of_blocking(self):
         """Advisory mode: working_on conflict → exit 0 with warning, not exit 2."""
-        self._seed_events(
-            [
-                make_event(
-                    "status",
-                    agent_id="other-agent",
-                    working_on=[str(self.tmpdir / "src" / "app.ts")],
-                ),
-            ]
-        )
+        from datetime import datetime, timezone
+
+        coord = {
+            "other-agent": {
+                "working_on": [str(self.tmpdir / "src" / "app.ts")],
+                "updated": datetime.now(timezone.utc).isoformat(),
+            }
+        }
+        (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
         plugin_root = self._make_advisory_plugin_root()
         try:
             result = self._run_script_with_env(
@@ -1535,15 +1533,15 @@ class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
 
     def test_strict_mode_blocks(self):
         """Strict mode (default): working_on conflict → exit 2."""
-        self._seed_events(
-            [
-                make_event(
-                    "status",
-                    agent_id="other-agent",
-                    working_on=[str(self.tmpdir / "src" / "app.ts")],
-                ),
-            ]
-        )
+        from datetime import datetime, timezone
+
+        coord = {
+            "other-agent": {
+                "working_on": [str(self.tmpdir / "src" / "app.ts")],
+                "updated": datetime.now(timezone.utc).isoformat(),
+            }
+        }
+        (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
         result = self._run_script(
             "pre_tool_use.py",
             {
@@ -2927,6 +2925,98 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
         self.assertTrue(wm_file.exists())
         wm = json.loads(wm_file.read_text())
         self.assertEqual(wm["event_count"], 3)
+
+
+class TestCoordinationIntegration(_IntegrationTestCase):
+    """Integration test for .coordination.json lifecycle."""
+
+    def _read_coordination(self) -> dict:
+        coord_path = self.smm_dir / ".coordination.json"
+        if not coord_path.exists():
+            return {}
+        return json.loads(coord_path.read_text())
+
+    def test_post_tool_use_updates_coordination(self):
+        """PostToolUse:Write creates .coordination.json entry."""
+        input_data = {
+            "session_id": "s1",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/app.ts", "content": "x"},
+            "agent_id": "main",
+        }
+        result = self._run_script("post_tool_use.py", input_data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        coord = self._read_coordination()
+        self.assertIn("main", coord)
+        self.assertIn("working_on", coord["main"])
+
+    def test_two_agents_both_tracked(self):
+        """Two agents writing different files both appear."""
+        for agent, file in [
+            ("main", "src/a.ts"),
+            ("agent-2", "src/b.ts"),
+        ]:
+            input_data = {
+                "session_id": "s1",
+                "tool_name": "Write",
+                "tool_input": {"file_path": file, "content": "x"},
+                "agent_id": agent,
+            }
+            self._run_script("post_tool_use.py", input_data)
+        coord = self._read_coordination()
+        self.assertIn("main", coord)
+        self.assertIn("agent-2", coord)
+
+    def test_session_end_clears_agent(self):
+        """SessionEnd removes agent from .coordination.json."""
+        # First, create a coordination entry via PostToolUse
+        post_input = {
+            "session_id": "s1",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/app.ts", "content": "x"},
+            "agent_id": "main",
+        }
+        self._run_script("post_tool_use.py", post_input)
+        coord = self._read_coordination()
+        self.assertIn("main", coord)
+
+        # Now end the session
+        end_input = {
+            "session_id": "s1",
+            "reason": "clear",
+            "agent_id": "main",
+        }
+        result = self._run_script("session_end.py", end_input)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        coord = self._read_coordination()
+        self.assertNotIn("main", coord)
+
+    def test_pre_tool_use_detects_overlap(self):
+        """PreToolUse blocks when another agent works on the same file."""
+        # Agent-2 writes to src/app.ts
+        post_input = {
+            "session_id": "s1",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/app.ts", "content": "x"},
+            "agent_id": "agent-2",
+        }
+        self._run_script("post_tool_use.py", post_input)
+
+        # Main tries to Write to same file
+        pre_input = {
+            "session_id": "s1",
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "src/app.ts",
+                "content": "y",
+            },
+            "agent_id": "main",
+        }
+        result = self._run_script("pre_tool_use.py", pre_input)
+        # Should block (exit 2) with conflict message
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CONFLICT", result.stderr)
+        self.assertIn("agent-2", result.stderr)
 
 
 if __name__ == "__main__":

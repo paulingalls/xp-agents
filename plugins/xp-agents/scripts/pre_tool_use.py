@@ -127,34 +127,29 @@ def is_test_file(path: str) -> bool:
 
 
 def check_working_on_overlap(
-    events: list[dict], agent_id: str, file_path: str, cwd: str
+    smm_dir: Path, agent_id: str, file_path: str, cwd: str
 ) -> str | None:
-    """Check if another agent is working on the same file. Returns message or None."""
+    """Check if another agent is working on the same file.
+
+    Reads .coordination.json (O(1)) instead of scanning the event log.
+    Returns conflict message or None.
+    """
+    coordination = _common.read_coordination(smm_dir)
     normalized_target = _common.normalize_path(file_path, cwd)
 
-    # Build map: agent_id -> latest status event's working_on files
-    agent_files: dict[str, list[str]] = {}
-    for event in events:
-        if event.get("type") == _common.STATUS and "working_on" in event:
-            aid = event.get("agent_id", "")
-            agent_files[aid] = event["working_on"]
-
-    for aid, files in agent_files.items():
+    for aid, entry in coordination.items():
         if aid == agent_id:
             continue
-        # Build normalized→original mapping to avoid re-normalizing on conflict
-        norm_to_orig: dict[str, str] = {}
-        for f in files:
+        for f in entry.get("working_on", []):
             try:
-                norm_to_orig[_common.normalize_path(f, cwd)] = f
+                if _common.normalize_path(f, cwd) == normalized_target:
+                    return (
+                        f"CONFLICT: Agent '{aid}' is currently "
+                        f"working on '{f}'. "
+                        f"Coordinate before modifying this file."
+                    )
             except (ValueError, OSError):
                 continue
-        if normalized_target in norm_to_orig:
-            conflicting = norm_to_orig[normalized_target]
-            return (
-                f"CONFLICT: Agent '{aid}' is currently working on '{conflicting}'. "
-                f"Coordinate before modifying this file."
-            )
 
     return None
 
@@ -290,15 +285,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tier = classify_tier(tool_name, tool_input)
     target_file = get_target_file(tool_name, tool_input)
 
-    # Single lockless read for overlap + debt checks (avoid reading events.jsonl twice)
-    events: list[dict] | None = None
+    # Conflict detection via .coordination.json (O(1), no event log scan)
     if target_file and smm_dir:
-        events = _common.read_events_raw(smm_dir)
         # Enforcement-sensitive: working_on overlap is advisory-downgradable.
         # TDD nudge (below) is always advisory regardless of mode.
         # Future checks: add to this block if they should respect enforcement mode,
         # or outside it if they should always apply.
-        conflict = check_working_on_overlap(events, agent_id, target_file, cwd)
+        conflict = check_working_on_overlap(smm_dir, agent_id, target_file, cwd)
         if conflict:
             if enforcement == _common.ENFORCEMENT_ADVISORY:
                 parts.append(f"⚠️ Advisory warning: {conflict}")
@@ -323,8 +316,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if delta_text:
                 parts.append(delta_text)
 
-    # Debt injection for write tools (reuses events from overlap check)
-    if target_file and smm_dir and tier == read_delta.TIER_FULL and events is not None:
+    # Debt injection for write tools (lazy event read for debt + plan gate)
+    events: list[dict] | None = None
+    if target_file and smm_dir and tier == read_delta.TIER_FULL:
+        events = _common.read_events_raw(smm_dir)
         debts = _common.find_debt_for_file(events, target_file, cwd)
         if debts:
             debt_lines = ["<smm-debt-context>"]
