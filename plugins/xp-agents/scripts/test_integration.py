@@ -2422,10 +2422,11 @@ class TestWatermarkIsolation(_IntegrationTestCase):
             self.assertTrue(wm.exists(), f"Missing watermark for agent-{i}")
 
     def test_compact_resets_watermarks(self):
-        """After compact, all watermark files are removed."""
+        """After compact, orphaned watermarks removed, prompt-nugget preserved."""
         # Create watermarks
         (self.smm_dir / ".watermark-alice").write_text("5")
         (self.smm_dir / ".watermark-bob").write_text("3")
+        (self.smm_dir / ".watermark-prompt-nugget").write_text("10")
 
         # Seed some sessions
         events = []
@@ -2448,13 +2449,17 @@ class TestWatermarkIsolation(_IntegrationTestCase):
             )
         self._seed_events(events)
 
+        # Write curation watermark so compaction runs
+        sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+        from materialize import write_curation_watermark
+
+        write_curation_watermark(self.smm_dir, len(events), "xp-housekeeping")
+
         # Run compact via subprocess
         result = subprocess.run(
             [
                 "python3",
                 str(Path(__file__).parent.parent / "smm" / "compact.py"),
-                "--keep-sessions",
-                "1",
                 "--smm-dir",
                 str(self.smm_dir),
             ],
@@ -2463,9 +2468,11 @@ class TestWatermarkIsolation(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
 
-        # Watermarks should be gone
-        watermarks = list(self.smm_dir.glob(".watermark-*"))
-        self.assertEqual(len(watermarks), 0)
+        # Orphaned watermarks should be gone
+        self.assertFalse((self.smm_dir / ".watermark-alice").exists())
+        self.assertFalse((self.smm_dir / ".watermark-bob").exists())
+        # Prompt-nugget preserved (with updated value)
+        self.assertTrue((self.smm_dir / ".watermark-prompt-nugget").exists())
 
 
 # ===========================================================================
@@ -2494,12 +2501,16 @@ class TestCompactIntegration(_IntegrationTestCase):
         self._seed_events(events)
         original_count = len(events)
 
+        # Write curation watermark so compaction runs
+        sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+        from materialize import write_curation_watermark
+
+        write_curation_watermark(self.smm_dir, original_count, "xp-housekeeping")
+
         result = subprocess.run(
             [
                 "python3",
                 str(Path(__file__).parent.parent / "smm" / "compact.py"),
-                "--keep-sessions",
-                "2",
                 "--smm-dir",
                 str(self.smm_dir),
             ],
