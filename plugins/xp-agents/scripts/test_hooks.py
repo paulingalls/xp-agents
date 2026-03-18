@@ -1896,7 +1896,7 @@ class TestPreToolUseNoNavigatorNudge(_HookTestCase):
             self.assertNotIn("xp-navigator", result)
 
     def test_concerns_not_in_pretooluse(self):
-        """M5: Concerns no longer injected via delta — delivered via stop nugget."""
+        """M5: Concerns no longer injected via delta — delivered via prompt nugget."""
         self._write_events(
             [
                 make_event("concern", content="Auth middleware is insecure"),
@@ -4399,7 +4399,7 @@ class TestHooksJsonM54(_HooksJsonTestCase):
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
         self.assertEqual(
-            len(all_hooks), 4, f"Expected 4 Stop hooks, got {len(all_hooks)}"
+            len(all_hooks), 3, f"Expected 3 Stop hooks, got {len(all_hooks)}"
         )
 
 
@@ -6097,14 +6097,18 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
         self.assertIsNone(result)
 
 
-class TestStopNugget(_HookTestCase):
-    """Test stop nugget extraction from prepare_curation_data()."""
+class TestPromptNugget(_HookTestCase):
+    """Test prompt nugget extraction from SHARED_MENTAL_MODEL.md."""
 
-    def test_no_events_returns_none(self):
-        """No events → no nugget."""
-        import stop_nugget
+    def _write_smm(self, text: str) -> None:
+        """Write a SHARED_MENTAL_MODEL.md file to the temp SMM dir."""
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(text)
 
-        result = stop_nugget.run(
+    def test_no_smm_returns_none(self):
+        """No SMM file → no nugget."""
+        import prompt_nugget
+
+        result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
@@ -6112,9 +6116,10 @@ class TestStopNugget(_HookTestCase):
 
     def test_xp_agent_skips(self):
         """Recursion prevention for xp-* agents."""
-        import stop_nugget
+        import prompt_nugget
 
-        result = stop_nugget.run(
+        self._write_smm("## Intent\n- Ship v1\n## Risks\n- Bug found\n")
+        result = prompt_nugget.run(
             {
                 "session_id": "s1",
                 "agent_id": "main",
@@ -6124,20 +6129,12 @@ class TestStopNugget(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_extracts_unresolved_risks(self):
-        """Open concerns appear in nugget."""
-        import stop_nugget
+    def test_extracts_risks(self):
+        """Risks section items appear in nugget."""
+        import prompt_nugget
 
-        self._write_events(
-            [
-                make_event(
-                    "concern",
-                    content="No tests for auth module",
-                    severity="high",
-                ),
-            ]
-        )
-        result = stop_nugget.run(
+        self._write_smm("## Intent\n\n## Risks\n- No tests for auth module\n")
+        result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
@@ -6145,16 +6142,12 @@ class TestStopNugget(_HookTestCase):
         self.assertIn("risk", result.lower())
         self.assertIn("No tests for auth module", result)
 
-    def test_extracts_undelivered_intents(self):
-        """Open goals appear in nugget."""
-        import stop_nugget
+    def test_extracts_intents(self):
+        """Intent section items appear in nugget."""
+        import prompt_nugget
 
-        self._write_events(
-            [
-                make_event("goal", content="Ship user auth"),
-            ]
-        )
-        result = stop_nugget.run(
+        self._write_smm("## Intent\n- Ship user auth\n")
+        result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
@@ -6162,35 +6155,12 @@ class TestStopNugget(_HookTestCase):
         self.assertIn("intent", result.lower())
         self.assertIn("Ship user auth", result)
 
-    def test_resolved_concern_excluded(self):
-        """Resolved concerns don't appear in nugget."""
-        import stop_nugget
+    def test_empty_sections_returns_none(self):
+        """Empty Intent and Risks sections → no nugget."""
+        import prompt_nugget
 
-        concern = make_event("concern", content="Missing validation")
-        resolution = make_event(
-            "status",
-            content="Fixed validation",
-            metadata={"resolves": [concern["id"]]},
-        )
-        self._write_events([concern, resolution])
-        result = stop_nugget.run(
-            {"session_id": "s1", "agent_id": "main"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_completed_goal_excluded(self):
-        """Completed goals don't appear in nugget."""
-        import stop_nugget
-
-        goal = make_event("goal", content="Ship v1")
-        completion = make_event(
-            "status",
-            content="Goal done",
-            metadata={"resolves": [goal["id"]]},
-        )
-        self._write_events([goal, completion])
-        result = stop_nugget.run(
+        self._write_smm("## Intent\n\n## Risks\n\n## Wisdom\n- Be good\n")
+        result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
@@ -6198,19 +6168,10 @@ class TestStopNugget(_HookTestCase):
 
     def test_mixed_intents_and_risks(self):
         """Both intents and risks appear when both exist."""
-        import stop_nugget
+        import prompt_nugget
 
-        self._write_events(
-            [
-                make_event("goal", content="Add RBAC"),
-                make_event(
-                    "concern",
-                    content="No integration tests",
-                    severity="high",
-                ),
-            ]
-        )
-        result = stop_nugget.run(
+        self._write_smm("## Intent\n- Add RBAC\n\n## Risks\n- No integration tests\n")
+        result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )

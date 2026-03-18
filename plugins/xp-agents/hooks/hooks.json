@@ -75,6 +75,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_review_gate.py",
             "statusMessage": "Checking session review status..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/prompt_nugget.py",
+            "statusMessage": "Preparing session context..."
           }
         ]
       }
@@ -180,11 +185,6 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py",
             "statusMessage": "Checking test coverage..."
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/stop_nugget.py",
-            "statusMessage": "Preparing session checkpoint..."
           }
         ]
       }

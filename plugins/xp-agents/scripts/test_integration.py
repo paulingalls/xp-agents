@@ -3019,5 +3019,68 @@ class TestCoordinationIntegration(_IntegrationTestCase):
         self.assertIn("agent-2", result.stderr)
 
 
+# ===========================================================================
+# Retrospective preload (Bug fix: output too large)
+# ===========================================================================
+
+
+class TestRetroPreloadIntegration(_IntegrationTestCase):
+    """Verify preload.sh outputs digest but not raw events."""
+
+    def _run_preload(self) -> subprocess.CompletedProcess:
+        """Run the retrospective preload.sh script."""
+        preload_sh = (
+            Path(__file__).parent.parent
+            / "skills"
+            / "xp-retrospective"
+            / "scripts"
+            / "preload.sh"
+        )
+        return subprocess.run(
+            ["bash", str(preload_sh)],
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+
+    def test_preload_excludes_raw_events(self):
+        """Preload output must not contain events_since_last_retro."""
+        retro_input = {
+            "unanalyzed_count": 3,
+            "events_since_last_retro": [
+                make_event(content=f"raw-event-{i}") for i in range(3)
+            ],
+            "digest": {
+                "signal_events": [make_event("concern", content="test concern")],
+                "status_summary": {"total": 2, "samples": []},
+                "concern_groups": [],
+            },
+            "previous_retros": [],
+            "event_type_counts": {"status": 2, "concern": 1},
+            "session_stats": {"concerns_raised": 1, "concerns_resolved": 0},
+        }
+        (self.smm_dir / ".retro-input.json").write_text(
+            json.dumps(retro_input, ensure_ascii=False)
+        )
+
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        output = result.stdout
+        # Must contain digest data
+        self.assertIn("signal_events", output)
+        self.assertIn("test concern", output)
+        self.assertIn("unanalyzed_count", output)
+        # Must NOT contain raw events array
+        self.assertNotIn("events_since_last_retro", output)
+        self.assertNotIn("raw-event-", output)
+
+    def test_preload_missing_file(self):
+        """Preload gracefully handles missing .retro-input.json."""
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("no .retro-input.json found", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

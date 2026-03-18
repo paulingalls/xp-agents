@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.40 — Fix Retrospective Preload Overflow, Move Prompt Nugget to UserPromptSubmit
+
+### Fixed
+- **Retrospective preload overflow** — `preload.sh` was dumping the entire `.retro-input.json` (100KB+) via `cat`, exceeding Claude Code's output limits. Now strips `events_since_last_retro` array before output, keeping only the structured `digest` (~5KB). The agent prompt already says "Use `digest` for analysis."
+
+### Changed
+- **Stop nugget → prompt nugget** — Renamed `stop_nugget.py` to `prompt_nugget.py` and moved from Stop hook to UserPromptSubmit hook. Stop hooks don't support `additionalContext` (caused JSON validation errors); UserPromptSubmit does. Context injection on prompt submission is a better fit — reminds Claude about open intents/risks when starting new work.
+- **Prompt nugget reads SMM file directly** — Instead of calling `prepare_curation_data()` (full event log parse, O(n)), now reads `SHARED_MENTAL_MODEL.md` directly (single file read, O(1)). Critical for UserPromptSubmit which fires on every prompt (~5-20x/session vs ~1x for Stop).
+- **Stop hooks** — Now 3 hooks (was 4): simplify gate, quality review gate, TDD gate.
+- 956 tests (was 957 — removed 2 event-based tests, added 1 SMM-based test + 2 integration tests)
+
 ## v0.9.39 — Four-Pillar SMM, Coordination File, Stop Nuggets (M3-M5)
 
 ### Added
