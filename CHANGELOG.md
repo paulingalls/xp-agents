@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.9.39 — Four-Pillar SMM, Coordination File, Stop Nuggets (M3-M5)
+
+### Added
+- **M3: Skill Alignment** — All skills, subagent definitions, and behavioral guide updated to reference four-pillar SMM format (Intent, Constraints, Risks, Wisdom). Preload scripts use anchored dual-format grep (`^## X$`) to work before and after first curation.
+- **M4: Coordination file** — `.coordination.json` for O(1) real-time agent conflict detection, replacing O(all_events) event log scanning. PostToolUse updates on every write, PreToolUse reads for overlap checks, SessionEnd clears entries. Stale entries (>30min) filtered automatically. Flock-protected.
+- **M5: Stop nugget** — `stop_nugget.py` injects lightweight session checkpoint (~50-80 tokens) at Stop time via `additionalContext`. Uses `prepare_curation_data()` to extract current open intents and unresolved risks.
+- **M5: SubagentStart reads from disk** — Prefers curated four-pillar `SHARED_MENTAL_MODEL.md` (written by housekeeping), falls back to `materialize()` for first session.
+- `update_coordination()`, `read_coordination()`, `clear_coordination_agent()` helpers in `_common.py`
+- 20 new coordination + stop nugget tests (955 total)
+
+### Removed
+- **PreToolUse delta injection** — No longer reads event log or injects `<smm-context>`/`<smm-delta>` on every tool call. Context delivered via session start (housekeeping), subagent start (disk read), and stop nuggets.
+- **Tier classification system** — `classify_tier()`, `TIER_FULL`, `TIER_BLOCKING`, `TIER_RED_ONLY` removed from `pre_tool_use.py`. No longer needed without delta injection.
+- **`materialize` and `read_delta` imports** from `pre_tool_use.py`
+
+### Changed
+- **Conflict detection** — `check_working_on_overlap()` now reads `.coordination.json` instead of scanning events. Signature changed from `(events, agent_id, ...)` to `(smm_dir, agent_id, ...)`.
+- **Debt injection** — Still in PreToolUse for write tools, but no longer tied to tier system.
+- **Stop hooks** — Now 4 hooks (was 3): simplify gate, quality review gate, TDD gate, stop nugget.
+- **Simplify gate message** — Removed specific "30 seconds" wait time, encourages patience instead.
+
+### Fixed
+- **`save_retrospective.py` missing `sys.path` setup** — Script failed with `ModuleNotFoundError` for `_append_impl`. Added standard `sys.path.insert` calls matching all sibling scripts.
+- **`check_questions.sh` substring collision** — `grep "## Intent"` matched `## Customer Intent` as substring. Fixed with anchored patterns (`^## Intent$`).
+- **TOCTOU in `clear_coordination_agent`** — Removed premature `exists()` check before locking.
+
 ## v0.9.38 — Retrospective Helper & Navigator Cleanup
 
 ### Added

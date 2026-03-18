@@ -296,7 +296,7 @@ class TestPreCompactIntegration(_IntegrationTestCase):
 
 class TestSubagentStartIntegration(_IntegrationTestCase):
     def test_returns_smm_and_writes_watermark(self):
-        """stdin → subagent_start.py → stdout + watermark on disk."""
+        """stdin → subagent_start.py → stdout with SMM content."""
         self._seed_events([make_event(), make_event()])
         result = self._run_script(
             "subagent_start.py",
@@ -309,10 +309,6 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Shared Mental Model", ctx)
-
-        wm_file = self.smm_dir / ".watermark-explorer-1"
-        self.assertTrue(wm_file.exists())
-        self.assertEqual(wm_file.read_text(), "2")
 
     def test_xp_agent_produces_no_output(self):
         self._seed_events([make_event()])
@@ -336,8 +332,8 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
 
 
 class TestPreToolUseIntegration(_IntegrationTestCase):
-    def test_write_injects_delta(self):
-        """stdin → pre_tool_use.py → stdout with delta containing events."""
+    def test_write_no_delta_injection(self):
+        """M5: Write tool no longer injects smm-delta."""
         self._seed_events(
             [
                 make_event("question", priority="\U0001f534", content="Blocker?"),
@@ -354,10 +350,13 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("smm-delta", ctx)
-        self.assertIn("Blocker?", ctx)
+        # No delta injection — output may be empty or contain only
+        # non-delta content (debt, plan gate, enforcement)
+        if result.stdout.strip():
+            output = json.loads(result.stdout)
+            ctx = output.get("hookSpecificOutput", {}).get("additionalContext", "")
+            self.assertNotIn("smm-delta", ctx)
+            self.assertNotIn("smm-context", ctx)
 
     def test_working_on_conflict_blocks(self):
         """Exit 2 + stderr when another agent is working on the same file."""
@@ -1810,9 +1809,10 @@ class TestMilestone65Integration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertNotIn("xp-navigator", ctx)
+        if result.stdout.strip():
+            output = json.loads(result.stdout)
+            ctx = output.get("hookSpecificOutput", {}).get("additionalContext", "")
+            self.assertNotIn("xp-navigator", ctx)
 
     def test_subagent_stop_plan_writes_gate_marker(self):
         """Plan agent_type → writes plan_awaiting_review marker event."""

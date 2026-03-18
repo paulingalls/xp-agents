@@ -1275,17 +1275,18 @@ class TestSubagentStart(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Shared Mental Model", result)
 
-    def test_writes_watermark(self):
+    def test_reads_curated_smm_from_disk(self):
+        """M5: SubagentStart reads curated SMM from disk when available."""
         import subagent_start
 
-        self._write_events([make_event(), make_event()])
-        subagent_start.run(
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
+        result = subagent_start.run(
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        wm_file = self.smm_dir / ".watermark-explorer-1"
-        self.assertTrue(wm_file.exists())
-        self.assertEqual(wm_file.read_text(), "2")
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
 
     def test_empty_events(self):
         import subagent_start
@@ -1298,17 +1299,33 @@ class TestSubagentStart(_HookTestCase):
         self.assertIsNone(result)
 
     def test_default_agent_id(self):
+        """Default agent_id is 'subagent' — used in start event."""
         import subagent_start
 
         self._write_events([make_event()])
-        result = subagent_start.run(
+        subagent_start.run(
             {"session_id": "test"},
             smm_dir=self.smm_dir,
         )
+        # Start event should use "subagent" as default agent_id
+        events = self._read_events()
+        start_events = [
+            e for e in events if "Subagent subagent started" in e.get("content", "")
+        ]
+        self.assertEqual(len(start_events), 1)
+
+    def test_falls_back_to_materializer(self):
+        """Without curated SMM on disk, falls back to materialize()."""
+        import subagent_start
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        # No SHARED_MENTAL_MODEL.md on disk
+        result = subagent_start.run(
+            {"session_id": "test", "agent_id": "explorer-1"},
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
-        # Should use "subagent" as default
-        wm_file = self.smm_dir / ".watermark-subagent"
-        self.assertTrue(wm_file.exists())
+        self.assertIn("Shared Mental Model", result)
 
 
 class TestSubagentStartEvent(_HookTestCase):
@@ -1348,41 +1365,6 @@ class TestSubagentStartEvent(_HookTestCase):
 # ===========================================================================
 
 import pre_tool_use  # noqa: E402
-
-
-class TestClassifyTier(unittest.TestCase):
-    def test_write_is_full(self):
-        self.assertEqual(pre_tool_use.classify_tier("Write", {}), "full")
-
-    def test_edit_is_full(self):
-        self.assertEqual(pre_tool_use.classify_tier("Edit", {}), "full")
-
-    def test_multi_edit_is_full(self):
-        self.assertEqual(pre_tool_use.classify_tier("MultiEdit", {}), "full")
-
-    def test_bash_git_commit_is_full(self):
-        self.assertEqual(
-            pre_tool_use.classify_tier("Bash", {"command": "git commit -m 'msg'"}),
-            "full",
-        )
-
-    def test_bash_other_is_blocking(self):
-        self.assertEqual(
-            pre_tool_use.classify_tier("Bash", {"command": "ls -la"}),
-            "blocking",
-        )
-
-    def test_read_is_red_only(self):
-        self.assertEqual(pre_tool_use.classify_tier("Read", {}), "red-only")
-
-    def test_grep_is_red_only(self):
-        self.assertEqual(pre_tool_use.classify_tier("Grep", {}), "red-only")
-
-    def test_glob_is_red_only(self):
-        self.assertEqual(pre_tool_use.classify_tier("Glob", {}), "red-only")
-
-    def test_unknown_tool_is_red_only(self):
-        self.assertEqual(pre_tool_use.classify_tier("Agent", {}), "red-only")
 
 
 class TestIsTestFile(unittest.TestCase):
@@ -1554,16 +1536,17 @@ class TestPreToolUseRun(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_write_gets_full_delta(self):
-        # Write a red question event, then check that Write gets it
+    def test_write_no_delta_injection(self):
+        """M5: Write tool no longer gets smm-delta injection."""
         events = [make_event("question", priority="\U0001f534", content="blocker?")]
         self._write_events(events)
         result = pre_tool_use.run(
             _make_write_input(tool_input={"file_path": "src/new.ts"}),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("smm-delta", result)
+        if result:
+            self.assertNotIn("smm-delta", result)
+            self.assertNotIn("smm-context", result)
 
     def test_read_gets_red_only(self):
         # Write a status event (not red) — Read should NOT get it
@@ -1603,27 +1586,17 @@ class TestPreToolUseRun(_HookTestCase):
             self.assertNotIn("smm-context", result)
             self.assertNotIn("smm-debt-context", result)
 
-    def test_bash_blocking_tier_gets_active_context(self):
+    def test_bash_no_context_injection(self):
+        """M5: Bash tool no longer gets smm-context injection."""
         events = [make_event("status", content="Working on API")]
         self._write_events(events)
         result = pre_tool_use.run(
             _make_bash_input(command="npm test"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("smm-context", result)
-
-    def test_bash_blocking_tier_includes_status(self):
-        """TIER_BLOCKING now injects Active Context which includes Agent Status."""
-        events = [make_event("status", content="busy")]
-        self._write_events(events)
-        result = pre_tool_use.run(
-            _make_bash_input(command="npm test"),
-            smm_dir=self.smm_dir,
-        )
-        # Active Context includes Agent Status section
-        self.assertIsNotNone(result)
-        self.assertIn("Agent Status", result)
+        if result:
+            self.assertNotIn("smm-context", result)
+            self.assertNotIn("smm-delta", result)
 
 
 # ===========================================================================
@@ -1631,9 +1604,11 @@ class TestPreToolUseRun(_HookTestCase):
 # ===========================================================================
 
 
-class TestPreToolUseActiveContext(_HookTestCase):
-    def test_bash_non_commit_gets_active_context(self):
-        """TIER_BLOCKING: Bash (non-commit) gets Active Context instead of delta."""
+class TestPreToolUseNoDelta(_HookTestCase):
+    """M5: Verify no delta/context injection for any tool type."""
+
+    def test_bash_no_context_injection(self):
+        """Bash (non-commit) no longer gets Active Context."""
         import pre_tool_use
 
         events = [
@@ -1645,13 +1620,12 @@ class TestPreToolUseActiveContext(_HookTestCase):
             _make_bash_input(command="npm test"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Project Goals", result)
-        # Should NOT have reference material
-        self.assertNotIn("Architecture Decisions", result)
+        if result:
+            self.assertNotIn("smm-context", result)
+            self.assertNotIn("smm-delta", result)
 
-    def test_bash_commit_gets_full_delta(self):
-        """TIER_FULL: Bash with git commit gets full delta, not Active Context."""
+    def test_bash_commit_no_delta(self):
+        """Bash with git commit no longer gets delta."""
         import pre_tool_use
 
         events = [make_event("decision", content="Use REST", topic="api-style")]
@@ -1660,11 +1634,12 @@ class TestPreToolUseActiveContext(_HookTestCase):
             _make_bash_input(command="git commit -m 'test'"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("smm-delta", result)
+        if result:
+            self.assertNotIn("smm-delta", result)
+            self.assertNotIn("smm-context", result)
 
-    def test_write_gets_full_delta(self):
-        """TIER_FULL: Write tool gets full delta."""
+    def test_write_no_delta(self):
+        """Write tool no longer gets delta."""
         import pre_tool_use
 
         events = [make_event("status", content="Working on app")]
@@ -1673,8 +1648,9 @@ class TestPreToolUseActiveContext(_HookTestCase):
             _make_write_input(tool_input={"file_path": "/tmp/src/new.ts"}),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("smm-delta", result)
+        if result:
+            self.assertNotIn("smm-delta", result)
+            self.assertNotIn("smm-context", result)
 
     def test_read_gets_red_only(self):
         """TIER_RED_ONLY: Read tool still gets red-only (unchanged)."""
@@ -1919,8 +1895,8 @@ class TestPreToolUseNoNavigatorNudge(_HookTestCase):
         if result:
             self.assertNotIn("xp-navigator", result)
 
-    def test_concerns_visible_in_delta(self):
-        """Concerns appear in SMM delta for writes (no separate injection needed)."""
+    def test_concerns_not_in_pretooluse(self):
+        """M5: Concerns no longer injected via delta — delivered via stop nugget."""
         self._write_events(
             [
                 make_event("concern", content="Auth middleware is insecure"),
@@ -1930,8 +1906,8 @@ class TestPreToolUseNoNavigatorNudge(_HookTestCase):
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Auth middleware is insecure", result)
+        if result:
+            self.assertNotIn("smm-delta", result)
 
 
 class TestPreToolUsePlanReviewGate(_HookTestCase):
@@ -4417,13 +4393,13 @@ class TestHooksJsonM54(_HooksJsonTestCase):
             "tdd_stop_gate.py command hook missing from Stop",
         )
 
-    def test_stop_has_three_hooks(self):
+    def test_stop_has_four_hooks(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
         self.assertEqual(
-            len(all_hooks), 3, f"Expected 3 Stop hooks, got {len(all_hooks)}"
+            len(all_hooks), 4, f"Expected 4 Stop hooks, got {len(all_hooks)}"
         )
 
 
@@ -6119,6 +6095,128 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)
+
+
+class TestStopNugget(_HookTestCase):
+    """Test stop nugget extraction from prepare_curation_data()."""
+
+    def test_no_events_returns_none(self):
+        """No events → no nugget."""
+        import stop_nugget
+
+        result = stop_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_xp_agent_skips(self):
+        """Recursion prevention for xp-* agents."""
+        import stop_nugget
+
+        result = stop_nugget.run(
+            {
+                "session_id": "s1",
+                "agent_id": "main",
+                "agent_type": "xp-quality-review",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_extracts_unresolved_risks(self):
+        """Open concerns appear in nugget."""
+        import stop_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="No tests for auth module",
+                    severity="high",
+                ),
+            ]
+        )
+        result = stop_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("risk", result.lower())
+        self.assertIn("No tests for auth module", result)
+
+    def test_extracts_undelivered_intents(self):
+        """Open goals appear in nugget."""
+        import stop_nugget
+
+        self._write_events(
+            [
+                make_event("goal", content="Ship user auth"),
+            ]
+        )
+        result = stop_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("intent", result.lower())
+        self.assertIn("Ship user auth", result)
+
+    def test_resolved_concern_excluded(self):
+        """Resolved concerns don't appear in nugget."""
+        import stop_nugget
+
+        concern = make_event("concern", content="Missing validation")
+        resolution = make_event(
+            "status",
+            content="Fixed validation",
+            metadata={"resolves": [concern["id"]]},
+        )
+        self._write_events([concern, resolution])
+        result = stop_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_completed_goal_excluded(self):
+        """Completed goals don't appear in nugget."""
+        import stop_nugget
+
+        goal = make_event("goal", content="Ship v1")
+        completion = make_event(
+            "status",
+            content="Goal done",
+            metadata={"resolves": [goal["id"]]},
+        )
+        self._write_events([goal, completion])
+        result = stop_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_mixed_intents_and_risks(self):
+        """Both intents and risks appear when both exist."""
+        import stop_nugget
+
+        self._write_events(
+            [
+                make_event("goal", content="Add RBAC"),
+                make_event(
+                    "concern",
+                    content="No integration tests",
+                    severity="high",
+                ),
+            ]
+        )
+        result = stop_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Add RBAC", result)
+        self.assertIn("No integration tests", result)
 
 
 if __name__ == "__main__":

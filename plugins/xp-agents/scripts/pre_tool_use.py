@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""PreToolUse command hook: delta injection, conflict prevention, TDD tracking.
+"""PreToolUse command hook: conflict prevention, debt injection, TDD tracking.
 
-Fires on every tool call. Classifies the tool into a tier for delta injection,
-checks for working_on overlap (conflict prevention), and nudges TDD ordering.
+Fires on every tool call. Checks for working_on overlap via coordination file,
+injects file-specific debt context for write tools, and nudges TDD ordering.
 """
 
 import json
@@ -14,27 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import materialize
-import read_delta
 
-# ---------------------------------------------------------------------------
-# Tier classification
-# ---------------------------------------------------------------------------
-
-_FULL_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
-_RED_ONLY_TOOLS = frozenset({"Read", "Grep", "Glob"})
-
-
-def classify_tier(tool_name: str, tool_input: dict) -> str:
-    """Classify tool into delta injection tier."""
-    if tool_name in _FULL_TOOLS:
-        return read_delta.TIER_FULL
-    if tool_name == "Bash":
-        command = tool_input.get("command", "")
-        if "git commit" in command:
-            return read_delta.TIER_FULL
-        return read_delta.TIER_BLOCKING
-    return read_delta.TIER_RED_ONLY
+_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +144,7 @@ def check_tdd_order(
     smm_dir: Path, agent_id: str, file_path: str, tool_name: str
 ) -> str | None:
     """Track writes and nudge if tests are missing. Returns nudge or None."""
-    if tool_name not in _FULL_TOOLS:
+    if tool_name not in _WRITE_TOOLS:
         return None
     if file_path is None:
         return None
@@ -281,16 +262,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                             msg, "Security review required before pushing."
                         )
 
-    # Classify tier and get target file
-    tier = classify_tier(tool_name, tool_input)
     target_file = get_target_file(tool_name, tool_input)
 
     # Conflict detection via .coordination.json (O(1), no event log scan)
     if target_file and smm_dir:
-        # Enforcement-sensitive: working_on overlap is advisory-downgradable.
-        # TDD nudge (below) is always advisory regardless of mode.
-        # Future checks: add to this block if they should respect enforcement mode,
-        # or outside it if they should always apply.
         conflict = check_working_on_overlap(smm_dir, agent_id, target_file, cwd)
         if conflict:
             if enforcement == _common.ENFORCEMENT_ADVISORY:
@@ -301,24 +276,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "File conflict detected — another agent is working on this file.",
                 )
 
-    # Delta / Active Context injection
-    if smm_dir:
-        if tier == read_delta.TIER_BLOCKING:
-            # Non-commit Bash: inject Active Context from materialized view
-            md = materialize.materialize(smm_dir)
-            active = materialize.extract_active_context(md)
-            if active:
-                parts.append(_common.wrap_smm_context(active))
-        else:
-            # TIER_FULL and TIER_RED_ONLY: use delta system
-            delta_events = read_delta.read_delta(smm_dir, agent_id, tier=tier)
-            delta_text = read_delta.format_delta(delta_events)
-            if delta_text:
-                parts.append(delta_text)
-
-    # Debt injection for write tools (lazy event read for debt + plan gate)
+    # Debt injection for write tools
     events: list[dict] | None = None
-    if target_file and smm_dir and tier == read_delta.TIER_FULL:
+    if target_file and smm_dir and tool_name in _WRITE_TOOLS:
         events = _common.read_events_raw(smm_dir)
         debts = _common.find_debt_for_file(events, target_file, cwd)
         if debts:
@@ -332,7 +292,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             parts.append("\n".join(debt_lines))
 
     # Plan review gate — nudge review before implementing an unreviewed plan
-    if tool_name in _FULL_TOOLS and smm_dir:
+    if tool_name in _WRITE_TOOLS and smm_dir:
         if events is None:
             events = _common.read_events_raw(smm_dir)
         has_unreviewed_plan = False

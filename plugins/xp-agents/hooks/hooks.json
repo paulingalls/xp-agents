@@ -180,6 +180,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py",
             "statusMessage": "Checking test coverage..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/stop_nugget.py",
+            "statusMessage": "Preparing session checkpoint..."
           }
         ]
       }

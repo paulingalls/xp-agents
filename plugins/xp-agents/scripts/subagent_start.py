@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""SubagentStart hook: inject SMM and set watermark for subagents.
+"""SubagentStart hook: inject SMM for subagents.
 
-Materializes the current SMM view, injects it as additionalContext,
-and writes a watermark so the subagent's future delta reads start
-from the current position.
+Reads the curated four-pillar SMM from disk (written by housekeeping),
+falling back to materialize() if no curated SMM exists yet. Injects
+the SMM as additionalContext so subagents start with full project context.
 """
 
 import sys
@@ -35,17 +35,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = input_data.get("agent_id", "subagent")
 
-    # Parse events once — used for both watermark count and rendering
-    events, skipped = materialize.parse_events(smm_dir)
-    if not events and skipped == 0:
-        smm_content = ""
+    # Prefer curated four-pillar SMM from disk (written by housekeeping)
+    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
+    if smm_file.exists():
+        smm_content = smm_file.read_text(encoding="utf-8")
     else:
-        indices = materialize.build_indices(events)
-        conflicts = materialize.detect_conflicts(events, indices)
-        smm_content = materialize.render_markdown(events, indices, conflicts, skipped)
-
-    # Write watermark at current event count
-    _common.write_watermark(smm_dir, agent_id, len(events))
+        # Fall back to old materializer for first session before housekeeping
+        events, skipped = materialize.parse_events(smm_dir)
+        if not events and skipped == 0:
+            smm_content = ""
+        else:
+            indices = materialize.build_indices(events)
+            conflicts = materialize.detect_conflicts(events, indices)
+            smm_content = materialize.render_markdown(
+                events, indices, conflicts, skipped
+            )
 
     # Record start event (pairs with "completed" in SubagentStop)
     start_event = _common.make_event(
