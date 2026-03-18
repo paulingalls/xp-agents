@@ -116,7 +116,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if pending:
         return (
             f"{len(pending)} background agent(s) still running. "
-            "Wait 30 seconds for them to complete, then try stopping again."
+            "Please wait at least 30 seconds for the subagents to complete."
         )
 
     # Write tracker and block

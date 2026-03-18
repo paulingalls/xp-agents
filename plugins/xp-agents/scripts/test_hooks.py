@@ -4150,7 +4150,10 @@ class TestQualityReviewPendingSubagents(_HookTestCase):
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("background agent", result.lower())
-        self.assertIn("wait 30 seconds for them to complete", result.lower())
+        self.assertIn(
+            "wait at least 30 seconds for the subagents to complete",
+            result.lower(),
+        )
         # Should NOT contain quality review message
         self.assertNotIn("/xp-quality-review", result)
 
