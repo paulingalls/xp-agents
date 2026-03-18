@@ -67,7 +67,7 @@ Read each modified code file (from the diff above) and check for:
 
 Check if code changes contradict recorded decisions or conventions in the SMM:
 
-1. Read the SMM's **Architecture Decisions** and **Conventions** sections
+1. Read the SMM's **Constraints** pillar (decisions and conventions)
 2. For each decision/convention with a topic that relates to the changed files, check whether the code changes align or contradict
 3. Examples of drift:
    - Decision says "Use REST for API" but code adds GraphQL endpoint
@@ -84,7 +84,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --severity "medium"
 ```
 
-If no decisions or conventions are recorded in the SMM, skip this step.
+If no Constraints pillar exists in the SMM, skip this step.
 
 ## Step 4: Take Action (for Steps 1-3)
 

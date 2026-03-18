@@ -19,31 +19,35 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --working-on '["file1.ts", "file2.ts"]'
 ```
 
-## Event Types
+## Event Types and Four Pillars
 
-### Active Context Events (need attention)
+Events are materialized into four pillars in the SMM. The mapping:
 
-| Type | When to Use | Required Fields |
-|------|-------------|-----------------|
-| `goal` | Project north star, what we're building | content |
-| `status` | What you're working on right now | content, working_on (file list) |
-| `concern` | Problem needing attention | content, severity (low/medium/high) |
-| `question` | Need customer input | content, priority |
-| `customer_input` | (Auto-logged by hook) | content |
-| `customer_intent` | Distilled customer request | content, intent_status (open/delivered/superseded) |
+| Pillar | Event Types | Purpose |
+|--------|-------------|---------|
+| **Intent** | `goal`, `customer_input`, `customer_intent` | What we're building and why |
+| **Constraints** | `decision`, `convention` | Architectural choices and standards |
+| **Risks** | `concern`, `assumption`, `debt`, `question`, `discovery` | What could go wrong, unknowns |
+| **Wisdom** | `retrospective` (Try items) | Lessons learned, experiments to run |
 
-### Reference Events (inform decisions)
+### All Event Types
 
-| Type | When to Use | Required Fields |
-|------|-------------|-----------------|
-| `decision` | Architectural choice made | content, topic |
-| `convention` | Team standard established | content, topic |
-| `assumption` | Stated belief, may need verification | content |
-| `discovery` | Unexpected finding | content |
-| `debt` | Acknowledged tradeoff, known issue | content, files (affected file list) |
-| `retrospective` | (Written by retrospective agent) | content |
-| `session_end` | (Auto-logged by hook) | content |
-| `security_review_requested` | (Auto-logged by push gate) | content |
+| Type | Pillar | When to Use | Required Fields |
+|------|--------|-------------|-----------------|
+| `goal` | Intent | Project north star, what we're building | content |
+| `status` | (activity) | What you're working on right now | content, working_on (file list) |
+| `concern` | Risks | Problem needing attention | content, severity (low/medium/high) |
+| `question` | Risks | Need customer input | content, priority |
+| `customer_input` | Intent | (Auto-logged by hook) | content |
+| `customer_intent` | Intent | Distilled customer request | content, intent_status (open/delivered/superseded) |
+| `decision` | Constraints | Architectural choice made | content, topic |
+| `convention` | Constraints | Team standard established | content, topic |
+| `assumption` | Risks | Stated belief, may need verification | content |
+| `discovery` | Risks | Unexpected finding | content |
+| `debt` | Risks | Acknowledged tradeoff, known issue | content, files (affected file list) |
+| `retrospective` | Wisdom | (Written by retrospective agent) | content |
+| `session_end` | (lifecycle) | (Auto-logged by hook) | content |
+| `security_review_requested` | (lifecycle) | (Auto-logged by push gate) | content |
 
 ## Question Priority Guide
 
@@ -89,15 +93,14 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 
 ## Reading the Materialized View
 
-The SMM has two tiers:
+The SMM is organized into four pillars:
 
-**Active Context** (top) — needs attention now:
-- Project Goals, Conflict Alerts, Blocking Questions, Unacknowledged Concerns, Customer Intent, Agent Status
+- **Intent** — Goals, customer inputs, and customer intent. What we're building and why.
+- **Constraints** — Decisions and conventions. The architectural guardrails.
+- **Risks** — Concerns, assumptions, debt, questions, discoveries. What could go wrong.
+- **Wisdom** — Retrospective Try items. Lessons learned from past sessions.
 
-**Reference** (bottom) — informs decisions:
-- Architecture Decisions, Conventions, Resolved Questions, Discoveries, Assumptions, Technical Debt, Resolved Concerns
-
-Read Active Context before every significant action. Check Reference when making architectural choices.
+Read Intent and Risks before every significant action. Check Constraints when making architectural choices.
 
 ## Common Recording Patterns
 

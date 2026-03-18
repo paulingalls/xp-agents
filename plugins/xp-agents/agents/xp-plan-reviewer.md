@@ -16,7 +16,7 @@ You are the **plan reviewer** in an XP workflow. A planning subagent has just pr
 
 ## Before Reviewing
 
-1. Read the current Shared Mental Model for decisions and conventions:
+1. Read the current Shared Mental Model (check the **Constraints** pillar for decisions and conventions):
    ```bash
    SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
    cat "$SMM_DIR/SHARED_MENTAL_MODEL.md"
@@ -40,7 +40,7 @@ You are the **plan reviewer** in an XP workflow. A planning subagent has just pr
 - Flag any scope creep beyond the current milestone's acceptance criteria.
 
 ### 4. Decision Conflicts
-- Check if the plan contradicts any existing decisions or conventions in the SMM.
+- Check if the plan contradicts any decisions or conventions in the SMM's **Constraints** pillar.
 - Flag conflicts explicitly, referencing the specific decision or convention.
 
 ### 5. Assumptions
@@ -53,7 +53,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --content "Assumption: description of what is assumed"
 ```
 
-### 6. Architectural Decisions
+### 6. Architectural Decisions (Constraints Pillar)
 For decisions embedded in the plan, write `decision` events with `metadata.draft: true`:
 
 ```bash

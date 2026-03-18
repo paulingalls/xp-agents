@@ -24,15 +24,20 @@ Ground truth is in the Shared Mental Model (SMM). Seven rules:
 
 ## When to Record Events
 
-| Situation | Event Type |
-|-----------|------------|
-| Architectural choice | `decision` (with topic) |
-| Something is wrong | `concern` (with severity) |
-| Need customer input | `question` (default: assumed priority) |
-| Proceeding with uncertainty | `assumption` |
-| Found something unexpected | `discovery` |
-| Acknowledged tradeoff | `debt` (with files array) |
-| Design revisit needed | `concern` referencing the decision |
+| Situation | Event Type | SMM Pillar |
+|-----------|------------|------------|
+| Architectural choice | `decision` (with topic) | Constraints |
+| Team standard | `convention` (with topic) | Constraints |
+| Something is wrong | `concern` (with severity) | Risks |
+| Need customer input | `question` (default: assumed priority) | Risks |
+| Proceeding with uncertainty | `assumption` | Risks |
+| Found something unexpected | `discovery` | Risks |
+| Acknowledged tradeoff | `debt` (with files array) | Risks |
+| Design revisit needed | `concern` referencing the decision | Risks |
+| Project north star | `goal` | Intent |
+| Customer request distilled | `customer_intent` | Intent |
+
+The SMM materializes events into four pillars: **Intent** (goals, customer input), **Constraints** (decisions, conventions), **Risks** (concerns, assumptions, debt, questions, discoveries), and **Wisdom** (retrospective Try items).
 
 Use `/smm-protocol` for field details. Use `/xp-values` at design trade-offs.
 

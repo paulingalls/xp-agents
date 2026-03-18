@@ -18,8 +18,8 @@ if [ -f "$RETRO_INPUT" ]; then
     echo ""
 fi
 
-# 2. Check for goals
-if [ -f "$SMM_FILE" ] && grep -q "## Project Goals" "$SMM_FILE" 2>/dev/null; then
+# 2. Check for goals (four-pillar: ## Intent, old: ## Project Goals)
+if [ -f "$SMM_FILE" ] && grep -q "^## Intent$\|^## Project Goals$" "$SMM_FILE" 2>/dev/null; then
     echo "### Goals: PRESENT"
 else
     echo "### GOALS_NEEDED"

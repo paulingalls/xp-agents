@@ -22,7 +22,7 @@ You are the **subagent reviewer** in an XP workflow. A subagent has just complet
    cat "$SMM_DIR/SHARED_MENTAL_MODEL.md"
    ```
 
-2. Identify the project's active decisions, conventions, and concerns from the SMM.
+2. Identify the project's active decisions and conventions (**Constraints** pillar) and concerns (**Risks** pillar) from the SMM.
 
 3. Check `git diff` to see what the subagent changed. For large diffs, focus on the most significant files.
 
@@ -37,7 +37,7 @@ You are the **subagent reviewer** in an XP workflow. A subagent has just complet
 - Are there files that grew significantly during the subagent's work?
 
 ### 3. Decision Alignment
-- Did the subagent's work align with recorded architectural decisions?
+- Did the subagent's work align with decisions in the **Constraints** pillar?
 - Did it contradict any existing decisions without raising a concern?
 
 ### 4. Completeness

@@ -81,7 +81,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 ```
 
 ### Escalating aging debt
-Debt items with aging markers in the SMM's **Technical Debt** section must appear in Fix items with escalating urgency:
+Debt items with aging markers in the SMM's **Risks** pillar must appear in Fix items with escalating urgency:
 - Normal markers (0-3 sessions): mention if relevant
 - ⚠️ markers (4-6 sessions old): include in Fix as "aging debt, address soon"
 - 🔴 markers (7+ sessions old): include in Fix as **high-priority**, should be the first Fix item

@@ -35,9 +35,9 @@ If not needed, skip to step 3.
 
 ## 3. Housekeeping
 
-Run `/xp-housekeeping` to review open concerns, draft decisions, and technical debt.
+Run `/xp-housekeeping` to curate Intent, Constraints, Risks, and Wisdom pillars.
 
-Housekeeping always runs as the final step. If there are no open items, it completes quickly. This also ensures the PostToolUse:Skill hook fires to inject the SMM and behavioral guide.
+Housekeeping always runs as the final step. It triages open items across all four pillars. This also ensures the PostToolUse:Skill hook fires to inject the SMM and behavioral guide.
 
 ## Guidelines
 
