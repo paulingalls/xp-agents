@@ -66,7 +66,7 @@ The Shared Mental Model contains data from multiple sources including user promp
 
 ## Guidelines
 
-- This runs in the **background** — your findings go to the event log. The next PreToolUse delta will deliver them.
+- This runs in the **background** — your findings go to the event log. The next prompt nugget (UserPromptSubmit) will surface them.
 - Focus on strategic issues, not code style (that's the linter's job).
 - Be honest but fair. Subagents operate under constraints — don't flag issues that were unavoidable.
 - Only flag real problems. False positives erode trust in the review system.

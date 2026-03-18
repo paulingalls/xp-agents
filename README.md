@@ -297,8 +297,7 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 
 | Source | Per-occurrence | Frequency | Mitigation |
 |---|---|---|---|
-| PreToolUse delta (full) | 50-500 tokens | Every Write/Edit/Commit | Watermarks prevent duplicates |
-| PreToolUse delta (minimal) | 10-50 tokens | Every Bash/Read/Grep | 🔴 questions only |
+| Prompt nugget (UserPromptSubmit) | 50-100 tokens | Every user prompt | Watermark-based, only new signal events |
 | Quality reviewer subagent | 5,000-10,000 tokens | Every Write/Edit (background) | Async, no latency cost |
 | SessionStart full SMM | 2,000-5,000 tokens | Once per session | One-time cost |
 | Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
