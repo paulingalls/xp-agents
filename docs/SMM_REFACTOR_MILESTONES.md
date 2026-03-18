@@ -1,6 +1,6 @@
 # SMM Refactor — Migration Milestones
 
-Migrating from the current event-dump SMM to the five-pillar curated model described in `SMM_DESIGN.md`. Each milestone is independently shippable and leaves the system working.
+Migrating from the current event-dump SMM to the four-pillar curated model described in `SMM_DESIGN.md`. Each milestone is independently shippable and leaves the system working.
 
 ---
 
@@ -27,15 +27,15 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 ---
 
-## M2: Housekeeping Curates the Five-Pillar SMM
+## M2: Housekeeping Curates the Four-Pillar SMM
 
-**Goal:** Housekeeping writes `SHARED_MENTAL_MODEL.md` using LLM judgment against the five pillars. This is the core change.
+**Goal:** Housekeeping writes `SHARED_MENTAL_MODEL.md` using LLM judgment against the four pillars. This is the core change.
 
 **What changes:**
-- Housekeeping SKILL.md updated with five-pillar curation instructions
+- Housekeeping SKILL.md updated with four-pillar curation instructions
 - Housekeeping reads `prepare_curation_data()` output (from M1 preload)
 - Housekeeping reads existing SMM.md (merge, don't replace)
-- Housekeeping writes new SMM.md in five-pillar format
+- Housekeeping writes new SMM.md in four-pillar format
 - Housekeeping enforces caps and health signals
 - Old mechanical materializer no longer writes SMM.md (but `prepare_curation_data()` still runs)
 
@@ -45,7 +45,7 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 - Watermarks unchanged
 
 **Acceptance criteria:**
-- [ ] Housekeeping produces five-pillar SMM.md with Intent, Constraints, Risks, Coordination, Wisdom
+- [ ] Housekeeping produces four-pillar SMM.md with Intent, Constraints, Risks, Wisdom
 - [ ] Customer inputs distilled to Intents (judgment)
 - [ ] Draft decisions promoted to Constraints (judgment)
 - [ ] Concerns/assumptions/debt/questions unified into Risks with severity
@@ -58,18 +58,18 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 ## M3: Skill Alignment
 
-**Goal:** Update all skills and the behavioral guide to speak the five-pillar language. Skills are what agents actually read — getting them aligned early ensures agents use the new SMM correctly from M2 onward.
+**Goal:** Update all skills and the behavioral guide to speak the four-pillar language. Skills are what agents actually read — getting them aligned early ensures agents use the new SMM correctly from M2 onward.
 
 **What changes:**
-- `xp-retrospective` SKILL.md — references five-pillar structure for Keep/Fix/Try analysis (e.g., "check Risks pillar for recurring concerns")
+- `xp-retrospective` SKILL.md — references four-pillar structure for Keep/Fix/Try analysis (e.g., "check Risks pillar for recurring concerns")
 - `xp-session-review` SKILL.md — orchestration references updated for new SMM shape
 - `xp-goal-collection` SKILL.md — maps collected goals to the Intent pillar
 - `xp-question-triage` SKILL.md — works with unified Risks pillar (concerns/assumptions/questions/debt)
-- `smm-protocol` SKILL.md — event recording reference updated for five-pillar model (which events feed which pillars)
+- `smm-protocol` SKILL.md — event recording reference updated for four-pillar model (which events feed which pillars)
 - `xp-values` SKILL.md — behavioral guide references updated
 - `BEHAVIORAL_GUIDE.md` — "When to Record Events" table updated, pillar references added
 - `xp-housekeeping` SKILL.md — already updated in M2, verify consistency
-- `agents/xp-plan-reviewer.md` — review output references updated for five-pillar model
+- `agents/xp-plan-reviewer.md` — review output references updated for four-pillar model
 - `agents/xp-retrospective.md` — retro analysis references pillars (Risks for concerns, Wisdom for tries)
 - `agents/xp-subagent-reviewer.md` — review criteria aligned with pillar concepts
 
@@ -79,11 +79,11 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 - Injection model (PreToolUse delta still fires until M4)
 
 **Acceptance criteria:**
-- [ ] Each skill references five-pillar concepts where relevant (Intent, Constraints, Risks, Coordination, Wisdom)
+- [ ] Each skill references four-pillar concepts where relevant (Intent, Constraints, Risks, Wisdom)
 - [ ] BEHAVIORAL_GUIDE.md reflects the pillar model
 - [ ] smm-protocol maps event types to pillars (which events feed which pillar)
 - [ ] No skill or agent references old SMM sections (ACTIVE CONTEXT, REFERENCE, Blocking Questions, etc.)
-- [ ] All subagent definitions (`agents/*.md`) aligned with five-pillar model
+- [ ] All subagent definitions (`agents/*.md`) aligned with four-pillar model
 - [ ] Skills and agents still function correctly with the current SMM format during transition
 
 ---
@@ -138,7 +138,7 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 - [ ] PreToolUse no longer injects `<smm-context>` or `<smm-delta>`
 - [ ] Stop nugget shows unresolved risks and undelivered intents
 - [ ] Stop nugget is empty (no injection) when nothing needs attention
-- [ ] SubagentStart injects full five-pillar SMM
+- [ ] SubagentStart injects full four-pillar SMM
 - [ ] Context savings verified: measure tokens per tool call before/after
 - [ ] All existing functionality preserved (TDD check, conflict detection, plan gate)
 
@@ -187,7 +187,7 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 **Acceptance criteria:**
 - [ ] No dead code from old SMM system
-- [ ] All docs reflect five-pillar model
+- [ ] All docs reflect four-pillar model
 - [ ] Test count may decrease (removed delta tests) but coverage of new system is complete
 - [ ] Clean `grep` for old patterns: `smm-delta`, `smm-context`, `read_delta`, `filter_by_tier`
 
@@ -202,10 +202,10 @@ Each milestone leaves the system working:
 | Current | materializer (Python) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
 | M1 | materializer (Python) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
 | M2 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
-| M3 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Five-pillar |
-| M4 | housekeeping (LLM) | Every PreToolUse | .coordination.json | Unbounded | Five-pillar |
-| M5 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Unbounded | Five-pillar |
-| M6 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Five-pillar |
-| M7 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Five-pillar |
+| M3 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Four-pillar |
+| M4 | housekeeping (LLM) | Every PreToolUse | .coordination.json | Unbounded | Four-pillar |
+| M5 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Unbounded | Four-pillar |
+| M6 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Four-pillar |
+| M7 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Four-pillar |
 
 The riskiest milestone is **M2** (housekeeping takes over SMM writing). Everything else is additive or subtractive with clear rollback.

@@ -2,19 +2,20 @@
 
 ## Purpose
 
-The Shared Mental Model (SMM) answers five questions that, if unanswered, cause agents to make mistakes:
+The Shared Mental Model (SMM) answers four questions that, if unanswered, cause agents to make mistakes:
 
 1. **Am I building the right thing?** (Intent)
 2. **What boundaries must I respect?** (Constraints)
 3. **What could go wrong?** (Risks)
-4. **Am I stepping on someone's toes?** (Coordination)
-5. **What mistakes should I avoid?** (Wisdom)
+4. **What mistakes should I avoid?** (Wisdom)
 
 Everything else is noise. The SMM is a briefing, not a database.
 
+**Coordination** ("Am I stepping on someone's toes?") is handled separately via `.coordination.json` — a real-time, ephemeral file updated on every file write. It is not part of the curated SMM because it operates at a fundamentally different cadence (per-tool-call vs once-per-session).
+
 ---
 
-## The Five Pillars
+## The Four Pillars
 
 ### Intent
 
@@ -88,24 +89,21 @@ Three severities, one category:
 
 ---
 
-### Coordination
+### Coordination (separate from SMM)
 
-Who's doing what right now.
+Coordination is **not a pillar of the curated SMM**. It operates at a fundamentally different cadence — real-time per-tool-call updates vs once-per-session curation. It lives in `.coordination.json` (see M4 milestone).
 
-```markdown
-## Coordination
-- Main: implementing role-check middleware (src/auth/roles.ts)
-- Agent-2: writing auth integration tests (src/auth/test_roles.ts)
-- No conflicts
+```json
+{
+  "main": {"working_on": ["src/auth/roles.ts"], "updated": "2026-03-18T02:30:00+00:00"},
+  "agent-2": {"working_on": ["src/auth/test_roles.ts"], "updated": "2026-03-18T02:31:00+00:00"}
+}
 ```
 
 **Enter:** Automatically — agent starts working on files.
-
-**Leave:** Automatically — agent finishes or session ends. Coordination is ephemeral. When the session ends, it clears.
-
+**Leave:** Automatically — agent finishes or session ends. Ephemeral.
 **Cap:** Bounded by active agents. Solo: 1 entry. Team: N entries.
-
-This is the only fully automatic pillar. No judgment needed — it's a real-time signal.
+**Conflict detection:** PreToolUse reads this file (O(1), no event log scan).
 
 ---
 
@@ -146,10 +144,11 @@ Each pillar has a natural size that signals project health:
 | Intent | 2-5 items | 0 = no direction, 10+ = scope creep |
 | Constraints | 5-15 items | 0 = no decisions made, 20+ = over-specified |
 | Risks | 2-5 items | 0 = false confidence, 10+ = unmanaged risk |
-| Coordination | 1-3 items | N/A (automatic, bounded by agent count) |
 | Wisdom | 3-7 items | 0 = not learning, 10 = cap reached, prune |
 
-**Total SMM at healthy state: 15-35 items, ~300-700 tokens.**
+**Total SMM at healthy state: 12-30 items, ~300-600 tokens.**
+
+Coordination health is tracked separately via `.coordination.json` (bounded by active agent count, not curated).
 
 An agent reads the entire mental model in 2 seconds. The unhealthy states themselves become signals — if Risks hits 10, the SMM itself should flag: "Risk register at capacity — resolve items before adding more."
 
@@ -173,7 +172,7 @@ Hooks don't curate the SMM. They just leave breadcrumbs.
 
 **2. Curation (housekeeping skill, once per session)**
 
-At session start, after the retrospective, housekeeping reads the raw event trail and curates the five pillars with LLM judgment:
+At session start, after the retrospective, housekeeping reads the raw event trail and curates the four pillars with LLM judgment:
 
 - Distills `customer_input` events into Intent items (or not — "fix the typo" is a task, not an intent)
 - Promotes draft decisions to Constraints (or drops them)
