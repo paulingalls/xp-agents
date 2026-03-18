@@ -56,7 +56,39 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 ---
 
-## M3: Coordination File
+## M3: Skill Alignment
+
+**Goal:** Update all skills and the behavioral guide to speak the five-pillar language. Skills are what agents actually read — getting them aligned early ensures agents use the new SMM correctly from M2 onward.
+
+**What changes:**
+- `xp-retrospective` SKILL.md — references five-pillar structure for Keep/Fix/Try analysis (e.g., "check Risks pillar for recurring concerns")
+- `xp-session-review` SKILL.md — orchestration references updated for new SMM shape
+- `xp-goal-collection` SKILL.md — maps collected goals to the Intent pillar
+- `xp-question-triage` SKILL.md — works with unified Risks pillar (concerns/assumptions/questions/debt)
+- `smm-protocol` SKILL.md — event recording reference updated for five-pillar model (which events feed which pillars)
+- `xp-values` SKILL.md — behavioral guide references updated
+- `BEHAVIORAL_GUIDE.md` — "When to Record Events" table updated, pillar references added
+- `xp-housekeeping` SKILL.md — already updated in M2, verify consistency
+- `agents/xp-plan-reviewer.md` — review output references updated for five-pillar model
+- `agents/xp-retrospective.md` — retro analysis references pillars (Risks for concerns, Wisdom for tries)
+- `agents/xp-subagent-reviewer.md` — review criteria aligned with pillar concepts
+
+**What doesn't change:**
+- Hook scripts (plumbing unchanged until M4-M5)
+- Event types (same events, different curation)
+- Injection model (PreToolUse delta still fires until M4)
+
+**Acceptance criteria:**
+- [ ] Each skill references five-pillar concepts where relevant (Intent, Constraints, Risks, Coordination, Wisdom)
+- [ ] BEHAVIORAL_GUIDE.md reflects the pillar model
+- [ ] smm-protocol maps event types to pillars (which events feed which pillar)
+- [ ] No skill or agent references old SMM sections (ACTIVE CONTEXT, REFERENCE, Blocking Questions, etc.)
+- [ ] All subagent definitions (`agents/*.md`) aligned with five-pillar model
+- [ ] Skills and agents still function correctly with the current SMM format during transition
+
+---
+
+## M4: Coordination File
 
 **Goal:** Replace event-log scanning for team conflict detection with a lightweight `.coordination.json` file.
 
@@ -68,7 +100,7 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 - Stale entries (>30 min) ignored
 
 **What doesn't change yet:**
-- PreToolUse delta still fires (removed in M4)
+- PreToolUse delta still fires (removed in M5)
 - Event log still has status events (still useful for housekeeping data trails)
 
 **Acceptance criteria:**
@@ -81,13 +113,13 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 ---
 
-## M4: Remove PreToolUse Delta, Add Stop Nuggets
+## M5: Remove PreToolUse Delta, Add Stop Nuggets
 
 **Goal:** Eliminate the per-tool-call SMM injection. Replace with lightweight nuggets at Stop events. This is the big context savings.
 
 **What changes:**
 - PreToolUse no longer reads the event log or injects SMM delta
-- PreToolUse retains only: conflict check (via `.coordination.json` from M3), TDD order check, plan review gate
+- PreToolUse retains only: conflict check (via `.coordination.json` from M4), TDD order check, plan review gate
 - Stop hook injects a nugget: unresolved risks, undelivered intents (~50-80 tokens)
 - SubagentStart injects the full curated SMM (for new subagents/teammates)
 
@@ -112,7 +144,7 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 ---
 
-## M5: Event Log Compaction
+## M6: Event Log Compaction
 
 **Goal:** The event log stabilizes at ~1-2 sessions instead of growing forever.
 
@@ -136,7 +168,7 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 ---
 
-## M6: Cleanup
+## M7: Cleanup
 
 **Goal:** Remove dead code from the pre-refactor SMM system.
 
@@ -147,7 +179,6 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 - `format_delta()`, `filter_by_tier()`
 - Delta-related tests
 - Old SMM format references in docs (ARCHITECTURE.md, README.md, CLAUDE.md)
-- `smm-protocol` skill updated for five-pillar model
 
 **What gets updated:**
 - README.md Token Cost Model (new injection model)
@@ -166,14 +197,15 @@ Migrating from the current event-dump SMM to the five-pillar curated model descr
 
 Each milestone leaves the system working:
 
-| After | SMM written by | Delta injection | Conflict detection | Event log |
-|---|---|---|---|---|
-| Current | materializer (Python) | Every PreToolUse | Event log scan | Unbounded |
-| M1 | materializer (Python) | Every PreToolUse | Event log scan | Unbounded |
-| M2 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded |
-| M3 | housekeeping (LLM) | Every PreToolUse | .coordination.json | Unbounded |
-| M4 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Unbounded |
-| M5 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted |
-| M6 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted |
+| After | SMM written by | Delta injection | Conflict detection | Event log | Skills |
+|---|---|---|---|---|---|
+| Current | materializer (Python) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
+| M1 | materializer (Python) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
+| M2 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
+| M3 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Five-pillar |
+| M4 | housekeeping (LLM) | Every PreToolUse | .coordination.json | Unbounded | Five-pillar |
+| M5 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Unbounded | Five-pillar |
+| M6 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Five-pillar |
+| M7 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Five-pillar |
 
 The riskiest milestone is **M2** (housekeeping takes over SMM writing). Everything else is additive or subtractive with clear rollback.
