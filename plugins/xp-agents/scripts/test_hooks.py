@@ -6196,17 +6196,11 @@ class TestPromptNugget(_HookTestCase):
 
 
 class TestCompactLog(_HookTestCase):
-    """Test compact_log.py housekeeping script."""
+    """Test compact_log.py housekeeping script via subprocess."""
 
-    def test_compact_log_runs(self):
-        """compact_log.py calls compact_after_curation and prints stats."""
-        sys.path.insert(
-            0,
-            str(
-                Path(__file__).parent.parent / "skills" / "xp-housekeeping" / "scripts"
-            ),
-        )
-        import compact
+    def test_compact_log_subprocess(self):
+        """compact_log.py runs as subprocess and prints stats."""
+        import subprocess
 
         # Seed events with a curation watermark
         events = [make_event("status", content=f"e{i}") for i in range(5)] + [
@@ -6219,10 +6213,22 @@ class TestCompactLog(_HookTestCase):
 
         write_curation_watermark(self.smm_dir, len(events), "xp-housekeeping")
 
-        result = compact.compact_after_curation(self.smm_dir)
-        self.assertIn("archived", result)
-        self.assertIn("retained", result)
-        self.assertIn("smm_referenced", result)
+        script = (
+            Path(__file__).parent.parent
+            / "skills"
+            / "xp-housekeeping"
+            / "scripts"
+            / "compact_log.py"
+        )
+        result = subprocess.run(
+            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Compacted:", result.stdout)
+        self.assertIn("archived", result.stdout)
+        self.assertIn("retained", result.stdout)
 
 
 if __name__ == "__main__":
