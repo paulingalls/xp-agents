@@ -6098,14 +6098,10 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
 
 
 class TestPromptNugget(_HookTestCase):
-    """Test prompt nugget extraction from SHARED_MENTAL_MODEL.md."""
+    """Test prompt nugget delta injection from events."""
 
-    def _write_smm(self, text: str) -> None:
-        """Write a SHARED_MENTAL_MODEL.md file to the temp SMM dir."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(text)
-
-    def test_no_smm_returns_none(self):
-        """No SMM file → no nugget."""
+    def test_no_events_returns_none(self):
+        """No events → no nugget."""
         import prompt_nugget
 
         result = prompt_nugget.run(
@@ -6118,7 +6114,7 @@ class TestPromptNugget(_HookTestCase):
         """Recursion prevention for xp-* agents."""
         import prompt_nugget
 
-        self._write_smm("## Intent\n- Ship v1\n## Risks\n- Bug found\n")
+        self._write_events([make_event("concern", content="Bug found")])
         result = prompt_nugget.run(
             {
                 "session_id": "s1",
@@ -6129,55 +6125,74 @@ class TestPromptNugget(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_extracts_risks(self):
-        """Risks section items appear in nugget."""
+    def test_shows_new_concern(self):
+        """New concern appears in nugget."""
         import prompt_nugget
 
-        self._write_smm("## Intent\n\n## Risks\n- No tests for auth module\n")
+        self._write_events([make_event("concern", content="No tests for auth module")])
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("risk", result.lower())
+        self.assertIn("concern", result)
         self.assertIn("No tests for auth module", result)
 
-    def test_extracts_intents(self):
-        """Intent section items appear in nugget."""
+    def test_shows_new_decision(self):
+        """New decision appears in nugget."""
         import prompt_nugget
 
-        self._write_smm("## Intent\n- Ship user auth\n")
+        self._write_events([make_event("decision", content="Use REST API")])
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("intent", result.lower())
-        self.assertIn("Ship user auth", result)
+        self.assertIn("decision", result)
+        self.assertIn("Use REST API", result)
 
-    def test_empty_sections_returns_none(self):
-        """Empty Intent and Risks sections → no nugget."""
+    def test_status_events_excluded(self):
+        """Status events are not signal types — excluded from nugget."""
         import prompt_nugget
 
-        self._write_smm("## Intent\n\n## Risks\n\n## Wisdom\n- Be good\n")
+        self._write_events([make_event("status", content="Working on auth")])
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
 
-    def test_mixed_intents_and_risks(self):
-        """Both intents and risks appear when both exist."""
+    def test_watermark_advances(self):
+        """Second call with no new events returns None."""
         import prompt_nugget
 
-        self._write_smm("## Intent\n- Add RBAC\n\n## Risks\n- No integration tests\n")
+        self._write_events([make_event("concern", content="Missing validation")])
+        # First call sees the event
+        result1 = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result1)
+        # Second call — watermark advanced, nothing new
+        result2 = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result2)
+
+    def test_caps_at_five(self):
+        """At most 5 items shown even with more new events."""
+        import prompt_nugget
+
+        self._write_events(
+            [make_event("concern", content=f"Issue {i}") for i in range(8)]
+        )
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("Add RBAC", result)
-        self.assertIn("No integration tests", result)
+        self.assertEqual(result.count("[concern]"), 5)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Prompt nugget: lightweight context injection at UserPromptSubmit time.
+"""Prompt nugget: tiny delta injection at UserPromptSubmit time.
 
-Reads SHARED_MENTAL_MODEL.md to extract Intent and Risks sections.
-Injects a brief reminder (~50-80 tokens) via additionalContext.
-If nothing is open, returns None (no injection).
+Uses watermark-based read_delta to show only NEW signal events since
+the last injection. Produces ~20-50 tokens max. If nothing new, no
+injection (exit 0 with no output).
 """
 
-import re
 import sys
 from pathlib import Path
 
@@ -14,22 +13,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import read_delta
+
+# Signal types worth surfacing in the nugget
+_NUGGET_TYPES = frozenset(
+    {
+        _common.CONCERN,
+        _common.DECISION,
+        _common.GOAL,
+        _common.DEBT,
+        _common.QUESTION,
+    }
+)
+
+_WATERMARK_ID = "prompt-nugget"
 
 
-def _parse_smm_section(text: str, heading: str) -> list[str]:
-    """Extract bullet items from a markdown section."""
-    pattern = rf"^## {re.escape(heading)}\s*\n((?:- .+\n?)*)"
-    match = re.search(pattern, text, re.MULTILINE)
-    if not match:
-        return []
-    return [
-        line.lstrip("- ").strip()
-        for line in match.group(1).strip().splitlines()
-        if line.startswith("- ")
-    ]
-
-
-def _truncate(text: str, max_len: int = 80) -> str:
+def _truncate(text: str, max_len: int = 60) -> str:
     """Truncate text with ellipsis if too long."""
     if len(text) <= max_len:
         return text
@@ -37,9 +37,9 @@ def _truncate(text: str, max_len: int = 80) -> str:
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Build a prompt nugget from the materialized SMM.
+    """Build a prompt nugget from new events since last injection.
 
-    Returns nugget string for additionalContext, or None if nothing open.
+    Returns nugget string for additionalContext, or None if nothing new.
     """
     if _common.is_xp_agent(input_data):
         return None
@@ -50,34 +50,26 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    if not smm_file.exists():
-        return None
-
     try:
-        smm_text = smm_file.read_text(encoding="utf-8")
-    except OSError:
+        new_events = read_delta.read_delta(
+            smm_dir,
+            _WATERMARK_ID,
+            tier=read_delta.TIER_FULL,
+        )
+    except Exception:
         return None
 
-    intents = _parse_smm_section(smm_text, "Intent")
-    risks = _parse_smm_section(smm_text, "Risks")
-
-    if not intents and not risks:
+    signals = [e for e in new_events if e.get("type") in _NUGGET_TYPES]
+    if not signals:
         return None
 
-    lines = ["Session checkpoint:"]
+    lines = []
+    for e in signals[-5:]:  # cap at 5 most recent
+        etype = e.get("type", "")
+        content = _truncate(e.get("content", ""))
+        lines.append(f"- [{etype}] {content}")
 
-    if intents:
-        summaries = [_truncate(s) for s in intents[:5]]
-        quoted = ", ".join(f'"{s}"' for s in summaries)
-        lines.append(f"- {len(intents)} intent(s): {quoted}")
-
-    if risks:
-        summaries = [_truncate(s) for s in risks[:5]]
-        quoted = ", ".join(f'"{s}"' for s in summaries)
-        lines.append(f"- {len(risks)} risk(s): {quoted}")
-
-    return "\n".join(lines)
+    return "New since last prompt:\n" + "\n".join(lines)
 
 
 if __name__ == "__main__":
