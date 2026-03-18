@@ -165,7 +165,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Write tracker and block
     _write_tracker(smm_dir, agent_id, {"loop_id": loop_id})
-    return "Files were modified in this loop. Run /simplify before stopping."
+    return (
+        "Files were modified in this loop. Run /simplify before stopping. "
+        "After /simplify launches background review agents, wait 30 seconds "
+        "for them to complete before checking their results."
+    )
 
 
 # ---------------------------------------------------------------------------

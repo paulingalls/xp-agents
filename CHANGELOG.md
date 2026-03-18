@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.36 — Direct SMM Loading & Simplify Gate Timing
+
+### Added
+- **Direct SMM + Behavioral Guide loading in housekeeping skill** — new `load_context.sh` script materializes the SMM after triage and outputs file paths. Step 5 in SKILL.md instructs the skill to Read both files, ensuring they are first-class conversation content rather than relying on `additionalContext` injection.
+- 3 new integration tests for `load_context.sh` (908 total)
+
+### Changed
+- **Simplify gate message includes wait instruction** — tells the agent to wait 30 seconds for background review agents to complete before checking results, reducing premature TaskOutput failures.
+
 ## v0.9.35 — Session Review Gate Fix for /clear
 
 ### Fixed
