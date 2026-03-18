@@ -39,9 +39,14 @@ from _append_impl import (
 
 
 class BlockedError(Exception):
-    """Raised when a tool call should be blocked (exit 2 with stderr message)."""
+    """Raised when a tool call should be blocked (exit 2 with stderr message).
 
-    pass
+    Optional system_message provides user-facing context for the block.
+    """
+
+    def __init__(self, message: str, system_message: str | None = None) -> None:
+        super().__init__(message)
+        self.system_message = system_message
 
 
 # ---------------------------------------------------------------------------
