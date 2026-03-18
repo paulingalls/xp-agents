@@ -116,5 +116,7 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
-        _common.hook_output("SessionStart", context)
+        _common.hook_output(
+            "SessionStart", context, "XP agents active. SMM initialized."
+        )
     sys.exit(0)

@@ -48,6 +48,48 @@ What a Claude Code plugin can ship, what each tool can do, and how data flows be
 
 **Exit codes:** 0 = success/allow, 2 = block/deny, other = error (action proceeds, stderr logged)
 
+### Hook Config: `statusMessage`
+
+A `statusMessage` field in the hook definition (in `hooks.json`) sets the spinner text the user sees while the hook runs. Without it, the user sees a generic spinner.
+
+```json
+{
+  "type": "command",
+  "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/my_hook.py",
+  "statusMessage": "Running my check..."
+}
+```
+
+### Hook Output: `systemMessage`
+
+A `systemMessage` field in the hook's stdout JSON shows a notification to the **user** after the hook completes. This is separate from `additionalContext`, which only the agent sees.
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "additionalContext": "Context only the agent sees."
+  },
+  "systemMessage": "Notification the user sees."
+}
+```
+
+Works with blocking output too:
+
+```json
+{
+  "decision": "block",
+  "reason": "Detailed reason for the agent.",
+  "systemMessage": "Short message for the user."
+}
+```
+
+| Field | Audience | Purpose |
+|-------|----------|---------|
+| `additionalContext` | Agent only | Inject context into the conversation (advisory) |
+| `systemMessage` | User only | Show a notification in the UI |
+| `statusMessage` (config) | User only | Spinner text while the hook runs |
+
 ---
 
 ## 2. Agent Hooks

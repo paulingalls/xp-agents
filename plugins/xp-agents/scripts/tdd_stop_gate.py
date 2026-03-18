@@ -5,7 +5,6 @@ Blocks stop when the most recent test run in the event log failed.
 Replaces the tdd_check.md prompt hook with deterministic event parsing.
 """
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -59,5 +58,5 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        print(json.dumps({"decision": "block", "reason": result}))
+        _common.block_output(result, "Test failures detected — fix before stopping.")
     sys.exit(0)

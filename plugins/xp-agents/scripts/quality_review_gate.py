@@ -116,7 +116,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if pending:
         return (
             f"{len(pending)} background agent(s) still running. "
-            "Wait for them to complete, then try stopping again."
+            "Wait 30 seconds for them to complete, then try stopping again."
         )
 
     # Write tracker and block
@@ -133,5 +133,5 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        print(json.dumps({"decision": "block", "reason": result}))
+        _common.block_output(result, "Quality review required before stopping.")
     sys.exit(0)

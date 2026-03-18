@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.37 — Hook UX & Materializer Bug Fix
+
+### Added
+- **statusMessage for all hooks** — every hook in `hooks.json` now shows descriptive spinner text while running (e.g., "Checking shared mental model...", "Running lint check...")
+- **systemMessage support** — hooks can now show user-facing notifications separate from agent-only `additionalContext`. New `block_output()` helper in `_common.py` encapsulates the block+systemMessage pattern.
+- **PLUGIN_TOOLS.md documentation** — documents `statusMessage` (config), `systemMessage` (output), and `additionalContext` fields with examples and audience table.
+- 2 new tests for resolved decision filtering (910 total)
+
+### Fixed
+- **Resolved decisions still rendered in materializer** — `render_markdown()` listed all decisions including resolved ones in the Architecture Decisions section. Now filters through `decision_resolutions` index, consistent with how concerns, goals, and debt are already filtered.
+- **Unused `json` import in tdd_stop_gate.py** — removed (flagged by lint last session).
+
+### Changed
+- **Stop gates use `block_output()`** — `quality_review_gate.py`, `simplify_gate.py`, and `tdd_stop_gate.py` now use the shared helper instead of inline JSON construction, adding user-facing messages.
+- **`BlockedError` supports `system_message`** — optional parameter for user-facing notifications on blocked tool calls.
+
 ## v0.9.36 — Direct SMM Loading & Simplify Gate Timing
 
 ### Added

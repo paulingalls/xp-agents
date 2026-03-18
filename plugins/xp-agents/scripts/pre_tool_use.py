@@ -282,7 +282,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     if enforcement == _common.ENFORCEMENT_ADVISORY:
                         parts.append(f"⚠️ Advisory warning: {msg}")
                     else:
-                        raise _common.BlockedError(msg)
+                        raise _common.BlockedError(
+                            msg, "Security review required before pushing."
+                        )
 
     # Classify tier and get target file
     tier = classify_tier(tool_name, tool_input)
@@ -301,7 +303,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if enforcement == _common.ENFORCEMENT_ADVISORY:
                 parts.append(f"⚠️ Advisory warning: {conflict}")
             else:
-                raise _common.BlockedError(conflict)
+                raise _common.BlockedError(
+                    conflict,
+                    "File conflict detected — another agent is working on this file.",
+                )
 
     # Delta / Active Context injection
     if smm_dir:
@@ -375,6 +380,8 @@ if __name__ == "__main__":
     try:
         result = run(input_data)
     except _common.BlockedError as e:
+        if e.system_message:
+            print(json.dumps({"systemMessage": e.system_message}))
         print(str(e), file=sys.stderr)
         sys.exit(2)
 

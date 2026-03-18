@@ -181,6 +181,6 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        print(json.dumps({"decision": "block", "reason": result}))
+        _common.block_output(result, "Code review required before stopping.")
         sys.exit(0)
     sys.exit(0)

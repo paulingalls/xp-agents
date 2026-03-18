@@ -54,5 +54,6 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result is not None:
+        result["systemMessage"] = "Session review required — run /xp-session-review."
         print(json.dumps(result))
     sys.exit(0)

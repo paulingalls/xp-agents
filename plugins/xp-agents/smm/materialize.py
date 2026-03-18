@@ -570,8 +570,11 @@ def render_markdown(
     # ===================================================================
     ref_sections: list[str] = []
 
-    # R1. Architecture Decisions
-    decisions = indices["by_type"].get("decision", [])
+    # R1. Architecture Decisions — exclude resolved
+    all_decisions = indices["by_type"].get("decision", [])
+    decisions = [
+        d for d in all_decisions if d["id"] not in indices["decision_resolutions"]
+    ]
     if decisions:
         lines = ["## Architecture Decisions"]
         for d in decisions:

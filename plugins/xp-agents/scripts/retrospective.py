@@ -346,5 +346,12 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
-        _common.hook_output("SessionStart", context)
+        # Extract unanalyzed count from context for user message
+        _match = re.search(r"(\d+) unanalyzed events", context)
+        _count = _match.group(1) if _match else "some"
+        _common.hook_output(
+            "SessionStart",
+            context,
+            f"Retrospective data available — {_count} unanalyzed events.",
+        )
     sys.exit(0)

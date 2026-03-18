@@ -936,6 +936,50 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertNotIn("## Customer Intent", md)
         self.assertNotIn("## Technical Debt", md)
 
+    def test_resolved_decisions_omitted_from_rendering(self):
+        """Resolved draft decisions should not appear in Architecture Decisions."""
+        draft = make_event(
+            "decision",
+            content="Use Redis for caching",
+            topic="caching",
+            metadata={"draft": True},
+        )
+        resolver = make_event(
+            "status",
+            content="Draft decision confirmed: shipped",
+            working_on=[],
+            metadata={"resolves": [draft["id"]]},
+        )
+        self._write_events([draft, resolver])
+        md = materialize.materialize(self.smm_dir)
+        self.assertNotIn("Use Redis for caching", md)
+        self.assertNotIn("## Architecture Decisions", md)
+
+    def test_resolved_decisions_mixed_with_open(self):
+        """Only resolved decisions are omitted; open ones still render."""
+        resolved_draft = make_event(
+            "decision",
+            content="Use Redis",
+            topic="caching",
+            metadata={"draft": True},
+        )
+        open_decision = make_event(
+            "decision",
+            content="Use PostgreSQL",
+            topic="database",
+        )
+        resolver = make_event(
+            "status",
+            content="Confirmed",
+            working_on=[],
+            metadata={"resolves": [resolved_draft["id"]]},
+        )
+        self._write_events([resolved_draft, open_decision, resolver])
+        md = materialize.materialize(self.smm_dir)
+        self.assertNotIn("Use Redis", md)
+        self.assertIn("Use PostgreSQL", md)
+        self.assertIn("## Architecture Decisions", md)
+
     def test_all_15_types_render(self):
         q = make_event("question", content="Q?", priority="\U0001f534")
         events = [

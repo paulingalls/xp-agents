@@ -36,7 +36,14 @@ from _append_impl import _validate_smm_dir as validate_smm_dir
 
 
 class BlockedError(Exception):
-    """Raised when a tool call should be blocked (exit 2 with stderr message)."""
+    """Raised when a tool call should be blocked (exit 2 with stderr message).
+
+    Optional system_message is shown to the user (not the agent).
+    """
+
+    def __init__(self, message: str, system_message: str | None = None) -> None:
+        super().__init__(message)
+        self.system_message = system_message
 
 
 # ---------------------------------------------------------------------------
@@ -123,15 +130,36 @@ def read_hook_input() -> dict:
         sys.exit(0)
 
 
-def hook_output(event_name: str, context: str) -> None:
-    """Print hookSpecificOutput JSON to stdout."""
-    output = {
+def hook_output(
+    event_name: str, context: str, system_message: str | None = None
+) -> None:
+    """Print hookSpecificOutput JSON to stdout.
+
+    If system_message is provided, it is shown to the user as a notification
+    (separate from additionalContext which only the agent sees).
+    """
+    output: dict = {
         "hookSpecificOutput": {
             "hookEventName": event_name,
             "additionalContext": context,
         }
     }
+    if system_message:
+        output["systemMessage"] = system_message
     print(json.dumps(output, ensure_ascii=False))
+
+
+def block_output(reason: str, system_message: str) -> None:
+    """Print block decision JSON with systemMessage to stdout."""
+    print(
+        json.dumps(
+            {
+                "decision": "block",
+                "reason": reason,
+                "systemMessage": system_message,
+            }
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
