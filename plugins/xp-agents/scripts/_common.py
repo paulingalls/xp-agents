@@ -29,6 +29,9 @@ from _append_impl import (
     write_watermark,  # noqa: F401
 )
 from _append_impl import _validate_smm_dir as validate_smm_dir
+from _append_impl import (
+    write_json_atomic as _write_json_atomic,
+)
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -269,8 +272,6 @@ def write_json_atomic(file_path: Path, data: dict) -> None:
     """
     if file_path.is_symlink():
         raise ValueError(f"Refusing to write to symlink: {file_path}")
-    from _append_impl import write_json_atomic as _write_json_atomic
-
     _write_json_atomic(file_path, data)
 
 

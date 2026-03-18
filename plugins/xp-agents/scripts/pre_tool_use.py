@@ -258,9 +258,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     if enforcement == _common.ENFORCEMENT_ADVISORY:
                         parts.append(f"⚠️ Advisory warning: {msg}")
                     else:
-                        raise _common.BlockedError(
-                            msg, "Security review required before pushing."
-                        )
+                        raise _common.BlockedError(msg)
 
     target_file = get_target_file(tool_name, tool_input)
 
@@ -271,10 +269,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if enforcement == _common.ENFORCEMENT_ADVISORY:
                 parts.append(f"⚠️ Advisory warning: {conflict}")
             else:
-                raise _common.BlockedError(
-                    conflict,
-                    "File conflict detected — another agent is working on this file.",
-                )
+                raise _common.BlockedError(conflict)
 
     # Debt injection for write tools
     events: list[dict] | None = None

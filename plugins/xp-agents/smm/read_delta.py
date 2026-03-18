@@ -53,9 +53,15 @@ def read_events_from(smm_dir: Path, start_line: int) -> tuple[list[dict], int]:
     lines = raw.splitlines()
     total = len(lines)
 
-    # Parse only the lines after the watermark
-    tail = "\n".join(lines[start_line:])
-    events, _ = parse_jsonl(tail)
+    if start_line >= total:
+        return [], total
+
+    # Parse only the tail portion without split-join-split overhead
+    # Find byte offset of start_line in raw string
+    offset = 0
+    for _ in range(start_line):
+        offset = raw.index("\n", offset) + 1
+    events, _ = parse_jsonl(raw[offset:])
 
     return events, total
 

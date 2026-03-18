@@ -14,6 +14,8 @@ from pathlib import Path
 
 from _append_impl import (
     compute_resolutions,
+    parse_jsonl,
+    write_json_atomic,
 )
 from _append_impl import (
     read_with_lock as _read_with_lock,
@@ -30,8 +32,6 @@ _CURATION_WM_DEFAULTS = {"event_count": 0, "timestamp": "", "agent_id": ""}
 
 def write_curation_watermark(smm_dir: Path, event_count: int, agent_id: str) -> None:
     """Atomic write of curation watermark via tempfile + rename."""
-    from _append_impl import write_json_atomic
-
     wm_file = smm_dir / ".curation-watermark"
     if wm_file.is_symlink():
         raise OSError(f"Curation watermark path is a symlink: {wm_file}")
@@ -82,8 +82,6 @@ def parse_events(smm_dir: Path) -> tuple[list[dict], int]:
     Uses parse_jsonl() for core JSONL parsing, then validates that each
     event has 'id' and 'type' fields.
     """
-    from _append_impl import parse_jsonl
-
     raw = _read_with_lock(smm_dir / "events.jsonl")
     if not raw.strip():
         return [], 0
