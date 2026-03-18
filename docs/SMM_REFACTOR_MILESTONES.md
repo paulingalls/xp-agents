@@ -113,14 +113,14 @@ Migrating from the current event-dump SMM to the four-pillar curated model descr
 
 ---
 
-## M5: Remove PreToolUse Delta, Add Stop Nuggets
+## M5: Remove PreToolUse Delta, Add Prompt Nuggets
 
-**Goal:** Eliminate the per-tool-call SMM injection. Replace with lightweight nuggets at Stop events. This is the big context savings.
+**Goal:** Eliminate the per-tool-call SMM injection. Replace with lightweight nuggets at UserPromptSubmit. This is the big context savings.
 
 **What changes:**
 - PreToolUse no longer reads the event log or injects SMM delta
 - PreToolUse retains only: conflict check (via `.coordination.json` from M4), TDD order check, plan review gate
-- Stop hook injects a nugget: unresolved risks, undelivered intents (~50-80 tokens)
+- UserPromptSubmit hook injects a prompt nugget: new concerns, decisions, and discoveries since last prompt (~50-100 tokens)
 - SubagentStart injects the full curated SMM (for new subagents/teammates)
 
 **What gets removed:**
@@ -136,8 +136,8 @@ Migrating from the current event-dump SMM to the four-pillar curated model descr
 **Acceptance criteria:**
 - [ ] PreToolUse no longer reads events.jsonl
 - [ ] PreToolUse no longer injects `<smm-context>` or `<smm-delta>`
-- [ ] Stop nugget shows unresolved risks and undelivered intents
-- [ ] Stop nugget is empty (no injection) when nothing needs attention
+- [ ] UserPromptSubmit nugget shows new signal events since last prompt
+- [ ] Nugget is empty (no injection) when nothing is new
 - [ ] SubagentStart injects full four-pillar SMM
 - [ ] Context savings verified: measure tokens per tool call before/after
 - [ ] All existing functionality preserved (TDD check, conflict detection, plan gate)
@@ -204,8 +204,8 @@ Each milestone leaves the system working:
 | M2 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Old SMM refs |
 | M3 | housekeeping (LLM) | Every PreToolUse | Event log scan | Unbounded | Four-pillar |
 | M4 | housekeeping (LLM) | Every PreToolUse | .coordination.json | Unbounded | Four-pillar |
-| M5 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Unbounded | Four-pillar |
-| M6 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Four-pillar |
-| M7 | housekeeping (LLM) | Stop nuggets only | .coordination.json | Compacted | Four-pillar |
+| M5 | housekeeping (LLM) | Prompt nuggets (UserPromptSubmit) | .coordination.json | Unbounded | Four-pillar |
+| M6 | housekeeping (LLM) | Prompt nuggets (UserPromptSubmit) | .coordination.json | Compacted | Four-pillar |
+| M7 | housekeeping (LLM) | Prompt nuggets (UserPromptSubmit) | .coordination.json | Compacted | Four-pillar |
 
 The riskiest milestone is **M2** (housekeeping takes over SMM writing). Everything else is additive or subtractive with clear rollback.

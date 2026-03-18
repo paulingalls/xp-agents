@@ -189,7 +189,7 @@ Housekeeping writes the curated `SHARED_MENTAL_MODEL.md`. This replaces the curr
 
 During the session, a few specific moments inject lightweight hints via `additionalContext`. Not deltas, not the full SMM — just useful context at useful moments:
 
-- **Stop:** Summary of unresolved risks and undelivered intents
+- **UserPromptSubmit:** Summary of new concerns, decisions, and discoveries since last prompt
 - **Conflict detected:** "Agent-2 is touching the same files"
 - **Subagent completes:** "Quality review found issues" (the subagent's full response is already in context)
 
@@ -213,7 +213,7 @@ The SMM.md file is written by housekeeping (with judgment), not by the materiali
 | When | What | Cost |
 |---|---|---|
 | Session start | Full SMM (written by housekeeping) | ~500 tokens, once |
-| Stop | Nugget: unresolved risks, undelivered intents | ~50-100 tokens |
+| UserPromptSubmit | Nugget: new concerns, decisions, discoveries since last prompt | ~50-100 tokens |
 | Conflict | Nugget: who's touching what | ~20 tokens |
 | SubagentStart | Full SMM for new subagents/teammates | ~500 tokens |
 
@@ -268,18 +268,17 @@ Every agent leaves the same kinds of trails. Housekeeping doesn't care which age
 
 Three moments, minimal content. No other hooks need nuggets.
 
-### Stop nugget
+### Prompt nugget (UserPromptSubmit)
 
-Fires when the agent pauses. Reminds it of open commitments:
+Fires on each user prompt. Surfaces new signal events (concerns, decisions, discoveries) since the last prompt:
 
 ```
-⚡ Session checkpoint:
-- 2 intents undelivered: "Add RBAC", "Token refresh"
-- 1 🔴 risk: No integration tests for role checks
-- Quality review raised: empty catch block in auth handler
+New since last prompt:
+- [concern] Test failures detected: 1 failed (unittest)
+- [decision] Fix retrospective preload overflow, move prompt nugget...
 ```
 
-~50-80 tokens. Only items needing attention. If nothing is open, no nugget.
+~50-100 tokens. Only new items since last injection. If nothing is new, no nugget.
 
 ### Conflict nugget (teams only)
 
