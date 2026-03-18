@@ -1584,7 +1584,7 @@ class TestPreToolUseRun(_HookTestCase):
         concerns = [e for e in events if e.get("type") == "concern"]
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0]["severity"], "high")
-        self.assertIn("File conflict", concerns[0]["content"])
+        self.assertIn("CONFLICT", concerns[0]["content"])
 
     def test_no_smm_dir_degrades_gracefully(self):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"

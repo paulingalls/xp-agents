@@ -271,7 +271,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern_event = _common.make_event(
                 _common.CONCERN,
                 agent_id,
-                f"File conflict: {conflict}",
+                conflict,
                 severity="high",
             )
             _common.append_safe(smm_dir, concern_event)

@@ -29,6 +29,7 @@ from _append_impl import (
     read_with_lock,
     replace_events_file,
     resolve_smm_dir,
+    write_json_atomic,
     write_watermark,
 )
 from materialize import read_curation_watermark, write_curation_watermark
@@ -235,9 +236,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
                     wm_data["event_count"] = max(
                         0, int(wm_data["event_count"]) - archived_count
                     )
-                    wm_file.write_text(
-                        json.dumps(wm_data, ensure_ascii=False), encoding="utf-8"
-                    )
+                    write_json_atomic(wm_file, wm_data)
             except (OSError, json.JSONDecodeError, ValueError):
                 continue
 
