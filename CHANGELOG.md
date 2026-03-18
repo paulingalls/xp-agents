@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.9.42 — Tech Debt Cleanup (5 fixes + simplify)
+
+### Fixed
+- **Compaction race condition** — `compact_after_curation()` now uses `read_with_lock()` instead of unlocked `read_text()`, preventing data loss when events are appended during compaction.
+- **Stale team watermarks** — All `.curation-watermark-*` files are now adjusted by `archived_count` after compaction, not just the primary one. Uses `write_json_atomic()` for crash safety.
+- **Conflict nugget missing** — `pre_tool_use.py` now appends a high-severity concern event when a file conflict is detected, for team awareness alongside blocking.
+- **Lint false positives** — `run_linter()` now skips files modified less than 1 second ago (mtime debounce), preventing false-positive concern events during rapid edits.
+- **repair.py double-parse** — Replaced `parse_jsonl()` + second `json.loads()` loop with single-pass local loop that tracks malformed vs invalid directly. Removed unused `parse_jsonl` import.
+
+### Changed
+- **Conflict concern content** — Uses `check_working_on_overlap()` return value directly instead of wrapping with redundant "File conflict:" prefix (found by /simplify).
+
+### Tech Debt Resolved
+- Compaction race condition [5887e4db] — closed
+- Stale team watermarks [0d8c4376] — closed
+- Conflict nugget missing [dbdf1ea0] — closed
+- Lint debounce [f7be28f8] — closed
+- Repair double-parse [1bb8be5c] — closed
+
+### Remaining
+- Quality review stop gate fires too early with background agents [e72d72cd] — needs investigation
+
+### Stats
+- 879 tests (all passing)
+
 ## v0.9.41 — Event Log Compaction (M6), Prompt Nugget Rewrite, Doc Alignment
 
 ### Added
