@@ -38,7 +38,7 @@ class TestPreToolWriteIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         # No delta injection — output may be empty or contain only
-        # non-delta content (debt, plan gate, enforcement)
+        # non-delta content (debt, plan gate)
         if result.stdout.strip():
             output = json.loads(result.stdout)
             ctx = output.get("hookSpecificOutput", {}).get("additionalContext", "")

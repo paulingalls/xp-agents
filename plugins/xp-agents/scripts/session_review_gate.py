@@ -56,10 +56,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if "/xp-session-review" in prompt:
         return None
 
-    enforcement = _common.load_enforcement_mode()
-    if enforcement == _common.ENFORCEMENT_ADVISORY:
-        return None
-
     # Read marker content to determine block vs nudge.
     # "clear" = mid-session reset, nudge only.
     # "startup" or empty = new session, hard block.

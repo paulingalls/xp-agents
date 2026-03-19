@@ -17,7 +17,6 @@ import security
 from conftest import (
     _HookTestCase,
     _make_bash_input,
-    _override_settings,
     make_event,
 )
 
@@ -55,14 +54,6 @@ class TestPreToolBashNoDelta(_HookTestCase):
 
 class TestPreToolBashPushGate(_HookTestCase):
     """Tests for git push security review gate in pre_tool_bash.py."""
-
-    def setUp(self):
-        super().setUp()
-        _common.load_enforcement_mode.cache_clear()
-
-    def tearDown(self):
-        _common.load_enforcement_mode.cache_clear()
-        super().tearDown()
 
     def _push_input(self, command: str = "git push origin main", **overrides) -> dict:
         data = {
@@ -105,16 +96,6 @@ class TestPreToolBashPushGate(_HookTestCase):
         security.write_security_tracker(self.smm_dir, "abc1234")
         with patch.object(security, "get_head_hash", return_value="abc1234"):
             pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-
-    def test_push_advisory_warns(self):
-        """Advisory mode: git push warns instead of blocking."""
-        with (
-            _override_settings({"enforcement": "advisory"}),
-            patch.object(security, "get_head_hash", return_value="abc1234"),
-        ):
-            result = pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-            self.assertIsNotNone(result)
-            self.assertIn("security", result.lower())
 
     def test_push_event_written_on_block(self):
         """Blocking a push writes security_review_requested event."""

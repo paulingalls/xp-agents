@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-from conftest import _HookTestCase, _override_settings, make_event
+from conftest import _HookTestCase, make_event
 
 # ===========================================================================
 # session_start.py tests — path validation
@@ -205,29 +205,6 @@ class TestSessionStart(_HookTestCase):
         )
         self.assertIn("Shared Mental Model", result)
         self.assertIn("Resume immediately", result)
-
-    def test_advisory_enforcement_indicator(self):
-        """Advisory mode injects enforcement indicator into context."""
-        import session_start
-
-        self._write_events([make_event()])
-        with _override_settings({"enforcement": "advisory"}):
-            result = session_start.run(
-                {"session_id": "test", "source": "startup"},
-                smm_dir=self.smm_dir,
-            )
-            self.assertIn("[enforcement: advisory]", result)
-
-    def test_strict_enforcement_no_label(self):
-        """Strict mode has no enforcement label."""
-        import session_start
-
-        self._write_events([make_event()])
-        result = session_start.run(
-            {"session_id": "test", "source": "startup"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertNotIn("[enforcement:", result)
 
     def test_writes_needs_session_review_marker(self):
         """session_start writes .needs-session-review marker with source."""

@@ -164,8 +164,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     agent_id = input_data.get("agent_id", "main")
     cwd = input_data.get("cwd", ".")
 
-    enforcement = _common.load_enforcement_mode()
-
     parts: list[str] = []
 
     # Extract target_file (always present for Write/Edit/MultiEdit)
@@ -182,13 +180,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 severity="high",
             )
             _common.append_safe(smm_dir, concern_event)
-            if enforcement == _common.ENFORCEMENT_ADVISORY:
-                parts.append(f"Advisory warning: {conflict}")
-            else:
-                raise _common.BlockedError(
-                    conflict,
-                    "File conflict detected — another agent is working on this file.",
-                )
+            raise _common.BlockedError(
+                conflict,
+                "File conflict detected — another agent is working on this file.",
+            )
 
     # Plan review gate — check marker file (O(1), no event log scan)
     if smm_dir:
@@ -203,10 +198,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)
         if tdd_nudge:
             parts.append(tdd_nudge)
-
-    # Enforcement indicator
-    if enforcement == _common.ENFORCEMENT_ADVISORY:
-        parts.append("[enforcement: advisory]")
 
     if not parts:
         return None

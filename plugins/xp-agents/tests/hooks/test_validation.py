@@ -658,11 +658,11 @@ class TestPluginIntegrity(unittest.TestCase):
                 )
 
     def test_settings_json_exists(self):
-        """settings.json exists with enforcement default."""
+        """settings.json exists with expected keys."""
         path = self.plugin_root / "settings.json"
         self.assertTrue(path.is_file())
         data = json.loads(path.read_text())
-        self.assertIn("enforcement", data)
+        self.assertIn("commit_size_threshold", data)
 
     def test_behavioral_guide_exists(self):
         """BEHAVIORAL_GUIDE.md exists and is non-trivial."""

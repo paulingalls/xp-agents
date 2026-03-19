@@ -6,7 +6,6 @@ engine, and SMM tests. Import from here instead of cross-importing between
 test files.
 """
 
-import contextlib
 import json
 import os
 import shutil
@@ -16,7 +15,6 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
-from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules
@@ -130,22 +128,6 @@ def _make_bash_input(command: str = "echo hi", stdout: str = "", **overrides) ->
     }
     data.update(overrides)
     return data
-
-
-@contextlib.contextmanager
-def _override_settings(overrides: dict):
-    """Override settings.json via mock for test isolation."""
-    import _common
-
-    tmpdir = Path(tempfile.mkdtemp())
-    try:
-        (tmpdir / "settings.json").write_text(json.dumps(overrides))
-        _common.load_enforcement_mode.cache_clear()
-        with patch.object(_common, "resolve_plugin_root", return_value=tmpdir):
-            yield
-    finally:
-        _common.load_enforcement_mode.cache_clear()
-        shutil.rmtree(tmpdir)
 
 
 # ---------------------------------------------------------------------------

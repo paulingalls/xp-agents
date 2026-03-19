@@ -1,4 +1,3 @@
 {
-  "commit_size_threshold": 10,
-  "enforcement": "strict"
+  "commit_size_threshold": 10
 }

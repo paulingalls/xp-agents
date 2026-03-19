@@ -2,14 +2,12 @@
 """Integration tests: extended and security tests.
 
 Tests for simplify gate, bash failure, lint check extended, bash post tool
-extended, advisory enforcement, and security review gate.
+extended, and security review gate.
 """
 
 import json
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -401,73 +399,6 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
         self.assertEqual(result.stdout.strip(), "")
 
 
-class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
-    def _make_advisory_plugin_root(self) -> Path:
-        """Create a temp dir with advisory settings.json."""
-        plugin_root = Path(tempfile.mkdtemp())
-        (plugin_root / "settings.json").write_text(
-            json.dumps({"enforcement": "advisory"})
-        )
-        return plugin_root
-
-    def test_conflict_warns_instead_of_blocking(self):
-        """Advisory mode: working_on conflict → exit 0 with warning, not exit 2."""
-        from datetime import datetime, timezone
-
-        coord = {
-            "other-agent": {
-                "working_on": [str(self.tmpdir / "src" / "app.ts")],
-                "updated": datetime.now(timezone.utc).isoformat(),
-            }
-        }
-        (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
-        plugin_root = self._make_advisory_plugin_root()
-        try:
-            result = self._run_script_with_env(
-                "pre_tool_write.py",
-                {
-                    "session_id": "int-test",
-                    "tool_name": "Write",
-                    "tool_input": {"file_path": "src/app.ts"},
-                    "agent_id": "main",
-                    "cwd": str(self.tmpdir),
-                },
-                {"CLAUDE_PLUGIN_ROOT": str(plugin_root)},
-            )
-            self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-            output = json.loads(result.stdout)
-            ctx = output["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("Advisory", ctx)
-            self.assertIn("other-agent", ctx)
-            self.assertIn("[enforcement: advisory]", ctx)
-        finally:
-            shutil.rmtree(plugin_root)
-
-    def test_strict_mode_blocks(self):
-        """Strict mode (default): working_on conflict → exit 2."""
-        from datetime import datetime, timezone
-
-        coord = {
-            "other-agent": {
-                "working_on": [str(self.tmpdir / "src" / "app.ts")],
-                "updated": datetime.now(timezone.utc).isoformat(),
-            }
-        }
-        (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
-        result = self._run_script(
-            "pre_tool_write.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("other-agent", result.stderr)
-
-
 class TestSecurityReviewGateIntegration(_IntegrationTestCase):
     """Integration tests for security review push gate and detection paths."""
 
@@ -533,31 +464,6 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
         events = self._read_events()
         sec_events = [e for e in events if e.get("type") == "security_review_requested"]
         self.assertEqual(len(sec_events), 1)
-
-    def test_advisory_mode_warns(self):
-        """Advisory mode: push warns instead of blocking."""
-        plugin_root = Path(tempfile.mkdtemp())
-        (plugin_root / "settings.json").write_text(
-            json.dumps({"enforcement": "advisory"})
-        )
-        try:
-            result = self._run_script_with_env(
-                "pre_tool_bash.py",
-                {
-                    "session_id": "int-test",
-                    "tool_name": "Bash",
-                    "tool_input": {"command": "git push"},
-                    "agent_id": "main",
-                    "cwd": str(self.tmpdir),
-                },
-                {"CLAUDE_PLUGIN_ROOT": str(plugin_root)},
-            )
-            self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-            output = json.loads(result.stdout)
-            ctx = output["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("security", ctx.lower())
-        finally:
-            shutil.rmtree(plugin_root)
 
     def test_user_prompt_writes_tracker(self):
         """/security-review in user prompt writes tracker file."""

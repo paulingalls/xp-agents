@@ -81,14 +81,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         marker = smm_dir / ".needs-session-review"
         marker.write_text(source)
 
-    # Build context: GUPP + skills + behavioral guide only. No SMM, no nudges.
+    # Build context: GUPP + skills. No SMM, no nudges.
     parts: list[str] = []
-
-    # Inject enforcement indicator for advisory mode
-    enforcement = _common.load_enforcement_mode()
-    if enforcement == _common.ENFORCEMENT_ADVISORY:
-        parts.append("\n[enforcement: advisory]")
-
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
 

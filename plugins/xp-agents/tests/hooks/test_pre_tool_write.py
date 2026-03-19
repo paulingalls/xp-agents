@@ -17,7 +17,6 @@ from conftest import (
     _HookTestCase,
     _make_bash_input,
     _make_write_input,
-    _override_settings,
     make_event,
 )
 
@@ -283,43 +282,6 @@ class TestPreToolWriteNoDelta(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
-
-
-class TestPreToolWriteEnforcement(_HookTestCase):
-    def test_advisory_converts_block_to_warning(self):
-        """Advisory mode converts BlockedError to warning in context."""
-        coordination.update_coordination(
-            self.smm_dir, "other-agent", ["/tmp/src/app.ts"]
-        )
-        with _override_settings({"enforcement": "advisory"}):
-            result = pre_tool_write.run(
-                _make_write_input(),
-                smm_dir=self.smm_dir,
-            )
-            self.assertIsNotNone(result)
-            self.assertIn("CONFLICT", result)
-            self.assertIn("advisory", result.lower())
-
-    def test_strict_blocks(self):
-        """Strict mode still raises BlockedError."""
-        coordination.update_coordination(
-            self.smm_dir, "other-agent", ["/tmp/src/app.ts"]
-        )
-        with self.assertRaises(_common.BlockedError):
-            pre_tool_write.run(
-                _make_write_input(),
-                smm_dir=self.smm_dir,
-            )
-
-    def test_advisory_indicator_in_context(self):
-        """Advisory mode appends enforcement indicator."""
-        with _override_settings({"enforcement": "advisory"}):
-            result = pre_tool_write.run(
-                _make_write_input(),
-                smm_dir=self.smm_dir,
-            )
-            self.assertIsNotNone(result)
-            self.assertIn("[enforcement: advisory]", result)
 
 
 class TestPreToolWritePerformance(_HookTestCase):

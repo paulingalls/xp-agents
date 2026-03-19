@@ -319,42 +319,6 @@ def wrap_smm_context(content: str) -> str:
 # Security review: see security.py
 
 
-# ---------------------------------------------------------------------------
-# Enforcement mode
-# ---------------------------------------------------------------------------
-
-ENFORCEMENT_STRICT = "strict"
-ENFORCEMENT_ADVISORY = "advisory"
-_VALID_ENFORCEMENT_MODES = frozenset({ENFORCEMENT_STRICT, ENFORCEMENT_ADVISORY})
-
-
-@functools.lru_cache(maxsize=1)
-def load_enforcement_mode() -> str:
-    """Load enforcement mode from settings.json, default 'strict'.
-
-    Cached per process — each hook invocation is a separate process.
-    Rejects symlinks (O_NOFOLLOW) and wrong-owner files.
-    """
-    try:
-        settings_path = resolve_plugin_root() / "settings.json"
-        # Reject symlinks and wrong-owner files
-        fd = os.open(str(settings_path), os.O_RDONLY | os.O_NOFOLLOW)
-        try:
-            st = os.fstat(fd)
-            if st.st_uid != os.getuid():
-                return ENFORCEMENT_STRICT
-            raw = os.read(fd, 65536).decode("utf-8")
-        finally:
-            os.close(fd)
-        data = json.loads(raw)
-        mode = data.get("enforcement", ENFORCEMENT_STRICT)
-        if mode in _VALID_ENFORCEMENT_MODES:
-            return mode
-        return ENFORCEMENT_STRICT
-    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError, OSError):
-        return ENFORCEMENT_STRICT
-
-
 # Debt lookup: see concerns.py
 
 

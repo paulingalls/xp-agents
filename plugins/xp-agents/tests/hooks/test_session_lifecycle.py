@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-from conftest import _HookTestCase, _override_settings, make_event
+from conftest import _HookTestCase, make_event
 
 # ===========================================================================
 # session_end.py tests
@@ -370,17 +370,6 @@ class TestSessionReviewGate(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
-
-    def test_advisory_mode_allows(self):
-        import session_review_gate
-
-        (self.smm_dir / ".needs-session-review").touch()
-        with _override_settings({"enforcement": "advisory"}):
-            result = session_review_gate.run(
-                {"session_id": "test", "prompt": "do work"},
-                smm_dir=self.smm_dir,
-            )
         self.assertIsNone(result)
 
     def test_clear_marker_nudges_instead_of_blocking(self):

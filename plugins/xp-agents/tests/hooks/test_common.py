@@ -8,7 +8,6 @@ import io
 import json
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -195,64 +194,6 @@ class TestWriteWatermark(_HookTestCase):
         _common.write_watermark(self.smm_dir, "xp-navigator", 5)
         wm_file = self.smm_dir / ".watermark-xp-navigator"
         self.assertTrue(wm_file.exists())
-
-
-class TestLoadEnforcementMode(unittest.TestCase):
-    """Tests for _common.load_enforcement_mode()."""
-
-    def setUp(self):
-        _common.load_enforcement_mode.cache_clear()
-        self.tmpdir = Path(tempfile.mkdtemp())
-        self.settings_path = self.tmpdir / "settings.json"
-
-    def tearDown(self):
-        _common.load_enforcement_mode.cache_clear()
-        import shutil
-
-        shutil.rmtree(self.tmpdir)
-
-    def test_default_strict(self):
-        """Defaults to strict when no enforcement key."""
-        self.settings_path.write_text(json.dumps({"commit_size_threshold": 10}))
-        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
-            result = _common.load_enforcement_mode()
-        self.assertEqual(result, "strict")
-
-    def test_advisory_mode(self):
-        self.settings_path.write_text(
-            json.dumps({"enforcement": "advisory", "commit_size_threshold": 10})
-        )
-        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
-            result = _common.load_enforcement_mode()
-        self.assertEqual(result, "advisory")
-
-    def test_strict_mode(self):
-        self.settings_path.write_text(
-            json.dumps({"enforcement": "strict", "commit_size_threshold": 10})
-        )
-        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
-            result = _common.load_enforcement_mode()
-        self.assertEqual(result, "strict")
-
-    def test_missing_file(self):
-        """Defaults to strict when settings.json missing."""
-        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
-            result = _common.load_enforcement_mode()
-        self.assertEqual(result, "strict")
-
-    def test_invalid_json(self):
-        """Defaults to strict on invalid JSON."""
-        self.settings_path.write_text("not json{{{")
-        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
-            result = _common.load_enforcement_mode()
-        self.assertEqual(result, "strict")
-
-    def test_invalid_value(self):
-        """Defaults to strict on unrecognized value."""
-        self.settings_path.write_text(json.dumps({"enforcement": "whatever"}))
-        with patch.object(_common, "resolve_plugin_root", return_value=self.tmpdir):
-            result = _common.load_enforcement_mode()
-        self.assertEqual(result, "strict")
 
 
 class TestFindDebtForFile(_HookTestCase):

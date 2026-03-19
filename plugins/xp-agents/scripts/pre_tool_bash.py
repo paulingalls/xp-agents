@@ -97,8 +97,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     cwd = input_data.get("cwd", ".")
     command = tool_input.get("command", "")
 
-    enforcement = _common.load_enforcement_mode()
-
     parts: list[str] = []
 
     # Push gate: block git push until security review has been run
@@ -125,19 +123,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"Security review required before push (HEAD: {head_hash})",
                 )
                 _common.append_safe(smm_dir, event)
-                msg = (
+                raise _common.BlockedError(
                     "Security review required before pushing. "
                     "Either run the /security-review skill to "
                     "perform the review, or if you have already "
                     "reviewed the code, run the /security-clear "
-                    "skill to clear the gate."
+                    "skill to clear the gate.",
+                    "Security review required before pushing.",
                 )
-                if enforcement == _common.ENFORCEMENT_ADVISORY:
-                    parts.append(f"Advisory warning: {msg}")
-                else:
-                    raise _common.BlockedError(
-                        msg, "Security review required before pushing."
-                    )
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:
