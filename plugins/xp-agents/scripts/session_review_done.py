@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: inject SMM + behavioral guide after housekeeping.
+"""PostToolUse:Skill hook: inject behavioral guide after housekeeping.
 
 When /xp-housekeeping completes (the final step of session review),
-reads the curated SMM and injects it along with BEHAVIORAL_GUIDE.md
-as additionalContext. Triggered on housekeeping rather than
-xp-session-review because the orchestrator skill returns immediately
-while the actual work happens in sub-skill invocations.
+injects BEHAVIORAL_GUIDE.md as additionalContext. The curated SMM is
+already in context — housekeeping reads and writes the file directly.
 """
 
 import functools
@@ -48,26 +46,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    # Read curated SMM file (written by housekeeping)
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    try:
-        md = smm_file.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        md = ""
-
     # Clean up session review marker
     (smm_dir / ".needs-session-review").unlink(missing_ok=True)
 
-    # Build context: SMM first, then behavioral guide
-    parts: list[str] = []
-    if md:
-        parts.append(_common.wrap_smm_context(md))
-
+    # Inject behavioral guide only — the agent already has the SMM
+    # from housekeeping step 8 (Read the file it just wrote).
     guide = _load_behavioral_guide()
-    if guide:
-        parts.append(guide)
-
-    return "\n\n".join(parts) if parts else None
+    return guide if guide else None
 
 
 if __name__ == "__main__":

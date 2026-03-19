@@ -468,44 +468,15 @@ class TestSessionReviewDone(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_smm_before_behavioral_guide(self):
-        """SMM appears before behavioral guide in output."""
-        self._write_events([make_event("goal", content="Ship v1")])
+    def test_returns_behavioral_guide_only(self):
+        """Output has behavioral guide, not SMM (agent has it from housekeeping)."""
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
             "# Shared Mental Model\n## Intent\n- Ship v1\n"
         )
         result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
-        smm_pos = result.find("Shared Mental Model")
-        guide_pos = result.find("XP Agent Behavioral Guide")
-        self.assertGreater(guide_pos, smm_pos)
-
-    def test_reads_four_pillar_smm_file(self):
-        """When SMM file exists on disk, reads it instead of materializing."""
-        four_pillar = (
-            "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
-            "## Constraints\n- Use Postgres\n\n"
-            "## Risks\n- No tests\n\n"
-            "## Wisdom\n- Write tests first\n"
-        )
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(four_pillar)
-        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("## Intent", result)
-        self.assertIn("## Constraints", result)
-        self.assertIn("## Wisdom", result)
-
-    def test_falls_back_to_empty_without_smm_file(self):
-        """When no SMM file exists, returns guide-only (no SMM context tag)."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        # Ensure no SMM file on disk
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.unlink(missing_ok=True)
-        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        if result is not None:
-            # Should not contain the SMM context wrapper tag
-            self.assertNotIn("<smm-context>", result)
+        self.assertIn("XP Agent Behavioral Guide", result)
+        self.assertNotIn("<smm-context>", result)
 
     def test_deletes_needs_session_review_marker(self):
         """Should delete .needs-session-review marker after injection."""
