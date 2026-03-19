@@ -79,18 +79,18 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
 | **PreToolUse** | `Bash` | `pre_tool_bash.py` | Push security gate, file-modification conflict heuristic (advisory) |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
-| **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results |
-| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing |
-| **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs |
+| **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results. `async: true` |
+| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing. `async: true` |
+| **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
-| **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes |
+| **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes. `async: true` |
 | **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker |
 | **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
 | **Stop** | | `quality_review_gate.py` | Block if subagent reviews still pending |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing (command hook, replaced prompt hook) |
 | **PostCompact** | | `compact.py` | Compact event log (watermark-based, retains recent + session_end + referenced events) |
-| **SessionEnd** | | `session_end.py` | Append session_end event |
+| **SessionEnd** | | `session_end.py` | Append session_end event. `async: true` |
 | **PreCompact** | | `pre_compact.py` | Back up SMM state |
 | **UserPromptSubmit** | | `user_prompt_log.py` | Log as customer_input event |
 | **UserPromptSubmit** | | `kickoff_gate.py` | Block prompts until `/xp-kickoff` runs (allows the command itself through) |

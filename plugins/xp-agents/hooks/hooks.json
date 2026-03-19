@@ -46,7 +46,8 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end.py",
             "timeout": 2500,
-            "statusMessage": "Recording session end..."
+            "statusMessage": "Recording session end...",
+            "async": true
           }
         ]
       }
@@ -114,7 +115,8 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/bash_failure.py",
             "timeout": 5000,
-            "statusMessage": "Checking test results..."
+            "statusMessage": "Checking test results...",
+            "async": true
           }
         ]
       }
@@ -133,7 +135,8 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/lint_check.py",
             "timeout": 10000,
-            "statusMessage": "Running lint check..."
+            "statusMessage": "Running lint check...",
+            "async": true
           }
         ]
       },
@@ -144,7 +147,8 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/bash_post_tool.py",
             "timeout": 5000,
-            "statusMessage": "Analyzing command output..."
+            "statusMessage": "Analyzing command output...",
+            "async": true
           }
         ]
       },
@@ -155,7 +159,8 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/security_review_done.py",
             "timeout": 5000,
-            "statusMessage": "Checking security review..."
+            "statusMessage": "Checking security review...",
+            "async": true
           },
           {
             "type": "command",
