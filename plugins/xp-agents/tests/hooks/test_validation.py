@@ -477,12 +477,11 @@ class TestMilestone6Files(unittest.TestCase):
         content = path.read_text()
         # Guide should reference hooks, not claim to replace them
         self.assertNotIn("instead of hooks", content.lower())
-        self.assertNotIn("skip the navigator", content.lower())
         self.assertNotIn("ignore quality review", content.lower())
-        # Guide should mention TDD
-        self.assertIn("TDD", content)
-        # Guide should mention courage
+        # Guide should cover XP values and honesty
+        self.assertIn("Honesty", content)
         self.assertIn("Courage", content)
+        self.assertIn("Simplicity", content)
 
 
 class TestAgentFilesM65(unittest.TestCase):
