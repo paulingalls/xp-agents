@@ -30,6 +30,8 @@ Use `match/case` for tool_name routing, event type handling, and hook input pars
 
 All scripts start with `#!/usr/bin/env python3`.
 
+**Keep files small and focused.** Target 500 lines max per file. Each module should have a single responsibility. When a file grows past 500 lines, look for a cohesive group of functions to extract into its own module (e.g., `coordination.py`, `security.py`, `concerns.py` were extracted from `_common.py`). Test files follow the same rule — split by the script or feature they test, not by milestone or chronology.
+
 ## XP Practices (Follow These)
 
 **TDD.** Write the test first. Run it, watch it fail. Then write the implementation. No exceptions. If you're about to write a function, ask: where's the test?
