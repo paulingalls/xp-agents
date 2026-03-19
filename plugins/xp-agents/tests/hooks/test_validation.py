@@ -482,6 +482,7 @@ class TestMilestone6Files(unittest.TestCase):
         self.assertIn("Honesty", content)
         self.assertIn("Courage", content)
         self.assertIn("Simplicity", content)
+        self.assertIn("TDD", content)
 
 
 class TestAgentFilesM65(unittest.TestCase):
