@@ -4,7 +4,7 @@ A Claude Code plugin that makes your agents — solo or in teams — write bette
 
 ## TL;DR
 
-**What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans, a retrospective analyst surfaces cross-session learning, and a subagent reviewer checks output quality. Inline skills handle goal collection, question triage, quality review, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
+**What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection, question triage, quality review, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
 
 **How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (plan analysis, retrospectives, quality review) lives in plugin subagents and inline skills, triggered by command hook nudges or stop gates.
 
@@ -144,14 +144,13 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
-| **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
-| **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
+| **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
 | **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
 | **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 
-The retrospective analyst, plan reviewer, and subagent reviewer are plugin subagents with full tool access. Quality review, goal collection, question triage, and housekeeping run as inline skills in the main agent. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer is triggered via a marker file: SubagentStop writes `.plan-awaiting-review`, then PreToolUse detects it and nudges the agent to invoke the reviewer before writes. The plan reviewer's preload script clears the marker.
+The retrospective analyst and plan reviewer are plugin subagents with full tool access. Quality review, goal collection, question triage, and housekeeping run as inline skills in the main agent. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer is triggered via a marker file: SubagentStop writes `.plan-awaiting-review`, then PreToolUse detects it and nudges the agent to invoke the reviewer before writes. The plan reviewer's preload script clears the marker. SubagentStart uses tiered context injection — Explore subagents get only Intent+Constraints (lightweight), while all others get the full curated SMM + behavioral guide.
 
 ### The Shared Mental Model
 
@@ -176,7 +175,7 @@ The curated view uses a four-pillar model, written by housekeeping (LLM judgment
 - **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity)
 - **Wisdom** — lessons learned, retrospective insights, behavioral experiments
 
-Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and full SMM injection at subagent spawn. The main agent gets the SMM during housekeeping (reads the file directly) and the behavioral guide via PostToolUse:Skill hook.
+Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + behavioral guide). The main agent gets the SMM during housekeeping (reads the file directly) and the behavioral guide via PostToolUse:Skill hook.
 
 Events are semantically typed — each carries different synchronization semantics:
 
@@ -220,7 +219,7 @@ The retrospective runs at session *start*, not session end — resilient to forc
 
 xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored at user level, every teammate in every worktree automatically gets:
 
-- Prompt nuggets at each user prompt and full SMM at subagent spawn
+- Prompt nuggets at each user prompt and tiered context at subagent spawn
 - `working_on` conflict detection across teammates
 - Decisions visible to every other teammate
 - A team-wide retrospective at next session start
@@ -296,7 +295,7 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
 | **Refactoring** | Skill + gate: `/simplify` runs at loop end (≥3 code files), quality review checks skipped recommendations. | `/xp-quality-review`, `simplify_gate.py` |
 | **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` checks efficiency. | `xp-plan-reviewer`, `simplify_gate.py` |
-| **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, full SMM at subagent spawn. Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
+| **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + behavioral guide). Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
 | **On-Site Customer** | Deterministic: prompts logged, notifications sent. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
 

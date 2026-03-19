@@ -63,7 +63,7 @@ Four-pillar model, curated by housekeeping (LLM judgment via `save_smm.py`). Not
 
 Context reaches the agent through two mechanisms:
 - **Prompt nuggets** (UserPromptSubmit via `prompt_nugget.py`): lightweight injection of new signal events since last prompt (~50-100 tokens). Watermark-based — only new concerns, decisions, and discoveries.
-- **Full SMM injection** (SubagentStart via `subagent_start.py`): full curated SMM for new subagents and teammates.
+- **Tiered context injection** (SubagentStart via `subagent_start.py`): Explore subagents get Intent+Constraints only; all others get the full curated SMM + behavioral guide.
 
 ## Hook Map
 
@@ -82,8 +82,8 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs |
-| **SubagentStart** | | `subagent_start.py` | Full SMM injection + watermark |
-| **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan, nudge xp-subagent-reviewer |
+| **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
+| **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
 | **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes |
 | **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker |
 | **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
@@ -103,7 +103,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 |---|---|---|---|
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
 | `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/decision events |
-| `xp-subagent-reviewer` | SubagentStop | Nudge | Convention adherence, complexity, decision alignment. `background: true`, `model: haiku` |
+
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
 - `/xp-kickoff` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
@@ -132,7 +132,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Push security gate (blocks), file-modification conflict heuristic (advisory) |
-| Subagent spawn | Full curated SMM |
+| Subagent spawn | Tiered context: Explore gets Intent+Constraints only, others get full curated SMM + behavioral guide |
 | After compaction | Full SMM re-injection |
 
 Injection order in SessionStart `additionalContext`:
@@ -201,10 +201,10 @@ Stop         → simplify_gate.py: block if ≥3 code files changed and /simplif
 
 ### Subagent Lifecycle
 ```
-SubagentStart → subagent_start.py: SMM injection + watermark
+SubagentStart → subagent_start.py: tiered context injection + watermark
+                (Explore: Intent+Constraints only, others: full SMM + behavioral guide)
 SubagentStop  → subagent_stop.py: record, conflicts, security check
               → Write .plan-awaiting-review marker file for Plan
-              → Nudge xp-subagent-reviewer (background)
 ```
 
 ## Plugin Structure
@@ -216,15 +216,13 @@ plugins/xp-agents/
 ├── settings.json
 ├── agents/                          ← plugin subagents (full tool access)
 │   ├── xp-retrospective.md
-│   ├── xp-plan-reviewer.md
-│   └── xp-subagent-reviewer.md
+│   └── xp-plan-reviewer.md
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── smm-protocol/SKILL.md
 │   ├── xp-values/SKILL.md
 │   ├── xp-quality-review/SKILL.md
 │   ├── xp-plan-reviewer/SKILL.md
 │   ├── xp-retrospective/SKILL.md
-│   ├── xp-subagent-reviewer/SKILL.md
 │   ├── xp-kickoff/SKILL.md  ← inline, orchestrates session start lifecycle
 │   ├── xp-housekeeping/SKILL.md    ← inline, lifecycle triage for open items
 │   ├── xp-goal-collection/SKILL.md ← inline, first-session goal collection
@@ -310,7 +308,7 @@ Age computed at materialize time by counting `session_end` events after debt tim
 
 SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global and install is at user scope:
 
-- Every teammate gets prompt nuggets at each user prompt and full SMM at subagent spawn
+- Every teammate gets prompt nuggets at each user prompt and tiered context at subagent spawn
 - Every teammate's code gets quality reviewer subagent nudges
 - Every teammate's `working_on` is tracked for conflict detection
 - Every teammate's decisions are visible to all others

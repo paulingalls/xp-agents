@@ -190,7 +190,7 @@ Housekeeping writes the curated `SHARED_MENTAL_MODEL.md`. This replaces the curr
 During the session, lightweight context is injected at specific moments:
 
 - **UserPromptSubmit:** Prompt nugget — new signal events since last prompt (watermark-based, ~50-100 tokens)
-- **SubagentStart:** Full curated SMM for new subagents (~500 tokens)
+- **SubagentStart:** Tiered context injection — Explore subagents get Intent+Constraints only (~200 tokens), all others get full curated SMM + behavioral guide (~1000 tokens)
 - **After housekeeping:** Behavioral guide via PostToolUse:Skill hook
 
 Conflicts are handled by PreToolUse hooks (blocking for Write, advisory for Bash) — not as context injection. No per-tool-call event log reads. The agent has the full SMM from housekeeping. Nuggets surface only what's new and actionable.
@@ -216,7 +216,7 @@ The SMM.md file is written by housekeeping (with judgment), not by the materiali
 | After housekeeping | Agent Reads curated SMM file directly | ~500 tokens, once |
 | After housekeeping | Behavioral guide via PostToolUse:Skill hook | ~500 tokens, once |
 | UserPromptSubmit | Nugget: new signal events since last prompt (watermark-based) | ~50-100 tokens |
-| SubagentStart | Full curated SMM for new subagents/teammates | ~500 tokens |
+| SubagentStart | Tiered: Explore gets Intent+Constraints only, others get full SMM + behavioral guide | ~200-1000 tokens |
 
 **No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, tracker files for TDD. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
 
@@ -283,7 +283,7 @@ New since last prompt:
 
 ### SubagentStart
 
-New subagent/teammate gets the full curated SMM (~500 tokens) read from `SHARED_MENTAL_MODEL.md` on disk.
+Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. All other subagents and teammates get the full curated SMM + behavioral guide (~1000 tokens), read from `SHARED_MENTAL_MODEL.md` and `BEHAVIORAL_GUIDE.md` on disk.
 
 ### Conflict detection (not a nugget)
 
