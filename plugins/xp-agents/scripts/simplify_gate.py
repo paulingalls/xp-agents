@@ -25,13 +25,18 @@ _MIN_CODE_FILES = 3
 
 
 def count_distinct_code_files(events: list[dict], start_idx: int) -> int:
-    """Count distinct code files in working_on since start_idx."""
+    """Count distinct code files in working_on since start_idx.
+
+    Early-exits at _MIN_CODE_FILES threshold to avoid scanning all events.
+    """
     files: set[str] = set()
     for e in events[start_idx + 1 :]:
         if e.get("type") == _common.STATUS:
             for f in e.get("working_on", []):
                 if isinstance(f, str) and security.is_code_file(f):
                     files.add(f)
+                    if len(files) >= _MIN_CODE_FILES:
+                        return len(files)
     return len(files)
 
 

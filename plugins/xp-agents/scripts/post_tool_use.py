@@ -85,4 +85,3 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 if __name__ == "__main__":
     run(_common.read_hook_input())
     sys.exit(0)
-    sys.exit(0)

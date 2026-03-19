@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for PreToolUse hooks: pre_tool_write.py and pre_tool_bash.py.
-
-Split from the monolithic test_hooks.py.
-"""
+"""Tests for pre_tool_write.py: conflict detection, TDD order, plan review gate."""
 
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -16,9 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import coordination
-import pre_tool_bash
 import pre_tool_write
-import security
 from conftest import (
     _HookTestCase,
     _make_bash_input,
@@ -151,9 +145,7 @@ class TestCheckTddOrder(_HookTestCase):
         self.assertIsNone(result)
 
     def test_second_impl_nudge(self):
-        # First write
         pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.ts", "Write")
-        # Second write
         result = pre_tool_write.check_tdd_order(
             self.smm_dir, "main", "src/utils.ts", "Write"
         )
@@ -202,7 +194,7 @@ class TestPreToolWriteRun(_HookTestCase):
             self.assertNotIn("smm-context", result)
 
     def test_read_tool_no_injection(self):
-        """Read tool input passed to pre_tool_write returns None (not a write tool)."""
+        """Read tool input passed to pre_tool_write returns None."""
         events = [make_event("status", content="working")]
         self._write_events(events)
         result = pre_tool_write.run(
@@ -246,14 +238,12 @@ class TestPreToolWriteRun(_HookTestCase):
             _make_write_input(),
             smm_dir=fake_dir,
         )
-        # Write tools still get navigator nudge even without SMM
-        # but no SMM-dependent content (delta, debt, etc.)
         if result:
             self.assertNotIn("smm-context", result)
             self.assertNotIn("smm-debt-context", result)
 
     def test_bash_input_returns_none(self):
-        """Bash input passed to pre_tool_write returns None (not a write tool)."""
+        """Bash input passed to pre_tool_write returns None."""
         events = [make_event("status", content="Working on API")]
         self._write_events(events)
         result = pre_tool_write.run(
@@ -261,11 +251,6 @@ class TestPreToolWriteRun(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
-
-
-# ===========================================================================
-# pre_tool_write — Active Context, enforcement (M5.3)
-# ===========================================================================
 
 
 class TestPreToolWriteNoDelta(_HookTestCase):
@@ -298,37 +283,6 @@ class TestPreToolWriteNoDelta(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
-
-
-class TestPreToolBashNoDelta(_HookTestCase):
-    """M5: Verify no delta/context injection for bash tools."""
-
-    def test_bash_no_context_injection(self):
-        """Bash (non-commit) no longer gets Active Context."""
-        events = [
-            make_event("goal", content="Ship v1"),
-            make_event("decision", content="Use REST", topic="api-style"),
-        ]
-        self._write_events(events)
-        result = pre_tool_bash.run(
-            _make_bash_input(command="npm test"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("smm-context", result)
-            self.assertNotIn("smm-delta", result)
-
-    def test_bash_commit_no_delta(self):
-        """Bash with git commit no longer gets delta."""
-        events = [make_event("decision", content="Use REST", topic="api-style")]
-        self._write_events(events)
-        result = pre_tool_bash.run(
-            _make_bash_input(command="git commit -m 'test'"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("smm-delta", result)
-            self.assertNotIn("smm-context", result)
 
 
 class TestPreToolWriteEnforcement(_HookTestCase):
@@ -375,7 +329,6 @@ class TestPreToolWritePerformance(_HookTestCase):
         """100 invocations should complete well under 2 seconds."""
         import time
 
-        # Seed some events so delta reading has work to do
         events = [make_event("status", content=f"s{i}") for i in range(10)]
         self._write_events(events)
 
@@ -386,7 +339,6 @@ class TestPreToolWritePerformance(_HookTestCase):
             pre_tool_write.run(input_data, smm_dir=self.smm_dir)
         elapsed = time.monotonic() - start
 
-        # 100 runs should complete in under 2 seconds on any reasonable machine
         self.assertLess(elapsed, 2.0, f"100 runs took {elapsed:.2f}s -- too slow")
 
     def test_xp_agent_skip_is_instant(self):
@@ -400,13 +352,7 @@ class TestPreToolWritePerformance(_HookTestCase):
             pre_tool_write.run(input_data, smm_dir=self.smm_dir)
         elapsed = time.monotonic() - start
 
-        # 1000 no-op runs should be well under 1 second
         self.assertLess(elapsed, 1.0, f"1000 xp-agent skips took {elapsed:.2f}s")
-
-
-# ===========================================================================
-# M6.5: Navigator nudge removed tests
-# ===========================================================================
 
 
 class TestPreToolWriteNoNavigatorNudge(_HookTestCase):
@@ -441,7 +387,7 @@ class TestPreToolWriteNoNavigatorNudge(_HookTestCase):
             self.assertNotIn("xp-navigator", result)
 
     def test_concerns_not_in_pretooluse(self):
-        """M5: Concerns no longer injected via delta -- delivered via prompt nugget."""
+        """M5: Concerns no longer injected via delta."""
         self._write_events(
             [
                 make_event("concern", content="Auth middleware is insecure"),
@@ -489,116 +435,6 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
         )
         if result:
             self.assertNotIn("xp-plan-reviewer", result)
-
-
-# ===========================================================================
-# PreToolUse push gate -- Milestone 5.5
-# ===========================================================================
-
-
-class TestPreToolBashPushGate(_HookTestCase):
-    """Tests for git push security review gate in pre_tool_bash.py."""
-
-    def setUp(self):
-        super().setUp()
-        _common.load_enforcement_mode.cache_clear()
-
-    def tearDown(self):
-        _common.load_enforcement_mode.cache_clear()
-        super().tearDown()
-
-    def _push_input(self, command: str = "git push origin main", **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "tool_name": "Bash",
-            "tool_input": {"command": command},
-            "cwd": "/tmp",
-            "agent_id": "main",
-        }
-        data.update(overrides)
-        return data
-
-    def test_is_git_push_positive(self):
-        """is_git_push detects various git push commands."""
-        self.assertTrue(pre_tool_bash.is_git_push("git push"))
-        self.assertTrue(pre_tool_bash.is_git_push("git push origin main"))
-        self.assertTrue(pre_tool_bash.is_git_push("git push --force"))
-
-    def test_is_git_push_with_flags(self):
-        """is_git_push detects git push with interleaved flags."""
-        self.assertTrue(pre_tool_bash.is_git_push("/usr/bin/git push"))
-        self.assertTrue(pre_tool_bash.is_git_push("git -c core.foo=bar push"))
-        self.assertTrue(pre_tool_bash.is_git_push("git -C /tmp push origin"))
-
-    def test_is_git_push_negative(self):
-        """is_git_push rejects non-push commands."""
-        self.assertFalse(pre_tool_bash.is_git_push("git commit -m 'test'"))
-        self.assertFalse(pre_tool_bash.is_git_push("git pull origin main"))
-        self.assertFalse(pre_tool_bash.is_git_push("echo push"))
-
-    def test_push_blocked_without_tracker(self):
-        """git push is blocked when no security tracker exists."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            with self.assertRaises(_common.BlockedError) as ctx:
-                pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-            self.assertIn("/security-review", str(ctx.exception))
-
-    def test_push_passes_with_tracker(self):
-        """git push passes when security tracker exists."""
-        security.write_security_tracker(self.smm_dir, "abc1234")
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            # Should not raise BlockedError
-            pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-
-    def test_push_advisory_warns(self):
-        """Advisory mode: git push warns instead of blocking."""
-        with (
-            _override_settings({"enforcement": "advisory"}),
-            patch.object(security, "get_head_hash", return_value="abc1234"),
-        ):
-            result = pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-            self.assertIsNotNone(result)
-            self.assertIn("security", result.lower())
-
-    def test_push_event_written_on_block(self):
-        """Blocking a push writes security_review_requested event."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            with self.assertRaises(_common.BlockedError):
-                pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-            events = _common.read_events_raw(self.smm_dir)
-            sec_events = [
-                e for e in events if e.get("type") == _common.SECURITY_REVIEW_REQUESTED
-            ]
-            self.assertEqual(len(sec_events), 1)
-            self.assertIn("abc1234", sec_events[0]["content"])
-
-    def test_push_no_smm_degrades(self):
-        """git push with no SMM dir passes through (no crash)."""
-        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
-        pre_tool_bash.run(self._push_input(), smm_dir=fake_dir)
-        # No BlockedError -- graceful degradation
-
-    def test_push_no_hash_degrades(self):
-        """git push with no HEAD hash passes through (no crash)."""
-        with patch.object(security, "get_head_hash", return_value=None):
-            pre_tool_bash.run(self._push_input(), smm_dir=self.smm_dir)
-            # No BlockedError -- graceful degradation
-
-    def test_push_xp_agent_skips(self):
-        """xp- agents skip the push gate."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            pre_tool_bash.run(
-                self._push_input(agent_type="xp-navigator"),
-                smm_dir=self.smm_dir,
-            )
-            # No BlockedError
-
-    def test_non_push_bash_not_affected(self):
-        """Non-push Bash commands don't trigger push gate."""
-        inp = self._push_input(command="git status")
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            # Should not raise BlockedError
-            pre_tool_bash.run(inp, smm_dir=self.smm_dir)
 
 
 if __name__ == "__main__":
