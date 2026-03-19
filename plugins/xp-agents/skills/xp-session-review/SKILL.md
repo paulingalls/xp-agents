@@ -25,13 +25,11 @@ If the preload shows "RETRO_NEEDED", invoke the retrospective skill now. Wait fo
 
 If not needed, skip to step 2.
 
-## 2. Goal Collection (if GOALS_NEEDED)
+## 2. Goal Collection
 
-Run `/xp-goal-collection` to collect project goals from the user.
+Run `/xp-goal-collection` to review goals and collect any new ones from the user.
 
-If the preload shows "GOALS_NEEDED", invoke the goal collection skill now. Wait for it to complete before proceeding.
-
-If not needed, skip to step 3.
+The preload shows current goals under "GOALS_REVIEW". Always invoke the goal collection skill — it shows existing goals and asks for session goals. Quick to skip if no new goals.
 
 ## 3. Housekeeping
 

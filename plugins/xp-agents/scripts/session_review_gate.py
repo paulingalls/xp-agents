@@ -3,8 +3,15 @@
 
 Blocks user prompts until /xp-session-review has been run. Allows
 the session review command itself through. Respects enforcement mode.
+
+Behavior depends on marker content:
+- "startup" (new session): hard block
+- "clear" (mid-session reset): nudge only (work may be in progress)
+
+Task-notifications from background agents are always skipped.
 """
 
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -14,11 +21,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 
+_NUDGE = "nudge"
 
-def run(input_data: dict, smm_dir: Path | None = None) -> dict | None:
-    """Check marker and block if session review needed.
+_REVIEW_MESSAGE = (
+    "Session review required. Run /xp-session-review to review "
+    "open goals, concerns, decisions, and debt before proceeding."
+)
 
-    Returns a decision dict or None.
+
+def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
+    """Check marker and block/nudge if session review needed.
+
+    Returns a decision dict, a nudge string, or None.
     """
     if _common.is_xp_agent(input_data):
         return None
@@ -34,6 +48,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | None:
         return None
 
     prompt = input_data.get("prompt", "")
+
+    # Skip task-notifications — background agent completions aren't user prompts
+    if _common.is_task_notification(prompt):
+        return None
+
     if "/xp-session-review" in prompt:
         return None
 
@@ -41,19 +60,28 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | None:
     if enforcement == _common.ENFORCEMENT_ADVISORY:
         return None
 
+    # Read marker content to determine block vs nudge.
+    # "clear" = mid-session reset, nudge only.
+    # "startup" or empty = new session, hard block.
+    source = ""
+    with contextlib.suppress(OSError):
+        source = marker.read_text().strip()
+
+    if source == "clear":
+        return _NUDGE
+
     return {
         "decision": "block",
-        "reason": (
-            "Session review required. Run /xp-session-review to review "
-            "open goals, concerns, decisions, and debt before proceeding."
-        ),
+        "reason": _REVIEW_MESSAGE,
     }
 
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
-    if result is not None:
+    if result == _NUDGE:
+        _common.hook_output("UserPromptSubmit", _REVIEW_MESSAGE)
+    elif result is not None:
         result["systemMessage"] = "Session review required — run /xp-session-review."
         print(json.dumps(result))
     sys.exit(0)

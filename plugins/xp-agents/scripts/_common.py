@@ -175,6 +175,11 @@ def is_xp_agent(input_data: dict) -> bool:
     return isinstance(agent_type, str) and agent_type.startswith("xp-")
 
 
+def is_task_notification(prompt: str) -> bool:
+    """Check if a prompt is a background agent task-notification, not user input."""
+    return isinstance(prompt, str) and prompt.strip().startswith("<task-notification>")
+
+
 # ---------------------------------------------------------------------------
 # Plugin root resolution
 # ---------------------------------------------------------------------------

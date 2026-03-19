@@ -414,8 +414,8 @@ class TestSessionStart(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Resume immediately", result)
 
-    def test_clear_source_sets_marker(self):
-        """clear should set .needs-session-review marker like startup."""
+    def test_clear_source_sets_marker_with_clear(self):
+        """clear should set .needs-session-review marker with 'clear' content."""
         import session_start
 
         self._write_events([make_event()])
@@ -425,6 +425,7 @@ class TestSessionStart(_HookTestCase):
         )
         marker = self.smm_dir / ".needs-session-review"
         self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text(), "clear")
 
     def test_startup_returns_context(self):
         import session_start
@@ -555,7 +556,7 @@ class TestSessionStart(_HookTestCase):
         self.assertNotIn("[enforcement:", result)
 
     def test_writes_needs_session_review_marker(self):
-        """session_start writes .needs-session-review marker file."""
+        """session_start writes .needs-session-review marker with source."""
         import session_start
 
         self._write_events([make_event()])
@@ -565,6 +566,7 @@ class TestSessionStart(_HookTestCase):
         )
         marker = self.smm_dir / ".needs-session-review"
         self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text(), "startup")
 
     def test_resume_does_not_set_marker(self):
         """resume is mid-session — should NOT set .needs-session-review."""
@@ -2125,6 +2127,41 @@ class TestSessionReviewGate(_HookTestCase):
                 {"session_id": "test", "prompt": "do work"},
                 smm_dir=self.smm_dir,
             )
+        self.assertIsNone(result)
+
+    def test_clear_marker_nudges_instead_of_blocking(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").write_text("clear")
+        result = session_review_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result, "nudge")
+
+    def test_startup_marker_blocks(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").write_text("startup")
+        result = session_review_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["decision"], "block")
+
+    def test_skips_task_notifications(self):
+        import session_review_gate
+
+        (self.smm_dir / ".needs-session-review").write_text("startup")
+        task_prompt = (
+            "<task-notification>\n<task-id>abc</task-id>\n</task-notification>"
+        )
+        result = session_review_gate.run(
+            {"session_id": "test", "prompt": task_prompt},
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNone(result)
 
 

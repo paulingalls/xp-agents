@@ -22,11 +22,13 @@ allowed-tools:
 
 You are performing a post-simplify quality review. The `/simplify` skill just ran on the code changes shown above. Your job is to catch what was missed.
 
-## Step 1: Review Simplify Results
+## Step 1: Review Simplify Results (Courage)
 
-Look back through the conversation for what `/simplify` recommended. For each recommendation:
+Look back through the conversation for what `/simplify` recommended. **Default to applying recommendations, not skipping them.** Skipping is the easy path — courage means doing the work now.
+
+For each recommendation:
 - **Applied?** Move on.
-- **Skipped?** Read the file and evaluate whether it should have been applied. If yes, apply it now. If there was a good reason to skip it, record it as a `debt` event.
+- **Skipped?** Read the file and the recommendation. Apply it unless there is a **concrete, specific reason** not to (e.g., it would break an API contract, it requires a design discussion). "It's fine as-is" or "low severity" are not valid reasons to skip — if a reviewer found it, fix it. If truly too large to fix here, record it as `debt` with the specific reason it can't be done now.
 
 ## Step 2: Clean Code Review
 
@@ -118,6 +120,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 
 ## Guidelines
 
+- **Courage over comfort.** If a simplify recommendation was skipped, the default is to apply it, not rationalize the skip. Skipping requires a concrete reason.
 - **Be honest.** If something is wrong, fix it. Don't soften real issues.
 - **Be practical.** Don't flag style issues (that's the linter's job). Focus on structural and behavioral issues.
 - **Be efficient.** Don't rewrite working code for aesthetics. Fix real problems.

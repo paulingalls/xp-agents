@@ -74,11 +74,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return GUPP_TEXT + SKILLS_TEXT
 
     # Write .needs-session-review marker on fresh starts.
-    # "startup" = new session, "clear" = user reset context (treat as fresh).
+    # "startup" = new session (block until review), "clear" = mid-session
+    # reset (nudge only — work may be in progress).
     # "resume" and "compact" fire mid-session — no marker needed.
     if source in ("startup", "clear"):
         marker = smm_dir / ".needs-session-review"
-        marker.touch()
+        marker.write_text(source)
 
     # Build context: GUPP + skills + behavioral guide only. No SMM, no nudges.
     parts: list[str] = []

@@ -41,7 +41,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Skip task notifications — these are internal system messages,
     # not actual customer input. They create false loop boundaries.
-    if prompt.strip().startswith("<task-notification>"):
+    if _common.is_task_notification(prompt):
         return None
 
     if len(prompt) > _MAX_PROMPT_LENGTH:

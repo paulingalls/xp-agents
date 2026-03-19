@@ -18,14 +18,18 @@ if [ -f "$RETRO_INPUT" ]; then
     echo ""
 fi
 
-# 2. Check for goals (four-pillar: ## Intent, old: ## Project Goals)
-if [ -f "$SMM_FILE" ] && grep -q "^## Intent$\|^## Project Goals$" "$SMM_FILE" 2>/dev/null; then
-    echo "### Goals: PRESENT"
+# 2. Always show goals and offer to add more
+echo "### GOALS_REVIEW"
+if [ -f "$SMM_FILE" ] && grep -q "^## Intent$" "$SMM_FILE" 2>/dev/null; then
+    echo "Current goals:"
+    grep -A 50 "^## Intent$" "$SMM_FILE" | sed '/^## [^I]/,$d' | head -20
+elif [ -f "$SMM_FILE" ] && grep -q "^## Project Goals$" "$SMM_FILE" 2>/dev/null; then
+    echo "Current goals:"
+    grep -A 50 "^## Project Goals$" "$SMM_FILE" | sed '/^## [^P]/,$d' | head -20
 else
-    echo "### GOALS_NEEDED"
     echo "No project goals recorded yet."
-    echo ""
 fi
+echo ""
 
 # 3. Housekeeping always runs as the final step
 echo "### HOUSEKEEPING"
