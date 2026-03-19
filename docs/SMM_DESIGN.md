@@ -100,10 +100,10 @@ Coordination is **not a pillar of the curated SMM**. It operates at a fundamenta
 }
 ```
 
-**Enter:** Automatically — agent starts working on files.
+**Enter:** Automatically — agent starts working on files (PostToolUse updates on every Write/Edit).
 **Leave:** Automatically — agent finishes or session ends. Ephemeral.
 **Cap:** Bounded by active agents. Solo: 1 entry. Team: N entries.
-**Conflict detection:** PreToolUse reads this file (O(1), no event log scan).
+**Conflict detection:** `pre_tool_write.py` reads this file for Write/Edit/MultiEdit (O(1), blocks on overlap). `pre_tool_bash.py` checks heuristically for Bash (advisory, never blocks).
 
 ---
 
@@ -185,15 +185,15 @@ A preload script prepares data for housekeeping — aggregates events, computes 
 
 Housekeeping writes the curated `SHARED_MENTAL_MODEL.md`. This replaces the current mechanical materializer for SMM generation.
 
-**3. Nuggets (additionalContext, sparse)**
+**3. Mid-session context (additionalContext, sparse)**
 
-During the session, a few specific moments inject lightweight hints via `additionalContext`. Not deltas, not the full SMM — just useful context at useful moments:
+During the session, lightweight context is injected at specific moments:
 
-- **UserPromptSubmit:** Summary of new concerns, decisions, and discoveries since last prompt
-- **Conflict detected:** "Agent-2 is touching the same files"
-- **Subagent completes:** "Quality review found issues" (the subagent's full response is already in context)
+- **UserPromptSubmit:** Prompt nugget — new signal events since last prompt (watermark-based, ~50-100 tokens)
+- **SubagentStart:** Full curated SMM for new subagents (~500 tokens)
+- **After housekeeping:** Behavioral guide via PostToolUse:Skill hook
 
-No PreToolUse delta injection. No watermarks. No per-tool-call event log reads. The agent has the full SMM from session start. Nuggets surface only what's new and actionable.
+Conflicts are handled by PreToolUse hooks (blocking for Write, advisory for Bash) — not as context injection. No per-tool-call event log reads. The agent has the full SMM from housekeeping. Nuggets surface only what's new and actionable.
 
 ### What the materializer becomes
 
@@ -212,12 +212,13 @@ The SMM.md file is written by housekeeping (with judgment), not by the materiali
 
 | When | What | Cost |
 |---|---|---|
-| Session start | Full SMM (written by housekeeping) | ~500 tokens, once |
-| UserPromptSubmit | Nugget: new concerns, decisions, discoveries since last prompt | ~50-100 tokens |
-| Conflict | Nugget: who's touching what | ~20 tokens |
-| SubagentStart | Full SMM for new subagents/teammates | ~500 tokens |
+| Session start | GUPP + skills list only (no SMM) | ~100 tokens, once |
+| After housekeeping | Agent Reads curated SMM file directly | ~500 tokens, once |
+| After housekeeping | Behavioral guide via PostToolUse:Skill hook | ~500 tokens, once |
+| UserPromptSubmit | Nugget: new signal events since last prompt (watermark-based) | ~50-100 tokens |
+| SubagentStart | Full curated SMM for new subagents/teammates | ~500 tokens |
 
-**No PreToolUse delta.** The agent already has context. Signal events from subagents arrive via their response output. Coordination conflicts are detected by a lightweight command hook check (no SMM read needed).
+**No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, tracker files for TDD. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
 
 ---
 
@@ -264,13 +265,13 @@ Every agent leaves the same kinds of trails. Housekeeping doesn't care which age
 
 ---
 
-## Mid-Session Nuggets
+## Mid-Session Context
 
-Three moments, minimal content. No other hooks need nuggets.
+Two injection moments during active work. Conflicts are handled by PreToolUse hooks (blocking or warning), not as separate nuggets.
 
 ### Prompt nugget (UserPromptSubmit)
 
-Fires on each user prompt. Surfaces new signal events (concerns, decisions, discoveries) since the last prompt:
+Fires on each user prompt. Uses a watermark (`prompt-nugget`) to surface only new signal events (concerns, decisions, goals, debt, questions) since the last prompt:
 
 ```
 New since last prompt:
@@ -278,21 +279,17 @@ New since last prompt:
 - [decision] Fix retrospective preload overflow, move prompt nugget...
 ```
 
-~50-100 tokens. Only new items since last injection. If nothing is new, no nugget.
-
-### Conflict nugget (teams only)
-
-Another agent touched your files:
-
-```
-⚡ Conflict: Agent-2 started working on src/auth/roles.ts
-```
-
-~20 tokens. Fires from coordination check, not from an SMM read.
+~50-100 tokens. Capped at 5 most recent items. If nothing is new, no nugget.
 
 ### SubagentStart
 
-New subagent/teammate gets the full curated SMM (~500 tokens).
+New subagent/teammate gets the full curated SMM (~500 tokens) read from `SHARED_MENTAL_MODEL.md` on disk.
+
+### Conflict detection (not a nugget)
+
+Conflict detection is handled by PreToolUse hooks, not mid-session nuggets:
+- **Write/Edit/MultiEdit:** `pre_tool_write.py` reads `.coordination.json` and **blocks** if another agent claims the same file.
+- **Bash:** `pre_tool_bash.py` uses a heuristic to detect file-modifying commands (`>`, `tee`, `sed -i`, `mv`, `cp`) and **warns** (advisory, never blocks) if overlap detected.
 
 ---
 
@@ -364,13 +361,15 @@ The biggest gap: `customer_input` events exist but nobody distills them into int
 
 ## Resolved Design Questions
 
-### Watermarks — eliminated for delta, repurposed for compaction
+### Watermarks — scoped to two purposes
 
-No PreToolUse delta means no per-agent watermarks for injection. The watermark concept survives only as a **curation watermark** — a single marker written by housekeeping: "I curated up to event N." The preload uses this to identify new events since last curation.
+Watermarks serve two specific purposes:
 
-For teams, each agent's housekeeping writes its own curation watermark. Compaction uses the oldest watermark as the safe truncation point (everyone's curated past it).
+1. **Curation watermark** — written by housekeeping: "I curated up to event N." The preload uses this to identify new events since last curation. For teams, each agent writes its own curation watermark. Compaction uses the oldest watermark as the safe truncation point.
 
-Subagent hex-ID watermarks (`.watermark-abf63d10...`) are eliminated entirely.
+2. **Prompt nugget watermark** — written by `prompt_nugget.py` to track which events have been surfaced to the agent. Advances on each UserPromptSubmit so only new signal events appear.
+
+Subagent hex-ID watermarks (`.watermark-abf63d10...`) are eliminated. No per-tool-call watermarks exist.
 
 ### Event log compaction — housekeeping compacts after curation
 
