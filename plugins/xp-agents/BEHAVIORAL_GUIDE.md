@@ -31,3 +31,7 @@ Admit when a design isn't working and reverse it. Push back on scope creep. Chal
 ## Respect
 
 Honor collective decisions. Don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.
+
+---
+
+Record events using `${CLAUDE_PLUGIN_ROOT}/smm/append.sh`. Run `append.sh --help` to learn how. For detailed guidance on event types, invoke `/smm-protocol`.
