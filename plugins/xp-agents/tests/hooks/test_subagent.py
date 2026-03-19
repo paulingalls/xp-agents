@@ -45,8 +45,8 @@ class TestSubagentStart(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_returns_none_without_smm_file(self):
-        """Without curated SMM file on disk, returns None."""
+    def test_returns_guide_without_smm_file(self):
+        """Without curated SMM file, non-Explore agent still gets behavioral guide."""
         import subagent_start
 
         self._write_events([make_event()])
@@ -54,7 +54,9 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        # Non-Explore agent gets behavioral guide even without SMM
+        self.assertIsNotNone(result)
+        self.assertIn("Behavioral Guide", result)
 
     def test_reads_curated_smm_from_disk(self):
         """M5: SubagentStart reads curated SMM from disk when available."""
@@ -69,15 +71,16 @@ class TestSubagentStart(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
 
-    def test_empty_events(self):
+    def test_empty_events_still_gets_guide(self):
         import subagent_start
 
         result = subagent_start.run(
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        # Empty SMM returns None — no content to inject
-        self.assertIsNone(result)
+        # Non-Explore agent gets behavioral guide even with empty events
+        self.assertIsNotNone(result)
+        self.assertIn("Behavioral Guide", result)
 
     def test_default_agent_id(self):
         """Default agent_id is 'subagent' — used in start event."""
@@ -95,8 +98,8 @@ class TestSubagentStart(_HookTestCase):
         ]
         self.assertEqual(len(start_events), 1)
 
-    def test_falls_back_to_empty_without_smm_file(self):
-        """Without curated SMM on disk, returns None (no context injection)."""
+    def test_falls_back_to_guide_without_smm_file(self):
+        """Without curated SMM, non-Explore agent gets behavioral guide."""
         import subagent_start
 
         self._write_events([make_event("goal", content="Ship v1")])
@@ -105,7 +108,8 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("Behavioral Guide", result)
 
 
 class TestSubagentStartEvent(_HookTestCase):
@@ -138,6 +142,91 @@ class TestSubagentStartEvent(_HookTestCase):
         events = self._read_events()
         # xp- agents should not write start events
         self.assertEqual(len(events), 1)
+
+
+# ===========================================================================
+# SubagentStart tiered injection tests
+# ===========================================================================
+
+
+class TestSubagentStartTieredInjection(_HookTestCase):
+    """SubagentStart injects tiered context based on agent type."""
+
+    def setUp(self):
+        super().setUp()
+        import subagent_start
+
+        self.subagent_start = subagent_start
+        # Write a curated SMM with all four pillars
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text(
+            "# Shared Mental Model\n\n"
+            "## Intent\n- Ship v1\n\n"
+            "## Constraints\n- Python 3.10+ only\n\n"
+            "## Risks\n- Auth module fragile\n\n"
+            "## Wisdom\n- TDD always\n"
+        )
+
+    def test_explore_gets_only_intent_and_constraints(self):
+        """Explore agent gets Intent + Constraints only, not Risks or Wisdom."""
+        result = self.subagent_start.run(
+            {"session_id": "t", "agent_id": "explore-1", "agent_type": "Explore"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Intent", result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("Constraints", result)
+        self.assertIn("Python 3.10+", result)
+        self.assertNotIn("Risks", result)
+        self.assertNotIn("Auth module fragile", result)
+        self.assertNotIn("Wisdom", result)
+        self.assertNotIn("TDD always", result)
+
+    def test_explore_no_behavioral_guide(self):
+        """Explore agent does not get the behavioral guide."""
+        result = self.subagent_start.run(
+            {"session_id": "t", "agent_id": "explore-1", "agent_type": "Explore"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        # Behavioral guide contains "Honesty Principle" or "Courage"
+        # The key point: Explore should NOT include the guide
+        self.assertNotIn("BEHAVIORAL_GUIDE", result)
+
+    def test_general_agent_gets_full_smm_and_guide(self):
+        """General-purpose agent gets full SMM + behavioral guide."""
+        result = self.subagent_start.run(
+            {"session_id": "t", "agent_id": "task-1"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Intent", result)
+        self.assertIn("Constraints", result)
+        self.assertIn("Risks", result)
+        self.assertIn("Wisdom", result)
+
+    def test_plan_agent_gets_full_smm_and_guide(self):
+        """Plan agent gets full SMM + behavioral guide."""
+        result = self.subagent_start.run(
+            {"session_id": "t", "agent_id": "plan-1", "agent_type": "Plan"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Intent", result)
+        self.assertIn("Constraints", result)
+        self.assertIn("Risks", result)
+        self.assertIn("Wisdom", result)
+
+    def test_explore_wraps_in_smm_context(self):
+        """Explore injection is wrapped in <smm-context> tags."""
+        result = self.subagent_start.run(
+            {"session_id": "t", "agent_id": "explore-1", "agent_type": "Explore"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("<smm-context>", result)
+        self.assertIn("</smm-context>", result)
 
 
 # ===========================================================================
@@ -380,10 +469,10 @@ class TestSubagentStopPlanGate(_HookTestCase):
         self.assertEqual(len(statuses), 2)  # completion + gate
 
 
-class TestSubagentStopReviewerNudge(_HookTestCase):
-    """M6.5: subagent_stop.py should nudge xp-subagent-reviewer for non-xp subagents."""
+class TestSubagentStopNoReviewerNudge(_HookTestCase):
+    """subagent_stop.py no longer nudges xp-subagent-reviewer (removed)."""
 
-    def test_regular_subagent_gets_reviewer_nudge(self):
+    def test_regular_subagent_returns_none(self):
         result = subagent_stop.run(
             {
                 "session_id": "t",
@@ -392,11 +481,9 @@ class TestSubagentStopReviewerNudge(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("xp-subagent-reviewer", result)
-        self.assertIn("background", result.lower())
+        self.assertIsNone(result)
 
-    def test_xp_agent_no_reviewer_nudge(self):
+    def test_xp_agent_returns_none(self):
         result = subagent_stop.run(
             {
                 "session_id": "t",

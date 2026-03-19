@@ -5,7 +5,6 @@ Appends a minimal status event and checks for structural conflicts
 (patterns 2-5, no file_path so pattern 1 is skipped).
 """
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -105,20 +104,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             working_on=[],
         )
         _common.append_safe(smm_dir, gate_event)
-        return None
 
-    # Subagent reviewer nudge for non-xp subagents
-    return (
-        "Run /xp-subagent-reviewer in the background to review this subagent's output."
-    )
+    return None
 
 
 if __name__ == "__main__":
-    input_data = _common.read_hook_input()
-    result = run(input_data)
-
-    if result:
-        # SubagentStop doesn't support hookSpecificOutput/additionalContext.
-        # Use decision:approve with reason to pass the nudge through.
-        print(json.dumps({"decision": "approve", "reason": result}))
+    run(_common.read_hook_input())
     sys.exit(0)

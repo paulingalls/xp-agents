@@ -354,10 +354,7 @@ class TestHooksJsonGapFixes(_HooksJsonTestCase):
 _SUBAGENT_NAMES = (
     "xp-retrospective",
     "xp-plan-reviewer",
-    "xp-subagent-reviewer",
 )
-
-_BACKGROUND_SUBAGENTS = frozenset({"xp-subagent-reviewer"})
 
 
 class TestHooksJsonM65(_HooksJsonTestCase):
@@ -489,7 +486,7 @@ class TestMilestone6Files(unittest.TestCase):
 
 
 class TestAgentFilesM65(unittest.TestCase):
-    """Verify all 6 plugin subagent files exist with correct frontmatter."""
+    """Verify all plugin subagent files exist with correct frontmatter."""
 
     def setUp(self):
         self.agents_dir = Path(__file__).parent.parent.parent / "agents"
@@ -532,14 +529,6 @@ class TestAgentFilesM65(unittest.TestCase):
             parts = content.split("---", 2)
             fm = parts[1]
             self.assertIn("smm-protocol", fm, f"{name} missing smm-protocol skill")
-
-    def test_background_subagents(self):
-        """Quality reviewer and subagent reviewer must have background: true."""
-        for name in _BACKGROUND_SUBAGENTS:
-            content = (self.agents_dir / f"{name}.md").read_text()
-            parts = content.split("---", 2)
-            fm = parts[1]
-            self.assertIn("background: true", fm, f"{name} should be background")
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""
@@ -627,7 +616,7 @@ class TestPluginIntegrity(unittest.TestCase):
         self._assert_hook_paths_exist("prompt", "prompt")
 
     def test_all_agent_files_exist(self):
-        """All 6 agent .md files exist in agents/ directory."""
+        """All agent .md files exist in agents/ directory."""
         agents_dir = self.plugin_root / "agents"
         for name in _SUBAGENT_NAMES:
             path = agents_dir / f"{name}.md"

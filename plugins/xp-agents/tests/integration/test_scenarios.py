@@ -425,8 +425,8 @@ class TestPlanReviewFlow(_IntegrationTestCase):
         gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
         self.assertEqual(len(gate), 1)
 
-    def test_regular_subagent_nudges_reviewer(self):
-        """Non-Plan subagent → decision:approve with xp-subagent-reviewer nudge."""
+    def test_regular_subagent_no_reviewer_nudge(self):
+        """Non-Plan subagent → no reviewer nudge (xp-subagent-reviewer removed)."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -436,9 +436,7 @@ class TestPlanReviewFlow(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        output = json.loads(result.stdout)
-        self.assertEqual(output["decision"], "approve")
-        self.assertIn("xp-subagent-reviewer", output["reason"])
+        self.assertEqual(result.stdout.strip(), "")
 
         # Should also have recorded a status event
         events = self._read_events()

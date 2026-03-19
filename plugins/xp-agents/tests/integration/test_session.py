@@ -268,8 +268,8 @@ class TestMilestone65Integration(_IntegrationTestCase):
         gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
         self.assertEqual(len(gate), 1)
 
-    def test_subagent_stop_reviewer_nudge(self):
-        """Regular subagent → decision:approve with xp-subagent-reviewer nudge."""
+    def test_subagent_stop_no_reviewer_nudge(self):
+        """Regular subagent → no reviewer nudge (xp-subagent-reviewer removed)."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -279,9 +279,7 @@ class TestMilestone65Integration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        output = json.loads(result.stdout)
-        self.assertEqual(output["decision"], "approve")
-        self.assertIn("xp-subagent-reviewer", output["reason"])
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_retrospective_nudge(self):
         """>=5 events → stdout contains xp-retrospective nudge."""
@@ -296,12 +294,11 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertIn("xp-retrospective", ctx)
 
     def test_agent_files_exist(self):
-        """All 3 agent .md files exist in agents/ directory."""
+        """All 2 agent .md files exist in agents/ directory."""
         agents_dir = Path(__file__).parent.parent.parent / "agents"
         for name in (
             "xp-retrospective",
             "xp-plan-reviewer",
-            "xp-subagent-reviewer",
         ):
             path = agents_dir / f"{name}.md"
             self.assertTrue(path.is_file(), f"Missing: {path}")

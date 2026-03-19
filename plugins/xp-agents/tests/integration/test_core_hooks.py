@@ -376,11 +376,8 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        # Now produces decision:approve with reviewer nudge
-        if result.stdout.strip():
-            output = json.loads(result.stdout)
-            self.assertEqual(output["decision"], "approve")
-            self.assertIn("xp-subagent-reviewer", output["reason"])
+        # No longer produces reviewer nudge — output should be empty
+        self.assertEqual(result.stdout.strip(), "")
 
         events = self._read_events()
         statuses = [e for e in events if e.get("type") == "status"]
