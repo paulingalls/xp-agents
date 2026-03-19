@@ -9,7 +9,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -124,14 +123,6 @@ def run_linter(linter_name: str, file_path: str) -> str | None:
     if allowed is not None and Path(file_path).suffix not in allowed:
         return None
 
-    # Debounce: skip if file was modified less than 1 second ago (mid-edit)
-    try:
-        mtime = Path(file_path).stat().st_mtime
-        if time.time() - mtime < 1.0:
-            return None
-    except OSError:
-        pass
-
     # Use "--" to separate flags from the filename argument
     cmd = _LINTER_COMMANDS[linter_name] + ["--", file_path]
     try:
@@ -157,8 +148,8 @@ def run_linter(linter_name: str, file_path: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Core lint_check logic. Appends events, no stdout."""
+def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+    """Core lint_check logic. Returns additionalContext with lint errors, or None."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -221,13 +212,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     # Run linter
     lint_output = run_linter(linter_name, normalized)
     if lint_output:
+        # Append concern event (record for SMM / retrospective)
         concern = _common.make_event(
             _common.CONCERN,
             agent_id,
-            f"Lint errors in {normalized}:\n{lint_output}",
+            f"{concerns.LINT_CONCERN_PREFIX}{normalized}:\n{lint_output}",
             severity="medium",
         )
         _common.append_safe(smm_dir, concern)
+        # Return as additionalContext for immediate feedback
+        return f"Lint errors in {normalized}:\n{lint_output}"
     else:
         prefix = f"{concerns.LINT_CONCERN_PREFIX}{normalized}:"
         concerns.resolve_concerns(
@@ -247,5 +241,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    run(input_data)
+    result = run(input_data)
+    if result:
+        _common.hook_output("PostToolUse", result)
     sys.exit(0)

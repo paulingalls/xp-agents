@@ -135,8 +135,7 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/lint_check.py",
             "timeout": 10000,
-            "statusMessage": "Running lint check...",
-            "async": true
+            "statusMessage": "Running lint check..."
           }
         ]
       },

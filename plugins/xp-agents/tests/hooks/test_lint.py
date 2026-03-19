@@ -229,46 +229,64 @@ class TestLintCheck(_HookTestCase):
 
             sh.rmtree(tmpdir)
 
-    def test_debounce_skips_recently_modified_file(self):
-        """Lint is skipped if file mtime is less than 1 second ago."""
+    def test_lint_errors_return_context(self):
+        """Lint errors should return additionalContext string."""
+        (self.smm_dir / ".lint-warned").touch()  # suppress no-config warning
         tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
         target = tmpdir / "app.py"
-        target.write_text("x = 1\n")
-        # File was just written — mtime is < 1s ago
+        target.write_text("import os\n")
         try:
             with (
                 patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
                 patch("lint_check.subprocess.run") as mock_run,
+                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
             ):
-                result = lint_check.run_linter("ruff", str(target))
-            self.assertIsNone(result)
-            mock_run.assert_not_called()
+                mock_run.return_value = type(
+                    "R",
+                    (),
+                    {"returncode": 1, "stdout": "unused import", "stderr": ""},
+                )()
+                result = lint_check.run(
+                    _make_write_input(
+                        tool_input={"file_path": str(target), "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            self.assertIsNotNone(result)
+            self.assertIn("Lint errors", result)
+            self.assertIn("unused import", result)
         finally:
             import shutil as sh
 
             sh.rmtree(tmpdir)
 
-    def test_no_debounce_for_old_file(self):
-        """Lint runs normally if file mtime is more than 1 second ago."""
-        import os
-        import time
-
+    def test_clean_lint_returns_none(self):
+        """Clean lint should return None (no additionalContext)."""
         tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
         target = tmpdir / "app.py"
         target.write_text("x = 1\n")
-        # Set mtime to 2 seconds ago
-        old_time = time.time() - 2.0
-        os.utime(str(target), (old_time, old_time))
         try:
             with (
                 patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
                 patch("lint_check.subprocess.run") as mock_run,
+                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
             ):
                 mock_run.return_value = type(
-                    "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+                    "R",
+                    (),
+                    {"returncode": 0, "stdout": "", "stderr": ""},
                 )()
-                lint_check.run_linter("ruff", str(target))
-            mock_run.assert_called_once()
+                result = lint_check.run(
+                    _make_write_input(
+                        tool_input={"file_path": str(target), "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            self.assertIsNone(result)
         finally:
             import shutil as sh
 
