@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.45 — Remove Advisory Mode, Doc Refresh
+
+### Removed
+- **Advisory enforcement mode** — `load_enforcement_mode()`, `ENFORCEMENT_STRICT`, `ENFORCEMENT_ADVISORY` constants, and all advisory/strict branching removed from `pre_tool_write.py`, `pre_tool_bash.py`, `session_review_gate.py`, `session_start.py`. The `enforcement` key removed from `settings.json`. If a gate is annoying, fix the gate — don't make it optional.
+- **`_override_settings()` test helper** — no longer needed without enforcement mode.
+
+### Docs
+- **README.md rewritten** — session startup sequence, quality review as skill, PreToolUse split, simplify threshold, configuration section updated.
+- **ARCHITECTURE.md updated** — hook map, injection model, plugin structure, session flows, enforcement section all updated for current implementation.
+- **SMM_DESIGN.md updated** — injection model, mid-session context, watermarks, conflict detection sections corrected.
+
+### Stats
+- 865 tests (all passing)
+
 ## v0.9.44 — Token Optimization: File Splits, Hook Targeting, Review Trimming
 
 ### Changed
