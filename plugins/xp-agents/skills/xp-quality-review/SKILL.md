@@ -32,7 +32,7 @@ For each recommendation:
 
 ## Step 2: Drift Management — Check Against SMM Constraints
 
-Check if code changes contradict recorded decisions or conventions in the SMM's **Constraints** pillar (shown in the preload above).
+Check if code changes contradict recorded decisions or conventions in the SMM's **Constraints** pillar (already in conversation context from session start).
 
 For each decision/convention that relates to the changed files, check alignment:
 - Decision says "Use REST for API" but code adds GraphQL endpoint → drift

@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-quality-review: SMM state + changed files + debt for changed files.
+# Preload for xp-quality-review: changed files + debt for changed files.
+# SMM is already in context (inline skill, not forked).
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-dump_smm
 dump_diff
 
 # Surface debt events for changed files
