@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _append_impl
 import _common
+import coordination
+import resolution
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -52,7 +54,7 @@ def _compute_summary(events: list[dict]) -> dict:
         e["id"] for e in events if e.get("type") == _common.CONCERN and e.get("id")
     }
 
-    resolutions = _append_impl.compute_resolutions(events)
+    resolutions = resolution.compute_resolutions(events)
     unresolved = sorted(
         (question_ids - resolutions["answered_question_ids"])
         | (concern_ids - resolutions["resolved_concern_ids"])
@@ -132,7 +134,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Clear agent's coordination entry
     agent_id = input_data.get("agent_id", "main")
-    _common.clear_coordination_agent(smm_dir, agent_id)
+    coordination.clear_coordination_agent(smm_dir, agent_id)
 
     return None
 

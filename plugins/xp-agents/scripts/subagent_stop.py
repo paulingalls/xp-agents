@@ -13,6 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import concerns
+import security
 
 # ---------------------------------------------------------------------------
 # Path 2: Security review output detection
@@ -78,14 +80,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Conflict detection — patterns 2-5 only (no file_path)
     events = _common.read_events_raw(smm_dir)
-    concern_events = _common.detect_conflicts(events, agent_id)
+    concern_events = concerns.detect_conflicts(events, agent_id)
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
 
     # Path 2: detect security review output from subagent
     last_message = input_data.get("last_assistant_message", "")
     if isinstance(last_message, str) and _detect_security_review(last_message):
-        _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
+        security.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
     # Plan review gate — write marker event for PreToolUse to detect.
     # Don't block (causes re-planning loops) or nudge via reason (silently dropped).

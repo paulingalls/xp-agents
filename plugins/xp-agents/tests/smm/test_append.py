@@ -628,17 +628,17 @@ class TestNotificationHelpers(unittest.TestCase):
     """Test _detect_platform, _sanitize_notification, _notify_blocking_question."""
 
     def test_detect_platform_macos(self):
-        with patch("_append_impl.sys") as mock_sys:
+        with patch("resolution.sys") as mock_sys:
             mock_sys.platform = "darwin"
             self.assertEqual(_append_impl._detect_platform(), "macos")
 
     def test_detect_platform_linux(self):
-        with patch("_append_impl.sys") as mock_sys:
+        with patch("resolution.sys") as mock_sys:
             mock_sys.platform = "linux"
             self.assertEqual(_append_impl._detect_platform(), "linux")
 
     def test_detect_platform_unknown(self):
-        with patch("_append_impl.sys") as mock_sys:
+        with patch("resolution.sys") as mock_sys:
             mock_sys.platform = "win32"
             self.assertEqual(_append_impl._detect_platform(), "unknown")
 
@@ -661,8 +661,8 @@ class TestNotificationHelpers(unittest.TestCase):
             "content": "Which DB?",
         }
         with (
-            patch("_append_impl._detect_platform", return_value="macos"),
-            patch("_append_impl.subprocess.run") as mock_run,
+            patch("resolution._detect_platform", return_value="macos"),
+            patch("resolution.subprocess.run") as mock_run,
         ):
             _append_impl._notify_blocking_question(event)
             mock_run.assert_called_once()
@@ -676,8 +676,8 @@ class TestNotificationHelpers(unittest.TestCase):
             "content": "Which DB?",
         }
         with (
-            patch("_append_impl._detect_platform", return_value="linux"),
-            patch("_append_impl.subprocess.run") as mock_run,
+            patch("resolution._detect_platform", return_value="linux"),
+            patch("resolution.subprocess.run") as mock_run,
         ):
             _append_impl._notify_blocking_question(event)
             mock_run.assert_called_once()
@@ -690,7 +690,7 @@ class TestNotificationHelpers(unittest.TestCase):
             "priority": "\U0001f7e1",
             "content": "Minor question",
         }
-        with patch("_append_impl.subprocess.run") as mock_run:
+        with patch("resolution.subprocess.run") as mock_run:
             _append_impl._notify_blocking_question(event)
             mock_run.assert_not_called()
 
@@ -700,7 +700,7 @@ class TestNotificationHelpers(unittest.TestCase):
             "working_on": ["file.py"],
             "content": "Working",
         }
-        with patch("_append_impl.subprocess.run") as mock_run:
+        with patch("resolution.subprocess.run") as mock_run:
             _append_impl._notify_blocking_question(event)
             mock_run.assert_not_called()
 
@@ -711,7 +711,7 @@ class TestNotificationHelpers(unittest.TestCase):
             "content": "Which DB?",
         }
         with (
-            patch("_append_impl._detect_platform", return_value="macos"),
+            patch("resolution._detect_platform", return_value="macos"),
             patch(
                 "_append_impl.subprocess.run",
                 side_effect=OSError("no osascript"),
@@ -727,8 +727,8 @@ class TestNotificationHelpers(unittest.TestCase):
             "content": 'He said "drop tables\\n"',
         }
         with (
-            patch("_append_impl._detect_platform", return_value="macos"),
-            patch("_append_impl.subprocess.run") as mock_run,
+            patch("resolution._detect_platform", return_value="macos"),
+            patch("resolution.subprocess.run") as mock_run,
         ):
             _append_impl._notify_blocking_question(event)
             # The notification message should not contain quotes or backslashes

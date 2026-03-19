@@ -13,13 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from _append_impl import (
-    compute_resolutions,
     parse_jsonl,
     write_json_atomic,
 )
 from _append_impl import (
     read_with_lock as _read_with_lock,
 )
+from resolution import compute_resolutions
 
 logger = logging.getLogger(__name__)
 

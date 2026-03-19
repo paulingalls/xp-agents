@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import security
 
 _MAX_PROMPT_LENGTH = 10_000
 _GOAL_NUDGE_TRACKER = ".goal-nudge-sent"
@@ -52,7 +53,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Path 1: detect security review invocation in user prompt
     if isinstance(prompt, str) and _SECURITY_REVIEW_PATTERN.search(prompt):
-        _common.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
+        security.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
     # Goal collection — block first prompt of a goalless session.
     # Only block once (tracker file prevents infinite loop), then nudge.

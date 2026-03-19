@@ -156,7 +156,7 @@ def _gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list
 
 def _compute_session_stats(events: list[dict]) -> dict:
     """Compute session statistics using shared resolution tracking."""
-    import _append_impl
+    import resolution
 
     stats = {
         "status_count": 0,
@@ -183,7 +183,7 @@ def _compute_session_stats(events: list[dict]) -> dict:
                 if e.get("metadata", {}).get("draft"):
                     stats["decisions_draft"] += 1
 
-    resolutions = _append_impl.compute_resolutions(events)
+    resolutions = resolution.compute_resolutions(events)
     stats["concerns_resolved"] = len(resolutions["resolved_concern_ids"])
     stats["questions_answered"] = len(resolutions["answered_question_ids"])
     answered = resolutions["answered_question_ids"]

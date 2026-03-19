@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import security
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -30,11 +31,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    head_hash = _common.get_head_hash()
+    head_hash = security.get_head_hash()
     if head_hash is None:
         return None
 
-    _common.write_security_tracker(smm_dir, head_hash)
+    security.write_security_tracker(smm_dir, head_hash)
     return None
 
 

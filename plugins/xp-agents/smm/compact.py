@@ -24,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _append_impl import (
     LockTimeoutError,
     _validate_smm_dir,
-    compute_resolutions,
     parse_jsonl,
     read_with_lock,
     replace_events_file,
@@ -33,6 +32,7 @@ from _append_impl import (
     write_watermark,
 )
 from materialize import read_curation_watermark, write_curation_watermark
+from resolution import compute_resolutions
 
 # ---------------------------------------------------------------------------
 # Helpers

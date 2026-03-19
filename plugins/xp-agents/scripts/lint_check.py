@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
 
 # ---------------------------------------------------------------------------
 # Linter detection
@@ -228,8 +229,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         )
         _common.append_safe(smm_dir, concern)
     else:
-        prefix = f"{_common.LINT_CONCERN_PREFIX}{normalized}:"
-        _common.resolve_concerns(
+        prefix = f"{concerns.LINT_CONCERN_PREFIX}{normalized}:"
+        concerns.resolve_concerns(
             smm_dir,
             lambda c, p=prefix: c.startswith(p),
             "lint-check",

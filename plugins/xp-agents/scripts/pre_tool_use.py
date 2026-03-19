@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
+import coordination
+import security
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
@@ -115,10 +118,10 @@ def check_working_on_overlap(
     Reads .coordination.json (O(1)) instead of scanning the event log.
     Returns conflict message or None.
     """
-    coordination = _common.read_coordination(smm_dir)
+    coord_data = coordination.read_coordination(smm_dir)
     normalized_target = _common.normalize_path(file_path, cwd)
 
-    for aid, entry in coordination.items():
+    for aid, entry in coord_data.items():
         if aid == agent_id:
             continue
         for f in entry.get("working_on", []):
@@ -226,18 +229,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if tool_name == "Bash" and smm_dir is not None:
         command = tool_input.get("command", "")
         if is_git_push(command):
-            head_hash = _common.get_head_hash(cwd)
-            if head_hash is not None and not _common.security_tracker_exists(
+            head_hash = security.get_head_hash(cwd)
+            if head_hash is not None and not security.security_tracker_exists(
                 smm_dir, head_hash
             ):
                 # Check if a previous review can carry forward
                 # (only non-code changes since last reviewed commit)
-                reviewed_hash = _common.find_last_reviewed_hash(smm_dir)
-                if reviewed_hash is not None and not _common.diff_has_code_changes(
+                reviewed_hash = security.find_last_reviewed_hash(smm_dir)
+                if reviewed_hash is not None and not security.diff_has_code_changes(
                     reviewed_hash, head_hash, cwd
                 ):
                     # Carry forward: only non-code changes since last review
-                    _common.write_security_tracker(smm_dir, head_hash)
+                    security.write_security_tracker(smm_dir, head_hash)
                 else:
                     # Block and request review — tracker will be written
                     # by security_review_done.py PostToolUse:Skill hook
@@ -287,7 +290,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     events: list[dict] | None = None
     if target_file and smm_dir and tool_name in _WRITE_TOOLS:
         events = _common.read_events_raw(smm_dir)
-        debts = _common.find_debt_for_file(events, target_file, cwd)
+        debts = concerns.find_debt_for_file(events, target_file, cwd)
         if debts:
             debt_lines = ["<smm-debt-context>"]
             debt_lines.append(

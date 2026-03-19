@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
+import coordination
 
 # ---------------------------------------------------------------------------
 # Main run function
@@ -48,7 +50,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     events = _common.read_events_raw(smm_dir)
 
     # Semantic references
-    refs = _common.find_related_decisions(events, file_path, cwd)
+    refs = concerns.find_related_decisions(events, file_path, cwd)
 
     # Auto-status event
     extra: dict = {"working_on": [normalized]}
@@ -63,10 +65,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     _common.append_safe(smm_dir, status_event)
 
     # Update coordination file for real-time conflict detection
-    _common.update_coordination(smm_dir, agent_id, [normalized])
+    coordination.update_coordination(smm_dir, agent_id, [normalized])
 
     # Conflict detection — log-only, never exit 2
-    concern_events = _common.detect_conflicts(
+    concern_events = concerns.detect_conflicts(
         events, agent_id, file_path=file_path, cwd=cwd
     )
     for concern in concern_events:

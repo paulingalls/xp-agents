@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import coordination
 import pre_tool_use
+import security
 from conftest import (
     _HookTestCase,
     _make_bash_input,
@@ -93,14 +95,14 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
     """Tests updated for coordination-file based overlap detection."""
 
     def test_no_overlap(self):
-        _common.update_coordination(self.smm_dir, "other", ["src/b.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["src/b.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/a.ts", "/project"
         )
         self.assertIsNone(result)
 
     def test_overlap_detected(self):
-        _common.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -108,14 +110,14 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
         self.assertIn("other", result)
 
     def test_self_overlap_ignored(self):
-        _common.update_coordination(self.smm_dir, "main", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "main", ["src/app.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)
 
     def test_normalized_path_overlap(self):
-        _common.update_coordination(self.smm_dir, "other", ["./src/../src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["./src/../src/app.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -123,8 +125,8 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
 
     def test_update_overwrites_previous(self):
         """Latest coordination update replaces previous working_on."""
-        _common.update_coordination(self.smm_dir, "other", ["src/app.ts"])
-        _common.update_coordination(self.smm_dir, "other", ["src/b.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["src/b.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -132,8 +134,8 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
 
     def test_empty_working_on_clears_overlap(self):
         """working_on=[] should clear the agent's file claim."""
-        _common.update_coordination(self.smm_dir, "other", ["src/app.ts"])
-        _common.update_coordination(self.smm_dir, "other", [])
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other", [])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -213,7 +215,7 @@ class TestPreToolUseRun(_HookTestCase):
         self.assertIsNone(result)
 
     def test_conflict_raises_blocked(self):
-        _common.update_coordination(self.smm_dir, "other-agent", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other-agent", ["src/app.ts"])
         with self.assertRaises(_common.BlockedError) as cm:
             pre_tool_use.run(
                 _make_write_input(),
@@ -223,7 +225,7 @@ class TestPreToolUseRun(_HookTestCase):
 
     def test_conflict_appends_concern_event(self):
         """Conflict detection appends a high-severity concern to SMM."""
-        _common.update_coordination(self.smm_dir, "other-agent", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other-agent", ["src/app.ts"])
         with self.assertRaises(_common.BlockedError):
             pre_tool_use.run(
                 _make_write_input(),
@@ -327,7 +329,9 @@ class TestPreToolUseNoDelta(_HookTestCase):
 class TestPreToolUseEnforcement(_HookTestCase):
     def test_advisory_converts_block_to_warning(self):
         """Advisory mode converts BlockedError to warning in context."""
-        _common.update_coordination(self.smm_dir, "other-agent", ["/tmp/src/app.ts"])
+        coordination.update_coordination(
+            self.smm_dir, "other-agent", ["/tmp/src/app.ts"]
+        )
         with _override_settings({"enforcement": "advisory"}):
             result = pre_tool_use.run(
                 _make_write_input(),
@@ -339,7 +343,9 @@ class TestPreToolUseEnforcement(_HookTestCase):
 
     def test_strict_blocks(self):
         """Strict mode still raises BlockedError."""
-        _common.update_coordination(self.smm_dir, "other-agent", ["/tmp/src/app.ts"])
+        coordination.update_coordination(
+            self.smm_dir, "other-agent", ["/tmp/src/app.ts"]
+        )
         with self.assertRaises(_common.BlockedError):
             pre_tool_use.run(
                 _make_write_input(),
@@ -613,15 +619,15 @@ class TestPreToolUsePushGate(_HookTestCase):
 
     def test_push_blocked_without_tracker(self):
         """git push is blocked when no security tracker exists."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             with self.assertRaises(_common.BlockedError) as ctx:
                 pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
             self.assertIn("/security-review", str(ctx.exception))
 
     def test_push_passes_with_tracker(self):
         """git push passes when security tracker exists."""
-        _common.write_security_tracker(self.smm_dir, "abc1234")
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        security.write_security_tracker(self.smm_dir, "abc1234")
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             # Should not raise BlockedError
             pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
 
@@ -629,7 +635,7 @@ class TestPreToolUsePushGate(_HookTestCase):
         """Advisory mode: git push warns instead of blocking."""
         with (
             _override_settings({"enforcement": "advisory"}),
-            patch.object(_common, "get_head_hash", return_value="abc1234"),
+            patch.object(security, "get_head_hash", return_value="abc1234"),
         ):
             result = pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
             self.assertIsNotNone(result)
@@ -637,7 +643,7 @@ class TestPreToolUsePushGate(_HookTestCase):
 
     def test_push_event_written_on_block(self):
         """Blocking a push writes security_review_requested event."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             with self.assertRaises(_common.BlockedError):
                 pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
             events = _common.read_events_raw(self.smm_dir)
@@ -655,13 +661,13 @@ class TestPreToolUsePushGate(_HookTestCase):
 
     def test_push_no_hash_degrades(self):
         """git push with no HEAD hash passes through (no crash)."""
-        with patch.object(_common, "get_head_hash", return_value=None):
+        with patch.object(security, "get_head_hash", return_value=None):
             pre_tool_use.run(self._push_input(), smm_dir=self.smm_dir)
             # No BlockedError — graceful degradation
 
     def test_push_xp_agent_skips(self):
         """xp- agents skip the push gate."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             pre_tool_use.run(
                 self._push_input(agent_type="xp-navigator"),
                 smm_dir=self.smm_dir,
@@ -671,7 +677,7 @@ class TestPreToolUsePushGate(_HookTestCase):
     def test_non_push_bash_not_affected(self):
         """Non-push Bash commands don't trigger push gate."""
         inp = self._push_input(command="git status")
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             # Should not raise BlockedError
             pre_tool_use.run(inp, smm_dir=self.smm_dir)
 

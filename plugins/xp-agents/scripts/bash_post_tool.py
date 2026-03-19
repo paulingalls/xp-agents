@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
 
 # ---------------------------------------------------------------------------
 # Command classification
@@ -159,9 +160,9 @@ def load_commit_threshold() -> int:
 
 def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> None:
     """Auto-resolve unresolved test-failure concerns when tests pass."""
-    _common.resolve_concerns(
+    concerns.resolve_concerns(
         smm_dir,
-        _common.TEST_CONCERN_RE.search,
+        concerns.TEST_CONCERN_RE.search,
         agent_id,
         "Test concern resolved",
     )

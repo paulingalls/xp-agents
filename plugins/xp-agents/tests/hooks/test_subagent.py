@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import security
 import subagent_stop
 import user_prompt_log
 from conftest import _HookTestCase, make_event
@@ -427,52 +428,52 @@ class TestUserPromptLogSecurity(_HookTestCase):
 
     def test_security_review_slash_writes_tracker(self):
         """/security-review in prompt writes tracker file."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             user_prompt_log.run(
                 self._prompt_input("/security-review"),
                 smm_dir=self.smm_dir,
             )
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_security_review_natural_writes_tracker(self):
         """'security review' in prompt writes tracker file."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             user_prompt_log.run(
                 self._prompt_input("please run a security review"),
                 smm_dir=self.smm_dir,
             )
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_security_audit_writes_tracker(self):
         """'security audit' in prompt writes tracker file."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             user_prompt_log.run(
                 self._prompt_input("do a security audit"),
                 smm_dir=self.smm_dir,
             )
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_case_insensitive(self):
         """Pattern matching is case insensitive."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             user_prompt_log.run(
                 self._prompt_input("Run a Security Review"),
                 smm_dir=self.smm_dir,
             )
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_no_match_no_tracker(self):
         """Non-security prompts don't write tracker."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             user_prompt_log.run(
                 self._prompt_input("fix the bug in app.py"),
                 smm_dir=self.smm_dir,
             )
-        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_event_still_logged(self):
         """Event is logged as customer_input regardless of security match."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             user_prompt_log.run(
                 self._prompt_input("/security-review"),
                 smm_dir=self.smm_dir,
@@ -483,7 +484,7 @@ class TestUserPromptLogSecurity(_HookTestCase):
 
     def test_no_hash_degrades(self):
         """No HEAD hash → no tracker, no crash."""
-        with patch.object(_common, "get_head_hash", return_value=None):
+        with patch.object(security, "get_head_hash", return_value=None):
             user_prompt_log.run(
                 self._prompt_input("/security-review"),
                 smm_dir=self.smm_dir,
@@ -511,12 +512,12 @@ class TestSubagentStopSecurity(_HookTestCase):
     def test_security_review_output_writes_tracker(self):
         """Security review output with 2+ signals writes tracker."""
         msg = "## Security Review\n\nNo vulnerabilities found in the codebase."
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             subagent_stop.run(
                 self._subagent_input(msg),
                 smm_dir=self.smm_dir,
             )
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_vulnerability_report_writes_tracker(self):
         """Vulnerability report with severity markers writes tracker."""
@@ -525,49 +526,49 @@ class TestSubagentStopSecurity(_HookTestCase):
             "Critical: 0\nHigh: 1\nMedium: 2\nLow: 3\n"
             "Found 3 vulnerabilities total."
         )
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             subagent_stop.run(
                 self._subagent_input(msg),
                 smm_dir=self.smm_dir,
             )
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_normal_output_no_tracker(self):
         """Normal subagent output doesn't write tracker."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             subagent_stop.run(
                 self._subagent_input("Refactored the database module."),
                 smm_dir=self.smm_dir,
             )
-        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_single_mention_below_threshold(self):
         """Single security mention (below threshold) doesn't write tracker."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             subagent_stop.run(
                 self._subagent_input("Fixed a vulnerability in the auth code."),
                 smm_dir=self.smm_dir,
             )
-        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_linter_output_no_false_positive(self):
         """Linter output with severity labels alone doesn't write tracker."""
         msg = "Critical: 3 issues\nHigh: 5 issues\nMedium: 12 issues\nLow: 1"
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             subagent_stop.run(
                 self._subagent_input(msg),
                 smm_dir=self.smm_dir,
             )
-        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_empty_message_no_tracker(self):
         """Empty message doesn't write tracker."""
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             subagent_stop.run(
                 self._subagent_input(""),
                 smm_dir=self.smm_dir,
             )
-        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
 
 import security_review_done  # noqa: E402
@@ -586,16 +587,16 @@ class TestSecurityReviewDone(_HookTestCase):
         return data
 
     def test_writes_tracker_on_security_review(self):
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             security_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertTrue(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_ignores_other_skills(self):
-        with patch.object(_common, "get_head_hash", return_value="abc1234"):
+        with patch.object(security, "get_head_hash", return_value="abc1234"):
             security_review_done.run(
                 self._skill_input("simplify"), smm_dir=self.smm_dir
             )
-        self.assertFalse(_common.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
 
     def test_xp_agent_skips(self):
         result = security_review_done.run(

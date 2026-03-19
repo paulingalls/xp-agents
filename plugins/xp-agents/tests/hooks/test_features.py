@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import coordination
 import lint_check
 import pre_tool_use
 from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
@@ -615,28 +616,28 @@ class TestCoordination(_HookTestCase):
 
     def test_update_creates_file(self):
         """update_coordination creates .coordination.json if missing."""
-        _common.update_coordination(self.smm_dir, "main", ["src/a.ts"])
+        coordination.update_coordination(self.smm_dir, "main", ["src/a.ts"])
         coord_file = self.smm_dir / ".coordination.json"
         self.assertTrue(coord_file.exists())
 
     def test_update_adds_agent_entry(self):
         """Entry has working_on list and updated timestamp."""
-        _common.update_coordination(self.smm_dir, "main", ["src/a.ts"])
-        data = _common.read_coordination(self.smm_dir)
+        coordination.update_coordination(self.smm_dir, "main", ["src/a.ts"])
+        data = coordination.read_coordination(self.smm_dir)
         self.assertIn("main", data)
         self.assertEqual(data["main"]["working_on"], ["src/a.ts"])
         self.assertIn("updated", data["main"])
 
     def test_update_overwrites_previous(self):
         """Latest update replaces previous working_on."""
-        _common.update_coordination(self.smm_dir, "main", ["src/a.ts"])
-        _common.update_coordination(self.smm_dir, "main", ["src/b.ts"])
-        data = _common.read_coordination(self.smm_dir)
+        coordination.update_coordination(self.smm_dir, "main", ["src/a.ts"])
+        coordination.update_coordination(self.smm_dir, "main", ["src/b.ts"])
+        data = coordination.read_coordination(self.smm_dir)
         self.assertEqual(data["main"]["working_on"], ["src/b.ts"])
 
     def test_read_returns_empty_on_missing(self):
         """read_coordination returns {} when file doesn't exist."""
-        data = _common.read_coordination(self.smm_dir)
+        data = coordination.read_coordination(self.smm_dir)
         self.assertEqual(data, {})
 
     def test_read_ignores_stale_entries(self):
@@ -655,41 +656,41 @@ class TestCoordination(_HookTestCase):
                 }
             )
         )
-        data = _common.read_coordination(self.smm_dir)
+        data = coordination.read_coordination(self.smm_dir)
         self.assertEqual(data, {})
 
     def test_read_keeps_fresh_entries(self):
         """Entries within max_age_seconds are kept."""
-        _common.update_coordination(self.smm_dir, "main", ["src/a.ts"])
-        data = _common.read_coordination(self.smm_dir)
+        coordination.update_coordination(self.smm_dir, "main", ["src/a.ts"])
+        data = coordination.read_coordination(self.smm_dir)
         self.assertIn("main", data)
 
     def test_clear_removes_agent(self):
         """clear_coordination_agent removes the agent's entry."""
-        _common.update_coordination(self.smm_dir, "main", ["src/a.ts"])
-        _common.clear_coordination_agent(self.smm_dir, "main")
-        data = _common.read_coordination(self.smm_dir)
+        coordination.update_coordination(self.smm_dir, "main", ["src/a.ts"])
+        coordination.clear_coordination_agent(self.smm_dir, "main")
+        data = coordination.read_coordination(self.smm_dir)
         self.assertNotIn("main", data)
 
     def test_clear_preserves_others(self):
         """Clearing one agent doesn't affect other agents."""
-        _common.update_coordination(self.smm_dir, "main", ["src/a.ts"])
-        _common.update_coordination(self.smm_dir, "agent-2", ["src/b.ts"])
-        _common.clear_coordination_agent(self.smm_dir, "main")
-        data = _common.read_coordination(self.smm_dir)
+        coordination.update_coordination(self.smm_dir, "main", ["src/a.ts"])
+        coordination.update_coordination(self.smm_dir, "agent-2", ["src/b.ts"])
+        coordination.clear_coordination_agent(self.smm_dir, "main")
+        data = coordination.read_coordination(self.smm_dir)
         self.assertNotIn("main", data)
         self.assertIn("agent-2", data)
 
     def test_clear_noop_on_missing_file(self):
         """clear_coordination_agent is a no-op if file doesn't exist."""
-        _common.clear_coordination_agent(self.smm_dir, "main")
+        coordination.clear_coordination_agent(self.smm_dir, "main")
         # Should not raise
 
     def test_corrupted_file_returns_empty(self):
         """read_coordination returns {} on invalid JSON."""
         coord_file = self.smm_dir / ".coordination.json"
         coord_file.write_text("not json{{{")
-        data = _common.read_coordination(self.smm_dir)
+        data = coordination.read_coordination(self.smm_dir)
         self.assertEqual(data, {})
 
 
@@ -698,7 +699,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
 
     def test_no_overlap(self):
         """No conflict when agents work on different files."""
-        _common.update_coordination(self.smm_dir, "other", ["src/b.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["src/b.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/a.ts", "/project"
         )
@@ -706,7 +707,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
 
     def test_overlap_detected(self):
         """Conflict detected when another agent works on the same file."""
-        _common.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -715,7 +716,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
 
     def test_self_overlap_ignored(self):
         """No conflict when the same agent works on the same file."""
-        _common.update_coordination(self.smm_dir, "main", ["src/app.ts"])
+        coordination.update_coordination(self.smm_dir, "main", ["src/app.ts"])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -744,7 +745,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
 
     def test_empty_working_on(self):
         """Agent with empty working_on doesn't trigger conflict."""
-        _common.update_coordination(self.smm_dir, "other", [])
+        coordination.update_coordination(self.smm_dir, "other", [])
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
@@ -752,8 +753,8 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
 
     def test_cleared_agent_no_conflict(self):
         """After clearing, agent no longer causes conflicts."""
-        _common.update_coordination(self.smm_dir, "other", ["src/app.ts"])
-        _common.clear_coordination_agent(self.smm_dir, "other")
+        coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
+        coordination.clear_coordination_agent(self.smm_dir, "other")
         result = pre_tool_use.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )

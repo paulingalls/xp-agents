@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import concerns
 from conftest import _HookTestCase, make_event
 
 # ===========================================================================
@@ -255,13 +256,13 @@ class TestLoadEnforcementMode(unittest.TestCase):
 
 
 class TestFindDebtForFile(_HookTestCase):
-    """Tests for _common.find_debt_for_file()."""
+    """Tests for concerns.find_debt_for_file()."""
 
     def test_matching_file(self):
         events = [
             make_event("debt", content="Legacy code", files=["/tmp/src/app.ts"]),
         ]
-        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["content"], "Legacy code")
 
@@ -269,7 +270,7 @@ class TestFindDebtForFile(_HookTestCase):
         events = [
             make_event("debt", content="Legacy code", files=["/tmp/src/other.ts"]),
         ]
-        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
     def test_multiple_debts(self):
@@ -278,7 +279,7 @@ class TestFindDebtForFile(_HookTestCase):
             make_event("debt", content="Debt 2", files=["/tmp/src/app.ts"]),
             make_event("debt", content="Debt 3", files=["/tmp/src/other.ts"]),
         ]
-        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 2)
 
     def test_path_normalization(self):
@@ -286,11 +287,11 @@ class TestFindDebtForFile(_HookTestCase):
         events = [
             make_event("debt", content="Debt", files=["src/app.ts"]),
         ]
-        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 1)
 
     def test_empty_events(self):
-        result = _common.find_debt_for_file([], "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_debt_for_file([], "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
     def test_non_debt_events_ignored(self):
@@ -298,7 +299,7 @@ class TestFindDebtForFile(_HookTestCase):
             make_event("concern", content="Concern about app.ts"),
             make_event("status", content="Working"),
         ]
-        result = _common.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
 
@@ -329,20 +330,20 @@ class TestExtractFilePath(unittest.TestCase):
 
 
 class TestFindRelatedDecisions(unittest.TestCase):
-    """Test _common.find_related_decisions correctness."""
+    """Test concerns.find_related_decisions correctness."""
 
     def test_matches_via_working_on(self):
         d = make_event(
             "decision", topic="auth", content="Use JWT", working_on=["/tmp/src/auth.ts"]
         )
-        result = _common.find_related_decisions([d], "/tmp/src/auth.ts", "/tmp")
+        result = concerns.find_related_decisions([d], "/tmp/src/auth.ts", "/tmp")
         self.assertIn(d["id"], result)
 
     def test_no_match_different_file(self):
         d = make_event(
             "decision", topic="auth", content="Use JWT", working_on=["/tmp/src/auth.ts"]
         )
-        result = _common.find_related_decisions([d], "/tmp/src/other.ts", "/tmp")
+        result = concerns.find_related_decisions([d], "/tmp/src/other.ts", "/tmp")
         self.assertNotIn(d["id"], result)
 
     def test_no_substring_false_positive_via_references(self):
@@ -353,7 +354,7 @@ class TestFindRelatedDecisions(unittest.TestCase):
             content="Naming convention",
             references=["data.py"],
         )
-        result = _common.find_related_decisions([d], "a.py", "/tmp")
+        result = concerns.find_related_decisions([d], "a.py", "/tmp")
         self.assertNotIn(d["id"], result)
 
     def test_exact_reference_match(self):
@@ -361,12 +362,12 @@ class TestFindRelatedDecisions(unittest.TestCase):
         d = make_event(
             "decision", topic="auth", content="Use JWT", references=["src/auth.ts"]
         )
-        result = _common.find_related_decisions([d], "src/auth.ts", "/tmp")
+        result = concerns.find_related_decisions([d], "src/auth.ts", "/tmp")
         self.assertIn(d["id"], result)
 
     def test_skips_non_decision_events(self):
         s = make_event("status", content="Working", working_on=["/tmp/src/app.ts"])
-        result = _common.find_related_decisions([s], "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_related_decisions([s], "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
     def test_invalid_agent_id_graceful(self):
@@ -384,29 +385,29 @@ class TestFindRelatedDecisions(unittest.TestCase):
 
 
 class TestDetectConflictsCommon(_HookTestCase):
-    """Test detect_conflicts after extraction to _common.py."""
+    """Test detect_conflicts after extraction to concerns.py."""
 
-    def test_import_from_common(self):
-        self.assertTrue(hasattr(_common, "detect_conflicts"))
-        self.assertTrue(hasattr(_common, "make_concern"))
+    def test_import_from_concerns(self):
+        self.assertTrue(hasattr(concerns, "detect_conflicts"))
+        self.assertTrue(hasattr(concerns, "make_concern"))
 
     def test_overlapping_working_on(self):
         events = [
             make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
         ]
-        concerns = _common.detect_conflicts(
+        found = concerns.detect_conflicts(
             events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
         )
-        self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
+        self.assertTrue(any("overlap" in c["content"].lower() for c in found))
 
     def test_no_overlap_different_file(self):
         events = [
             make_event("status", agent_id="other", working_on=["/tmp/src/other.ts"]),
         ]
-        concerns = _common.detect_conflicts(
+        found = concerns.detect_conflicts(
             events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
         )
-        overlap_concerns = [c for c in concerns if "overlap" in c["content"].lower()]
+        overlap_concerns = [c for c in found if "overlap" in c["content"].lower()]
         self.assertEqual(len(overlap_concerns), 0)
 
     def test_empty_working_on_clears_overlap(self):
@@ -415,51 +416,51 @@ class TestDetectConflictsCommon(_HookTestCase):
             make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
             make_event("status", agent_id="other", working_on=[]),
         ]
-        concerns = _common.detect_conflicts(
+        found = concerns.detect_conflicts(
             events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
         )
-        overlap_concerns = [c for c in concerns if "overlap" in c["content"].lower()]
+        overlap_concerns = [c for c in found if "overlap" in c["content"].lower()]
         self.assertEqual(len(overlap_concerns), 0)
 
     def test_stale_question_detected(self):
         q = make_event("question", priority="\U0001f534", content="Blocking?")
         filler = [make_event(content=f"filler {i}") for i in range(21)]
-        concerns = _common.detect_conflicts(
+        found = concerns.detect_conflicts(
             [q, *filler], "main", file_path="/tmp/x.ts", cwd="/tmp"
         )
-        self.assertTrue(any("stale" in c["content"].lower() for c in concerns))
+        self.assertTrue(any("stale" in c["content"].lower() for c in found))
 
     def test_without_file_path_skips_pattern_1(self):
         """When file_path=None, skip overlapping working_on check."""
         events = [
             make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
         ]
-        concerns = _common.detect_conflicts(events, "main")
-        overlap_concerns = [c for c in concerns if "overlap" in c["content"].lower()]
+        found = concerns.detect_conflicts(events, "main")
+        overlap_concerns = [c for c in found if "overlap" in c["content"].lower()]
         self.assertEqual(len(overlap_concerns), 0)
 
     def test_without_file_path_runs_other_patterns(self):
         """Patterns 2-5 still run when file_path=None."""
         a = make_event("assumption", content="API is REST")
         d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
-        concerns = _common.detect_conflicts([a, d], "main")
-        self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
+        found = concerns.detect_conflicts([a, d], "main")
+        self.assertTrue(any("contradict" in c["content"].lower() for c in found))
 
     def test_superseded_decision(self):
         events = [
             make_event("decision", topic="db", content="Use Postgres"),
             make_event("decision", topic="db", content="Use MySQL"),
         ]
-        concerns = _common.detect_conflicts(events, "main")
-        self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
+        found = concerns.detect_conflicts(events, "main")
+        self.assertTrue(any("superseded" in c["content"].lower() for c in found))
 
     def test_convention_violation(self):
         events = [
             make_event("convention", topic="naming", content="Use camelCase"),
             make_event("decision", topic="naming", content="Use snake_case"),
         ]
-        concerns = _common.detect_conflicts(events, "main")
-        self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
+        found = concerns.detect_conflicts(events, "main")
+        self.assertTrue(any("convention" in c["content"].lower() for c in found))
 
     def test_no_duplicate_convention_violation(self):
         """Should not re-generate concern if one already exists for same conflict."""
@@ -471,10 +472,8 @@ class TestDetectConflictsCommon(_HookTestCase):
             "diverges from established convention.",
         )
         events = [conv, dec, existing_concern]
-        concerns = _common.detect_conflicts(events, "main")
-        convention_concerns = [
-            c for c in concerns if "convention" in c["content"].lower()
-        ]
+        found = concerns.detect_conflicts(events, "main")
+        convention_concerns = [c for c in found if "convention" in c["content"].lower()]
         self.assertEqual(len(convention_concerns), 0)
 
     def test_no_duplicate_superseded_decision(self):
@@ -487,10 +486,8 @@ class TestDetectConflictsCommon(_HookTestCase):
         )
         d2 = make_event("decision", topic="db", content="Use MySQL")
         events = [d1, existing_concern, d2]
-        concerns = _common.detect_conflicts(events, "main")
-        superseded_concerns = [
-            c for c in concerns if "superseded" in c["content"].lower()
-        ]
+        found = concerns.detect_conflicts(events, "main")
+        superseded_concerns = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded_concerns), 0)
 
     def test_no_duplicate_assumption_contradicted(self):
@@ -503,9 +500,9 @@ class TestDetectConflictsCommon(_HookTestCase):
             "contradicted by discovery 'Actually GraphQL'.",
         )
         events = [a, d, existing_concern]
-        concerns = _common.detect_conflicts(events, "main")
+        found = concerns.detect_conflicts(events, "main")
         contradiction_concerns = [
-            c for c in concerns if "contradict" in c["content"].lower()
+            c for c in found if "contradict" in c["content"].lower()
         ]
         self.assertEqual(len(contradiction_concerns), 0)
 
@@ -519,8 +516,8 @@ class TestDetectConflictsCommon(_HookTestCase):
             f"(id {q['id'][:8]}) has not been answered.",
         )
         events = [q, *filler, existing_concern]
-        concerns = _common.detect_conflicts(events, "main")
-        stale_concerns = [c for c in concerns if "stale" in c["content"].lower()]
+        found = concerns.detect_conflicts(events, "main")
+        stale_concerns = [c for c in found if "stale" in c["content"].lower()]
         self.assertEqual(len(stale_concerns), 0)
 
     def test_resolved_concern_allows_re_detection(self):
@@ -539,10 +536,8 @@ class TestDetectConflictsCommon(_HookTestCase):
             metadata={"resolves": [old_concern["id"]]},
         )
         events = [conv, dec, old_concern, resolution]
-        concerns = _common.detect_conflicts(events, "main")
-        convention_concerns = [
-            c for c in concerns if "convention" in c["content"].lower()
-        ]
+        found = concerns.detect_conflicts(events, "main")
+        convention_concerns = [c for c in found if "convention" in c["content"].lower()]
         self.assertEqual(len(convention_concerns), 1)
 
 
