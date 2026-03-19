@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.51 — Lint Feedback, Async Hooks, Plugin Data Storage
+
+### Changed
+- **Lint errors inject additionalContext** — `lint_check.py` now returns lint errors as `additionalContext` so the agent sees them immediately after writing the file, not deferred to the next prompt via nuggets. Synchronous (was async) since context injection must complete before the agent continues.
+- **Removed lint debounce** — the 1-second mtime debounce skipped files the agent just wrote, which is every file. Now always lints immediately after write.
+- **4 hooks now async** — `bash_post_tool.py`, `bash_failure.py`, `security_review_done.py`, and `session_end.py` run with `async: true` (fire-and-forget, no context injection).
+- **SMM storage uses `CLAUDE_PLUGIN_DATA`** — respects plugin ecosystem conventions and sandbox customization.
+- **Both user and project scope supported** for installation.
+
+### Stats
+- 869 tests (all passing)
+
 ## v0.9.50 — Async Hooks, CLAUDE_PLUGIN_DATA Storage
 
 ### Changed
