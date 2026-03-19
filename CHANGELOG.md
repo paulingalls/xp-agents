@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.47 — Tiered Subagent Context, Remove Dead Reviewer
+
+### Changed
+- **Tiered SubagentStart injection** — Explore agents get only Intent + Constraints pillars (~200 tokens). Plan, general-purpose, and background agents get full SMM + behavioral guide (~1000 tokens). xp-* agents skipped (use own preloads). Prevention over inspection — subagents get quality expectations upfront.
+
+### Removed
+- **xp-subagent-reviewer** agent and skill — dead since v0.9.29. SubagentStop silently drops `decision:"approve"` with `reason`, so the nudge never reached the agent. The tiered context injection replaces its purpose.
+- **Reviewer nudge from subagent_stop.py** — `subagent_stop.py` no longer returns anything for non-Plan subagents.
+
+### Stats
+- 869 tests (all passing)
+
 ## v0.9.46 — Rename /xp-session-review to /xp-kickoff
 
 ### Changed
