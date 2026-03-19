@@ -54,7 +54,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
     Active = unresolved goals, non-draft decisions, conventions,
-    unresolved concerns/debt/questions, open customer_intents,
+    unresolved concerns/debt/questions/assumptions, open customer_intents,
     retrospective events.
     """
     resolutions = compute_resolutions(events)
@@ -89,8 +89,8 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if intent_status == "open":
                     referenced.add(eid)
             case "assumption":
-                # Assumptions have no resolution mechanism — always retained
-                referenced.add(eid)
+                if eid not in resolutions["resolved_assumption_ids"]:
+                    referenced.add(eid)
             case "retrospective":
                 referenced.add(eid)
 

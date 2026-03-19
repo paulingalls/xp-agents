@@ -177,6 +177,7 @@ def build_indices(events: list[dict]) -> dict:
     indices["goal_resolutions"] = resolutions["goal_resolutions"]
     indices["debt_resolutions"] = resolutions["debt_resolutions"]
     indices["decision_resolutions"] = resolutions["decision_resolutions"]
+    indices["assumption_resolutions"] = resolutions["assumption_resolutions"]
 
     return indices
 
@@ -328,10 +329,11 @@ def prepare_curation_data(smm_dir: Path) -> dict:
             }
         )
 
-    # Risks: unresolved concerns + unverified assumptions + unresolved debt
+    # Risks: unresolved concerns + unresolved assumptions + unresolved debt
     #         + unanswered questions
     concern_resolutions = indices["concern_resolutions"]
     debt_resolutions = indices["debt_resolutions"]
+    assumption_resolutions = indices["assumption_resolutions"]
     risk_items: list[dict] = []
     for c in indices["by_type"].get("concern", []):
         if c["id"] not in concern_resolutions:
@@ -344,7 +346,9 @@ def prepare_curation_data(smm_dir: Path) -> dict:
                 }
             )
     for a in indices["by_type"].get("assumption", []):
-        if a["id"] not in indices["assumption_contradictions"]:
+        contradicted = a["id"] in indices["assumption_contradictions"]
+        resolved = a["id"] in assumption_resolutions
+        if not contradicted and not resolved:
             risk_items.append(
                 {
                     "id": a["id"],

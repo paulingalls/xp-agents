@@ -434,6 +434,24 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(goal["id"], result["goal_resolutions"])
         self.assertIn(debt["id"], result["debt_resolutions"])
 
+    def test_assumption_resolved_via_metadata_resolves(self):
+        assumption = make_event("assumption", content="API returns JSON")
+        resolver = make_event(
+            "status",
+            content="Verified: API returns JSON",
+            working_on=[],
+            metadata={"resolves": [assumption["id"]]},
+        )
+        result = _append_impl.compute_resolutions([assumption, resolver])
+        self.assertIn(assumption["id"], result["assumption_resolutions"])
+        self.assertIn(assumption["id"], result["resolved_assumption_ids"])
+
+    def test_unresolved_assumption_not_in_results(self):
+        assumption = make_event("assumption", content="API returns JSON")
+        result = _append_impl.compute_resolutions([assumption])
+        self.assertEqual(len(result["assumption_resolutions"]), 0)
+        self.assertEqual(len(result["resolved_assumption_ids"]), 0)
+
     def test_resolve_prefix_ambiguous_skipped(self):
         """If a prefix matches multiple events, skip it (ambiguous)."""
         # Create two concerns with the same 8-char prefix (unlikely in
@@ -1084,6 +1102,68 @@ class TestCompactAfterCuration(_SMMTestCase):
         retained_ids = {e["id"] for e in retained}
         # Resolved goal is archivable
         self.assertNotIn(goal["id"], retained_ids)
+
+    def test_unresolved_assumption_retained(self):
+        """Unresolved assumptions are still retained (active risk)."""
+        import compact
+
+        assumption = make_event(
+            "assumption",
+            content="API returns JSON",
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        session_end = make_event(
+            "session_end",
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event(
+            "status",
+            content="new work",
+            ts="2026-02-01T00:00:00+00:00",
+        )
+        self._write_events([assumption, session_end, new_event])
+        self._set_curation_watermark(2)
+
+        compact.compact_after_curation(self.smm_dir)
+        retained = self._read_events()
+        retained_ids = {e["id"] for e in retained}
+        self.assertIn(assumption["id"], retained_ids)
+
+    def test_resolved_assumption_archived(self):
+        """Resolved assumptions are archivable — fixes the accumulation bug."""
+        import compact
+
+        assumption = make_event(
+            "assumption",
+            content="API returns JSON",
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        resolution = make_event(
+            "status",
+            content="Verified: API returns JSON",
+            ts="2026-01-02T00:00:00+00:00",
+            metadata={"resolves": [assumption["id"]]},
+        )
+        session_end = make_event(
+            "session_end",
+            content="end",
+            ts="2026-01-03T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event(
+            "status",
+            content="new work",
+            ts="2026-02-01T00:00:00+00:00",
+        )
+        self._write_events([assumption, resolution, session_end, new_event])
+        self._set_curation_watermark(3)
+
+        compact.compact_after_curation(self.smm_dir)
+        retained = self._read_events()
+        retained_ids = {e["id"] for e in retained}
+        self.assertNotIn(assumption["id"], retained_ids)
 
     def test_keeps_resolution_events(self):
         """If a goal is retained, its resolving event is also retained."""
@@ -1922,6 +2002,20 @@ class TestPrepareCurationData(_SMMTestCase):
         result = materialize.prepare_curation_data(self.smm_dir)
         self.assertEqual(len(result["current_smm"]["intent"]), 0)
         self.assertEqual(len(result["current_smm"]["risks"]), 0)
+
+    def test_resolved_assumption_excluded_from_risks(self):
+        """Resolved assumptions are excluded from current_smm.risks."""
+        assumption = make_event("assumption", content="API returns JSON")
+        resolver = make_event(
+            "status",
+            content="Verified",
+            working_on=[],
+            metadata={"resolves": [assumption["id"]]},
+        )
+        self._write_events([assumption, resolver])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        risk_ids = {r["id"] for r in result["current_smm"]["risks"]}
+        self.assertNotIn(assumption["id"], risk_ids)
 
     def test_aging_counts_sessions(self):
         """Aging dict maps risk IDs to session count since creation."""
