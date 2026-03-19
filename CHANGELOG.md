@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.9.43 — Assumption Resolution, Session UX, Quality Courage
+
+### Fixed
+- **Assumption accumulation bug** — `compute_resolutions()` lacked a `case "assumption"` branch, so assumptions from plan reviews were never resolvable via `metadata.resolves`. Compaction unconditionally retained them, and `prepare_curation_data()` only filtered via contradictions. This caused 39 stale assumptions to accumulate across 4 sessions. Added resolution mechanism to all three files.
+
+### Added
+- **`is_task_notification()` helper** in `_common.py` — shared check for background agent task-notifications, used by both `session_review_gate.py` and `user_prompt_log.py`.
+- **Session review gate nudge on `/clear`** — marker content distinguishes "startup" (block) from "clear" (nudge). Mid-session resets no longer hard-block work in progress.
+- **Task-notification skip in session review gate** — background agent completions no longer trigger the session review block.
+- 8 new tests (887 total)
+
+### Changed
+- **Goal collection always runs** — `/xp-goal-collection` now shows existing goals and asks "Any goals for this session?" at every session start, not just when zero goals exist. Supports short-term session goals alongside long-term north star.
+- **Quality review emphasizes courage** — Step 1 now defaults to applying simplify recommendations; "low severity" and "it's fine as-is" are explicitly invalid skip reasons.
+- **`check_session_needs.sh`** — outputs `GOALS_REVIEW` (always) instead of binary `GOALS_NEEDED`/`Goals: PRESENT`. Added legacy `## Project Goals` fallback for goal display.
+
+### Stats
+- 887 tests (all passing)
+
 ## v0.9.42 — Tech Debt Cleanup (5 fixes + simplify)
 
 ### Fixed
