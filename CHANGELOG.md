@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.46 — Rename /xp-session-review to /xp-kickoff
+
+### Changed
+- **`/xp-session-review` → `/xp-kickoff`** — the skill orchestrates session start (retro → goals → housekeeping), not just review. All references updated: skill directory, gate script (`kickoff_gate.py`), done script (`kickoff_done.py`), marker file (`.needs-kickoff`), docs, tests.
+
+### Stats
+- 865 tests (all passing)
+
 ## v0.9.45 — Remove Advisory Mode, Doc Refresh
 
 ### Removed
