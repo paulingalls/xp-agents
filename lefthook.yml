@@ -10,17 +10,17 @@ pre-commit:
     shellcheck:
       glob: "*.sh"
       run: shellcheck -x -e SC1091 {staged_files}
-    tests:
-      run: python3 -m unittest plugins/xp-agents/smm/test_smm.py
+    tests-smm:
+      run: python3 -m unittest discover -s plugins/xp-agents/tests/smm -p "test_*.py"
     tests-engine:
-      run: python3 -m unittest plugins/xp-agents/smm/test_engine.py
+      run: python3 -m unittest discover -s plugins/xp-agents/tests/engine -p "test_*.py"
     tests-hooks:
-      run: python3 -m unittest plugins/xp-agents/scripts/test_hooks.py
+      run: python3 -m unittest discover -s plugins/xp-agents/tests/hooks -p "test_*.py"
     tests-integration:
-      run: python3 -m unittest plugins/xp-agents/scripts/test_integration.py
+      run: python3 -m unittest discover -s plugins/xp-agents/tests/integration -p "test_*.py"
 
 pre-push:
   parallel: true
   commands:
     integration:
-      run: python3 -m unittest plugins/xp-agents/scripts/test_integration.py
+      run: python3 -m unittest discover -s plugins/xp-agents/tests/integration -p "test_*.py"

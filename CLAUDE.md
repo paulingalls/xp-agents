@@ -222,41 +222,70 @@ Fail loud, never corrupt, always recoverable. Every script follows:
 
 ## Testing
 
-All tests run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel:
+All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel:
 
 ```bash
-# Run everything (what pre-commit does):
-python3 -m unittest plugins/xp-agents/smm/test_smm.py plugins/xp-agents/smm/test_engine.py plugins/xp-agents/scripts/test_hooks.py plugins/xp-agents/scripts/test_integration.py -v
+# Run everything:
+python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 
 # Run a single suite:
-python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -v
+python3 -m unittest discover -s plugins/xp-agents/tests/hooks -p "test_*.py" -v
+
+# Run a single file:
+python3 -m unittest plugins/xp-agents/tests/hooks/test_session.py -v
 
 # Run a single test class:
-python3 -m unittest plugins/xp-agents/scripts/test_hooks.py -k TestUserPromptLog -v
+python3 -m unittest plugins/xp-agents/tests/hooks/test_session.py -k TestSessionStart -v
 ```
 
-### Test suites
+### Test layout
 
-| Suite | File | What it tests |
-|-------|------|---------------|
-| SMM Foundation | `smm/test_smm.py` | init.sh, append.sh, `_append_impl.py`, schema, concurrency, notifications |
-| SMM Engine | `smm/test_engine.py` | materialize.py (prepare_curation_data), read_delta.py, compact.py. Provides `_SMMTestCase` base class and `make_event()` helper used by all other suites |
-| Hook unit tests | `scripts/test_hooks.py` | `_common.py` and all command hook `run()` functions with temp SMM dirs (no subprocess) |
-| Integration tests | `scripts/test_integration.py` | Full subprocess pipeline: creates temp git repo, runs init.sh, pipes JSON to each script, verifies events on disk and stdout/stderr/exit codes |
+```
+tests/
+├── conftest.py              ← shared helpers: make_event, base classes, input factories
+├── hooks/                   ← unit tests for command hooks (from scripts/)
+│   ├── test_common.py       ← _common.py utilities
+│   ├── test_session.py      ← session_start, session_end, retrospective, review gate
+│   ├── test_pre_tool.py     ← pre_tool_use, TDD order, conflicts, push gate
+│   ├── test_post_tool.py    ← post_tool_use, lint_check, bash_post_tool, bash_failure
+│   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
+│   ├── test_gates.py        ← simplify_gate, quality_review_gate, tdd_stop_gate
+│   ├── test_validation.py   ← hooks.json structure, plugin integrity, milestone checks
+│   └── test_features.py     ← auto-resolve, retro digest, coordination, prompt nuggets
+├── integration/             ← full subprocess pipeline tests
+│   ├── test_session.py      ← session lifecycle integration
+│   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
+│   ├── test_scenarios.py    ← round trips, retro, plan review, multi-session
+│   ├── test_extended.py     ← simplify gate, advisory mode, security review
+│   └── test_advanced.py     ← compaction, concurrency, worktrees, repair, migration
+├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
+│   ├── test_parse.py        ← JSONL parsing, index building, resolutions
+│   ├── test_delta.py        ← watermarks, read_delta, symlink protection
+│   ├── test_compact.py      ← event log compaction
+│   ├── test_maintenance.py  ← repair, migration, benchmarks
+│   └── test_curation.py     ← bulk append, prepare_curation_data, atomic writes
+└── smm/                     ← SMM foundation tests (init.sh, append.sh)
+    ├── test_init.py          ← initialization, schema validation
+    └── test_append.py        ← append operations, concurrency, safety
+```
 
 ### Writing new tests
 
-- **Unit tests** go in `scripts/test_hooks.py`. Import the module, call `run(input_data, smm_dir=self.smm_dir)` directly. Extend `_HookTestCase` (alias for `_SMMTestCase`) for a temp SMM dir with `events.jsonl` and `events.lock`.
-- **Integration tests** go in `scripts/test_integration.py`. Extend `_IntegrationTestCase` which creates a temp git repo with init.sh. Use `self._run_script("script.py", {...})` to pipe JSON via subprocess, `self._read_events()` to check results, `self._seed_events([...])` to pre-populate.
-- **SMM/engine tests** go in `smm/test_smm.py` or `smm/test_engine.py`.
+- **Hook unit tests** go in `tests/hooks/`. Import the module, call `run(input_data, smm_dir=self.smm_dir)` directly. Extend `_HookTestCase` for a temp SMM dir with `events.jsonl` and `events.lock`.
+- **Integration tests** go in `tests/integration/`. Extend `_IntegrationTestCase` which creates a temp git repo with init.sh. Use `self._run_script("script.py", {...})` to pipe JSON via subprocess, `self._read_events()` to check results, `self._seed_events([...])` to pre-populate.
+- **Engine tests** go in `tests/engine/`. Extend `_SMMTestCase` for a temp SMM dir.
+- **SMM foundation tests** go in `tests/smm/`. Extend `_TempRepoTestCase` for subprocess tests with init.sh/append.sh.
 - Follow TDD: write the test first, watch it fail, then implement.
 
-### Test helpers
+### Test helpers (all in `tests/conftest.py`)
 
-- `make_event(type, **kwargs)` — creates a valid event dict with defaults (from `test_engine.py`, imported everywhere)
+- `make_event(type, **kwargs)` — creates a valid event dict with defaults
 - `_SMMTestCase` / `_HookTestCase` — `setUp` creates temp dir with `events.jsonl` + `events.lock`, `tearDown` cleans up
-- `self._write_events([...])` — seed events into the temp SMM
-- `self._read_events()` — parse events back from disk
+- `_IntegrationTestCase` — creates temp git repo, inits SMM, provides `_run_script()`, `_read_events()`, `_seed_events()`
+- `_TempRepoTestCase` — temp git repo for subprocess tests (init.sh, append.sh)
+- `_make_write_input(**overrides)` — canonical Write tool hook input
+- `_make_bash_input(command, stdout, **overrides)` — canonical Bash tool hook input
+- `_override_settings(overrides)` — context manager for settings.json isolation
 
 ## Key Decisions (Don't Revisit)
 
