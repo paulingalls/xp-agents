@@ -13,6 +13,7 @@ Hooks-driven Claude Code plugin. XP practices enforced through command hooks (de
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .needs-session-review     ← gate marker, cleared by /xp-session-review
+├── .plan-awaiting-review     ← plan review gate marker, cleared by plan reviewer preload
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts (.json)
 ```
@@ -75,16 +76,17 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM directory, write `.needs-session-review` marker, inject GUPP + skills (NO SMM, NO behavioral guide — deferred to session review) |
 | **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
-| **PreToolUse** | `*` | `pre_tool_use.py` | Conflict blocking (via `.coordination.json`), TDD order check, push security gate, plan review gate (Write/Edit) |
-| **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection, nudge xp-quality-reviewer |
+| **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
+| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Push security gate, file-modification conflict heuristic (advisory) |
+| **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs |
 | **SubagentStart** | | `subagent_start.py` | Full SMM injection + watermark |
-| **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `plan_awaiting_review` marker for Plan, nudge xp-subagent-reviewer |
+| **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan, nudge xp-subagent-reviewer |
 | **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes |
-| **PostToolUse** | `Skill` | `session_review_done.py` | Inject SMM + behavioral guide after `/xp-housekeeping` completes, clear `.needs-session-review` marker |
-| **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if files changed) |
+| **PostToolUse** | `Skill` | `session_review_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-session-review` marker |
+| **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
 | **Stop** | | `quality_review_gate.py` | Block if subagent reviews still pending |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing (command hook, replaced prompt hook) |
 | **PostCompact** | | `compact.py` | Compact event log (watermark-based, retains recent + session_end + referenced events) |
@@ -99,22 +101,22 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
-| `xp-quality-reviewer` | PostToolUse (Write/Edit) | Nudge | Code review (courage + simplicity + drift management), writes concern/debt events. `background: true` |
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
 | `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/decision events |
-| `xp-subagent-reviewer` | SubagentStop | Nudge | Convention adherence, complexity, decision alignment. `background: true` |
+| `xp-subagent-reviewer` | SubagentStop | Nudge | Convention adherence, complexity, decision alignment. `background: true`, `model: haiku` |
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
-- `/xp-session-review` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`session_review_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and SMM+guide injection.
-- `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`.
-- `/xp-goal-collection` — first-session goal collection
+- `/xp-session-review` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`session_review_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
+- `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`. Curates four-pillar SMM.
+- `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage
+- `/xp-quality-review` — post-simplify review: courage accountability for skipped recommendations, drift management against SMM Constraints, debt awareness for changed files
 
 All subagents preload `smm-protocol` skill. Plan reviewer also preloads `xp-values`.
 
 ### Notifications
 
-Desktop notifications for 🔴 blocking questions fire inline in `_append_impl.py` at the `append_event()` choke point (macOS `osascript` / Linux `notify-send`).
+Desktop notifications for 🔴 blocking questions fire inline at the `append_event()` choke point via `resolution.py` (macOS `osascript` / Linux `notify-send`).
 
 ### Recursion Prevention
 
@@ -125,23 +127,22 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | When | What's Injected |
 |---|---|
 | Session start | GUPP + skills only (NO SMM, NO behavioral guide — deferred to session review) |
-| After session review | Fresh curated SMM + behavioral guide via PostToolUse:Skill hook (`session_review_done.py`) |
+| After housekeeping | Agent Reads curated SMM file directly (housekeeping step 8) |
+| After housekeeping | Behavioral guide via PostToolUse:Skill hook (`session_review_done.py`) |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
-| Before tool use | Conflict check, TDD order check, plan review gate for writes (no SMM injection) |
-| After tool use | Quality reviewer nudge for writes |
+| Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
+| Before Bash | Push security gate (blocks), file-modification conflict heuristic (advisory) |
 | Subagent spawn | Full curated SMM |
 | After compaction | Full SMM re-injection |
 
 Injection order in SessionStart `additionalContext`:
-1. Enforcement indicator (advisory mode only)
-2. GUPP ("Resume immediately")
-3. Skills list
+1. GUPP ("Resume immediately")
+2. Skills list
 
 After `/xp-housekeeping` completes, `session_review_done.py` (PostToolUse:Skill) injects:
-1. Fresh materialized SMM (wrapped in `<smm-context>`)
-2. BEHAVIORAL_GUIDE.md
+1. BEHAVIORAL_GUIDE.md (SMM already in context from housekeeping file Read)
 
-All injection via `additionalContext`.
+All injection via `additionalContext` except SMM (Read by agent during housekeeping).
 
 ## Conflict Detection
 
@@ -155,7 +156,7 @@ Five structural patterns detected deterministically by `post_tool_use.py` and `s
 | Stale question | 🔴 question with no answer after 20+ events |
 | Superseded decision | Two decisions, same topic, no concern between |
 
-Critical conflicts → exit 2 (strict) or warning (advisory). Non-critical → event log only.
+Critical conflicts → exit 2 (block). Non-critical → event log only.
 
 ## Session Flows
 
@@ -182,19 +183,19 @@ Next prompt  → Gates pass through (marker cleared)
 ### Mid-Session
 ```
 UserPrompt   → prompt_nugget.py: inject new signal events since last prompt
-PreToolUse   → pre_tool_use.py: conflicts (via .coordination.json), TDD, push gate, plan review gate
+PreToolUse   → pre_tool_write.py (Write/Edit): conflicts, TDD, plan review gate (all file-based)
+             → pre_tool_bash.py (Bash): push gate, file-modification heuristic
 Tool executes
-PostToolUse  → post_tool_use.py: auto status, conflicts, quality reviewer nudge
-             → lint_check.py: linter
-             → Main agent invokes xp-quality-reviewer in background (if nudged)
+PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
+             → lint_check.py: linter (Write/Edit)
              → bash_post_tool.py: commit/test analysis (Bash)
              → security_review_done.py: write tracker when /security-review completes (Skill)
 ```
 
 ### Stop
 ```
-Stop         → simplify_gate.py: block if files changed and /simplify not run
-             → quality_review_gate.py: block if subagent reviews still pending
+Stop         → simplify_gate.py: block if ≥3 code files changed and /simplify not run
+             → quality_review_gate.py: block until /xp-quality-review runs (after simplify agents complete)
              → tdd_stop_gate.py: block if tests failing
 ```
 
@@ -202,7 +203,7 @@ Stop         → simplify_gate.py: block if files changed and /simplify not run
 ```
 SubagentStart → subagent_start.py: SMM injection + watermark
 SubagentStop  → subagent_stop.py: record, conflicts, security check
-              → Write plan_awaiting_review marker for Plan
+              → Write .plan-awaiting-review marker file for Plan
               → Nudge xp-subagent-reviewer (background)
 ```
 
@@ -214,7 +215,6 @@ plugins/xp-agents/
 ├── BEHAVIORAL_GUIDE.md              ← XP behavioral rules, loaded by session_review_done.py
 ├── settings.json
 ├── agents/                          ← plugin subagents (full tool access)
-│   ├── xp-quality-reviewer.md
 │   ├── xp-retrospective.md
 │   ├── xp-plan-reviewer.md
 │   └── xp-subagent-reviewer.md
@@ -230,11 +230,15 @@ plugins/xp-agents/
 │   ├── xp-goal-collection/SKILL.md ← inline, first-session goal collection
 │   └── xp-question-triage/SKILL.md ← inline, ongoing question triage
 ├── hooks/hooks.json                 ← command hooks only
-├── scripts/                         ← command hooks (Python 3.10+, stdlib only)
-│   ├── _common.py
+├── scripts/                         ← command hooks + shared modules (Python 3.10+, stdlib only)
+│   ├── _common.py               ← core helpers (hook I/O, constants, event factories)
+│   ├── coordination.py           ← .coordination.json read/write/clear
+│   ├── security.py               ← security review tracker, code file detection
+│   ├── concerns.py               ← conflict detection, concern resolution, debt lookup
 │   ├── session_start.py
 │   ├── session_end.py
-│   ├── pre_tool_use.py
+│   ├── pre_tool_write.py         ← PreToolUse for Write/Edit/MultiEdit
+│   ├── pre_tool_bash.py          ← PreToolUse for Bash
 │   ├── post_tool_use.py
 │   ├── lint_check.py
 │   ├── bash_post_tool.py
@@ -255,7 +259,8 @@ plugins/xp-agents/
 └── smm/
     ├── init.sh
     ├── append.sh
-    ├── _append_impl.py
+    ├── _append_impl.py              ← event construction, validation, atomic append
+    ├── resolution.py                ← event resolution tracking, desktop notifications
     ├── materialize.py               ← prepare_curation_data() for housekeeping
     ├── read_delta.py                ← watermark reader for prompt nuggets
     ├── compact.py                   ← event log compaction (PostCompact hook)
@@ -312,7 +317,7 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate, quality review gate (`quality_review_gate.py`), plan review nudge via PreToolUse, session review gate (dual: UserPromptSubmit + PreToolUse), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate (≥3 code files), quality review gate (`quality_review_gate.py`), plan review nudge via `.plan-awaiting-review` marker, session review gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
 **Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-session-review` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 
@@ -330,7 +335,7 @@ Resolution via `metadata: {"resolves": ["target-event-id"]}`. Questions resolved
 
 ### Session Review Gate
 
-Dual gate: `session_review_gate.py` (UserPromptSubmit) + `pre_tool_use.py` (PreToolUse). Both block until `/xp-session-review` runs. Both respect `enforcement` setting.
+Single gate: `session_review_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-session-review` runs. Allows the command itself through. "startup" source = hard block, "clear" source = nudge only.
 
 ## Data Quality
 
@@ -379,7 +384,7 @@ Dual gate: `session_review_gate.py` (UserPromptSubmit) + `pre_tool_use.py` (PreT
 
 ### Blocks as Maturity Signal
 
-In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, security review, simplify gate. These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0. `strict` and `advisory` produce the same behavior.
+In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, security review, simplify gate. These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0.
 
 ### Open Questions (resolve during 1.0 dogfooding)
 
