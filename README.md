@@ -4,11 +4,11 @@ A Claude Code plugin that makes your agents — solo or in teams — write bette
 
 ## TL;DR
 
-**What it does:** Command hooks fire automatically on every tool call — injecting project context, blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a quality reviewer flags issues and checks drift against decisions, a plan reviewer validates plans, and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection and question triage. Everything is broadcast through a shared event log visible to every agent.
+**What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans, a retrospective analyst surfaces cross-session learning, and a subagent reviewer checks output quality. Inline skills handle goal collection, question triage, quality review, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
 
-**How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (code review, plan analysis, retrospectives) lives in plugin subagents with full tool access, triggered by command hook nudges or blocks.
+**How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (plan analysis, retrospectives, quality review) lives in plugin subagents and inline skills, triggered by command hook nudges or stop gates.
 
-**Who it's for:** Anyone using Claude Code — solo agents benefit from the code review, navigation, and retrospectives. Agent Teams benefit from the broadcast coordination layer that replaces point-to-point mailboxes.
+**Who it's for:** Anyone using Claude Code — solo agents benefit from the quality review, retrospectives, and TDD enforcement. Agent Teams benefit from the broadcast coordination layer that replaces point-to-point mailboxes.
 
 ---
 
@@ -67,27 +67,37 @@ $ claude
 > Starting session...
 
 [xp-agents] Initializing SMM for project... ✓
-[xp-agents] First session — what's the goal of this project?
-[xp-agents] What are you trying to build and why?
+[xp-agents] Session review required — run /xp-session-review
+
+> /xp-session-review
+
+[xp-agents] First session — no retrospective data.
+[xp-agents] What are your goals for this session?
 
 > "Build a REST API for user management with auth and role-based access."
 
-[xp-agents] Goal recorded. GUPP: Act on pending work immediately.
+[xp-agents] Goal recorded.
+[xp-agents] Running housekeeping — curating Shared Mental Model...
+[xp-agents] SMM curated. Behavioral guide loaded. Ready to work.
 ```
 
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
-- **Before every write** — plan review gate checks for unreviewed plans, conflict detection via `.coordination.json`
-- **After every write** — status auto-updated, quality reviewer subagent nudged (runs in background), linter runs
-- **Every conflict** — detected and surfaced automatically
-- **Technical debt** — tracked, aged across sessions, escalated when ignored
-- **Tests must pass** before the agent can stop
+- **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate via marker file
+- **Before every push** — security review gate blocks until review is done
+- **After every write** — status auto-updated, linter runs
+- **At stop** — `/simplify` required for significant changes (≥3 code files), then `/xp-quality-review` checks courage + drift + debt, TDD gate blocks if tests failing
+- **Technical debt** — tracked, aged across sessions, surfaced during quality review when touching affected files
 
 **Second session:**
 
 ```
 $ claude
 > Starting session...
+
+[xp-agents] Session review required — run /xp-session-review
+
+> /xp-session-review
 
 [xp-agents] Found 47 events from previous session. Running retrospective...
 
@@ -100,21 +110,21 @@ $ claude
 ### Fix
 - Avatar question still unresolved after 1 session.
   Resolve it this session or drop it from scope.
-- Navigator produced 0 guidance despite 12 file writes — check
-  if self-filtering is too aggressive.
 
 ### Try
 - Before reporting done, list what's tested and what isn't.
 
-## Customer Intent (undelivered)
-- 📋 Add role-based access control to endpoints
-- 📋 Set up token refresh flow
+[xp-agents] Any goals for this session?
 
-## Technical Debt
-- Auth middleware uses placeholder secret — 2 sessions old
+> "Add role-based access control"
+
+[xp-agents] Goal recorded. Running housekeeping...
+[xp-agents] SMM curated:
+  Intent: 2 items | Constraints: 5 items | Risks: 3 items | Wisdom: 2 items
+[xp-agents] Ready to work.
 ```
 
-Every session starts smarter than the last one ended. The retrospective includes plugin health stats, undelivered customer requests, and aging technical debt — not just Keep/Fix/Try.
+Every session starts smarter than the last one ended. The session review sequences retrospective → goals → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
 
 ---
 
@@ -122,26 +132,26 @@ Every session starts smarter than the last one ended. The retrospective includes
 
 ### Hooks Enforce, Subagents Advise
 
-xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (they fire every time, guaranteed) and **plugin subagents** for judgment-based guidance (full tool access, triggered by hook nudges). Command hooks handle the "must happen" — SMM injection, conflict detection, TDD gating, linting, status tracking. Subagents handle the "should happen" — code review, plan analysis, retrospectives, goal collection.
+xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (they fire every time, guaranteed) and **plugin subagents + inline skills** for judgment-based guidance (full tool access, triggered by hook nudges or stop gates).
 
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, session review gate | Communication, On-Site Customer |
-| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate | TDD, Planning Game |
-| **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check, quality reviewer subagent nudge | Standup, Coding Standards, Courage, Simplicity |
+| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker) | TDD, Planning Game |
+| **PreToolUse** (Bash) | Push security gate, file-modification conflict heuristic (advisory) | Coding Standards |
+| **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
-| **SubagentStop** (Plan) | Write `plan_awaiting_review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
+| **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-session-review` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
-| **UserPromptSubmit** | Log user prompt as `customer_input` event, session review gate | On-Site Customer |
 | **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
 | **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
-| **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; SMM + behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
-| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if subagent reviews pending (`quality_review_gate.py`), block if files changed and `/simplify` not run | TDD, Refactoring |
+| **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
+| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 
-The quality reviewer, retrospective analyst, plan reviewer, and subagent reviewer are plugin subagents with full tool access. Goal collection and question triage run as inline skills. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer is triggered via a two-step mechanism: SubagentStop writes a `plan_awaiting_review` marker event, then PreToolUse detects unreviewed plans and nudges the agent to invoke the reviewer before writes.
+The retrospective analyst, plan reviewer, and subagent reviewer are plugin subagents with full tool access. Quality review, goal collection, question triage, and housekeeping run as inline skills in the main agent. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer is triggered via a marker file: SubagentStop writes `.plan-awaiting-review`, then PreToolUse detects it and nudges the agent to invoke the reviewer before writes. The plan reviewer's preload script clears the marker.
 
 ### The Shared Mental Model
 
@@ -153,6 +163,7 @@ Instead of point-to-point mailboxes, xp-agents introduces a broadcast event log 
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
 ├── .curation-watermark       ← last-curated event position
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
+├── .plan-awaiting-review     ← plan review gate marker
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
@@ -165,7 +176,7 @@ The curated view uses a four-pillar model, written by housekeeping (LLM judgment
 - **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity)
 - **Wisdom** — lessons learned, retrospective insights, behavioral experiments
 
-Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and full SMM injection at subagent spawn.
+Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and full SMM injection at subagent spawn. The main agent gets the SMM during housekeeping (reads the file directly) and the behavioral guide via PostToolUse:Skill hook.
 
 Events are semantically typed — each carries different synchronization semantics:
 
@@ -177,23 +188,23 @@ Events are semantically typed — each carries different synchronization semanti
 | `status` | What each agent is doing + `working_on` files | Command hook (automatic) + agent |
 | `decision` | Architectural choices | Agent + subagent (plan reviewer) |
 | `convention` | Team standards | Agent |
-| `concern` | Problems needing attention | Subagent (quality reviewer) + agent |
+| `concern` | Problems needing attention | Skill (quality review) + agent |
 | `discovery` | Unexpected findings | Agent |
 | `question` | Customer input needed (🔴 blocking / 🟡 assumed) | Agent |
 | `assumption` | Stated beliefs — escalates if contradicted | Agent + subagent (plan reviewer) |
-| `debt` | Acknowledged tradeoff — ages and escalates across sessions | Subagent (quality reviewer + retrospective) |
+| `debt` | Acknowledged tradeoff — ages and escalates across sessions | Skill (quality review) + subagent (retrospective) |
 | `session_end` | Session summary with unresolved items | Command hook (automatic) |
 | `retrospective` | Keep/Fix/Try analysis + session stats | Subagent (retrospective) |
 
 ### The Automated Retrospective
 
-At session start, if there's unanalyzed data from a previous session, the command hook prepares retrospective data and nudges the main agent to invoke the retrospective subagent. It uses all five XP values as analytical lenses:
+At session start, if there's unanalyzed data from a previous session, the command hook prepares retrospective data and the session review orchestrator invokes the retrospective subagent. It uses all five XP values as analytical lenses:
 
 - **Keep**: What worked — grounded in specific events from the log
 - **Fix**: What needs improvement — Honesty: were status events truthful? Courage: were concerns raised? Simplicity: was anything over-engineered? Communication: were decisions broadcast? Respect: were conventions followed?
 - **Try**: Behavioral experiments for this session — informed by Fix items
 
-The retrospective also analyzes **session stats** for plugin health: concern resolution rate, decision recording rate, quality reviewer coverage. If the quality reviewer hasn't flagged anything in a session with 20 file writes, the retrospective asks why.
+The retrospective also analyzes **session stats** for plugin health: concern resolution rate, decision recording rate, security review coverage.
 
 The retrospective runs at session *start*, not session end — resilient to force-quit, crash, Ctrl+C. The event log is append-only and durable.
 
@@ -210,7 +221,6 @@ The retrospective runs at session *start*, not session end — resilient to forc
 xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored at user level, every teammate in every worktree automatically gets:
 
 - Prompt nuggets at each user prompt and full SMM at subagent spawn
-- Quality review on every code change
 - `working_on` conflict detection across teammates
 - Decisions visible to every other teammate
 - A team-wide retrospective at next session start
@@ -221,18 +231,7 @@ Native Agent Teams provide task distribution. xp-agents adds the coordination la
 
 ## Configuration
 
-xp-agents works out of the box with zero configuration. One setting is available in `settings.json`:
-
-```json
-{
-  "enforcement": "strict"
-}
-```
-
-- **`strict`** (default) — TDD blocks on test failure, working_on conflicts block, plan review nudge before writes, security review required before push.
-- **`advisory`** — same hooks fire, same events recorded, same subagents nudged — but nothing blocks. All blocks become warnings. The system still tracks everything; it just doesn't stop you.
-
-The goal is to reach a point where `strict` and `advisory` produce the same behavior — because tests always pass, agents never overlap, and decisions are consistent. When that happens, you're ready for autonomous teams.
+xp-agents works out of the box with zero configuration. It is opinionated — all enforcement is always on. If a gate is annoying, the solution is to fix the gate, not make it optional.
 
 ---
 
@@ -267,11 +266,11 @@ A standup where agents report "everything is fine" when tests are failing is wor
 
 xp-agents enforces honesty through hooks, not aspiration:
 
-- **Quality reviewer subagent** — detects empty catch blocks, premature "done" signals, missing error handling
+- **Quality review skill** — post-simplify courage check: were recommendations skipped? Drift management: do code changes contradict recorded decisions?
 - **Retrospective subagent** — analyzes honesty patterns: were status events truthful? Were concerns raised or did everyone agree too easily?
 - **Session end hook** — flags when the agent didn't write a final status summary
 - **Conflict detector** — catches convention violations and unacknowledged contradictions
-- **Behavioral guide** — XP behavioral rules injected at session start for judgment calls hooks can't enforce
+- **Behavioral guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
 
 ---
 
@@ -289,14 +288,14 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 
 | Practice | Enforcement | Mechanism |
 |---|---|---|
-| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go test detection. | `tdd_stop_gate.py`, `pre_tool_use.py`, `bash_post_tool.py` |
-| **Pair Programming** | Subagent: quality reviewer after every write (courage + simplicity + drift management). | `xp-quality-reviewer` |
-| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Nudge via PreToolUse plan review gate. Skills: goal collection + question triage replace customer proxy. | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
+| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go test detection. | `tdd_stop_gate.py`, `pre_tool_write.py`, `bash_post_tool.py` |
+| **Pair Programming** | Skill: quality review after simplify (courage + drift + debt awareness). | `/xp-quality-review` |
+| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Nudge via `.plan-awaiting-review` marker. Skills: goal collection + question triage. | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
-| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security review before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_use.py` |
+| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security review before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
-| **Refactoring** | Subagent + gate: quality reviewer flags complexity, `/simplify` runs at loop end. | `xp-quality-reviewer`, `simplify_gate.py` |
-| **Simple Design** | Subagent: quality reviewer flags over-engineering, plan reviewer flags oversized plans. | `xp-quality-reviewer`, `xp-plan-reviewer` |
+| **Refactoring** | Skill + gate: `/simplify` runs at loop end (≥3 code files), quality review checks skipped recommendations. | `/xp-quality-review`, `simplify_gate.py` |
+| **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` checks efficiency. | `xp-plan-reviewer`, `simplify_gate.py` |
 | **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, full SMM at subagent spawn. Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
 | **On-Site Customer** | Deterministic: prompts logged, notifications sent. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
@@ -306,10 +305,10 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | Source | Per-occurrence | Frequency | Mitigation |
 |---|---|---|---|
 | Prompt nugget (UserPromptSubmit) | 50-100 tokens | Every user prompt | Watermark-based, only new signal events |
-| Quality reviewer subagent | 5,000-10,000 tokens | Every Write/Edit (background) | Async, no latency cost |
-| SessionStart full SMM | 2,000-5,000 tokens | Once per session | One-time cost |
+| SessionStart + session review | 2,000-5,000 tokens | Once per session | One-time cost (retro + goals + housekeeping) |
 | Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
-| `/simplify` at Stop | 30,000-60,000 tokens | Once per loop with file changes | Gate skips no-op loops |
+| `/simplify` at Stop | 30,000-60,000 tokens | Once per loop with ≥3 code files | Threshold skips small changes |
+| `/xp-quality-review` at Stop | 5,000-10,000 tokens | Once per loop after simplify | Focused: courage + drift + debt only |
 
 ### Debt Aging
 
@@ -319,7 +318,7 @@ Technical debt events age across sessions. The materializer counts `session_end`
 - **4-6 sessions**: rendered with ⚠️, retrospective flags in Fix items
 - **7+ sessions**: rendered with 🔴, retrospective escalates urgency
 
-Repayment pressure comes from two sources: quality reviewer writes concern if debt not addressed, retrospective escalates aging debt in Fix items.
+Repayment pressure comes from two sources: quality review surfaces debt when touching affected files, retrospective escalates aging debt in Fix items.
 
 ### Architecture: Why Subagents Instead of Agent Hooks
 
