@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.9.44 — Token Optimization: File Splits, Hook Targeting, Review Trimming
+
+### Changed
+- **PreToolUse split from `*` to targeted matchers** — `pre_tool_write.py` (Write|Edit|MultiEdit) handles conflict detection, TDD order, and plan review gate. `pre_tool_bash.py` (Bash) handles push security gate and file-modification heuristic. Read/Grep/Glob/Agent/Skill no longer trigger PreToolUse at all.
+- **Plan review gate uses marker file** — `.plan-awaiting-review` file instead of backward event log scan. Cleared in plan reviewer preload. O(1) check, zero event reads.
+- **Simplify gate threshold** — skips `/simplify` when fewer than 3 distinct code files changed. Consolidated duplicate `is_code_file` from simplify_gate into `security.py`.
+- **Quality review trimmed** — dropped redundant Clean Code checklist (already covered by /simplify's 3 agents). Focused on courage accountability, drift management, and debt awareness.
+- **Quality review preload** — no longer re-injects SMM (inline skill, already in context). Now injects only diff + debt for changed files.
+- **session_review_done hook** — no longer re-injects SMM (housekeeping already has agent Read it). Now injects only behavioral guide.
+- **Test files split to match code** — `test_pre_tool.py` split into `test_pre_tool_write.py` and `test_pre_tool_bash.py`.
+
+### Added
+- **`pre_tool_write.py`** — PreToolUse for Write|Edit|MultiEdit: conflict detection via `.coordination.json`, TDD order tracking, marker-file plan review gate. Zero event log reads.
+- **`pre_tool_bash.py`** — PreToolUse for Bash: push security gate, file-modification heuristic (detects `>`, `tee`, `sed -i`, `mv`, `cp` targets and checks against coordination). Advisory only for heuristic, blocks for push gate.
+- **`debt_for_files.py`** — quality review preload script that surfaces existing debt events for changed files.
+- **Simplify early-exit** — `count_distinct_code_files()` stops scanning at threshold.
+
+### Removed
+- **`pre_tool_use.py`** — replaced by `pre_tool_write.py` and `pre_tool_bash.py`.
+- **Debt injection from PreToolUse** — moved to quality reviewer preload.
+- **Dead `hook_output` code** in `post_tool_use.py`.
+- **Redundant SMM injection** from quality review preload and session_review_done hook.
+
+### Stats
+- 881 tests (all passing)
+
 ## v0.9.43 — Assumption Resolution, Session UX, Quality Courage
 
 ### Fixed
