@@ -79,7 +79,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
 | **PreToolUse** | `Bash` | `pre_tool_bash.py` | Push security gate, file-modification conflict heuristic (advisory) |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
-| **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, append results. `async: true` |
+| **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing. `async: true` |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
