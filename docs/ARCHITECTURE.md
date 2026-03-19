@@ -7,7 +7,7 @@ Hooks-driven Claude Code plugin. XP practices enforced through command hooks (de
 ## SMM Storage
 
 ```
-~/.claude/xp-agents/{project-id}/smm/
+${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── events.jsonl              ← append-only, one JSON event per line
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
@@ -18,7 +18,7 @@ Hooks-driven Claude Code plugin. XP practices enforced through command hooks (de
 └── retrospectives/           ← Keep/Fix/Try session artifacts (.json)
 ```
 
-User-level storage, per-project isolation. `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and Agent Team teammates.
+`CLAUDE_PLUGIN_DATA` is the plugin ecosystem's persistent data directory (defaults to `~/.claude/plugins/data/xp-agents-xp-agents/`). Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and Agent Team teammates.
 
 ## Event Types
 
@@ -306,7 +306,7 @@ Age computed at materialize time by counting `session_end` events after debt tim
 
 ## Agent Teams
 
-SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global and install is at user scope:
+SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global:
 
 - Every teammate gets prompt nuggets at each user prompt and tiered context at subagent spawn
 - Every teammate's code gets quality reviewer subagent nudges

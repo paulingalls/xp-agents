@@ -90,6 +90,8 @@ def subagent_completed_content(agent_id: str) -> str:
 def resolve_smm_dir() -> Path | None:
     """Derive the SMM directory from git-common-dir.
 
+    Uses CLAUDE_PLUGIN_DATA as base (standard plugin ecosystem path),
+    falls back to ~/.claude/xp-agents for --plugin-dir development mode.
     Returns None if not in a git repo (graceful degradation for hooks).
     Cached — git-common-dir is deterministic for a given working directory.
     """
@@ -107,6 +109,9 @@ def resolve_smm_dir() -> Path | None:
         git_common_path = git_common_path.resolve()
 
     project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
+    base_dir = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if base_dir:
+        return Path(base_dir) / project_id / "smm"
     return Path.home() / ".claude" / "xp-agents" / project_id / "smm"
 
 

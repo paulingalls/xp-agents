@@ -115,7 +115,7 @@ git_common = subprocess.check_output(
     ["git", "rev-parse", "--git-common-dir"], text=True
 ).strip()
 # Hash or sanitize git_common to create project-id
-# SMM lives at: ~/.claude/xp-agents/{project-id}/smm/
+# SMM lives at: ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ```
 
 All scripts resolve the SMM path this way. Never hardcode paths. Never use `.claude/smm/` — the SMM is at user level, not project level.
@@ -292,7 +292,7 @@ tests/
 ## Key Decisions (Don't Revisit)
 
 - Hooks-first — all XP agents are hook handlers
-- SMM at `~/.claude/xp-agents/{project-id}/smm/` (user level, shared across worktrees)
+- SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` (shared across worktrees)
 - Install at user scope (`--scope user`)
 - Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
 - Navigator is required (PreToolUse plugin subagent), not opt-in

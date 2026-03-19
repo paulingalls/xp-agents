@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.49 — Use CLAUDE_PLUGIN_DATA for SMM Storage
+
+### Changed
+- **SMM storage uses `CLAUDE_PLUGIN_DATA`** — SMM now lives at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` instead of `~/.claude/xp-agents/{project-id}/smm/`. Falls back to the old path when `CLAUDE_PLUGIN_DATA` is not set (e.g., `--plugin-dir` development mode). Respects custom paths for sandbox and enterprise environments. Cleaned up automatically on `plugin uninstall`.
+- **Both user and project scope supported** — project scope installs (`--scope project`) now work correctly for teams. SMM is shared across worktrees via the git-common-dir hash regardless of install scope.
+- Install docs updated to show both scope options.
+
+### Stats
+- 869 tests (all passing)
+
 ## v0.9.48 — Kickoff Rename, Tiered Injection, Behavioral Guide Rewrite
 
 ### Changed

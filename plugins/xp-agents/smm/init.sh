@@ -25,12 +25,15 @@ fi
 # aren't both available on all platforms, but Python 3.10+ is already required.
 PROJECT_ID=$(printf '%s' "$GIT_COMMON_DIR" | python3 -c "import hashlib,sys; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest()[:12])")
 
-SMM_DIR="${HOME}/.claude/xp-agents/${PROJECT_ID}/smm"
+# Use CLAUDE_PLUGIN_DATA if available (standard plugin ecosystem path),
+# fall back to ~/.claude/xp-agents for --plugin-dir development mode.
+BASE_DIR="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/xp-agents}"
+SMM_DIR="${BASE_DIR}/${PROJECT_ID}/smm"
 
 # Create directory structure (owner-only permissions on all levels)
 mkdir -p "${SMM_DIR}/retrospectives"
-chmod 700 "${HOME}/.claude/xp-agents"
-chmod 700 "${HOME}/.claude/xp-agents/${PROJECT_ID}"
+chmod 700 "${BASE_DIR}"
+chmod 700 "${BASE_DIR}/${PROJECT_ID}"
 chmod 700 "${SMM_DIR}"
 chmod 700 "${SMM_DIR}/retrospectives"
 

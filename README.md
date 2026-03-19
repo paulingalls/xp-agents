@@ -20,7 +20,7 @@ From within a Claude Code session:
 # Add the marketplace
 /plugin marketplace add paulingalls/xp-agents
 
-# Install (select "User" scope for Agent Teams / worktree support)
+# Install
 /plugin install xp-agents@xp-agents
 ```
 
@@ -30,8 +30,11 @@ Or from your terminal (skips the interactive scope picker):
 # Add the marketplace
 claude plugin marketplace add paulingalls/xp-agents
 
-# Install at user scope
+# Install at user scope (available across all projects)
 claude plugin install xp-agents@xp-agents --scope user
+
+# Or install at project scope (shared with team via .claude/settings.json)
+claude plugin install xp-agents@xp-agents --scope project
 ```
 
 For local development, use `--plugin-dir` (session-only, not persisted):
@@ -41,6 +44,8 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
 **Requirements:** Python 3.10+ on PATH. macOS or Linux. Zero external packages.
+
+**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with Agent Teams — the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees).
 
 **For teams:** Add this to your project's `.claude/settings.json` so teammates can discover the plugin:
 
@@ -54,7 +59,7 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 }
 ```
 
-Each person installs at user scope. The marketplace entry is just discovery.
+Each person installs individually. The marketplace entry is just discovery.
 
 ---
 
@@ -157,7 +162,7 @@ The retrospective analyst and plan reviewer are plugin subagents with full tool 
 Instead of point-to-point mailboxes, xp-agents introduces a broadcast event log visible to every agent — the main agent, all subagents, and all Agent Team teammates.
 
 ```
-~/.claude/xp-agents/{project-id}/smm/
+${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── events.jsonl              ← append-only log
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
 ├── .curation-watermark       ← last-curated event position
