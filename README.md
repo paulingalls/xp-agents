@@ -67,9 +67,9 @@ $ claude
 > Starting session...
 
 [xp-agents] Initializing SMM for project... ✓
-[xp-agents] Session review required — run /xp-session-review
+[xp-agents] Kickoff required — run /xp-kickoff
 
-> /xp-session-review
+> /xp-kickoff
 
 [xp-agents] First session — no retrospective data.
 [xp-agents] What are your goals for this session?
@@ -95,9 +95,9 @@ From here, the system takes over:
 $ claude
 > Starting session...
 
-[xp-agents] Session review required — run /xp-session-review
+[xp-agents] Kickoff required — run /xp-kickoff
 
-> /xp-session-review
+> /xp-kickoff
 
 [xp-agents] Found 47 events from previous session. Running retrospective...
 
@@ -124,7 +124,7 @@ $ claude
 [xp-agents] Ready to work.
 ```
 
-Every session starts smarter than the last one ended. The session review sequences retrospective → goals → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
+Every session starts smarter than the last one ended. The kickoff sequences retrospective → goals → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
 
 ---
 
@@ -136,13 +136,13 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
-| **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, session review gate | Communication, On-Site Customer |
+| **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker) | TDD, Planning Game |
 | **PreToolUse** (Bash) | Push security gate, file-modification conflict heuristic (advisory) | Coding Standards |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
-| **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-session-review` marker | Retrospective, On-Site Customer |
+| **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
 | **SubagentStart** | Full SMM injection into new subagents | Collective Code Ownership |
 | **SubagentStop** | Subagent reviewer nudge for output quality and alignment | Code Review |
@@ -198,7 +198,7 @@ Events are semantically typed — each carries different synchronization semanti
 
 ### The Automated Retrospective
 
-At session start, if there's unanalyzed data from a previous session, the command hook prepares retrospective data and the session review orchestrator invokes the retrospective subagent. It uses all five XP values as analytical lenses:
+At session start, if there's unanalyzed data from a previous session, the command hook prepares retrospective data and the kickoff orchestrator invokes the retrospective subagent. It uses all five XP values as analytical lenses:
 
 - **Keep**: What worked — grounded in specific events from the log
 - **Fix**: What needs improvement — Honesty: were status events truthful? Courage: were concerns raised? Simplicity: was anything over-engineered? Communication: were decisions broadcast? Respect: were conventions followed?
@@ -305,7 +305,7 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | Source | Per-occurrence | Frequency | Mitigation |
 |---|---|---|---|
 | Prompt nugget (UserPromptSubmit) | 50-100 tokens | Every user prompt | Watermark-based, only new signal events |
-| SessionStart + session review | 2,000-5,000 tokens | Once per session | One-time cost (retro + goals + housekeeping) |
+| SessionStart + kickoff | 2,000-5,000 tokens | Once per session | One-time cost (retro + goals + housekeeping) |
 | Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
 | `/simplify` at Stop | 30,000-60,000 tokens | Once per loop with ≥3 code files | Threshold skips small changes |
 | `/xp-quality-review` at Stop | 5,000-10,000 tokens | Once per loop after simplify | Focused: courage + drift + debt only |

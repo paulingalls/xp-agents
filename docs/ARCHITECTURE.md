@@ -12,7 +12,7 @@ Hooks-driven Claude Code plugin. XP practices enforced through command hooks (de
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
-├── .needs-session-review     ← gate marker, cleared by /xp-session-review
+├── .needs-kickoff     ← gate marker, cleared by /xp-kickoff
 ├── .plan-awaiting-review     ← plan review gate marker, cleared by plan reviewer preload
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts (.json)
@@ -73,7 +73,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 
 | Event | Matcher | Script | What It Does |
 |---|---|---|---|
-| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM directory, write `.needs-session-review` marker, inject GUPP + skills (NO SMM, NO behavioral guide — deferred to session review) |
+| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM directory, write `.needs-kickoff` marker, inject GUPP + skills (NO SMM, NO behavioral guide — deferred to kickoff) |
 | **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
@@ -85,7 +85,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SubagentStart** | | `subagent_start.py` | Full SMM injection + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan, nudge xp-subagent-reviewer |
 | **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes |
-| **PostToolUse** | `Skill` | `session_review_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-session-review` marker |
+| **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker |
 | **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
 | **Stop** | | `quality_review_gate.py` | Block if subagent reviews still pending |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing (command hook, replaced prompt hook) |
@@ -93,7 +93,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SessionEnd** | | `session_end.py` | Append session_end event |
 | **PreCompact** | | `pre_compact.py` | Back up SMM state |
 | **UserPromptSubmit** | | `user_prompt_log.py` | Log as customer_input event |
-| **UserPromptSubmit** | | `session_review_gate.py` | Block prompts until `/xp-session-review` runs (allows the command itself through) |
+| **UserPromptSubmit** | | `kickoff_gate.py` | Block prompts until `/xp-kickoff` runs (allows the command itself through) |
 
 ### Plugin Subagents (agents/ directory)
 
@@ -106,7 +106,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 | `xp-subagent-reviewer` | SubagentStop | Nudge | Convention adherence, complexity, decision alignment. `background: true`, `model: haiku` |
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
-- `/xp-session-review` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`session_review_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
+- `/xp-kickoff` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
 - `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`. Curates four-pillar SMM.
 - `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage
@@ -126,9 +126,9 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 
 | When | What's Injected |
 |---|---|
-| Session start | GUPP + skills only (NO SMM, NO behavioral guide — deferred to session review) |
+| Session start | GUPP + skills only (NO SMM, NO behavioral guide — deferred to kickoff) |
 | After housekeeping | Agent Reads curated SMM file directly (housekeeping step 8) |
-| After housekeeping | Behavioral guide via PostToolUse:Skill hook (`session_review_done.py`) |
+| After housekeeping | Behavioral guide via PostToolUse:Skill hook (`kickoff_done.py`) |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Push security gate (blocks), file-modification conflict heuristic (advisory) |
@@ -139,7 +139,7 @@ Injection order in SessionStart `additionalContext`:
 1. GUPP ("Resume immediately")
 2. Skills list
 
-After `/xp-housekeeping` completes, `session_review_done.py` (PostToolUse:Skill) injects:
+After `/xp-housekeeping` completes, `kickoff_done.py` (PostToolUse:Skill) injects:
 1. BEHAVIORAL_GUIDE.md (SMM already in context from housekeeping file Read)
 
 All injection via `additionalContext` except SMM (Read by agent during housekeeping).
@@ -162,18 +162,18 @@ Critical conflicts → exit 2 (block). Non-critical → event log only.
 
 ### Session Start
 ```
-SessionStart → session_start.py: init SMM directory, write .needs-session-review marker
+SessionStart → session_start.py: init SMM directory, write .needs-kickoff marker
                inject GUPP + skills (NO SMM, NO behavioral guide in context)
              → retrospective.py: prepare .retro-input.json
 
-User types   → session_review_gate.py blocks: "Run /xp-session-review"
-             → User runs /xp-session-review
+User types   → kickoff_gate.py blocks: "Run /xp-kickoff"
+             → User runs /xp-kickoff
 
-/xp-session-review:
+/xp-kickoff:
              1. Retro (if .retro-input.json exists) → /xp-retrospective
              2. Goals (if none recorded) → /xp-goal-collection
              3. Housekeeping (if open items) → /xp-housekeeping (curates four-pillar SMM)
-             4. Clear .needs-session-review marker
+             4. Clear .needs-kickoff marker
 
 Next prompt  → Gates pass through (marker cleared)
              → Prompt nuggets inject new signal events
@@ -212,7 +212,7 @@ SubagentStop  → subagent_stop.py: record, conflicts, security check
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json
-├── BEHAVIORAL_GUIDE.md              ← XP behavioral rules, loaded by session_review_done.py
+├── BEHAVIORAL_GUIDE.md              ← XP behavioral rules, loaded by kickoff_done.py
 ├── settings.json
 ├── agents/                          ← plugin subagents (full tool access)
 │   ├── xp-retrospective.md
@@ -225,7 +225,7 @@ plugins/xp-agents/
 │   ├── xp-plan-reviewer/SKILL.md
 │   ├── xp-retrospective/SKILL.md
 │   ├── xp-subagent-reviewer/SKILL.md
-│   ├── xp-session-review/SKILL.md  ← inline, orchestrates session start lifecycle
+│   ├── xp-kickoff/SKILL.md  ← inline, orchestrates session start lifecycle
 │   ├── xp-housekeeping/SKILL.md    ← inline, lifecycle triage for open items
 │   ├── xp-goal-collection/SKILL.md ← inline, first-session goal collection
 │   └── xp-question-triage/SKILL.md ← inline, ongoing question triage
@@ -254,7 +254,8 @@ plugins/xp-agents/
 │   ├── quality_review_gate.py
 │   ├── tdd_stop_gate.py
 │   ├── security_review_done.py
-│   └── session_review_gate.py
+│   ├── kickoff_gate.py
+│   └── kickoff_done.py
 ├── prompts/                         ← empty (tdd_check.md removed, replaced by tdd_stop_gate.py)
 └── smm/
     ├── init.sh
@@ -317,9 +318,9 @@ SMM at `~/.claude/xp-agents/{project-id}/smm/` is shared across all worktrees an
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate (≥3 code files), quality review gate (`quality_review_gate.py`), plan review nudge via `.plan-awaiting-review` marker, session review gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate (≥3 code files), quality review gate (`quality_review_gate.py`), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
-**Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-session-review` sub-skills (retro, goals, housekeeping) when orchestrator directs.
+**Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-kickoff` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 
 ## Event Lifecycle
 
@@ -333,9 +334,9 @@ Resolution via `metadata: {"resolves": ["target-event-id"]}`. Questions resolved
 | Decision (draft) | New decision with `draft: false` on same topic | `/xp-housekeeping` | Drafts in R1, rejected omitted |
 | Question | `answer` event with `references` | `/xp-question-triage` | Blocking in A3, resolved in R3 |
 
-### Session Review Gate
+### Kickoff Gate
 
-Single gate: `session_review_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-session-review` runs. Allows the command itself through. "startup" source = hard block, "clear" source = nudge only.
+Single gate: `kickoff_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-kickoff` runs. Allows the command itself through. "startup" source = hard block, "clear" source = nudge only.
 
 ## Data Quality
 

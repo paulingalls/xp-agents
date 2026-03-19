@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for session lifecycle hooks: session_end, pre_compact,
-session_review_gate, session_review_done.
+kickoff_gate, kickoff_done.
 
 Split from test_session.py.
 """
@@ -321,18 +321,18 @@ class TestPreCompact(_HookTestCase):
 
 
 # ===========================================================================
-# session_review_gate.py tests
+# kickoff_gate.py tests
 # ===========================================================================
 
 
-class TestSessionReviewGate(_HookTestCase):
-    """Tests for UserPromptSubmit session review gate."""
+class TestKickoffGate(_HookTestCase):
+    """Tests for UserPromptSubmit kickoff gate."""
 
     def test_blocks_when_marker_exists(self):
-        import session_review_gate
+        import kickoff_gate
 
-        (self.smm_dir / ".needs-session-review").touch()
-        result = session_review_gate.run(
+        (self.smm_dir / ".needs-kickoff").touch()
+        result = kickoff_gate.run(
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
@@ -340,29 +340,29 @@ class TestSessionReviewGate(_HookTestCase):
         self.assertEqual(result["decision"], "block")
 
     def test_allows_session_review_command(self):
-        import session_review_gate
+        import kickoff_gate
 
-        (self.smm_dir / ".needs-session-review").touch()
-        result = session_review_gate.run(
-            {"session_id": "test", "prompt": "/xp-session-review"},
+        (self.smm_dir / ".needs-kickoff").touch()
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "/xp-kickoff"},
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
 
     def test_passes_when_no_marker(self):
-        import session_review_gate
+        import kickoff_gate
 
-        result = session_review_gate.run(
+        result = kickoff_gate.run(
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
 
     def test_xp_agent_skips(self):
-        import session_review_gate
+        import kickoff_gate
 
-        (self.smm_dir / ".needs-session-review").touch()
-        result = session_review_gate.run(
+        (self.smm_dir / ".needs-kickoff").touch()
+        result = kickoff_gate.run(
             {
                 "session_id": "test",
                 "prompt": "work",
@@ -373,20 +373,20 @@ class TestSessionReviewGate(_HookTestCase):
         self.assertIsNone(result)
 
     def test_clear_marker_nudges_instead_of_blocking(self):
-        import session_review_gate
+        import kickoff_gate
 
-        (self.smm_dir / ".needs-session-review").write_text("clear")
-        result = session_review_gate.run(
+        (self.smm_dir / ".needs-kickoff").write_text("clear")
+        result = kickoff_gate.run(
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
         self.assertEqual(result, "nudge")
 
     def test_startup_marker_blocks(self):
-        import session_review_gate
+        import kickoff_gate
 
-        (self.smm_dir / ".needs-session-review").write_text("startup")
-        result = session_review_gate.run(
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result = kickoff_gate.run(
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
@@ -395,13 +395,13 @@ class TestSessionReviewGate(_HookTestCase):
         self.assertEqual(result["decision"], "block")
 
     def test_skips_task_notifications(self):
-        import session_review_gate
+        import kickoff_gate
 
-        (self.smm_dir / ".needs-session-review").write_text("startup")
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
         task_prompt = (
             "<task-notification>\n<task-id>abc</task-id>\n</task-notification>"
         )
-        result = session_review_gate.run(
+        result = kickoff_gate.run(
             {"session_id": "test", "prompt": task_prompt},
             smm_dir=self.smm_dir,
         )
@@ -409,14 +409,14 @@ class TestSessionReviewGate(_HookTestCase):
 
 
 # ===========================================================================
-# PostToolUse:Skill — session_review_done.py
+# PostToolUse:Skill — kickoff_done.py
 # ===========================================================================
 
-import session_review_done  # noqa: E402
+import kickoff_done  # noqa: E402
 
 
-class TestSessionReviewDone(_HookTestCase):
-    """PostToolUse:Skill hook injects SMM + behavioral guide after session review."""
+class TestKickoffDone(_HookTestCase):
+    """PostToolUse:Skill hook injects SMM + behavioral guide after kickoff."""
 
     def _skill_input(self, skill: str = "xp-housekeeping", **overrides) -> dict:
         data = {
@@ -431,28 +431,26 @@ class TestSessionReviewDone(_HookTestCase):
     def test_injects_smm_on_housekeeping(self):
         """Should inject materialized SMM after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
-        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("Shared Mental Model", result)
 
     def test_injects_behavioral_guide(self):
         """Should inject BEHAVIORAL_GUIDE.md after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
-        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("XP Agent Behavioral Guide", result)
 
     def test_ignores_other_skills(self):
         """Should return None for non-housekeeping skills."""
         self._write_events([make_event("goal", content="Ship v1")])
-        result = session_review_done.run(
-            self._skill_input("simplify"), smm_dir=self.smm_dir
-        )
+        result = kickoff_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
     def test_xp_agent_skips(self):
         """Should skip for xp-agent types."""
-        result = session_review_done.run(
+        result = kickoff_done.run(
             self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
         )
         self.assertIsNone(result)
@@ -462,17 +460,17 @@ class TestSessionReviewDone(_HookTestCase):
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
             "# Shared Mental Model\n## Intent\n- Ship v1\n"
         )
-        result = session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("XP Agent Behavioral Guide", result)
         self.assertNotIn("<smm-context>", result)
 
     def test_deletes_needs_session_review_marker(self):
-        """Should delete .needs-session-review marker after injection."""
-        marker = self.smm_dir / ".needs-session-review"
+        """Should delete .needs-kickoff marker after injection."""
+        marker = self.smm_dir / ".needs-kickoff"
         marker.touch()
         self._write_events([make_event("goal", content="Ship v1")])
-        session_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
         self.assertFalse(marker.exists())
 
 

@@ -1,5 +1,5 @@
 ---
-name: xp-session-review
+name: xp-kickoff
 description: >-
   Session start orchestrator. Sequences retrospective, goal collection, and
   housekeeping in priority order. Use at the start of every session.
@@ -11,7 +11,7 @@ allowed-tools:
 
 !`${CLAUDE_SKILL_DIR}/scripts/check_session_needs.sh`
 
-# Session Review
+# Session Kickoff
 
 The session status above was preloaded automatically.
 

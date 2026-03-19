@@ -3,7 +3,7 @@
 
 Handles all SessionStart sources (startup, resume, compact, clear).
 Ensures SMM exists and injects GUPP and skills as additionalContext.
-Sets .needs-session-review marker on fresh starts (startup, clear).
+Sets .needs-kickoff marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
 
@@ -73,12 +73,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Graceful: return GUPP + skills even without SMM
         return GUPP_TEXT + SKILLS_TEXT
 
-    # Write .needs-session-review marker on fresh starts.
-    # "startup" = new session (block until review), "clear" = mid-session
+    # Write .needs-kickoff marker on fresh starts.
+    # "startup" = new session (block until kickoff), "clear" = mid-session
     # reset (nudge only — work may be in progress).
     # "resume" and "compact" fire mid-session — no marker needed.
     if source in ("startup", "clear"):
-        marker = smm_dir / ".needs-session-review"
+        marker = smm_dir / ".needs-kickoff"
         marker.write_text(source)
 
     # Build context: GUPP + skills. No SMM, no nudges.
@@ -86,8 +86,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts.append(GUPP_TEXT)
     parts.append(SKILLS_TEXT)
 
-    # BEHAVIORAL_GUIDE.md is now injected by session_review_done.py
-    # (PostToolUse:Skill hook) after /xp-session-review completes,
+    # BEHAVIORAL_GUIDE.md is now injected by kickoff_done.py
+    # (PostToolUse:Skill hook) after /xp-kickoff completes,
     # together with the fresh SMM.
 
     return "".join(parts)

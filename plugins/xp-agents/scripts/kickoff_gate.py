@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: gate on .needs-session-review marker.
+"""UserPromptSubmit hook: gate on .needs-kickoff marker.
 
-Blocks user prompts until /xp-session-review has been run. Allows
-the session review command itself through. Respects enforcement mode.
+Blocks user prompts until /xp-kickoff has been run. Allows
+the kickoff command itself through. Respects enforcement mode.
 
 Behavior depends on marker content:
 - "startup" (new session): hard block
@@ -24,13 +24,13 @@ import _common
 _NUDGE = "nudge"
 
 _REVIEW_MESSAGE = (
-    "Session review required. Run /xp-session-review to review "
+    "Session kickoff required. Run /xp-kickoff to review "
     "open goals, concerns, decisions, and debt before proceeding."
 )
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
-    """Check marker and block/nudge if session review needed.
+    """Check marker and block/nudge if kickoff needed.
 
     Returns a decision dict, a nudge string, or None.
     """
@@ -43,7 +43,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if smm_dir is None:
         return None
 
-    marker = smm_dir / ".needs-session-review"
+    marker = smm_dir / ".needs-kickoff"
     if not marker.exists():
         return None
 
@@ -53,7 +53,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if _common.is_task_notification(prompt):
         return None
 
-    if "/xp-session-review" in prompt:
+    if "/xp-kickoff" in prompt:
         return None
 
     # Read marker content to determine block vs nudge.
@@ -78,6 +78,6 @@ if __name__ == "__main__":
     if result == _NUDGE:
         _common.hook_output("UserPromptSubmit", _REVIEW_MESSAGE)
     elif result is not None:
-        result["systemMessage"] = "Session review required — run /xp-session-review."
+        result["systemMessage"] = "Session kickoff required — run /xp-kickoff."
         print(json.dumps(result))
     sys.exit(0)

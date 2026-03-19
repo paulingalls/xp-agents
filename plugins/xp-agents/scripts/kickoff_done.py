@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: inject behavioral guide after housekeeping.
+"""PostToolUse:Skill hook: inject behavioral guide after kickoff.
 
-When /xp-housekeeping completes (the final step of session review),
+When /xp-housekeeping completes (the final step of kickoff),
 injects BEHAVIORAL_GUIDE.md as additionalContext. The curated SMM is
 already in context — housekeeping reads and writes the file directly.
 """
@@ -30,7 +30,7 @@ def _load_behavioral_guide() -> str:
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Inject SMM + behavioral guide after xp-session-review completes."""
+    """Inject SMM + behavioral guide after xp-kickoff completes."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -46,8 +46,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    # Clean up session review marker
-    (smm_dir / ".needs-session-review").unlink(missing_ok=True)
+    # Clean up kickoff marker
+    (smm_dir / ".needs-kickoff").unlink(missing_ok=True)
 
     # Inject behavioral guide only — the agent already has the SMM
     # from housekeeping step 8 (Read the file it just wrote).

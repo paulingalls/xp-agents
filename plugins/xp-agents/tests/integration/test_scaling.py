@@ -236,11 +236,11 @@ class TestEmptyProject(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        # No SMM or goal nudge (handled by /xp-session-review)
+        # No SMM or goal nudge (handled by /xp-kickoff)
         self.assertNotIn("<smm-context>", ctx)
         self.assertNotIn("xp-goal-collection", ctx)
         # Marker file written
-        self.assertTrue((self.smm_dir / ".needs-session-review").exists())
+        self.assertTrue((self.smm_dir / ".needs-kickoff").exists())
         # No crash
         self.assertIn("Resume immediately", ctx)
 

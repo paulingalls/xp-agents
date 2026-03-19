@@ -89,7 +89,7 @@ class TestSessionStart(_HookTestCase):
         self.assertIn("Resume immediately", result)
 
     def test_clear_source_sets_marker_with_clear(self):
-        """clear should set .needs-session-review marker with 'clear' content."""
+        """clear should set .needs-kickoff marker with 'clear' content."""
         import session_start
 
         self._write_events([make_event()])
@@ -97,7 +97,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "clear"},
             smm_dir=self.smm_dir,
         )
-        marker = self.smm_dir / ".needs-session-review"
+        marker = self.smm_dir / ".needs-kickoff"
         self.assertTrue(marker.exists())
         self.assertEqual(marker.read_text(), "clear")
 
@@ -207,7 +207,7 @@ class TestSessionStart(_HookTestCase):
         self.assertIn("Resume immediately", result)
 
     def test_writes_needs_session_review_marker(self):
-        """session_start writes .needs-session-review marker with source."""
+        """session_start writes .needs-kickoff marker with source."""
         import session_start
 
         self._write_events([make_event()])
@@ -215,12 +215,12 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        marker = self.smm_dir / ".needs-session-review"
+        marker = self.smm_dir / ".needs-kickoff"
         self.assertTrue(marker.exists())
         self.assertEqual(marker.read_text(), "startup")
 
     def test_resume_does_not_set_marker(self):
-        """resume is mid-session — should NOT set .needs-session-review."""
+        """resume is mid-session — should NOT set .needs-kickoff."""
         import session_start
 
         self._write_events([make_event()])
@@ -228,11 +228,11 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "resume"},
             smm_dir=self.smm_dir,
         )
-        marker = self.smm_dir / ".needs-session-review"
+        marker = self.smm_dir / ".needs-kickoff"
         self.assertFalse(marker.exists())
 
     def test_compact_does_not_set_marker(self):
-        """compact is mid-session — should NOT set .needs-session-review."""
+        """compact is mid-session — should NOT set .needs-kickoff."""
         import session_start
 
         self._write_events([make_event()])
@@ -240,7 +240,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
-        marker = self.smm_dir / ".needs-session-review"
+        marker = self.smm_dir / ".needs-kickoff"
         self.assertFalse(marker.exists())
 
     def test_no_smm_in_context(self):
@@ -256,7 +256,7 @@ class TestSessionStart(_HookTestCase):
         self.assertNotIn("Project Goals", result)
 
     def test_no_goal_nudge_in_context(self):
-        """Goal nudge removed — handled by /xp-session-review."""
+        """Goal nudge removed — handled by /xp-kickoff."""
         import session_start
 
         self._write_events([make_event("status", content="working")])
@@ -276,7 +276,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
     """M6.5: session_start.py should nudge goal-collection / question-triage."""
 
     def test_no_goal_nudge_removed(self):
-        """Goal nudge removed — handled by /xp-session-review."""
+        """Goal nudge removed — handled by /xp-kickoff."""
         import session_start
 
         self._write_events([make_event("status", content="working")])
@@ -287,7 +287,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
         self.assertNotIn("xp-goal-collection", result)
 
     def test_no_question_nudge_removed(self):
-        """Question nudge removed — handled by /xp-session-review."""
+        """Question nudge removed — handled by /xp-kickoff."""
         import session_start
 
         self._write_events(
@@ -313,7 +313,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 
 
 class TestSessionStartBehavioralGuide(_HookTestCase):
-    """Behavioral guide moved to session_review_done."""
+    """Behavioral guide moved to kickoff_done."""
 
     def test_session_start_no_behavioral_guide(self):
         """session_start should NOT include behavioral guide."""
@@ -340,7 +340,7 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
         self.assertIn("xp-values", result)
 
     def test_no_smm_in_session_start(self):
-        """SMM is no longer injected by session_start (deferred to session-review)."""
+        """SMM is no longer injected by session_start (deferred to kickoff)."""
         import session_start
 
         self._write_events([make_event()])

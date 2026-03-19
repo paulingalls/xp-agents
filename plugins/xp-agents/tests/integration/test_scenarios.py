@@ -330,10 +330,10 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         self.assertIn("Resume immediately", ctx)
         self.assertIn("smm-protocol", ctx)
         # Marker written
-        self.assertTrue((self.smm_dir / ".needs-session-review").exists())
+        self.assertTrue((self.smm_dir / ".needs-kickoff").exists())
 
         # Clear marker so pre_tool_write doesn't block
-        (self.smm_dir / ".needs-session-review").unlink()
+        (self.smm_dir / ".needs-kickoff").unlink()
 
         # 2. Pre tool write (Write) — no navigator nudge
         r2 = self._run_script(

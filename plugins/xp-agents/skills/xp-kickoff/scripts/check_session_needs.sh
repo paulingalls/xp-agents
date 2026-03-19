@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-session-review: determine what session-start work is needed.
+# Preload for xp-kickoff: determine what session-start work is needed.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
 SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
 RETRO_INPUT="${SMM_DIR}/.retro-input.json"
-MARKER="${SMM_DIR}/.needs-session-review"
+MARKER="${SMM_DIR}/.needs-kickoff"
 
 echo "## Session Review Status"
 echo ""

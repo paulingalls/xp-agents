@@ -197,15 +197,15 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json         ← plugin manifest
-├── BEHAVIORAL_GUIDE.md                ← loaded by session_review_done.py (PostToolUse:Skill)
+├── BEHAVIORAL_GUIDE.md                ← loaded by kickoff_done.py (PostToolUse:Skill)
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
-├── scripts/*.py                       ← command hooks (incl. session_review_gate.py)
+├── scripts/*.py                       ← command hooks (incl. kickoff_gate.py)
 ├── agents/*.md                        ← subagent definitions
 ├── prompts/*.md                       ← agent/prompt hook definitions
 ├── skills/                            ← forked + inline skills
 │   ├── {smm-protocol,xp-values}/SKILL.md
-│   ├── xp-session-review/SKILL.md    ← session start orchestrator
+│   ├── xp-kickoff/SKILL.md    ← session start orchestrator
 │   ├── xp-housekeeping/SKILL.md      ← lifecycle triage
 │   └── {xp-goal-collection,xp-question-triage}/SKILL.md
 └── smm/{init.sh,append.sh,materialize.py,read_delta.py,compact.py,schema.json}

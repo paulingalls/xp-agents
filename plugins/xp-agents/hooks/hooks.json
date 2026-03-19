@@ -83,8 +83,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_review_gate.py",
-            "statusMessage": "Checking session review status..."
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/kickoff_gate.py",
+            "statusMessage": "Checking kickoff status..."
           },
           {
             "type": "command",
@@ -159,7 +159,7 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_review_done.py",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/kickoff_done.py",
             "timeout": 10000,
             "statusMessage": "Loading session context..."
           }
