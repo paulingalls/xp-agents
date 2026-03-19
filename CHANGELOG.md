@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.9.52 — Remove xp-values Skill, Absorb into Behavioral Guide
+
+### Changed
+- **Behavioral guide absorbs xp-values content** — added "answer open questions promptly" (Communication), "if you can remove something, remove it" (Simplicity), and value conflict priority: Courage > Simplicity > Feedback > Communication > Respect.
+
+### Removed
+- **`/xp-values` skill** — 80% redundant with the behavioral guide. Unique content (conflict priority, concise additions) absorbed into the guide. Saves ~125 lines of skill description budget.
+- **`xp-values` preload** from plan reviewer and retrospective subagents — XP values now delivered via behavioral guide at SubagentStart.
+- **`/xp-values` reference** from session start skills list.
+
+### Stats
+- 869 tests (all passing)
+
 ## v0.9.51 — Lint Feedback, Async Hooks, Plugin Data Storage
 
 ### Changed

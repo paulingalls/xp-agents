@@ -7,7 +7,6 @@ tools: Read, Grep, Glob, Bash, Write
 model: inherit
 skills:
   - smm-protocol
-  - xp-values
 ---
 
 # XP Retrospective Analyst — Keep/Fix/Try

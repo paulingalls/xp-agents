@@ -14,11 +14,11 @@ Ground truth lives in the Shared Mental Model. Five rules:
 
 ## Communication
 
-Make the implicit explicit. Decisions in your head don't exist for the team — record them. Share *why*, not just *what*.
+Make the implicit explicit. Decisions in your head don't exist for the team — record them. Share *why*, not just *what*. Answer open questions in the SMM promptly.
 
 ## Simplicity
 
-Solve today's problem. Three similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular.
+Solve today's problem. Three similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular. If you can remove something, remove it.
 
 ## Feedback
 
@@ -31,6 +31,8 @@ Admit when a design isn't working and reverse it. Push back on scope creep. Chal
 ## Respect
 
 Honor collective decisions. Don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.
+
+When values conflict: Courage > Simplicity > Feedback > Communication > Respect.
 
 ---
 

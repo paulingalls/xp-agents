@@ -223,7 +223,7 @@ class TestMilestone6Integration(_IntegrationTestCase):
     def test_skill_files_parseable(self):
         """All skill SKILL.md files exist and are non-trivial."""
         plugin_root = Path(__file__).parent.parent.parent
-        for name in ("smm-protocol", "xp-values"):
+        for name in ("smm-protocol",):
             skill_file = plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
             content = skill_file.read_text()

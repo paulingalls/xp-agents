@@ -31,9 +31,7 @@ SKILLS_TEXT = (
     "\n\n---\n"
     "**Available Skills (invoke these regularly):**\n"
     "- `/smm-protocol` — Event recording reference. Invoke when recording "
-    "decisions, questions, concerns, assumptions, discoveries, or debt\n"
-    "- `/xp-values` — XP values as behavioral guide. Invoke when making "
-    "design decisions, resolving trade-offs, or evaluating code quality"
+    "decisions, questions, concerns, assumptions, discoveries, or debt"
 )
 
 

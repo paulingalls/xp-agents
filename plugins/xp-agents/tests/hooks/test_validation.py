@@ -421,13 +421,13 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_directories_exist(self):
         """All 3 skill dirs must exist with SKILL.md."""
-        for name in ("smm-protocol", "xp-values"):
+        for name in ("smm-protocol",):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
 
     def test_skill_frontmatter_valid(self):
         """Each SKILL.md must have valid YAML frontmatter with name + description."""
-        for name in ("smm-protocol", "xp-values"):
+        for name in ("smm-protocol",):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -452,7 +452,7 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_token_budgets(self):
         """Each SKILL.md should be within 1,000-2,000 token estimate."""
-        for name in ("smm-protocol", "xp-values"):
+        for name in ("smm-protocol",):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -625,7 +625,7 @@ class TestPluginIntegrity(unittest.TestCase):
     def test_all_skill_files_exist(self):
         """All 3 SKILL.md files exist in skills/ directory."""
         skills_dir = self.plugin_root / "skills"
-        for name in ("smm-protocol", "xp-values"):
+        for name in ("smm-protocol",):
             path = skills_dir / name / "SKILL.md"
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
 

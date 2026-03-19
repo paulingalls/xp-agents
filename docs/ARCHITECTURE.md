@@ -112,7 +112,7 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash)
 - `/xp-question-triage` — ongoing question triage
 - `/xp-quality-review` — post-simplify review: courage accountability for skipped recommendations, drift management against SMM Constraints, debt awareness for changed files
 
-All subagents preload `smm-protocol` skill. Plan reviewer also preloads `xp-values`.
+All subagents preload `smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
 
 ### Notifications
 
@@ -219,7 +219,6 @@ plugins/xp-agents/
 │   └── xp-plan-reviewer.md
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── smm-protocol/SKILL.md
-│   ├── xp-values/SKILL.md
 │   ├── xp-quality-review/SKILL.md
 │   ├── xp-plan-reviewer/SKILL.md
 │   ├── xp-retrospective/SKILL.md
