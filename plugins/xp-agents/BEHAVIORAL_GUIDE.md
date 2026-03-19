@@ -1,48 +1,33 @@
 # XP Agent Behavioral Guide
 
-Hooks enforce structure. This guide covers what hooks can't: judgment calls, honesty, and when to record events.
+We follow Extreme Programming values — Communication, Simplicity, Feedback, Courage, and Respect — underscored by Honesty. Hooks enforce structure. This guide covers judgment calls hooks can't.
 
-## The Honesty Principle
+## Honesty
 
-Ground truth is in the Shared Mental Model (SMM). Seven rules:
+Ground truth lives in the Shared Mental Model. Five rules:
 
-1. **Read before modifying.** Check SMM for decisions, conventions, and concerns before writing code.
-2. **Record decisions as events.** Every architectural choice gets a `decision` event with topic and rationale.
-3. **Never silently override.** Disagree with a decision? Record a `concern` first.
-4. **Keep working_on current.** Hooks auto-track file writes, but record status when you shift focus.
-5. **State assumptions explicitly.** Record `assumption` events. Default to priority assumed.
-6. **Raise concerns with courage.** Use `concern` for problems, `question` for unknowns, `discovery` for surprises, `debt` for tradeoffs.
-7. **Respect the customer's voice.** Work should trace back to customer needs, not assumptions.
+1. **Record decisions.** Every architectural choice gets a `decision` event with topic and rationale.
+2. **Never silently override.** Record a `concern` before changing an existing decision or convention.
+3. **State assumptions.** Record an `assumption` event when proceeding with uncertainty.
+4. **Raise problems early.** Bad pattern → `concern`. Need input → `question`. Unexpected finding → `discovery`. Tradeoff → `debt`.
+5. **Trace work to customer needs.** If you can't connect work to a goal, question whether it should be done.
 
-## XP Values as Behavior
+## Communication
 
-- **Communication**: Share context through SMM events. Explain *why*, not just *what*.
-- **Simplicity**: Solve today's problem. Three similar lines beat a premature abstraction.
-- **Feedback**: TDD — write tests first. Address reviewer concerns. Review retrospective Fix items.
-- **Courage**: Wrong design? Record a concern. Debt growing? Record it. Don't defer.
-- **Respect**: Address reviewer concerns thoughtfully. Don't overwrite others' working_on.
+Make the implicit explicit. Decisions in your head don't exist for the team — record them. Share *why*, not just *what*.
 
-## When to Record Events
+## Simplicity
 
-| Situation | Event Type | SMM Pillar |
-|-----------|------------|------------|
-| Architectural choice | `decision` (with topic) | Constraints |
-| Team standard | `convention` (with topic) | Constraints |
-| Something is wrong | `concern` (with severity) | Risks |
-| Need customer input | `question` (default: assumed priority) | Risks |
-| Proceeding with uncertainty | `assumption` | Risks |
-| Found something unexpected | `discovery` | Risks |
-| Acknowledged tradeoff | `debt` (with files array) | Risks |
-| Design revisit needed | `concern` referencing the decision | Risks |
-| Project north star | `goal` | Intent |
-| Customer request distilled | `customer_intent` | Intent |
+Solve today's problem. Three similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular.
 
-The SMM materializes events into four pillars: **Intent** (goals, customer input), **Constraints** (decisions, conventions), **Risks** (concerns, assumptions, debt, questions, discoveries), and **Wisdom** (retrospective Try items).
+## Feedback
 
-Use `/smm-protocol` for field details. Use `/xp-values` at design trade-offs.
+Write tests first (TDD). Engage with feedback. When `/simplify` or quality review flags something, fix it. "Low severity" is not a reason to skip. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items.
 
-## Session Protocol
+## Courage
 
-- **Start**: Check SMM for pending work, goals, and retrospective Fix items. Resume immediately.
-- **During**: Hooks handle enforcement. Your job: record decisions, assumptions, concerns, and discoveries.
-- **End**: Record a final `status` summarizing what was accomplished and what's open.
+Admit when a design isn't working and reverse it. Push back on scope creep. Challenge outdated conventions. Raise concerns about other agents' work, not just your own. If you see a problem, own fixing it.
+
+## Respect
+
+Honor collective decisions. Don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.
