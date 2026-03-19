@@ -26,7 +26,11 @@ class TestSimplifyGateIntegration(_IntegrationTestCase):
         self._seed_events(
             [
                 make_event("customer_input", content="build feature"),
-                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
+                ),
             ]
         )
         result = self._run_script(
@@ -304,7 +308,11 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
         self._seed_events(
             [
                 make_event("customer_input", content="build feature"),
-                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
+                ),
             ]
         )
         # First stop — should block via decision JSON
@@ -329,7 +337,14 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
         """New customer_input resets tracker — blocks again."""
         ci1 = make_event("customer_input", content="task 1")
         self._seed_events(
-            [ci1, make_event("status", content="wrote", working_on=["src/a.ts"])]
+            [
+                ci1,
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/a.ts", "src/b.ts", "src/c.ts"],
+                ),
+            ]
         )
         # First loop blocks
         r1 = self._run_script(
@@ -344,9 +359,17 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
         self._seed_events(
             [
                 ci1,
-                make_event("status", content="wrote", working_on=["src/a.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/a.ts", "src/b.ts", "src/c.ts"],
+                ),
                 ci2,
-                make_event("status", content="wrote2", working_on=["src/b.ts"]),
+                make_event(
+                    "status",
+                    content="wrote2",
+                    working_on=["src/d.ts", "src/e.ts", "src/f.ts"],
+                ),
             ]
         )
         r2 = self._run_script(
@@ -401,7 +424,7 @@ class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
         plugin_root = self._make_advisory_plugin_root()
         try:
             result = self._run_script_with_env(
-                "pre_tool_use.py",
+                "pre_tool_write.py",
                 {
                     "session_id": "int-test",
                     "tool_name": "Write",
@@ -432,7 +455,7 @@ class TestAdvisoryEnforcementIntegration(_IntegrationTestCase):
         }
         (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",
@@ -466,7 +489,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
     def test_git_push_blocked_no_review(self):
         """git push blocked without security review tracker."""
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
@@ -484,7 +507,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
         head = self._get_head_hash()
         self._write_tracker(head)
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
@@ -498,7 +521,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
     def test_security_review_event_written(self):
         """Blocking a push writes security_review_requested event."""
         self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
@@ -519,7 +542,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
         )
         try:
             result = self._run_script_with_env(
-                "pre_tool_use.py",
+                "pre_tool_bash.py",
                 {
                     "session_id": "int-test",
                     "tool_name": "Bash",
@@ -591,7 +614,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
 
         # Push should now be blocked (new HEAD, old tracker)
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
@@ -606,7 +629,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
         """Full flow: push blocked → user sends /security-review → push passes."""
         # Step 1: push is blocked
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
@@ -629,7 +652,7 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
 
         # Step 3: push now passes
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",

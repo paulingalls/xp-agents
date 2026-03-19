@@ -2,12 +2,22 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "*",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py",
-            "statusMessage": "Checking shared mental model..."
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_write.py",
+            "statusMessage": "Checking write constraints..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_bash.py",
+            "statusMessage": "Checking push gate..."
           }
         ]
       }

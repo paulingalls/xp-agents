@@ -232,11 +232,11 @@ class TestMilestone6Integration(_IntegrationTestCase):
 
 
 class TestMilestone65Integration(_IntegrationTestCase):
-    def test_pre_tool_use_no_navigator_nudge(self):
+    def test_pre_tool_write_no_navigator_nudge(self):
         """Write tool → stdout should NOT contain xp-navigator nudge."""
         self._seed_events([make_event()])
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",

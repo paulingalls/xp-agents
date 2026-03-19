@@ -154,21 +154,20 @@ Resolution is the sole lifecycle mechanism — no aging, no pruning. Housekeepin
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "*",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_write.py"
           }
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Bash",
         "hooks": [
           {
-            "type": "agent",
-            "prompt": "${CLAUDE_PLUGIN_ROOT}/prompts/navigator.md",
-            "agent_type": "xp-navigator"
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_bash.py"
           }
         ]
       }
@@ -248,7 +247,7 @@ tests/
 ├── hooks/                   ← unit tests for command hooks (from scripts/)
 │   ├── test_common.py       ← _common.py utilities
 │   ├── test_session.py      ← session_start, session_end, retrospective, review gate
-│   ├── test_pre_tool.py     ← pre_tool_use, TDD order, conflicts, push gate
+│   ├── test_pre_tool.py     ← pre_tool_write + pre_tool_bash, TDD, conflicts, push gate
 │   ├── test_post_tool.py    ← post_tool_use, lint_check, bash_post_tool, bash_failure
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
 │   ├── test_gates.py        ← simplify_gate, quality_review_gate, tdd_stop_gate

@@ -83,8 +83,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 
 if __name__ == "__main__":
-    input_data = _common.read_hook_input()
-    result = run(input_data)
-    if result:
-        _common.hook_output("PostToolUse", result)
+    run(_common.read_hook_input())
+    sys.exit(0)
     sys.exit(0)

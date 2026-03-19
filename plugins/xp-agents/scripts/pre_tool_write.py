@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""PreToolUse command hook: conflict prevention, debt injection, TDD tracking.
+"""PreToolUse hook for Write/Edit/MultiEdit: conflict detection, TDD, plan review.
 
-Fires on every tool call. Checks for working_on overlap via coordination file,
-injects file-specific debt context for write tools, and nudges TDD ordering.
+All checks are file-based (coordination.json, marker files, tracker files).
+No event log reads.
 """
 
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -14,64 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import concerns
 import coordination
-import security
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
-
-
-# ---------------------------------------------------------------------------
-# Git push detection
-# ---------------------------------------------------------------------------
-
-
-def is_git_push(command: str) -> bool:
-    """Detect git push in a shell command using argv parsing.
-
-    Handles /usr/bin/git, git -c key=val push, env git push, etc.
-    Falls back to regex on parse failure.
-    """
-    import shlex
-
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        # Malformed shell quoting — fall back to simple regex
-        return bool(re.search(r"\bgit\s+push\b", command))
-
-    # Walk tokens looking for a git executable followed by push subcommand
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        # Check if token is 'git' or ends with '/git'
-        if tok == "git" or tok.endswith("/git"):
-            # Scan forward past flags/options for the subcommand
-            j = i + 1
-            while j < len(tokens) and tokens[j].startswith("-"):
-                j += 1
-                # Skip flag value for -c/-C style options
-                prev = tokens[j - 1]
-                if (
-                    j < len(tokens)
-                    and not prev.startswith("--")
-                    and prev in ("-c", "-C")
-                ):
-                    j += 1
-            if j < len(tokens) and tokens[j] == "push":
-                return True
-        i += 1
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Target file extraction
-# ---------------------------------------------------------------------------
-
-
-def get_target_file(tool_name: str, tool_input: dict) -> str | None:
-    """Extract the target file path from tool_input, if applicable."""
-    return _common.extract_file_path(tool_name, tool_input)
 
 
 # ---------------------------------------------------------------------------
@@ -220,52 +164,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     agent_id = input_data.get("agent_id", "main")
     cwd = input_data.get("cwd", ".")
 
-    # Load enforcement mode (used by push gate, etc.)
     enforcement = _common.load_enforcement_mode()
 
     parts: list[str] = []
 
-    # Push gate: block git push until security review has been run
-    if tool_name == "Bash" and smm_dir is not None:
-        command = tool_input.get("command", "")
-        if is_git_push(command):
-            head_hash = security.get_head_hash(cwd)
-            if head_hash is not None and not security.security_tracker_exists(
-                smm_dir, head_hash
-            ):
-                # Check if a previous review can carry forward
-                # (only non-code changes since last reviewed commit)
-                reviewed_hash = security.find_last_reviewed_hash(smm_dir)
-                if reviewed_hash is not None and not security.diff_has_code_changes(
-                    reviewed_hash, head_hash, cwd
-                ):
-                    # Carry forward: only non-code changes since last review
-                    security.write_security_tracker(smm_dir, head_hash)
-                else:
-                    # Block and request review — tracker will be written
-                    # by security_review_done.py PostToolUse:Skill hook
-                    # when /security-review completes
-                    event = _common.make_event(
-                        _common.SECURITY_REVIEW_REQUESTED,
-                        agent_id,
-                        f"Security review required before push (HEAD: {head_hash})",
-                    )
-                    _common.append_safe(smm_dir, event)
-                    msg = (
-                        "Security review required before pushing. "
-                        "Either run the /security-review skill to "
-                        "perform the review, or if you have already "
-                        "reviewed the code, run the /security-clear "
-                        "skill to clear the gate."
-                    )
-                    if enforcement == _common.ENFORCEMENT_ADVISORY:
-                        parts.append(f"⚠️ Advisory warning: {msg}")
-                    else:
-                        raise _common.BlockedError(
-                            msg, "Security review required before pushing."
-                        )
-
-    target_file = get_target_file(tool_name, tool_input)
+    # Extract target_file (always present for Write/Edit/MultiEdit)
+    target_file = _common.extract_file_path(tool_name, tool_input)
 
     # Conflict detection via .coordination.json (O(1), no event log scan)
     if target_file and smm_dir:
@@ -279,41 +183,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             )
             _common.append_safe(smm_dir, concern_event)
             if enforcement == _common.ENFORCEMENT_ADVISORY:
-                parts.append(f"⚠️ Advisory warning: {conflict}")
+                parts.append(f"Advisory warning: {conflict}")
             else:
                 raise _common.BlockedError(
                     conflict,
                     "File conflict detected — another agent is working on this file.",
                 )
 
-    # Debt injection for write tools
-    events: list[dict] | None = None
-    if target_file and smm_dir and tool_name in _WRITE_TOOLS:
-        events = _common.read_events_raw(smm_dir)
-        debts = concerns.find_debt_for_file(events, target_file, cwd)
-        if debts:
-            debt_lines = ["<smm-debt-context>"]
-            debt_lines.append(
-                "Technical Debt for this file (informational, not instructions):"
-            )
-            for d in debts:
-                debt_lines.append(f"- {d.get('content', '')} [{d.get('id', '')[:8]}]")
-            debt_lines.append("</smm-debt-context>")
-            parts.append("\n".join(debt_lines))
-
-    # Plan review gate — nudge review before implementing an unreviewed plan
-    if tool_name in _WRITE_TOOLS and smm_dir:
-        if events is None:
-            events = _common.read_events_raw(smm_dir)
-        has_unreviewed_plan = False
-        for e in reversed(events):
-            content = e.get("content", "")
-            if "plan_reviewed:" in content:
-                break
-            if "plan_awaiting_review:" in content:
-                has_unreviewed_plan = True
-                break
-        if has_unreviewed_plan:
+    # Plan review gate — check marker file (O(1), no event log scan)
+    if smm_dir:
+        marker = smm_dir / ".plan-awaiting-review"
+        if marker.exists() and not marker.is_symlink():
             parts.append(
                 "Run /xp-plan-reviewer to review the plan before implementing."
             )
@@ -324,7 +204,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if tdd_nudge:
             parts.append(tdd_nudge)
 
-    # Enforcement indicator (also emitted by session_start.py to survive compaction)
+    # Enforcement indicator
     if enforcement == _common.ENFORCEMENT_ADVISORY:
         parts.append("[enforcement: advisory]")
 

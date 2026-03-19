@@ -91,16 +91,18 @@ class _HooksJsonTestCase(unittest.TestCase):
 class TestHooksJsonM4(_HooksJsonTestCase):
     """Verify hooks.json M4 registrations (agent hooks removed in M6.5)."""
 
-    def test_pretooluse_has_star_matcher(self):
-        entry = self._find_matcher_entry("PreToolUse", "*")
-        self.assertIsNotNone(entry, "PreToolUse * matcher entry missing")
-
-    def test_pretooluse_no_write_edit_entry(self):
-        """Write|Edit|MultiEdit navigator agent hook removed in M6.5."""
+    def test_pretooluse_write_matcher(self):
         entry = self._find_matcher_entry("PreToolUse", "Write|Edit|MultiEdit")
-        self.assertIsNone(
-            entry, "PreToolUse Write|Edit|MultiEdit entry should be removed"
-        )
+        self.assertIsNotNone(entry, "PreToolUse Write|Edit|MultiEdit entry missing")
+
+    def test_pretooluse_bash_matcher(self):
+        entry = self._find_matcher_entry("PreToolUse", "Bash")
+        self.assertIsNotNone(entry, "PreToolUse Bash entry missing")
+
+    def test_pretooluse_no_star_matcher(self):
+        """Star matcher removed — split into Write|Edit|MultiEdit and Bash."""
+        entry = self._find_matcher_entry("PreToolUse", "*")
+        self.assertIsNone(entry, "PreToolUse * matcher should be removed")
 
     def test_posttooluse_no_agent_hooks(self):
         """Quality reviewer agent hook removed in M6.5."""

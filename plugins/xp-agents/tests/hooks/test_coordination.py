@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import coordination
-import pre_tool_use
+import pre_tool_write
 from conftest import _HookTestCase
 
 
@@ -104,7 +104,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
     def test_no_overlap(self):
         """No conflict when agents work on different files."""
         coordination.update_coordination(self.smm_dir, "other", ["src/b.ts"])
-        result = pre_tool_use.check_working_on_overlap(
+        result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/a.ts", "/project"
         )
         self.assertIsNone(result)
@@ -112,7 +112,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
     def test_overlap_detected(self):
         """Conflict detected when another agent works on the same file."""
         coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
-        result = pre_tool_use.check_working_on_overlap(
+        result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNotNone(result)
@@ -121,7 +121,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
     def test_self_overlap_ignored(self):
         """No conflict when the same agent works on the same file."""
         coordination.update_coordination(self.smm_dir, "main", ["src/app.ts"])
-        result = pre_tool_use.check_working_on_overlap(
+        result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)
@@ -142,7 +142,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
                 }
             )
         )
-        result = pre_tool_use.check_working_on_overlap(
+        result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)
@@ -150,7 +150,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
     def test_empty_working_on(self):
         """Agent with empty working_on doesn't trigger conflict."""
         coordination.update_coordination(self.smm_dir, "other", [])
-        result = pre_tool_use.check_working_on_overlap(
+        result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)
@@ -159,7 +159,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
         """After clearing, agent no longer causes conflicts."""
         coordination.update_coordination(self.smm_dir, "other", ["src/app.ts"])
         coordination.clear_coordination_agent(self.smm_dir, "other")
-        result = pre_tool_use.check_working_on_overlap(
+        result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)

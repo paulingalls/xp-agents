@@ -314,7 +314,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
 
 class TestFullSessionLifecycle(_IntegrationTestCase):
-    """M7: Chain session_start → pre_tool_use → post_tool_use → session_end."""
+    """M7: Chain session_start → pre_tool_write → post_tool_use → session_end."""
 
     def test_full_lifecycle_first_run(self):
         """Empty SMM → full lifecycle produces correct event chain."""
@@ -332,12 +332,12 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         # Marker written
         self.assertTrue((self.smm_dir / ".needs-session-review").exists())
 
-        # Clear marker so pre_tool_use doesn't block
+        # Clear marker so pre_tool_write doesn't block
         (self.smm_dir / ".needs-session-review").unlink()
 
-        # 2. Pre tool use (Write) — no navigator nudge
+        # 2. Pre tool write (Write) — no navigator nudge
         r2 = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "m7-lifecycle",
                 "tool_name": "Write",

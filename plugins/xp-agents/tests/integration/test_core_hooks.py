@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration tests: core hook pipeline.
 
-Tests for PreToolUse, PostToolUse, LintCheck, BashPostTool,
+Tests for PreToolWrite, PreToolBash, PostToolUse, LintCheck, BashPostTool,
 UserPromptLog, and SubagentStop hooks.
 """
 
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _IntegrationTestCase, make_event
 
 
-class TestPreToolUseIntegration(_IntegrationTestCase):
+class TestPreToolWriteIntegration(_IntegrationTestCase):
     def test_write_no_delta_injection(self):
         """M5: Write tool no longer injects smm-delta."""
         self._seed_events(
@@ -27,7 +27,7 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
             ]
         )
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",
@@ -57,7 +57,7 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
         }
         (self.smm_dir / ".coordination.json").write_text(json.dumps(coord))
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",
@@ -69,26 +69,10 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("other-agent", result.stderr)
 
-    def test_read_tool_no_output_for_non_red(self):
-        """Red-only tier filters out status events → no output."""
-        self._seed_events([make_event("status", content="busy")])
-        result = self._run_script(
-            "pre_tool_use.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Read",
-                "tool_input": {"file_path": "src/app.ts"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-
     def test_tdd_nudge_after_multiple_impl_writes(self):
         """Two impl writes without test → TDD reminder in output."""
         self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",
@@ -98,7 +82,7 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
             },
         )
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",
@@ -119,7 +103,7 @@ class TestPreToolUseIntegration(_IntegrationTestCase):
             ]
         )
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Write",

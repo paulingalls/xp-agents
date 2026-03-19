@@ -498,8 +498,8 @@ class TestCoordinationIntegration(_IntegrationTestCase):
         coord = self._read_coordination()
         self.assertNotIn("main", coord)
 
-    def test_pre_tool_use_detects_overlap(self):
-        """PreToolUse blocks when another agent works on the same file."""
+    def test_pre_tool_write_detects_overlap(self):
+        """PreToolWrite blocks when another agent works on the same file."""
         # Agent-2 writes to src/app.ts
         post_input = {
             "session_id": "s1",
@@ -519,7 +519,7 @@ class TestCoordinationIntegration(_IntegrationTestCase):
             },
             "agent_id": "main",
         }
-        result = self._run_script("pre_tool_use.py", pre_input)
+        result = self._run_script("pre_tool_write.py", pre_input)
         # Should block (exit 2) with conflict message
         self.assertEqual(result.returncode, 2)
         self.assertIn("CONFLICT", result.stderr)

@@ -93,6 +93,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Don't block (causes re-planning loops) or nudge via reason (silently dropped).
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
+        # Write marker file for O(1) check in pre_tool_write.py
+        marker = smm_dir / ".plan-awaiting-review"
+        marker.write_text(agent_id)
+
+        # Keep the event for SMM history
         gate_event = _common.make_event(
             _common.STATUS,
             agent_id,

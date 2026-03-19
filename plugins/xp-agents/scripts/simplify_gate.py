@@ -15,65 +15,24 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import security
 
 # ---------------------------------------------------------------------------
-# Non-code file detection
+# Code file count threshold
 # ---------------------------------------------------------------------------
 
-# Extensions that /simplify won't find useful
-_NON_CODE_SUFFIXES = frozenset(
-    {
-        # Documentation
-        ".md",
-        ".txt",
-        ".rst",
-        ".adoc",
-        ".tex",
-        # Images
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".gif",
-        ".svg",
-        ".ico",
-        ".webp",
-        # Data / config (not executable)
-        ".json",
-        ".yaml",
-        ".yml",
-        ".toml",
-        ".xml",
-        ".csv",
-        ".plist",
-        ".pbxproj",
-        ".xcworkspacedata",
-        ".xcscheme",
-        # Lock files
-        ".lock",
-        # Misc
-        ".license",
-        ".gitignore",
-        ".gitattributes",
-        ".env",
-        ".env.example",
-        ".dockerignore",
-    }
-)
+_MIN_CODE_FILES = 3
 
 
-def _is_code_file(path: str) -> bool:
-    """Return True if the file is likely code that /simplify should review."""
-    suffix = Path(path).suffix.lower()
-    if suffix in _NON_CODE_SUFFIXES:
-        return False
-    name = Path(path).name.lower()
-    return name not in {
-        "license",
-        "changelog",
-        "readme",
-        "makefile",
-        "dockerfile",
-    }
+def count_distinct_code_files(events: list[dict], start_idx: int) -> int:
+    """Count distinct code files in working_on since start_idx."""
+    files: set[str] = set()
+    for e in events[start_idx + 1 :]:
+        if e.get("type") == _common.STATUS:
+            for f in e.get("working_on", []):
+                if isinstance(f, str) and security.is_code_file(f):
+                    files.add(f)
+    return len(files)
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +54,7 @@ def has_code_changes_since(events: list[dict], start_idx: int) -> bool:
         if e.get("type") == _common.STATUS:
             working_on = e.get("working_on", [])
             if isinstance(working_on, list) and any(
-                _is_code_file(f) for f in working_on if isinstance(f, str)
+                security.is_code_file(f) for f in working_on if isinstance(f, str)
             ):
                 return True
     return False
@@ -150,6 +109,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     start_idx, ci_event = boundary
     if not has_code_changes_since(events, start_idx):
+        return None
+
+    if count_distinct_code_files(events, start_idx) < _MIN_CODE_FILES:
         return None
 
     # Check tracker — same loop_id means simplify already ran

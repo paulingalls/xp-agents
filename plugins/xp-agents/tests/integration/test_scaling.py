@@ -64,11 +64,11 @@ class TestCompactionReinjection(_IntegrationTestCase):
 class TestLargeEventLog(_IntegrationTestCase):
     """M7: 1000+ events — scripts complete without error."""
 
-    def test_pre_tool_use_with_1000_events(self):
-        """pre_tool_use.py completes with 1000 events."""
+    def test_pre_tool_write_with_1000_events(self):
+        """pre_tool_write.py completes with 1000 events."""
         self._seed_events([make_event(content=f"event-{i}") for i in range(1000)])
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "stress",
                 "tool_name": "Write",
@@ -244,11 +244,11 @@ class TestEmptyProject(_IntegrationTestCase):
         # No crash
         self.assertIn("Resume immediately", ctx)
 
-    def test_pre_tool_use_empty_project(self):
-        """pre_tool_use with no events — no crash."""
+    def test_pre_tool_write_empty_project(self):
+        """pre_tool_write with no events — no crash."""
         (self.smm_dir / "events.jsonl").write_text("")
         result = self._run_script(
-            "pre_tool_use.py",
+            "pre_tool_write.py",
             {
                 "session_id": "empty",
                 "tool_name": "Write",

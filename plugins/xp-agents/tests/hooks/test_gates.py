@@ -121,7 +121,11 @@ class TestSimplifyGate(_HookTestCase):
             [
                 make_event("customer_input", content="build feature"),
                 make_event("status", content="wrote", working_on=["README.md"]),
-                make_event("status", content="wrote", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
+                ),
             ]
         )
         inp = _make_stop_input()
@@ -132,7 +136,11 @@ class TestSimplifyGate(_HookTestCase):
         self._write_events(
             [
                 make_event("customer_input", content="build feature"),
-                make_event("status", content="wrote file", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    content="wrote file",
+                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
+                ),
             ]
         )
         inp = _make_stop_input()
@@ -144,7 +152,11 @@ class TestSimplifyGate(_HookTestCase):
         self._write_events(
             [
                 make_event("customer_input", content="build feature"),
-                make_event("status", content="wrote file", working_on=["src/app.ts"]),
+                make_event(
+                    "status",
+                    content="wrote file",
+                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
+                ),
             ]
         )
         inp = _make_stop_input()
@@ -159,7 +171,11 @@ class TestSimplifyGate(_HookTestCase):
         self._write_events(
             [
                 ci1,
-                make_event("status", content="wrote", working_on=["src/a.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/a.ts", "src/b.ts", "src/c.ts"],
+                ),
             ]
         )
         inp = _make_stop_input()
@@ -171,9 +187,17 @@ class TestSimplifyGate(_HookTestCase):
         self._write_events(
             [
                 ci1,
-                make_event("status", content="wrote", working_on=["src/a.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/a.ts", "src/b.ts", "src/c.ts"],
+                ),
                 ci2,
-                make_event("status", content="wrote2", working_on=["src/b.ts"]),
+                make_event(
+                    "status",
+                    content="wrote2",
+                    working_on=["src/d.ts", "src/e.ts", "src/f.ts"],
+                ),
             ]
         )
         result2 = self.mod.run(inp, smm_dir=self.smm_dir)
@@ -185,7 +209,11 @@ class TestSimplifyGate(_HookTestCase):
         self._write_events(
             [
                 ci,
-                make_event("status", content="wrote", working_on=["src/x.ts"]),
+                make_event(
+                    "status",
+                    content="wrote",
+                    working_on=["src/x.ts", "src/y.ts", "src/z.ts"],
+                ),
             ]
         )
         inp = _make_stop_input()
