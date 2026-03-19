@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.48 — Kickoff Rename, Tiered Injection, Behavioral Guide Rewrite
+
+### Changed
+- **`/xp-session-review` → `/xp-kickoff`** — renamed skill, gate script (`kickoff_gate.py`), done script (`kickoff_done.py`), marker file (`.needs-kickoff`), all references.
+- **Tiered SubagentStart injection** — Explore agents get Intent + Constraints only (~200 tokens). Plan, general-purpose, and background agents get full SMM + behavioral guide (~1000 tokens). xp-* agents skipped (use own preloads). Prevention over inspection.
+- **BEHAVIORAL_GUIDE.md rewritten** — declarative, ~260 tokens. XP values underscored by Honesty. Five honesty rules for judgment calls. Each value is a focused paragraph. Added `append.sh` reference so agents know how to record events.
+
+### Removed
+- **xp-subagent-reviewer** agent and skill — dead since v0.9.29 (SubagentStop silently drops nudges). Replaced by upfront behavioral guide injection at SubagentStart.
+- **Reviewer nudge from subagent_stop.py** — no longer returns anything for non-Plan subagents.
+
+### Stats
+- 869 tests (all passing)
+
 ## v0.9.47 — Tiered Subagent Context, Remove Dead Reviewer
 
 ### Changed
