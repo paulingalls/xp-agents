@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.50 — Async Hooks, CLAUDE_PLUGIN_DATA Storage
+
+### Changed
+- **5 hooks now async** — `lint_check.py`, `bash_post_tool.py`, `bash_failure.py`, `security_review_done.py`, and `session_end.py` run with `async: true`. These fire-and-forget hooks record data to the event log but don't inject context or block. Biggest win: agent no longer waits up to 5s for lint on every Write/Edit.
+- **SMM storage uses `CLAUDE_PLUGIN_DATA`** — SMM now lives at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` instead of `~/.claude/xp-agents/`. Respects plugin ecosystem conventions and sandbox customization. Falls back for `--plugin-dir` dev mode.
+- **Both user and project scope supported** — project scope installs share the plugin with the team via `.claude/settings.json`.
+
+### Stats
+- 869 tests (all passing)
+
 ## v0.9.49 — Use CLAUDE_PLUGIN_DATA for SMM Storage
 
 ### Changed
