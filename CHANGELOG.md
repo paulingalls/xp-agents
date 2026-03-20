@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.79 — Fix Kickoff Done Hook + Compaction Diagnostics
+
+### Fixed
+- **`kickoff_done.py` matches both namespaced and plain skill names** — plugin skills may arrive as `"xp-housekeeping"` or `"xp-agents:xp-housekeeping"`. The hook was only matching the plain name, so it likely never fired for marketplace installs. Same fix applied to `security_review_done.py`.
+- **Compaction failures now logged** — instead of `contextlib.suppress(Exception)`, compaction errors are recorded as concern events for diagnosis.
+- **Kickoff completion logged** — `kickoff_done.py` now writes a status event with compaction stats ("Kickoff complete. Compacted: N archived, M retained.") so we can verify the hook fired.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.78 — Auto-Wrap String Items in Retrospective Save
 
 ### Fixed

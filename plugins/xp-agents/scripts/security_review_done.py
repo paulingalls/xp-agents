@@ -23,7 +23,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
 
-    if skill_name != "security-review":
+    if "security-review" not in skill_name:
         return None
 
     if smm_dir is None:

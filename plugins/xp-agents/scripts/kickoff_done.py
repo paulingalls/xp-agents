@@ -7,7 +7,6 @@ event log. The curated SMM is already in context — housekeeping reads
 and writes the file directly.
 """
 
-import contextlib
 import functools
 import sys
 from pathlib import Path
@@ -40,7 +39,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
 
-    if skill_name != "xp-housekeeping":
+    # Plugin skills may arrive as "xp-housekeeping" or "xp-agents:xp-housekeeping"
+    housekeeping_names = {"xp-housekeeping", "xp-agents:xp-housekeeping"}
+    if skill_name not in housekeeping_names:
         return None
 
     if smm_dir is None:
@@ -53,8 +54,29 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     (smm_dir / ".needs-kickoff").unlink(missing_ok=True)
 
     # Compact event log — housekeeping just curated, safe to archive
-    with contextlib.suppress(Exception):
-        compact.compact_after_curation(smm_dir)
+    compact_result = None
+    try:
+        compact_result = compact.compact_after_curation(smm_dir)
+    except Exception as e:
+        # Log failure as concern so we can diagnose
+        concern = _common.make_event(
+            _common.CONCERN,
+            "xp-kickoff-done",
+            f"Event log compaction failed: {e}",
+            severity="low",
+        )
+        _common.append_safe(smm_dir, concern)
+
+    # Log that kickoff completed (helps diagnose hook firing issues)
+    archived = compact_result["archived"] if compact_result else 0
+    retained = compact_result["retained"] if compact_result else 0
+    status = _common.make_event(
+        _common.STATUS,
+        "xp-kickoff-done",
+        f"Kickoff complete. Compacted: {archived} archived, {retained} retained.",
+        working_on=[],
+    )
+    _common.append_safe(smm_dir, status)
 
     # Inject behavioral guide only — the agent already has the SMM
     # from housekeeping step 8 (Read the file it just wrote).
