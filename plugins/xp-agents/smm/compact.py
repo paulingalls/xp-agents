@@ -13,6 +13,7 @@ Retention policy (compact_after_curation):
 """
 
 import argparse
+import bisect
 import contextlib
 import json
 import sys
@@ -50,15 +51,22 @@ def _parse_events(raw: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+_DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
+
+
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
-    Active = unresolved goals, non-draft decisions, conventions,
-    unresolved concerns/debt/questions/assumptions, open customer_intents,
-    retrospective events.
+    Active = unresolved goals, non-draft decisions (< 3 sessions old),
+    conventions, unresolved concerns/debt/questions/assumptions,
+    open customer_intents.
+    Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = compute_resolutions(events)
     referenced: set[str] = set()
+
+    # Build session_end timestamps for decision aging
+    se_timestamps = [e.get("ts", "") for e in events if e.get("type") == "session_end"]
 
     for event in events:
         eid = event.get("id", "")
@@ -72,7 +80,16 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     referenced.add(eid)
             case "decision":
                 is_draft = (event.get("metadata") or {}).get("draft", False)
-                if not is_draft and eid not in resolutions["resolved_decision_ids"]:
+                if is_draft:
+                    continue
+                if eid in resolutions["resolved_decision_ids"]:
+                    continue
+                # Age-based: keep for _DECISION_MAX_AGE sessions
+                decision_ts = event.get("ts", "")
+                sessions_after = len(se_timestamps) - bisect.bisect_right(
+                    se_timestamps, decision_ts
+                )
+                if sessions_after < _DECISION_MAX_AGE:
                     referenced.add(eid)
             case "convention":
                 referenced.add(eid)

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.97 — Decision Aging in Compaction
+
+### Changed
+- **Decisions age out of the event log after 3 sessions** — same pattern as debt aging. Unresolved non-draft decisions are retained for 3 sessions (giving housekeeping and the retro time to analyze them), then become compactable. Draft decisions still compact immediately. Important decisions that housekeeping promotes to Constraints persist in the SMM regardless.
+
+### Stats
+- 894 tests (all passing)
+
 ## v0.9.96 — Add Bun Test Detection
 
 ### Added
