@@ -267,6 +267,9 @@ class _TempRepoTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmpdir = Path(tempfile.mkdtemp())
+        cls._plugin_data_dir = Path(tempfile.mkdtemp())
+        cls._test_env = os.environ.copy()
+        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
         subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
@@ -281,15 +284,17 @@ class _TempRepoTestCase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        smm_dir = getattr(cls, "_smm_dir_cache", None)
-        if smm_dir is not None:
-            shutil.rmtree(smm_dir.parent, ignore_errors=True)
+        shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
 
     @classmethod
     def _run_init(cls) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [str(cls._INIT_SH)], capture_output=True, text=True, cwd=str(cls.tmpdir)
+            [str(cls._INIT_SH)],
+            capture_output=True,
+            text=True,
+            cwd=str(cls.tmpdir),
+            env=cls._test_env,
         )
 
     @classmethod
@@ -302,7 +307,7 @@ class _TempRepoTestCase(unittest.TestCase):
 
     @classmethod
     def _run_append(cls, *args: str) -> subprocess.CompletedProcess:
-        env = os.environ.copy()
+        env = cls._test_env.copy()
         env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
         return subprocess.run(
             [str(cls._APPEND_SH), *args],

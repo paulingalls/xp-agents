@@ -194,12 +194,14 @@ class TestWorktreeSharing(_IntegrationTestCase):
             cwd=self.tmpdir,
             capture_output=True,
             text=True,
+            env=self._test_env,
         )
         r_wt = subprocess.run(
             ["bash", str(init_sh)],
             cwd=wt_dir,
             capture_output=True,
             text=True,
+            env=self._test_env,
         )
 
         self.assertEqual(r_main.returncode, 0)
