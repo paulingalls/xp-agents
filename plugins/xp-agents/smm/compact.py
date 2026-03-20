@@ -53,9 +53,10 @@ def _parse_events(raw: str) -> list[dict]:
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
-    Active = unresolved goals, non-draft decisions, conventions,
-    unresolved concerns/debt/questions/assumptions, open customer_intents,
-    retrospective events.
+    Active = unresolved goals, conventions, unresolved concerns/debt/
+    questions/assumptions, open customer_intents.
+    Decisions compact freely — important ones live in Constraints/Wisdom.
+    Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = compute_resolutions(events)
     referenced: set[str] = set()
@@ -71,9 +72,10 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if eid not in resolutions["resolved_goal_ids"]:
                     referenced.add(eid)
             case "decision":
-                is_draft = (event.get("metadata") or {}).get("draft", False)
-                if not is_draft and eid not in resolutions["resolved_decision_ids"]:
-                    referenced.add(eid)
+                # Decisions are ephemeral — important ones get promoted
+                # to Constraints or Wisdom in the SMM by housekeeping.
+                # Don't retain in event log; let them compact freely.
+                pass
             case "convention":
                 referenced.add(eid)
             case "concern":
