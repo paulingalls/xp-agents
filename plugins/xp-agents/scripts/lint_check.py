@@ -23,7 +23,12 @@ import concerns
 
 _LINTER_CONFIGS = [
     # (config_pattern, linter_name, check_content)
+    # Python
     ("ruff.toml", "ruff", None),
+    (".flake8", "flake8", None),
+    ("pyproject.toml", "ruff", "[tool.ruff]"),
+    ("setup.cfg", "flake8", "[flake8]"),
+    # JavaScript/TypeScript
     (".eslintrc", "eslint", None),
     (".eslintrc.json", "eslint", None),
     (".eslintrc.js", "eslint", None),
@@ -35,19 +40,52 @@ _LINTER_CONFIGS = [
     (".prettierrc", "prettier", None),
     (".prettierrc.json", "prettier", None),
     (".prettierrc.js", "prettier", None),
-    (".flake8", "flake8", None),
-    ("pyproject.toml", "ruff", "[tool.ruff]"),
-    ("setup.cfg", "flake8", "[flake8]"),
+    # Rust (clippy is built into cargo)
+    ("Cargo.toml", "clippy", None),
+    # Go
+    (".golangci.yml", "golangci-lint", None),
+    (".golangci.yaml", "golangci-lint", None),
+    # Ruby
+    (".rubocop.yml", "rubocop", None),
+    # C/C++
+    (".clang-tidy", "clang-tidy", None),
+    (".clang-format", "clang-format", None),
+    # Java/Kotlin
+    ("checkstyle.xml", "checkstyle", None),
+    ("detekt.yml", "detekt", None),
+    # PHP
+    ("phpcs.xml", "phpcs", None),
+    (".php-cs-fixer.php", "php-cs-fixer", None),
+    # Dart/Flutter
+    ("analysis_options.yaml", "dart-analyze", None),
+    # Elixir
+    (".credo.exs", "credo", None),
+    # C#
+    ("stylecop.json", "dotnet-format", None),
+    # Swift
+    (".swiftlint.yml", "swiftlint", None),
 ]
 
 _LINTER_COMMANDS = {
     "ruff": ["ruff", "check"],
+    "flake8": ["flake8"],
     "eslint": ["npx", "eslint"],
     "prettier": ["npx", "prettier", "--check"],
-    "flake8": ["flake8"],
+    "clippy": ["cargo", "clippy", "--", "-D", "warnings"],
+    "golangci-lint": ["golangci-lint", "run"],
+    "rubocop": ["rubocop"],
+    "clang-tidy": ["clang-tidy"],
+    "clang-format": ["clang-format", "--dry-run", "-Werror"],
+    "checkstyle": ["checkstyle", "-c", "/google_checks.xml"],
+    "detekt": ["detekt"],
+    "phpcs": ["phpcs"],
+    "php-cs-fixer": ["php-cs-fixer", "fix", "--dry-run"],
+    "dart-analyze": ["dart", "analyze"],
+    "credo": ["mix", "credo"],
+    "dotnet-format": ["dotnet", "format", "--verify-no-changes"],
+    "swiftlint": ["swiftlint"],
 }
 
-# File extensions each linter understands. Skip the file silently if it doesn't match.
 _LINTER_EXTENSIONS: dict[str, set[str]] = {
     "ruff": {".py", ".pyi", ".ipynb"},
     "flake8": {".py", ".pyi"},
@@ -64,13 +102,39 @@ _LINTER_EXTENSIONS: dict[str, set[str]] = {
         ".yaml",
         ".yml",
     },
+    "clippy": {".rs"},
+    "golangci-lint": {".go"},
+    "rubocop": {".rb"},
+    "clang-tidy": {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"},
+    "clang-format": {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"},
+    "checkstyle": {".java"},
+    "detekt": {".kt", ".kts"},
+    "phpcs": {".php"},
+    "php-cs-fixer": {".php"},
+    "dart-analyze": {".dart"},
+    "credo": {".ex", ".exs"},
+    "dotnet-format": {".cs"},
+    "swiftlint": {".swift"},
 }
 
 _LINTER_BINARIES = {
     "ruff": "ruff",
+    "flake8": "flake8",
     "eslint": "npx",
     "prettier": "npx",
-    "flake8": "flake8",
+    "clippy": "cargo",
+    "golangci-lint": "golangci-lint",
+    "rubocop": "rubocop",
+    "clang-tidy": "clang-tidy",
+    "clang-format": "clang-format",
+    "checkstyle": "checkstyle",
+    "detekt": "detekt",
+    "phpcs": "phpcs",
+    "php-cs-fixer": "php-cs-fixer",
+    "dart-analyze": "dart",
+    "credo": "mix",
+    "dotnet-format": "dotnet",
+    "swiftlint": "swiftlint",
 }
 
 

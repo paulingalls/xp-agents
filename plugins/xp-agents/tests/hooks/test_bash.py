@@ -184,6 +184,125 @@ class TestParseTestResults(unittest.TestCase):
             "swift",
         )
 
+    # --- Rust ---
+    def test_cargo_test_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("cargo test"), "cargo")
+
+    def test_cargo_pass(self):
+        output = "test result: ok. 15 passed; 0 failed; 0 ignored"
+        result = bash_post_tool.parse_test_results(output, "cargo")
+        self.assertEqual(result["passed"], 15)
+        self.assertEqual(result["failed"], 0)
+
+    def test_cargo_fail(self):
+        output = "test result: FAILED. 10 passed; 3 failed; 0 ignored"
+        result = bash_post_tool.parse_test_results(output, "cargo")
+        self.assertEqual(result["passed"], 10)
+        self.assertEqual(result["failed"], 3)
+
+    # --- Maven/Gradle ---
+    def test_mvn_test_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("mvn test"), "maven")
+
+    def test_gradle_test_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("./gradlew test"), "gradle")
+
+    def test_maven_pass(self):
+        output = "Tests run: 10, Failures: 0, Errors: 0, Skipped: 1"
+        result = bash_post_tool.parse_test_results(output, "maven")
+        self.assertEqual(result["passed"], 10)
+        self.assertEqual(result["failed"], 0)
+
+    def test_maven_fail(self):
+        output = "Tests run: 10, Failures: 2, Errors: 1, Skipped: 0"
+        result = bash_post_tool.parse_test_results(output, "maven")
+        self.assertEqual(result["passed"], 7)
+        self.assertEqual(result["failed"], 3)
+
+    # --- Ruby ---
+    def test_rspec_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("rspec"), "rspec")
+
+    def test_rspec_pass(self):
+        output = "10 examples, 0 failures"
+        result = bash_post_tool.parse_test_results(output, "rspec")
+        self.assertEqual(result["passed"], 10)
+        self.assertEqual(result["failed"], 0)
+
+    def test_minitest_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("rake test"), "minitest")
+
+    def test_minitest_fail(self):
+        output = "5 runs, 10 assertions, 1 failures, 1 errors"
+        result = bash_post_tool.parse_test_results(output, "minitest")
+        self.assertEqual(result["passed"], 3)
+        self.assertEqual(result["failed"], 2)
+
+    # --- PHP ---
+    def test_phpunit_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("phpunit"), "phpunit")
+
+    def test_phpunit_pass(self):
+        output = "OK (10 tests, 20 assertions)"
+        result = bash_post_tool.parse_test_results(output, "phpunit")
+        self.assertEqual(result["passed"], 10)
+
+    def test_phpunit_fail(self):
+        output = "FAILURES!\nTests: 10, Assertions: 20, Failures: 3."
+        result = bash_post_tool.parse_test_results(output, "phpunit")
+        self.assertEqual(result["passed"], 7)
+        self.assertEqual(result["failed"], 3)
+
+    # --- .NET ---
+    def test_dotnet_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("dotnet test"), "dotnet")
+
+    def test_dotnet_pass(self):
+        output = "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5"
+        result = bash_post_tool.parse_test_results(output, "dotnet")
+        self.assertEqual(result["passed"], 5)
+        self.assertEqual(result["failed"], 0)
+
+    # --- Dart ---
+    def test_dart_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("dart test"), "dart")
+        self.assertEqual(bash_post_tool.is_test_run("flutter test"), "dart")
+
+    def test_dart_pass(self):
+        output = "+5: All tests passed!"
+        result = bash_post_tool.parse_test_results(output, "dart")
+        self.assertEqual(result["passed"], 5)
+
+    def test_dart_fail(self):
+        output = "+3 -2: Some tests failed."
+        result = bash_post_tool.parse_test_results(output, "dart")
+        self.assertEqual(result["passed"], 3)
+        self.assertEqual(result["failed"], 2)
+
+    # --- Elixir ---
+    def test_elixir_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("mix test"), "elixir")
+
+    def test_elixir_pass(self):
+        output = "10 tests, 0 failures"
+        result = bash_post_tool.parse_test_results(output, "elixir")
+        self.assertEqual(result["passed"], 10)
+        self.assertEqual(result["failed"], 0)
+
+    # --- CTest ---
+    def test_ctest_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("ctest"), "ctest")
+
+    def test_ctest_pass(self):
+        output = "100% tests passed, 0 tests failed out of 10"
+        result = bash_post_tool.parse_test_results(output, "ctest")
+        self.assertEqual(result["passed"], 10)
+        self.assertEqual(result["failed"], 0)
+
+    # --- Vitest ---
+    def test_vitest_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("npx vitest"), "vitest")
+
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_auto_drafts_decision(self):

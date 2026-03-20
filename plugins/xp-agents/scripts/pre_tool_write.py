@@ -22,37 +22,86 @@ _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 # Test file detection
 # ---------------------------------------------------------------------------
 
-_TEST_DIRS = {"tests", "__tests__", "test"}
+_TEST_DIRS = {"tests", "__tests__", "test", "spec"}
+_TEST_DIR_SUFFIXES = ("Tests",)  # Xcode: ContactForgeTests/
+# Maven/Gradle: src/test/java/...
+_TEST_PATH_SEGMENTS = {"src/test"}
 
 
 def is_test_file(path: str) -> bool:
     """Heuristic: does the file path look like a test file?"""
     p = Path(path)
     name = p.name
+    stem = p.stem
     parts = set(p.parts)
+    path_str = str(p)
 
-    # Directory-based
+    # Directory-based: exact match
     if parts & _TEST_DIRS:
         return True
 
-    # Directory suffix: *Tests/ (Xcode convention, e.g., ContactForgeTests/)
+    # Directory suffix: *Tests/ (Xcode convention)
     if any(part.endswith("Tests") for part in p.parts):
         return True
 
-    # Name-based patterns
+    # Path segment: src/test (Maven/Gradle)
+    if any(seg in path_str for seg in _TEST_PATH_SEGMENTS):
+        return True
+
+    # Name contains .test. or .spec. (JS/TS: app.test.js, app.spec.ts)
+    if ".test." in name or ".spec." in name:
+        return True
+
+    # Python: test_*.py, *_test.py
     if name.startswith("test_") and name.endswith(".py"):
         return True
     if name.endswith("_test.py"):
         return True
-    if ".test." in name or ".spec." in name:
-        return True
+
+    # Go: *_test.go
     if name.endswith("_test.go"):
         return True
+
+    # Swift: *Tests.swift
     if name.endswith("Tests.swift"):
         return True
-    if name.endswith("Test.java"):
+
+    # Java/Kotlin: *Test.java, *Tests.java, *Test.kt, *Tests.kt
+    if (stem.endswith("Test") or stem.endswith("Tests")) and p.suffix in {
+        ".java",
+        ".kt",
+        ".scala",
+    }:
         return True
-    return bool(name.endswith("_spec.rb"))
+
+    # Ruby: *_spec.rb, *_test.rb
+    if name.endswith("_spec.rb") or name.endswith("_test.rb"):
+        return True
+
+    # Rust: *_test.rs, tests/*.rs (tests/ already caught above)
+    if name.endswith("_test.rs"):
+        return True
+
+    # C/C++: test_*.c, test_*.cpp, *_test.c, *_test.cpp
+    if p.suffix in {".c", ".cpp", ".cc", ".cxx"} and (
+        stem.startswith("test_") or stem.endswith("_test")
+    ):
+        return True
+
+    # C#: *Test.cs, *Tests.cs
+    if p.suffix == ".cs" and (stem.endswith("Test") or stem.endswith("Tests")):
+        return True
+
+    # PHP: *Test.php
+    if name.endswith("Test.php"):
+        return True
+
+    # Dart/Flutter: *_test.dart
+    if name.endswith("_test.dart"):
+        return True
+
+    # Elixir: *_test.exs
+    return bool(name.endswith("_test.exs"))
 
 
 # ---------------------------------------------------------------------------

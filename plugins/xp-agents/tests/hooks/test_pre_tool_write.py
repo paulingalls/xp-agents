@@ -70,6 +70,46 @@ class TestIsTestFile(unittest.TestCase):
     def test_swift_impl(self):
         self.assertFalse(pre_tool_write.is_test_file("ContactForge/JaroWinkler.swift"))
 
+    def test_rust_test_suffix(self):
+        self.assertTrue(pre_tool_write.is_test_file("handler_test.rs"))
+
+    def test_rust_impl(self):
+        self.assertFalse(pre_tool_write.is_test_file("src/handler.rs"))
+
+    def test_kotlin_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("UserTest.kt"))
+
+    def test_kotlin_tests(self):
+        self.assertTrue(pre_tool_write.is_test_file("UserTests.kt"))
+
+    def test_csharp_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("UserTest.cs"))
+
+    def test_cpp_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("test_handler.cpp"))
+        self.assertTrue(pre_tool_write.is_test_file("handler_test.cc"))
+
+    def test_cpp_impl(self):
+        self.assertFalse(pre_tool_write.is_test_file("handler.cpp"))
+
+    def test_php_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("UserTest.php"))
+
+    def test_dart_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("widget_test.dart"))
+
+    def test_elixir_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("user_test.exs"))
+
+    def test_maven_test_dir(self):
+        self.assertTrue(pre_tool_write.is_test_file("src/test/java/UserTest.java"))
+
+    def test_spec_dir(self):
+        self.assertTrue(pre_tool_write.is_test_file("spec/user_spec.rb"))
+
+    def test_scala_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("UserTest.scala"))
+
 
 class TestGetTargetFile(unittest.TestCase):
     def test_write_returns_file_path(self):

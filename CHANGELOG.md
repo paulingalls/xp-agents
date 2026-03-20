@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.73 — Multi-Language Test & Lint Support
+
+### Added
+- **Test file detection** for Rust (`*_test.rs`), Kotlin (`*Test.kt`), C# (`*Test.cs`), C/C++ (`test_*.cpp`, `*_test.cc`), PHP (`*Test.php`), Dart (`*_test.dart`), Elixir (`*_test.exs`), Scala (`*Test.scala`), Maven/Gradle (`src/test/`), and `spec/` directory.
+- **Test result parsing** for Rust (`cargo test`), Java/Kotlin (`mvn test`, `gradle test`), Ruby (`rspec`, `minitest`/`rake test`), PHP (`phpunit`), C# (`dotnet test`), Dart (`dart test`, `flutter test`), Elixir (`mix test`), C/C++ (`ctest`), and JS (`vitest`).
+- **Linter detection** for Rust (clippy via `Cargo.toml`), Go (`golangci-lint`), Ruby (rubocop), C/C++ (clang-tidy, clang-format), Java (checkstyle), Kotlin (detekt), PHP (phpcs, php-cs-fixer), Dart (dart analyze), Elixir (credo), C# (dotnet-format), and Swift (swiftlint).
+
+### Stats
+- 891 tests (all passing, +37 new)
+
 ## v0.9.72 — Swift/Xcode Test File Detection
 
 ### Fixed
