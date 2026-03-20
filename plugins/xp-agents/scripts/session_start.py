@@ -21,10 +21,14 @@ import _common
 # Constants
 # ---------------------------------------------------------------------------
 
-GUPP_TEXT = (
+GUPP_RESUME = (
     "\n\n---\n"
     "Check the Shared Mental Model for pending work. "
     "Resume immediately. Don't wait for permission."
+)
+
+GUPP_STARTUP = (
+    "\n\n---\nRun /xp-kickoff before doing anything else, and start immediately."
 )
 
 SKILLS_TEXT = (
@@ -69,7 +73,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
         # Graceful: return GUPP + skills even without SMM
-        return GUPP_TEXT + SKILLS_TEXT
+        return GUPP_STARTUP + SKILLS_TEXT
 
     # Write .needs-kickoff marker on fresh starts.
     # "startup" = new session (block until kickoff), "clear" = mid-session
@@ -79,9 +83,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         marker = smm_dir / ".needs-kickoff"
         marker.write_text(source)
 
-    # Build context: GUPP + skills. No SMM, no nudges.
+    # Build context: GUPP (source-dependent) + skills.
+    gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME
     parts: list[str] = []
-    parts.append(GUPP_TEXT)
+    parts.append(gupp)
     parts.append(SKILLS_TEXT)
 
     # BEHAVIORAL_GUIDE.md is now injected by kickoff_done.py
@@ -101,6 +106,6 @@ if __name__ == "__main__":
     context = run(input_data)
     if context is not None:
         _common.hook_output(
-            "SessionStart", context, "XP agents active. SMM initialized."
+            "SessionStart", context, "XP agents active. Run /xp-kickoff."
         )
     sys.exit(0)

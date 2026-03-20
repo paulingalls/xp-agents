@@ -18,8 +18,8 @@ from conftest import _IntegrationTestCase, make_event
 
 
 class TestSessionStartIntegration(_IntegrationTestCase):
-    def test_startup_returns_smm_context(self):
-        """stdin → session_start.py → stdout with SMM + GUPP."""
+    def test_startup_returns_kickoff_gupp(self):
+        """stdin → session_start.py → stdout with kickoff GUPP + skills."""
         self._seed_events([make_event()])
         result = self._run_script(
             "session_start.py",
@@ -31,8 +31,7 @@ class TestSessionStartIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Shared Mental Model", ctx)
-        self.assertIn("Resume immediately", ctx)
+        self.assertIn("xp-kickoff", ctx)
 
     def test_compact_source_returns_context(self):
         self._seed_events([make_event()])
@@ -218,7 +217,7 @@ class TestMilestone6Integration(_IntegrationTestCase):
         self.assertNotIn("Honesty Principle", ctx)
         # Skills should still be present
         self.assertIn("xp-smm-protocol", ctx)
-        self.assertIn("Resume immediately", ctx)
+        self.assertIn("xp-kickoff", ctx)
 
     def test_skill_files_parseable(self):
         """All skill SKILL.md files exist and are non-trivial."""

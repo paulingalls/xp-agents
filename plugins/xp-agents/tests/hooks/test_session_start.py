@@ -86,7 +86,7 @@ class TestSessionStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("Resume immediately", result)
+        self.assertIn("xp-kickoff", result)
 
     def test_clear_source_sets_marker_with_clear(self):
         """clear should set .needs-kickoff marker with 'clear' content."""
@@ -110,7 +110,7 @@ class TestSessionStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("Shared Mental Model", result)
+        self.assertIn("xp-kickoff", result)
 
     def test_compact_returns_context(self):
         import session_start
@@ -141,7 +141,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("Resume immediately", result)
+        self.assertIn("xp-kickoff", result)
 
     def test_skills_in_output(self):
         import session_start
@@ -191,9 +191,9 @@ class TestSessionStart(_HookTestCase):
         )
         # Should still return GUPP and skills even with empty SMM
         self.assertIsNotNone(result)
-        self.assertIn("Resume immediately", result)
+        self.assertIn("xp-kickoff", result)
 
-    def test_multiple_events_returns_smm(self):
+    def test_multiple_events_returns_gupp(self):
         import session_start
 
         events = [make_event(content=f"event {i}") for i in range(10)]
@@ -202,8 +202,8 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("Shared Mental Model", result)
-        self.assertIn("Resume immediately", result)
+        # SMM deferred to kickoff — only GUPP + skills here
+        self.assertIn("xp-kickoff", result)
 
     def test_writes_needs_session_review_marker(self):
         """session_start writes .needs-kickoff marker with source."""

@@ -326,7 +326,7 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         output = json.loads(r1.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         # Should have GUPP + skills (no SMM, no nudges)
-        self.assertIn("Resume immediately", ctx)
+        self.assertIn("xp-kickoff", ctx)
         self.assertIn("xp-smm-protocol", ctx)
         # Marker written
         self.assertTrue((self.smm_dir / ".needs-kickoff").exists())

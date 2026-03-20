@@ -244,7 +244,7 @@ class TestEmptyProject(_IntegrationTestCase):
         # Marker file written
         self.assertTrue((self.smm_dir / ".needs-kickoff").exists())
         # No crash
-        self.assertIn("Resume immediately", ctx)
+        self.assertIn("xp-kickoff", ctx)
 
     def test_pre_tool_write_empty_project(self):
         """pre_tool_write with no events — no crash."""

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.90 — Source-Dependent GUPP + Kickoff Framing
+
+### Changed
+- **GUPP differentiates by source** — startup/clear: "Run /xp-kickoff before doing anything else, and start immediately." Resume/compact: "Check the Shared Mental Model for pending work. Resume immediately."
+- **SessionStart context reframed** — "Retrospective: N unanalyzed events" → "Kickoff preparation complete. N events ready for review." Inline K/F/T instructions replaced with "Run /xp-kickoff, do NOT analyze yourself."
+- **systemMessage updated** — "SMM initialized" → "Run /xp-kickoff" for startup, "Kickoff data prepared" for retro prep.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.89 — Reframe Retro Prep as Kickoff Prep
 
 ### Changed
