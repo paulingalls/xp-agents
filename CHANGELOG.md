@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.84 — Rename smm-protocol to xp-smm-protocol
+
+### Changed
+- **`/smm-protocol` → `/xp-smm-protocol`** — consistent `xp-` prefix across all skills.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.83 — Rename Skills to Active Voice
 
 ### Changed

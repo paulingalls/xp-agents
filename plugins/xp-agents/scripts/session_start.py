@@ -30,7 +30,7 @@ GUPP_TEXT = (
 SKILLS_TEXT = (
     "\n\n---\n"
     "**Available Skills (invoke these regularly):**\n"
-    "- `/smm-protocol` — Event recording reference. Invoke when recording "
+    "- `/xp-smm-protocol` — Event recording reference. Invoke when recording "
     "decisions, questions, concerns, assumptions, discoveries, or debt"
 )
 

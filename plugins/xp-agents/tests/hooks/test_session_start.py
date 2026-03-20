@@ -151,7 +151,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("smm-protocol", result)
+        self.assertIn("xp-smm-protocol", result)
 
     def test_no_retro_instruction_in_output(self):
         import session_start
@@ -335,7 +335,7 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("smm-protocol", result)
+        self.assertIn("xp-smm-protocol", result)
 
     def test_no_smm_in_session_start(self):
         """SMM is no longer injected by session_start (deferred to kickoff)."""

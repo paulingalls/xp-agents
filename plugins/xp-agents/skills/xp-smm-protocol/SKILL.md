@@ -1,5 +1,5 @@
 ---
-name: smm-protocol
+name: xp-smm-protocol
 description: >-
   SMM event recording protocol. Use when recording decisions, questions,
   concerns, assumptions, discoveries, debt, or any project event.

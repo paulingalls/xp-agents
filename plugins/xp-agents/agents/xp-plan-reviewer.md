@@ -6,7 +6,7 @@ description: >-
 tools: Read, Grep, Glob, Bash
 model: inherit
 skills:
-  - smm-protocol
+  - xp-smm-protocol
 ---
 
 # XP Plan Reviewer — Deep Plan Analysis

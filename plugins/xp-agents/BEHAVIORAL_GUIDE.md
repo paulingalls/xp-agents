@@ -43,4 +43,4 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "<type>" --agent "<agent>" --content "<content>"
 ```
 
-Run `append.sh --help` for all options. For detailed guidance on event types, invoke `/smm-protocol`.
+Run `append.sh --help` for all options. For detailed guidance on event types, invoke `/xp-smm-protocol`.

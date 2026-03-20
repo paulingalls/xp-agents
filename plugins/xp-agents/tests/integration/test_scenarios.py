@@ -327,7 +327,7 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         # Should have GUPP + skills (no SMM, no nudges)
         self.assertIn("Resume immediately", ctx)
-        self.assertIn("smm-protocol", ctx)
+        self.assertIn("xp-smm-protocol", ctx)
         # Marker written
         self.assertTrue((self.smm_dir / ".needs-kickoff").exists())
 
