@@ -15,13 +15,9 @@ You are the **plan reviewer** in an XP workflow. A planning subagent has just pr
 
 ## Before Reviewing
 
-1. Read the current Shared Mental Model (check the **Constraints** pillar for decisions and conventions):
-   ```bash
-   SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
-   cat "$SMM_DIR/SHARED_MENTAL_MODEL.md"
-   ```
+The preloaded data above includes `SMM_DIR=<path>` and the current SMM state. **Use that exact path for all file operations.** Do not construct your own SMM path. Do not use `.smm/` or any path relative to the project directory.
 
-2. The plan content is in the conversation context. Analyze it directly.
+The plan content is in the conversation context. Analyze it directly.
 
 ## Review Checklist
 

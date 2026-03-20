@@ -15,15 +15,11 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
 
 ## Before Analyzing
 
-1. Resolve the SMM path and check for retrospective data:
-   ```bash
-   SMM_DIR=$(${CLAUDE_PLUGIN_ROOT}/smm/init.sh)
-   cat "$SMM_DIR/.retro-input.json"
-   ```
+The preloaded data above includes `SMM_DIR=<path>` — use that exact path for all file operations. **Do not construct your own SMM path.** Do not use `.smm/` or any path relative to the project directory.
 
-2. **If the file does not exist**, there is insufficient data for a retrospective. Return immediately with no analysis.
+1. **If the preload shows "no .retro-input.json found"**, there is insufficient data for a retrospective. Return immediately with no analysis.
 
-3. **If the file exists**, it contains:
+2. **If the preload shows retrospective input data**, it contains:
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — **structured summary** (use this instead of raw events):
      - `signal_events` — full event dicts for decisions, concerns, goals, debt, discoveries, questions, answers, assumptions, conventions, customer_input (~30 events vs 200+ raw)

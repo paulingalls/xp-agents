@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.63 — Fix Subagent SMM Path Resolution
+
+### Fixed
+- **Subagents no longer construct their own SMM paths** — retrospective and plan reviewer agents were told to run `init.sh` themselves, which failed to resolve `CLAUDE_PLUGIN_DATA` and fell back to wrong paths (e.g., `{project}/.smm/`). Preloads now emit `SMM_DIR=<path>` and agent prompts say "use that exact path, do not construct your own."
+- **All preloads emit SMM_DIR** — retrospective, plan-reviewer, and quality-review preloads now output the resolved path for agents/skills to use.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.62 — Lint Check: Blocking Question
 
 ### Changed

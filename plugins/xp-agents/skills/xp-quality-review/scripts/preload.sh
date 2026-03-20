@@ -5,6 +5,8 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
+echo "SMM_DIR=${SMM_DIR}"
+echo ""
 dump_diff
 
 # Surface debt events for changed files
