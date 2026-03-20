@@ -20,7 +20,7 @@ The session status above was preloaded automatically.
 
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
-If the preload shows "RETRO_NEEDED", run `/xp-run-retrospective` now. Wait for it to complete, then proceed to step 2.
+If the preload shows "RETRO_NEEDED", invoke the `/xp-run-retrospective` skill immediately. **Do NOT analyze events yourself — the skill runs a dedicated subagent that does the analysis.** Just invoke it and wait for the result.
 
 The retrospective subagent saves its own results via `save_retrospective.py`. **Do NOT use the Write tool to save retrospective files yourself.**
 

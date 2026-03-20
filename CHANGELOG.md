@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.86 — Stop Main Agent Doing Inline Retro Before Skill
+
+### Fixed
+- **Kickoff explicitly says "do NOT analyze events yourself"** — the main agent was doing its own retrospective analysis before invoking the skill, wasting tokens. The subagent then redid the work. Now the instruction is clear: invoke the skill immediately, don't analyze.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.85 — Security Review Is a Built-in Skill
 
 ### Fixed
