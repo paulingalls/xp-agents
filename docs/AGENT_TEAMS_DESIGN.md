@@ -296,6 +296,16 @@ A unit of work in the sprint backlog. Written by lead during planning game.
 }
 ```
 
+### Agent-Driven Goal Completion
+
+In 1.0, goal completion flows through the user — housekeeping asks "are any of these done?" For Agent Teams, agents need to close goals and backlog items autonomously:
+
+- **Backlog items** have acceptance criteria from the planning game. When a teammate meets all criteria, it records a resolution event with `metadata.resolves` pointing to the backlog item. The `TaskCompleted` hook verifies criteria before allowing completion.
+- **Sprint goals** are resolved by the lead when all backlog items are done (or remaining items are deferred). The lead writes the `sprint` end event.
+- **Session goals** (from `/xp-goal-collection`) are resolved by agents mid-session when the work ships. The agent writes a `status` event with `metadata.resolves` pointing to the goal event ID.
+
+The behavioral guide should instruct agents to resolve goals when they believe the work is complete. Housekeeping serves as the verification layer — if an agent resolves a goal but the user disagrees, housekeeping surfaces it during the next curation.
+
 Status lifecycle: `ready` → `in-progress` → `done` | `deferred`
 
 Status updates are new events with `metadata.resolves` pointing to the original:
