@@ -108,26 +108,39 @@ def detect_conflicts(
     When file_path/cwd are None, skip pattern 1 (overlapping working_on).
     Deduplicates: skips concerns whose content already exists in the event log.
     """
-    # Collect existing unresolved concern content for deduplication.
-    # Resolved concerns are excluded so recurring conflicts are re-detected.
+    # Collect existing concern state for deduplication and escalation.
     resolutions = compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
-    existing_concerns = {
+    existing_unresolved = {
         e.get("content", "")
         for e in events
         if e.get("type") == CONCERN and e.get("id", "") not in resolved_ids
     }
+    # Count how many times each concern content was previously resolved
+    # (for severity escalation on recurrence).
+    resolved_content_counts: dict[str, int] = {}
+    for e in events:
+        if e.get("type") == CONCERN and e.get("id", "") in resolved_ids:
+            content = e.get("content", "")
+            resolved_content_counts[content] = (
+                resolved_content_counts.get(content, 0) + 1
+            )
     concerns: list[dict] = []
 
     def _add_concern(content: str, severity: str) -> None:
         """Append concern only if no unresolved duplicate exists.
 
-        Also tracks content within this call to prevent intra-run duplicates
-        (e.g., two patterns detecting the same structural conflict).
+        Escalates severity based on recurrence: each prior resolved
+        instance of the same content bumps severity (low → medium → high).
         """
-        if content not in existing_concerns:
+        if content not in existing_unresolved:
+            prior_count = resolved_content_counts.get(content, 0)
+            if prior_count >= 2:
+                severity = "high"
+            elif prior_count >= 1:
+                severity = "medium"
             concerns.append(make_concern(content, severity, agent_id))
-            existing_concerns.add(content)
+            existing_unresolved.add(content)
 
     # 1. Overlapping working_on — another agent claims same file
     if file_path is not None and cwd is not None:
@@ -223,8 +236,8 @@ def detect_conflicts(
             )
             if not has_concern_between:
                 _add_concern(
-                    f"Superseded decision: topic '{topic}' has multiple decisions "
-                    f"without an intervening concern.",
+                    f"Superseded decision: topic '{topic}' has multiple "
+                    f"decisions without an intervening concern.",
                     "low",
                 )
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.98 — Recurring Concerns Escalate in Severity
+
+### Changed
+- **Recurring concerns escalate instead of duplicating** — when a concern is resolved but the underlying condition persists, the next detection bumps severity: low → medium (1 prior), medium → high (2+ prior). Concerns get louder, not noisier.
+
+### Stats
+- 894 tests (all passing)
+
 ## v0.9.97 — Decision Aging in Compaction
 
 ### Changed
