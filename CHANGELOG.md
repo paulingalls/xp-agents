@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.81 — Remove Redundant SMM Read-Back
+
+### Changed
+- **Housekeeping no longer reads back the SMM file** — the agent just wrote it via the cat heredoc, so the content is already in context. Saves one Read tool call per kickoff.
+
 ## v0.9.80 — Remove Duplicate Behavioral Guide Loading
 
 ### Changed

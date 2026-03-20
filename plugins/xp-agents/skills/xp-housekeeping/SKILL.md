@@ -152,13 +152,7 @@ SMMEOF
 
 **Target size: ~300-600 tokens.** The SMM is a briefing, not a database. Each item is one line.
 
-## 8. Load Session Context
-
-After writing the SMM, Read it back so it's in your conversation context:
-
-1. Read the file at `<SMM_DIR>/SHARED_MENTAL_MODEL.md` (use the SMM_DIR from the preload output)
-
-The behavioral guide is injected automatically by a PostToolUse hook when this skill completes — no need to load it manually.
+The SMM is already in your context from writing it. The behavioral guide is injected automatically by a PostToolUse hook when this skill completes.
 
 This ensures the curated SMM and Behavioral Guide are in your conversation context.
 
