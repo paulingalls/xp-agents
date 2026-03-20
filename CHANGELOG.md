@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.78 — Auto-Wrap String Items in Retrospective Save
+
+### Fixed
+- **`save_retrospective.py` accepts strings in keep/fix/try arrays** — LLMs commonly simplify `[{"content": "..."}]` to `["..."]`. Now auto-wraps strings as `{"content": "string"}` before validation instead of rejecting them.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.77 — Block ExitPlanMode Until Plan Review Runs
 
 ### Added

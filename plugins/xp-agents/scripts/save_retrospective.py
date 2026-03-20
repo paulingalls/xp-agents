@@ -33,6 +33,14 @@ def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | 
         print("Error: input must be a JSON object", file=sys.stderr)
         return None
 
+    # Normalize: accept strings in keep/fix/try arrays, wrap as objects
+    for field in ("keep", "fix", "try"):
+        items = kft_data.get(field, [])
+        if isinstance(items, list):
+            kft_data[field] = [
+                {"content": item} if isinstance(item, str) else item for item in items
+            ]
+
     if smm_dir is None:
         smm_dir = _common.resolve_smm_dir()
     smm_dir = _common.try_validate_smm_dir(smm_dir)
