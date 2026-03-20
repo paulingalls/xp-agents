@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.9.53 — Replace Push Gate with Commit-Time Security Triage
+
+### Changed
+- **Security gate moved from `git push` to `git commit`** — earlier feedback (XP Feedback value). Blocks commit without triage instead of blocking push without review.
+- **New `/xp-security-triage` inline skill** — reads `git diff --cached`, classifies changes as trivial (auto-clear) or security-relevant (requires `/security-review`).
+- **Simple marker replaces hash-based tracker** — `.security-triaged` marker written by triage skill or `/security-review`, consumed after each successful commit. No more commit-hash tracking or carry-forward logic.
+- **`is_git_commit` deduplicated** — single definition in `security.py`, imported by both `pre_tool_bash.py` and `bash_post_tool.py`.
+
+### Removed
+- **`/security-clear` skill** — no more bypass. Triage skill replaces it with proper classification.
+- **`security_review_requested` event type** — removed from schema, `_append_impl.py`, and `_common.py`. Push gate no longer writes events.
+- **Security detection in `user_prompt_log.py` and `subagent_stop.py`** — pattern-matching heuristics for security review output removed. Triage is now explicit via skill invocation.
+- **Hash-based tracker functions** — `get_head_hash`, `security_tracker_path`, `write_security_tracker`, `find_last_reviewed_hash`, `diff_has_code_changes` all removed from `security.py`.
+
+### Stats
+- 848 tests (all passing)
+
 ## v0.9.52 — Remove xp-values Skill, Absorb into Behavioral Guide
 
 ### Changed
