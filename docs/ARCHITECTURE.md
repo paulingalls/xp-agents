@@ -105,7 +105,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
-- `/xp-kickoff` — orchestrator, sequences retro → goals → question triage → housekeeping at session start. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
+- `/xp-kickoff` — orchestrator, sequences retro → question triage → goals → housekeeping at session start. Questions first so answers can inform goals. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
 - `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`. Curates four-pillar SMM.
 - `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage

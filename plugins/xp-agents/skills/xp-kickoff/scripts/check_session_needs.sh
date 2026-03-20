@@ -29,9 +29,9 @@ fi
 echo ""
 
 # 3. Check for open questions needing triage
-# Check both the curated SMM (Risks pillar) and raw events for unresolved
-# blocking questions. Events may contain questions that housekeeping hasn't
-# curated into the SMM yet.
+# Check both the curated SMM (Risks pillar) and raw events.
+# Lightweight: grep only, no full JSON parsing. Question triage
+# handles resolution checking itself.
 echo "### QUESTIONS_CHECK"
 QUESTIONS_FOUND=false
 if [ -f "$SMM_FILE" ] && smm_has_section "Risks"; then
@@ -40,21 +40,7 @@ if [ -f "$SMM_FILE" ] && smm_has_section "Risks"; then
     fi
 fi
 if [ "$QUESTIONS_FOUND" = false ] && [ -f "${SMM_DIR}/events.jsonl" ]; then
-    if python3 -c "
-import json, sys
-events = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-resolved = set()
-for e in events:
-    for rid in (e.get('metadata') or {}).get('resolves', []):
-        resolved.add(rid)
-    for rid in (e.get('references') or []):
-        if e.get('type') == 'answer':
-            resolved.add(rid)
-open_qs = [e for e in events
-           if e.get('type') == 'question'
-           and e.get('id') not in resolved]
-sys.exit(0 if open_qs else 1)
-" "${SMM_DIR}/events.jsonl" 2>/dev/null; then
+    if grep -q '"type": "question"' "${SMM_DIR}/events.jsonl" 2>/dev/null; then
         QUESTIONS_FOUND=true
     fi
 fi

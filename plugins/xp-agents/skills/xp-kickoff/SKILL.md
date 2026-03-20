@@ -23,15 +23,15 @@ If the preload shows "RETRO_NEEDED", run `/xp-retrospective` now. Wait for it to
 
 If not needed, proceed to step 2.
 
-## Step 2: Goal Collection
+## Step 2: Question Triage (if QUESTIONS_NEEDED)
 
-Run `/xp-goal-collection`. This always runs — it shows existing goals and asks for session goals. After it completes, proceed to step 3.
+If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. Resolve questions first — answers may inform goals. Wait for it to complete, then proceed to step 3.
 
-## Step 3: Question Triage (if QUESTIONS_NEEDED)
+If not needed, proceed to step 3.
 
-If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. Wait for it to complete, then proceed to step 4.
+## Step 3: Goal Collection
 
-If not needed, proceed to step 4.
+Run `/xp-goal-collection`. This always runs — it shows existing goals and asks for session goals. After it completes, proceed to step 4.
 
 ## Step 4: Housekeeping (ALWAYS RUNS)
 

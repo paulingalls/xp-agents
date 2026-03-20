@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.67 — Kickoff Reorder + Lightweight Question Detection
+
+### Changed
+- **Question triage now runs before goal collection** — answers may inform goals. Kickoff order: retro → questions → goals → housekeeping.
+- **Question detection uses grep instead of full JSON parse** — `check_session_needs.sh` greps `events.jsonl` for question events instead of loading and iterating all events. Question triage handles resolution checking itself.
+
+### Fixed
+- **Kickoff detects questions from raw events** — questions written directly to `events.jsonl` (like the linter question) were missed because housekeeping hadn't curated them into the SMM Risks pillar yet.
+
+### Stats
+- 851 tests (all passing)
+
 ## v0.9.66 — Question Detection from Raw Events
 
 ### Fixed
