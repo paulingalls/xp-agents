@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.70 — Housekeeping Asks User About Goal Completion
+
+### Fixed
+- **Housekeeping now asks the user which goals are complete** — previously it said "mark delivered intents (check if code was shipped)" but had no way to check. Now it presents existing goals and asks the user to mark items done, then records resolutions. Goals no longer linger indefinitely.
+
+### Stats
+- 851 tests (all passing)
+
 ## v0.9.69 — Deterministic Compaction After Housekeeping
 
 ### Fixed

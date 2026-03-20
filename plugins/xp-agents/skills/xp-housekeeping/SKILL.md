@@ -35,9 +35,8 @@ For each new customer input, judge: **Is this a deliverable outcome or just a ta
 - "Fix the typo in README" → task (not an intent)
 
 Actions:
-- Keep existing undelivered intents
+- If there are existing intents, ask the user: "Are any of these goals complete or no longer relevant?" Present the list and let them mark items done. Record resolutions for completed goals.
 - Add new intents from customer inputs (only deliverable outcomes)
-- Mark delivered intents (check if code was shipped)
 - If Intent is empty, ask the user: "What should we build next?"
 - **Cap: ~10 items.** If over cap, ask user which are still priorities.
 
