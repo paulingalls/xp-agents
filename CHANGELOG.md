@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.82 — Plan Review Nudge Specifies Skill Invocation
+
+### Fixed
+- **Plan review nudge says "invoke as a skill, not a subagent"** — the agent was running the plan reviewer as a subagent (Agent tool), which doesn't trigger the skill preload that clears the `.plan-awaiting-review` marker. The nudge now explicitly says to use the Skill tool.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.81 — Remove Redundant SMM Read-Back
 
 ### Changed

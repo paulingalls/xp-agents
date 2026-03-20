@@ -245,7 +245,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         marker = smm_dir / ".plan-awaiting-review"
         if marker.exists() and not marker.is_symlink():
             parts.append(
-                "Run /xp-plan-reviewer to review the plan before implementing."
+                "Run the /xp-plan-reviewer skill (invoke as a skill, not a subagent) "
+                "to review the plan before implementing."
             )
 
     # TDD order check

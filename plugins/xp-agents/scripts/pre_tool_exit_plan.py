@@ -27,7 +27,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     marker = smm_dir / ".plan-awaiting-review"
     if marker.exists() and not marker.is_symlink():
         raise _common.BlockedError(
-            "Run /xp-plan-reviewer before exiting plan mode.",
+            "Run the /xp-plan-reviewer skill before exiting plan mode.",
             "Plan review required before implementation.",
         )
 
