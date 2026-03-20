@@ -59,6 +59,17 @@ class TestIsTestFile(unittest.TestCase):
     def test_python_impl(self):
         self.assertFalse(pre_tool_write.is_test_file("models.py"))
 
+    def test_swift_tests_suffix(self):
+        self.assertTrue(pre_tool_write.is_test_file("JaroWinklerTests.swift"))
+
+    def test_xcode_tests_directory(self):
+        self.assertTrue(
+            pre_tool_write.is_test_file("ContactForgeTests/JaroWinklerTests.swift")
+        )
+
+    def test_swift_impl(self):
+        self.assertFalse(pre_tool_write.is_test_file("ContactForge/JaroWinkler.swift"))
+
 
 class TestGetTargetFile(unittest.TestCase):
     def test_write_returns_file_path(self):

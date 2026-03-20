@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.72 — Swift/Xcode Test File Detection
+
+### Fixed
+- **Swift test files recognized by TDD order check** — `*Tests.swift` files and `*Tests/` directories (Xcode convention) now detected as test files. Previously the TDD hook flagged test file writes as implementation-before-tests.
+
+### Stats
+- 854 tests (all passing, +3 new)
+
 ## v0.9.71 — CLAUDE_PLUGIN_DATA in All Bash Commands
 
 ### Fixed

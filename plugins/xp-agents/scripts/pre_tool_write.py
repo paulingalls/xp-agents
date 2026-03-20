@@ -35,6 +35,10 @@ def is_test_file(path: str) -> bool:
     if parts & _TEST_DIRS:
         return True
 
+    # Directory suffix: *Tests/ (Xcode convention, e.g., ContactForgeTests/)
+    if any(part.endswith("Tests") for part in p.parts):
+        return True
+
     # Name-based patterns
     if name.startswith("test_") and name.endswith(".py"):
         return True
@@ -43,6 +47,8 @@ def is_test_file(path: str) -> bool:
     if ".test." in name or ".spec." in name:
         return True
     if name.endswith("_test.go"):
+        return True
+    if name.endswith("Tests.swift"):
         return True
     if name.endswith("Test.java"):
         return True
