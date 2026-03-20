@@ -71,7 +71,8 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if eid not in resolutions["resolved_goal_ids"]:
                     referenced.add(eid)
             case "decision":
-                if eid not in resolutions["resolved_decision_ids"]:
+                is_draft = (event.get("metadata") or {}).get("draft", False)
+                if not is_draft and eid not in resolutions["resolved_decision_ids"]:
                     referenced.add(eid)
             case "convention":
                 referenced.add(eid)
@@ -92,7 +93,10 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if eid not in resolutions["resolved_assumption_ids"]:
                     referenced.add(eid)
             case "retrospective":
-                referenced.add(eid)
+                # Keep last 2 for trend detection. _find_unanalyzed_start
+                # needs the most recent as a watermark. Full archive in
+                # retrospectives/ dir. Handled below with keep_retro_indices.
+                pass
 
     return referenced
 
@@ -183,6 +187,12 @@ def compact_after_curation(smm_dir: Path) -> dict:
     ]
     keep_session_end_indices = set(pre_session_ends[-3:])
 
+    # Keep last 2 retro events (trend detection; archive in retrospectives/)
+    pre_retros = [
+        i for i, e in enumerate(pre_watermark) if e.get("type") == "retrospective"
+    ]
+    keep_retro_indices = set(pre_retros[-2:])
+
     # Classify pre-watermark events
     retained: list[dict] = []
     archived: list[dict] = []
@@ -191,7 +201,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
     for i, event in enumerate(pre_watermark):
         eid = event.get("id", "")
 
-        if i in keep_session_end_indices:
+        if i in keep_session_end_indices or i in keep_retro_indices:
             retained.append(event)
             continue
 

@@ -305,7 +305,7 @@ class TestParseTestResults(unittest.TestCase):
 
 
 class TestBashPostTool(_HookTestCase):
-    def test_git_commit_auto_drafts_decision(self):
+    def test_git_commit_records_status(self):
         with patch("bash_post_tool.count_commit_files", return_value=3):
             bash_post_tool.run(
                 _make_bash_input(
@@ -315,10 +315,9 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        decisions = [e for e in events if e.get("type") == "decision"]
-        self.assertEqual(len(decisions), 1)
-        self.assertTrue(decisions[0].get("metadata", {}).get("draft"))
-        self.assertIn("Add auth", decisions[0]["content"])
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("Add auth", statuses[0]["content"])
 
     def test_git_commit_small_no_concern(self):
         with patch("bash_post_tool.count_commit_files", return_value=3):

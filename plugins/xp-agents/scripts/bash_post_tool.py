@@ -370,16 +370,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if security.is_git_commit(command):
         msg = parse_commit_message(response_text)
         if msg:
-            # Auto-draft decision
-            topic = msg[:50].lower().replace(" ", "-")
-            decision = _common.make_event(
-                _common.DECISION,
+            # Record commit as status (not a decision — commit messages
+            # are activity, not architectural choices)
+            status = _common.make_event(
+                _common.STATUS,
                 agent_id,
-                msg,
-                topic=topic,
-                metadata={"draft": True},
+                f"Committed: {msg}",
+                working_on=[],
             )
-            _common.append_safe(smm_dir, decision)
+            _common.append_safe(smm_dir, status)
 
             # Commit size check
             threshold = load_commit_threshold()

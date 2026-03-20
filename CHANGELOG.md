@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.92 — Compaction: Limit Retros, Drop Draft Decisions
+
+### Fixed
+- **Compaction keeps only last 2 retrospective events** — was keeping all retro events unconditionally. Full archive lives in `retrospectives/` directory. Last 2 kept for trend detection.
+- **Draft decisions no longer prevent compaction** — only non-draft unresolved decisions are retained as SMM-referenced.
+- **Commits record status, not draft decisions** — `bash_post_tool.py` was auto-drafting a decision from every commit message. These aren't architectural decisions — they're activity. Now recorded as `status` events which compact freely. Real decisions should be recorded deliberately by the agent.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.91 — Slim Retro Context Injection
 
 ### Changed
