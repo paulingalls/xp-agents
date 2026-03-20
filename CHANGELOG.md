@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.80 — Remove Duplicate Behavioral Guide Loading
+
+### Changed
+- **Housekeeping no longer loads behavioral guide manually** — `kickoff_done.py` injects it deterministically via `additionalContext`. Removed `load_context.sh` step from housekeeping to avoid ~500 token duplication. Agent still reads the SMM file directly.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.79 — Fix Kickoff Done Hook + Compaction Diagnostics
 
 ### Fixed

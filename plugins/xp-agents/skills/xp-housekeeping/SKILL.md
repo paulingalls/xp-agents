@@ -154,11 +154,11 @@ SMMEOF
 
 ## 8. Load Session Context
 
-After writing the SMM, load the full context. Pass the SMM_DIR from the preload output (shown at the top under "## SMM_DIR"):
+After writing the SMM, Read it back so it's in your conversation context:
 
-1. Run: `${CLAUDE_SKILL_DIR}/scripts/load_context.sh <SMM_DIR>`  (replace `<SMM_DIR>` with the actual path from the preload)
-2. Read the file at the SMM_FILE path from the output
-3. Read the file at the GUIDE_FILE path from the output
+1. Read the file at `<SMM_DIR>/SHARED_MENTAL_MODEL.md` (use the SMM_DIR from the preload output)
+
+The behavioral guide is injected automatically by a PostToolUse hook when this skill completes — no need to load it manually.
 
 This ensures the curated SMM and Behavioral Guide are in your conversation context.
 
