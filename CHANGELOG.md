@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.93 — Show Full Retrospective to User
+
+### Changed
+- **Kickoff shows full retrospective output** — was summarizing the subagent's Keep/Fix/Try analysis, losing event references and XP value tags. Now instructs: "Show the full retrospective output to the user. Do not summarize it."
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.92 — Compaction: Limit Retros, Drop Draft Decisions
 
 ### Fixed

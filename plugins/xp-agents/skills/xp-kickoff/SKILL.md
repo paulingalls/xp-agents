@@ -22,6 +22,8 @@ The session status above was preloaded automatically.
 
 If the preload shows "RETRO_NEEDED", invoke the `/xp-run-retrospective` skill immediately. **Do NOT analyze events yourself — the skill runs a dedicated subagent that does the analysis.** Just invoke it and wait for the result.
 
+**Show the full retrospective output to the user** — Keep, Fix, and Try items with all details. Do not summarize it.
+
 The retrospective subagent saves its own results via `save_retrospective.py`. **Do NOT use the Write tool to save retrospective files yourself.**
 
 After the subagent returns, verify the retrospective was saved by checking for a `retrospective` event at the end of the event log (use the SMM_DIR from the preload output above):
