@@ -20,18 +20,29 @@ fi
 
 # 2. Always show goals and offer to add more
 echo "### GOALS_REVIEW"
-if [ -f "$SMM_FILE" ] && grep -q "^## Intent$" "$SMM_FILE" 2>/dev/null; then
+if [ -f "$SMM_FILE" ] && smm_has_section "Intent"; then
     echo "Current goals:"
-    grep -A 50 "^## Intent$" "$SMM_FILE" | sed '/^## [^I]/,$d' | head -20
-elif [ -f "$SMM_FILE" ] && grep -q "^## Project Goals$" "$SMM_FILE" 2>/dev/null; then
-    echo "Current goals:"
-    grep -A 50 "^## Project Goals$" "$SMM_FILE" | sed '/^## [^P]/,$d' | head -20
+    smm_section "Intent" | head -20
 else
     echo "No project goals recorded yet."
 fi
 echo ""
 
-# 3. Housekeeping always runs as the final step
+# 3. Check for open questions needing triage
+echo "### QUESTIONS_CHECK"
+if [ -f "$SMM_FILE" ] && smm_has_section "Risks"; then
+    if smm_section "Risks" 30 | grep -qi "question\|assumption\|blocking"; then
+        echo "QUESTIONS_NEEDED"
+        echo "Open questions or assumptions found in Risks pillar."
+    else
+        echo "No open questions."
+    fi
+else
+    echo "No open questions."
+fi
+echo ""
+
+# 4. Housekeeping always runs as the final step
 echo "### HOUSEKEEPING"
 echo "Housekeeping runs as final step (ensures SMM + behavioral guide injection)."
 

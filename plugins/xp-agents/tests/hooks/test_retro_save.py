@@ -185,14 +185,14 @@ class TestSaveRetrospective(_HookTestCase):
             ],
             "fix": [
                 {
-                    "content": "Navigator silent",
+                    "content": "Housekeeping silent",
                     "event_refs": ["def456"],
                     "xp_value": "Communication",
                 }
             ],
             "try": [
                 {
-                    "content": "Investigate navigator pipeline",
+                    "content": "Investigate housekeeping pipeline",
                     "event_refs": ["ghi789"],
                 }
             ],
@@ -216,7 +216,7 @@ class TestSaveRetrospective(_HookTestCase):
         self.assertEqual(len(ev["fix"]), 1)
         self.assertEqual(ev["fix"][0]["xp_value"], "Communication")
         self.assertEqual(len(ev["try"]), 1)
-        self.assertEqual(ev["try"][0]["content"], "Investigate navigator pipeline")
+        self.assertEqual(ev["try"][0]["content"], "Investigate housekeeping pipeline")
         self.assertIn("1 keeps, 1 fixes, 1 tries", ev["content"])
 
         # Verify retrospective file exists
@@ -262,7 +262,7 @@ class TestSaveRetrospective(_HookTestCase):
         import save_retrospective
 
         kft = self._valid_kft()
-        kft["analysis_notes"] = "Cross-session trend: navigator silent for 4 retros"
+        kft["analysis_notes"] = "Cross-session trend: housekeeping silent for 4 retros"
         result = save_retrospective.run(kft, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
 
@@ -270,7 +270,7 @@ class TestSaveRetrospective(_HookTestCase):
         retro_data = json.loads(retro_file.read_text())
         self.assertEqual(
             retro_data["analysis_notes"],
-            "Cross-session trend: navigator silent for 4 retros",
+            "Cross-session trend: housekeeping silent for 4 retros",
         )
 
 

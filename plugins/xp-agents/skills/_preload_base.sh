@@ -30,3 +30,25 @@ dump_diff() {
     git diff HEAD~1 --stat 2>/dev/null || echo "(no recent diff available)"
     echo ""
 }
+
+# Check if a section heading exists in the SMM file.
+# Usage: smm_has_section "Intent"
+# Requires SMM_FILE to be set by the caller.
+# shellcheck disable=SC2153  # SMM_FILE is set by callers, not here
+smm_has_section() {
+    grep -q "^## ${1}$" "$SMM_FILE" 2>/dev/null
+}
+
+# Extract a markdown section from the SMM file by heading name.
+# Captures from ^## Name$ until the next ^## heading.
+# Usage: smm_section "Intent" [max_lines]
+#   smm_section "Risks" 30 | head -20   # display first 20 lines
+#   smm_section "Risks" 30 | grep -qi "question"  # search section
+# Requires SMM_FILE to be set and the file to exist.
+smm_section() {
+    local name="$1"
+    local max_lines="${2:-50}"
+    local first_char="${name:0:1}"
+    grep -A "$max_lines" "^## ${name}$" "$SMM_FILE" | \
+        sed "/^## [^${first_char}]/,\$d"
+}

@@ -3,6 +3,7 @@ name: xp-goal-collection
 description: >-
   Collect project goals from the user. Use at every session start to review
   existing goals and add new ones, or when the user wants to update goals.
+effort: low
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

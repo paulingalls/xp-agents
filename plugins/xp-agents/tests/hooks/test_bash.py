@@ -289,7 +289,7 @@ class TestBashPostTool(_HookTestCase):
             _make_bash_input(
                 command="git commit -m 'x'",
                 stdout="[main a] x",
-                agent_type="xp-navigator",
+                agent_type="xp-housekeeping",
             ),
             smm_dir=self.smm_dir,
         )

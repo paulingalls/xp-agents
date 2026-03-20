@@ -168,13 +168,13 @@ class TestCompact(_SMMTestCase):
         self._write_events(self._make_session(session_num=1))
         materialize.write_curation_watermark(self.smm_dir, 4, "xp-housekeeping")
         (self.smm_dir / ".watermark-main").write_text("5")
-        (self.smm_dir / ".watermark-navigator").write_text("3")
+        (self.smm_dir / ".watermark-housekeeping").write_text("3")
         (self.smm_dir / ".watermark-prompt-nugget").write_text("10")
 
         compact.compact(self.smm_dir)
         # Orphaned removed
         self.assertFalse((self.smm_dir / ".watermark-main").exists())
-        self.assertFalse((self.smm_dir / ".watermark-navigator").exists())
+        self.assertFalse((self.smm_dir / ".watermark-housekeeping").exists())
         # Prompt-nugget preserved with updated value
         self.assertTrue((self.smm_dir / ".watermark-prompt-nugget").exists())
 

@@ -87,8 +87,8 @@ class TestWatermark(_SMMTestCase):
         self.assertEqual(wm, 10)
 
     def test_accepts_hyphen(self):
-        read_delta.write_watermark(self.smm_dir, "xp-navigator", 5)
-        wm = read_delta.read_watermark(self.smm_dir, "xp-navigator")
+        read_delta.write_watermark(self.smm_dir, "xp-housekeeping", 5)
+        wm = read_delta.read_watermark(self.smm_dir, "xp-housekeeping")
         self.assertEqual(wm, 5)
 
     def test_watermark_file_permissions(self):

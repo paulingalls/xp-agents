@@ -170,7 +170,7 @@ class TestLintCheckIntegrationExtended(_IntegrationTestCase):
                 "tool_input": {"file_path": "src/app.py", "content": "x"},
                 "cwd": str(self.tmpdir),
                 "agent_id": "main",
-                "agent_type": "xp-navigator",
+                "agent_type": "xp-housekeeping",
             },
         )
         self.assertEqual(result.returncode, 0)

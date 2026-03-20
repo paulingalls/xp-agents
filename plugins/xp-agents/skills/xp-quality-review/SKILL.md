@@ -4,6 +4,7 @@ description: >-
   Post-simplify quality review. Courage accountability for skipped simplify
   recommendations, drift management against SMM Constraints, and debt-aware
   review. Triggered by the quality review stop gate after /simplify completes.
+effort: high
 allowed-tools:
   - Read
   - Edit

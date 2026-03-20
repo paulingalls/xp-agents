@@ -335,7 +335,7 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         # Clear marker so pre_tool_write doesn't block
         (self.smm_dir / ".needs-kickoff").unlink()
 
-        # 2. Pre tool write (Write) — no navigator nudge
+        # 2. Pre tool write (Write)
         r2 = self._run_script(
             "pre_tool_write.py",
             {
@@ -347,10 +347,6 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
             },
         )
         self.assertEqual(r2.returncode, 0)
-        if r2.stdout.strip():
-            output2 = json.loads(r2.stdout)
-            ctx2 = output2["hookSpecificOutput"]["additionalContext"]
-            self.assertNotIn("xp-navigator", ctx2)
 
         # 3. Post tool use (Write) — status event recorded
         r3 = self._run_script(

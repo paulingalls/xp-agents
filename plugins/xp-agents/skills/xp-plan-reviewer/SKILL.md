@@ -3,6 +3,7 @@ name: xp-plan-reviewer
 description: >-
   XP plan reviewer. Highest-leverage review -- checks plan size, TDD ordering,
   milestone boundaries, decision conflicts. Use after planning completes.
+effort: high
 context: fork
 agent: xp-agents:xp-plan-reviewer
 allowed-tools:

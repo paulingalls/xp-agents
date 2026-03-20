@@ -31,7 +31,15 @@ Run `/xp-goal-collection` to review goals and collect any new ones from the user
 
 The preload shows current goals under "GOALS_REVIEW". Always invoke the goal collection skill — it shows existing goals and asks for session goals. Quick to skip if no new goals.
 
-## 3. Housekeeping
+## 3. Question Triage (if QUESTIONS_NEEDED)
+
+Run `/xp-question-triage` to resolve open questions and reconcile customer intent.
+
+If the preload shows "QUESTIONS_NEEDED", invoke the question triage skill now. Wait for it to complete before proceeding.
+
+If not needed, skip to step 4.
+
+## 4. Housekeeping
 
 Run `/xp-housekeeping` to curate Intent, Constraints, Risks, and Wisdom pillars.
 

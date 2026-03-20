@@ -3,6 +3,7 @@ name: smm-protocol
 description: >-
   SMM event recording protocol. Use when recording decisions, questions,
   concerns, assumptions, discoveries, debt, or any project event.
+effort: low
 ---
 
 # SMM Event Recording Protocol
@@ -58,7 +59,6 @@ Events are materialized into four pillars in the SMM. The mapping:
 
 Every `status` event should include `working_on` — a JSON array of file paths currently being modified. This powers:
 - Conflict detection (overlapping files between agents)
-- Navigator context (what files are active)
 - Session end summaries
 
 Update `working_on` when you switch files. The hooks auto-generate status events for Write/Edit, but you should record status for broader context changes.

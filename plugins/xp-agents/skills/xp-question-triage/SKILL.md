@@ -3,6 +3,7 @@ name: xp-question-triage
 description: >-
   Triage open questions and reconcile customer intent. Use when there are
   unresolved blocking or assumed questions that need user input.
+effort: low
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

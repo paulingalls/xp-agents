@@ -254,7 +254,7 @@ class TestUserPromptLog(_HookTestCase):
 
     def test_xp_agent_skips(self):
         user_prompt_log.run(
-            {"session_id": "t", "prompt": "Hi", "agent_type": "xp-navigator"},
+            {"session_id": "t", "prompt": "Hi", "agent_type": "xp-housekeeping"},
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -356,7 +356,7 @@ class TestSubagentStop(_HookTestCase):
             {
                 "session_id": "t",
                 "agent_id": "task-1",
-                "agent_type": "xp-navigator",
+                "agent_type": "xp-housekeeping",
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,
@@ -486,7 +486,7 @@ class TestSubagentStopNoReviewerNudge(_HookTestCase):
             {
                 "session_id": "t",
                 "agent_id": "task-1",
-                "agent_type": "xp-navigator",
+                "agent_type": "xp-housekeeping",
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,

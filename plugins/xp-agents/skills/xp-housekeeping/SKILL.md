@@ -4,6 +4,7 @@ description: >-
   Four-pillar SMM curation. Reads structured curation data and existing SMM,
   applies LLM judgment to curate Intent, Constraints, Risks, and Wisdom
   pillars. Writes curated SMM and updates curation watermark.
+effort: high
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

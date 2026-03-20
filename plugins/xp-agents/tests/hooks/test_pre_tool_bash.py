@@ -98,7 +98,7 @@ class TestPreToolBashCommitGate(_HookTestCase):
     def test_commit_xp_agent_skips(self):
         """xp- agents skip the commit gate."""
         pre_tool_bash.run(
-            self._commit_input(agent_type="xp-navigator"),
+            self._commit_input(agent_type="xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
 

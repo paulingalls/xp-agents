@@ -6,6 +6,7 @@ description: >-
   config) or security-relevant (auth, crypto, input handling, permissions,
   network, secrets). Trivial changes get auto-cleared; security-relevant
   changes require /security-review first.
+effort: high
 allowed-tools:
   - Bash(git diff --cached*)
   - Bash(*/skills/*/scripts/*)

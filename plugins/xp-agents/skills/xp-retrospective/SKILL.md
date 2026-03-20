@@ -3,6 +3,7 @@ name: xp-retrospective
 description: >-
   XP retrospective analyst. Keep/Fix/Try analysis with XP values as lenses.
   Use at session start when retrospective data is available.
+effort: high
 context: fork
 agent: xp-agents:xp-retrospective
 allowed-tools:

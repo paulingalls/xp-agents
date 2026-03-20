@@ -393,7 +393,7 @@ class TestAgentIdValidation(unittest.TestCase):
         _append_impl._validate_agent_id("main")
 
     def test_accepts_hyphenated(self):
-        _append_impl._validate_agent_id("xp-navigator")
+        _append_impl._validate_agent_id("xp-housekeeping")
 
     def test_accepts_colon_separator(self):
         _append_impl._validate_agent_id("xp-quality:reviewer")

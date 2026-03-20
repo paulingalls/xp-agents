@@ -88,8 +88,8 @@ class TestHookOutput(unittest.TestCase):
 
 
 class TestIsXpAgent(unittest.TestCase):
-    def test_xp_navigator(self):
-        self.assertTrue(_common.is_xp_agent({"agent_type": "xp-navigator"}))
+    def test_xp_housekeeping(self):
+        self.assertTrue(_common.is_xp_agent({"agent_type": "xp-housekeeping"}))
 
     def test_xp_reviewer(self):
         self.assertTrue(_common.is_xp_agent({"agent_type": "xp-reviewer"}))
@@ -191,8 +191,8 @@ class TestWriteWatermark(_HookTestCase):
         self.assertTrue(wm_file.exists())
 
     def test_accepts_hyphen(self):
-        _common.write_watermark(self.smm_dir, "xp-navigator", 5)
-        wm_file = self.smm_dir / ".watermark-xp-navigator"
+        _common.write_watermark(self.smm_dir, "xp-housekeeping", 5)
+        wm_file = self.smm_dir / ".watermark-xp-housekeeping"
         self.assertTrue(wm_file.exists())
 
 

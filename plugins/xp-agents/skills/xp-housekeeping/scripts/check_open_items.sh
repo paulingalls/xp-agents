@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-housekeeping: extract open items needing lifecycle review.
+# Preload for xp-housekeeping: extract open items from four-pillar SMM.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
@@ -14,23 +14,23 @@ if [ ! -f "$SMM_FILE" ]; then
     exit 0
 fi
 
-# Open goals
-if grep -q "## Project Goals" "$SMM_FILE" 2>/dev/null; then
-    echo "### Open Goals:"
-    grep -A 50 "## Project Goals" "$SMM_FILE" | sed '/^## [^P]/,$d' | head -20
+# Intent pillar (goals, customer input)
+if smm_has_section "Intent"; then
+    echo "### Intent:"
+    smm_section "Intent" | head -20
     echo ""
 else
-    echo "### Open Goals: none"
+    echo "### Intent: none"
     echo ""
 fi
 
-# Unacknowledged concerns
-if grep -q "## Unacknowledged Concerns" "$SMM_FILE" 2>/dev/null; then
-    echo "### Unresolved Concerns:"
-    grep -A 50 "## Unacknowledged Concerns" "$SMM_FILE" | sed '/^## [^U]/,$d' | head -20
+# Constraints pillar (decisions, conventions)
+if smm_has_section "Constraints"; then
+    echo "### Constraints:"
+    smm_section "Constraints" | head -20
     echo ""
 else
-    echo "### Unresolved Concerns: none"
+    echo "### Constraints: none"
     echo ""
 fi
 
@@ -44,12 +44,12 @@ else
     echo ""
 fi
 
-# Technical debt
-if grep -q "## Technical Debt" "$SMM_FILE" 2>/dev/null; then
-    echo "### Open Technical Debt:"
-    grep -A 50 "## Technical Debt" "$SMM_FILE" | sed '/^## [^T]/,$d' | head -20
+# Risks pillar (concerns, assumptions, debt, questions, discoveries)
+if smm_has_section "Risks"; then
+    echo "### Risks:"
+    smm_section "Risks" | head -20
     echo ""
 else
-    echo "### Open Technical Debt: none"
+    echo "### Risks: none"
     echo ""
 fi

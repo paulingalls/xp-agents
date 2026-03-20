@@ -175,7 +175,7 @@ class TestCheckTddOrder(_HookTestCase):
 class TestPreToolWriteRun(_HookTestCase):
     def test_xp_agent_skips(self):
         result = pre_tool_write.run(
-            _make_write_input(agent_type="xp-navigator"),
+            _make_write_input(agent_type="xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
@@ -307,7 +307,7 @@ class TestPreToolWritePerformance(_HookTestCase):
         """xp-agent bypass should be near-zero cost."""
         import time
 
-        input_data = _make_write_input(session_id="perf", agent_type="xp-navigator")
+        input_data = _make_write_input(session_id="perf", agent_type="xp-housekeeping")
 
         start = time.monotonic()
         for _ in range(1000):
@@ -315,52 +315,6 @@ class TestPreToolWritePerformance(_HookTestCase):
         elapsed = time.monotonic() - start
 
         self.assertLess(elapsed, 1.0, f"1000 xp-agent skips took {elapsed:.2f}s")
-
-
-class TestPreToolWriteNoNavigatorNudge(_HookTestCase):
-    """Navigator nudge removed -- concerns visible via SMM delta."""
-
-    def test_write_no_navigator_nudge(self):
-        """Write tool should not contain navigator nudge."""
-        result = pre_tool_write.run(
-            _make_write_input(session_id="t", cwd="/tmp"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-navigator", result)
-
-    def test_edit_no_navigator_nudge(self):
-        """Edit tool should not contain navigator nudge."""
-        result = pre_tool_write.run(
-            {
-                "session_id": "t",
-                "tool_name": "Edit",
-                "tool_input": {
-                    "file_path": "src/app.ts",
-                    "old_string": "x",
-                    "new_string": "y",
-                },
-                "cwd": "/tmp",
-                "agent_id": "main",
-            },
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-navigator", result)
-
-    def test_concerns_not_in_pretooluse(self):
-        """M5: Concerns no longer injected via delta."""
-        self._write_events(
-            [
-                make_event("concern", content="Auth middleware is insecure"),
-            ]
-        )
-        result = pre_tool_write.run(
-            _make_write_input(session_id="t", cwd="/tmp"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("smm-delta", result)
 
 
 class TestPreToolWritePlanReviewGate(_HookTestCase):

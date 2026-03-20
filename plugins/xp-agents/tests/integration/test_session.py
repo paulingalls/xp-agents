@@ -54,7 +54,7 @@ class TestSessionStartIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "source": "startup",
-                "agent_type": "xp-navigator",
+                "agent_type": "xp-housekeeping",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -119,7 +119,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "reason": "logout",
-                "agent_type": "xp-navigator",
+                "agent_type": "xp-housekeeping",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -194,7 +194,7 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "agent_id": "explorer-1",
-                "agent_type": "xp-navigator",
+                "agent_type": "xp-housekeeping",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -232,25 +232,6 @@ class TestMilestone6Integration(_IntegrationTestCase):
 
 
 class TestMilestone65Integration(_IntegrationTestCase):
-    def test_pre_tool_write_no_navigator_nudge(self):
-        """Write tool → stdout should NOT contain xp-navigator nudge."""
-        self._seed_events([make_event()])
-        result = self._run_script(
-            "pre_tool_write.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "src/app.ts", "content": "x"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 0)
-        if result.stdout.strip():
-            output = json.loads(result.stdout)
-            ctx = output.get("hookSpecificOutput", {}).get("additionalContext", "")
-            self.assertNotIn("xp-navigator", ctx)
-
     def test_subagent_stop_plan_writes_gate_marker(self):
         """Plan agent_type → writes plan_awaiting_review marker event."""
         result = self._run_script(
