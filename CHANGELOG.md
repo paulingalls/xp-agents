@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.74 — Clean Up Retro Input After Consumption
+
+### Fixed
+- **`.retro-input.json` deleted after retrospective saves** — the file was left on disk after the retro agent consumed it, creating confusing stale state. Now `save_retrospective.py` cleans it up after writing the retro event and file.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.73 — Multi-Language Test & Lint Support
 
 ### Added

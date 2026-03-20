@@ -86,6 +86,9 @@ def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | 
 
     _common.write_json_atomic(retro_file, file_data)
 
+    # Clean up retro input — it's been consumed
+    (smm_dir / ".retro-input.json").unlink(missing_ok=True)
+
     return {"event_id": event["id"], "retro_file": str(retro_file)}
 
 
