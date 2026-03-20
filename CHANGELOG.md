@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.58 — Shell Compatibility Fix
+
+### Fixed
+- **Quality review preload works in zsh** — replaced `mapfile` (bash-only) with portable shell in `xp-quality-review/scripts/preload.sh`. The `!` preload mechanism may not honor shebangs, running through the user's default shell instead.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.57 — Kickoff Sequencing Fix
 
 ### Fixed
