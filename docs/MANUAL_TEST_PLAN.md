@@ -160,7 +160,7 @@ Plan the REST API endpoints for CRUD operations on the TODO list
 **Verify:**
 - Claude creates a plan (Plan subagent)
 - `SubagentStop` fires → `.plan-awaiting-review` marker written
-- On next Write/Edit: PreToolUse nudges "Run /xp-plan-reviewer"
+- On next Write/Edit: PreToolUse nudges "Run /xp-review-plan"
 - Plan reviewer checks: plan size, TDD ordering, decision conflicts
 - Plan reviewer may write `assumption`, `question`, and/or `decision` events
 - If questions recorded: they appear first in the reviewer's output
@@ -426,14 +426,14 @@ Then type a new prompt in the active session.
 **Do:** In a session, check that the plugin's skills are available:
 
 ```
-/smm-protocol
+/xp-smm-protocol
 /xp-kickoff
 /xp-housekeeping
 ```
 
 **Verify:**
 - Each skill loads and provides reference content
-- `smm-protocol` covers event types, `working_on`, recording patterns
+- `xp-smm-protocol` covers event types, `working_on`, recording patterns
 - `/xp-kickoff` orchestrates session start (retro → goals → question triage → housekeeping)
 - `/xp-housekeeping` curates the four-pillar SMM
 

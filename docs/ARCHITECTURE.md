@@ -111,7 +111,7 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash)
 - `/xp-question-triage` — ongoing question triage
 - `/xp-quality-review` — post-simplify review: courage accountability for skipped recommendations, drift management against SMM Constraints, debt awareness for changed files
 
-All subagents preload `smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
+All subagents preload `xp-smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
 
 ### Notifications
 
@@ -169,7 +169,7 @@ User types   → kickoff_gate.py blocks: "Run /xp-kickoff"
              → User runs /xp-kickoff
 
 /xp-kickoff:
-             1. Retro (if .retro-input.json exists) → /xp-retrospective
+             1. Retro (if .retro-input.json exists) → /xp-run-retrospective
              2. Goals → /xp-goal-collection
              3. Question triage (if open questions/assumptions in Risks) → /xp-question-triage
              4. Housekeeping → /xp-housekeeping (curates four-pillar SMM)
@@ -218,10 +218,10 @@ plugins/xp-agents/
 │   ├── xp-retrospective.md
 │   └── xp-plan-reviewer.md
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
-│   ├── smm-protocol/SKILL.md
+│   ├── xp-smm-protocol/SKILL.md
 │   ├── xp-quality-review/SKILL.md
-│   ├── xp-plan-reviewer/SKILL.md
-│   ├── xp-retrospective/SKILL.md
+│   ├── xp-review-plan/SKILL.md
+│   ├── xp-run-retrospective/SKILL.md
 │   ├── xp-kickoff/SKILL.md  ← inline, orchestrates session start lifecycle
 │   ├── xp-housekeeping/SKILL.md    ← inline, lifecycle triage for open items
 │   ├── xp-goal-collection/SKILL.md ← inline, first-session goal collection

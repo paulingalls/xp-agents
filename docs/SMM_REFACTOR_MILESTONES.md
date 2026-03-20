@@ -65,7 +65,7 @@ Migrating from the current event-dump SMM to the four-pillar curated model descr
 - `xp-session-review` SKILL.md — orchestration references updated for new SMM shape
 - `xp-goal-collection` SKILL.md — maps collected goals to the Intent pillar
 - `xp-question-triage` SKILL.md — works with unified Risks pillar (concerns/assumptions/questions/debt)
-- `smm-protocol` SKILL.md — event recording reference updated for four-pillar model (which events feed which pillars)
+- `xp-smm-protocol` SKILL.md — event recording reference updated for four-pillar model (which events feed which pillars)
 - `xp-values` SKILL.md — behavioral guide references updated
 - `BEHAVIORAL_GUIDE.md` — "When to Record Events" table updated, pillar references added
 - `xp-housekeeping` SKILL.md — already updated in M2, verify consistency
@@ -81,7 +81,7 @@ Migrating from the current event-dump SMM to the four-pillar curated model descr
 **Acceptance criteria:**
 - [ ] Each skill references four-pillar concepts where relevant (Intent, Constraints, Risks, Wisdom)
 - [ ] BEHAVIORAL_GUIDE.md reflects the pillar model
-- [ ] smm-protocol maps event types to pillars (which events feed which pillar)
+- [ ] xp-smm-protocol maps event types to pillars (which events feed which pillar)
 - [ ] No skill or agent references old SMM sections (ACTIVE CONTEXT, REFERENCE, Blocking Questions, etc.)
 - [ ] All subagent definitions (`agents/*.md`) aligned with four-pillar model
 - [ ] Skills and agents still function correctly with the current SMM format during transition
