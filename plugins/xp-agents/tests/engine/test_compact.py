@@ -223,18 +223,20 @@ class TestCompact(_SMMTestCase):
         """Retained events maintain original order."""
         import compact
 
-        goal = make_event("goal", content="first", ts="2026-01-01T00:00:00+00:00")
+        decision = make_event(
+            "decision", content="first", topic="t", ts="2026-01-01T00:00:00+00:00"
+        )
         session_end = make_event(
             "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
         )
         new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([goal, session_end, new_event])
+        self._write_events([decision, session_end, new_event])
         materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeping")
 
         compact.compact(self.smm_dir)
         retained = self._read_events()
         ids = [e["id"] for e in retained]
-        self.assertEqual(ids[0], goal["id"])
+        self.assertEqual(ids[0], decision["id"])
 
 
 # ===========================================================================
@@ -337,9 +339,8 @@ class TestCompactAfterCuration(_SMMTestCase):
         retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
         self.assertIn(goal["id"], retained_ids)
+        self.assertIn(decision["id"], retained_ids)
         self.assertIn(concern["id"], retained_ids)
-        # Decisions compact freely — important ones live in SMM Constraints
-        self.assertNotIn(decision["id"], retained_ids)
         # Filler status should be archived
         self.assertNotIn(filler["id"], retained_ids)
 

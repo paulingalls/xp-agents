@@ -1,13 +1,5 @@
 # Changelog
 
-## v0.9.97 — Decisions Compact Freely
-
-### Changed
-- **Decisions no longer retained by compaction** — important decisions get promoted to Constraints or Wisdom in the SMM by housekeeping. The original decision events are ephemeral — they capture the moment of choice, then the SMM carries the result forward. This eliminates the main source of event log bloat (21 decisions accumulating over 6 sessions).
-
-### Stats
-- 894 tests (all passing)
-
 ## v0.9.96 — Add Bun Test Detection
 
 ### Added
