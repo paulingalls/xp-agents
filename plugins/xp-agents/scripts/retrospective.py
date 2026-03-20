@@ -223,7 +223,7 @@ def _write_retro_input(smm_dir: Path, data: dict) -> None:
 def _summarize_key_events(events: list[dict]) -> str:
     """Produce a condensed text summary of non-status events for analysis."""
     lines: list[str] = []
-    skip_types = {_common.STATUS, _common.SECURITY_REVIEW_REQUESTED}
+    skip_types = {_common.STATUS}
     for e in events:
         etype = e.get("type", "")
         if etype in skip_types:

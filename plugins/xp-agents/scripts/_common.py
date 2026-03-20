@@ -52,7 +52,6 @@ class BlockedError(Exception):
 
 # Event types — mirrors smm/schema.json enum
 CUSTOMER_INPUT = "customer_input"
-SECURITY_REVIEW_REQUESTED = "security_review_requested"
 CUSTOMER_INTENT = "customer_intent"
 DEBT = "debt"
 GOAL = "goal"

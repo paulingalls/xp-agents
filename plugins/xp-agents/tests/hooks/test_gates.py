@@ -10,7 +10,6 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -638,115 +637,51 @@ class TestTddStopGate(_HookTestCase):
 
 
 # ===========================================================================
-# Security helpers (_common.py) — Milestone 5.5
+# Security triage marker helpers — replaces hash-based tracker
 # ===========================================================================
 
 
-class TestSecurityHelpers(_HookTestCase):
-    """Tests for security review tracker helpers in _common.py."""
+class TestSecurityTriageMarker(_HookTestCase):
+    """Tests for security triage marker helpers in security.py."""
 
-    def test_get_head_hash_returns_hash(self):
-        """get_head_hash returns a hex hash string."""
-        with patch(
-            "security.subprocess.check_output",
-            return_value="abc1234def5678\n",
-        ):
-            result = security.get_head_hash()
-            self.assertEqual(result, "abc1234def5678")
+    def test_triaged_path(self):
+        """security_triaged_path returns correct path."""
+        path = security.security_triaged_path(self.smm_dir)
+        self.assertEqual(path, self.smm_dir / ".security-triaged")
 
-    def test_get_head_hash_returns_none_on_error(self):
-        """get_head_hash returns None when git fails."""
-        from subprocess import CalledProcessError
+    def test_write_and_exists(self):
+        """write_security_triaged creates file, security_triaged_exists finds it."""
+        security.write_security_triaged(self.smm_dir)
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
-        with patch(
-            "security.subprocess.check_output",
-            side_effect=CalledProcessError(128, "git"),
-        ):
-            result = security.get_head_hash()
-            self.assertIsNone(result)
+    def test_not_exists_when_missing(self):
+        """security_triaged_exists returns False when no marker file."""
+        self.assertFalse(security.security_triaged_exists(self.smm_dir))
 
-    def test_get_head_hash_returns_none_on_timeout(self):
-        """get_head_hash returns None on subprocess timeout."""
-        from subprocess import TimeoutExpired
+    def test_consume_deletes_marker(self):
+        """consume_security_triaged removes the marker."""
+        security.write_security_triaged(self.smm_dir)
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+        security.consume_security_triaged(self.smm_dir)
+        self.assertFalse(security.security_triaged_exists(self.smm_dir))
 
-        with patch(
-            "security.subprocess.check_output",
-            side_effect=TimeoutExpired("git", 5),
-        ):
-            result = security.get_head_hash()
-            self.assertIsNone(result)
+    def test_consume_no_op_when_missing(self):
+        """consume_security_triaged is safe when marker doesn't exist."""
+        security.consume_security_triaged(self.smm_dir)  # no crash
 
-    def test_security_tracker_path_valid_hash(self):
-        """security_tracker_path builds correct path for valid hash."""
-        path = security.security_tracker_path(self.smm_dir, "abc1234")
-        self.assertEqual(path, self.smm_dir / ".security-reviewed-abc1234")
-
-    def test_security_tracker_path_rejects_invalid_hash(self):
-        """security_tracker_path raises ValueError for invalid hash."""
-        with self.assertRaises(ValueError):
-            security.security_tracker_path(self.smm_dir, "not-a-hash!")
-        with self.assertRaises(ValueError):
-            security.security_tracker_path(self.smm_dir, "../etc/passwd")
-        with self.assertRaises(ValueError):
-            security.security_tracker_path(self.smm_dir, "")
-
-    def test_security_tracker_path_rejects_too_short_hash(self):
-        """security_tracker_path rejects hashes shorter than 7 chars."""
-        with self.assertRaises(ValueError):
-            security.security_tracker_path(self.smm_dir, "abc12")
-
-    def test_write_and_exists_tracker(self):
-        """write_security_tracker creates file, security_tracker_exists finds it."""
-        security.write_security_tracker(self.smm_dir, "abc1234")
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_tracker_not_exists_when_missing(self):
-        """security_tracker_exists returns False when no tracker file."""
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_write_tracker_cleans_old(self):
-        """write_security_tracker removes old tracker files."""
-        security.write_security_tracker(self.smm_dir, "aaa1111")
-        security.write_security_tracker(self.smm_dir, "bbb2222")
-        # Write new tracker
-        security.write_security_tracker(self.smm_dir, "ccc3333")
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "aaa1111"))
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "bbb2222"))
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "ccc3333"))
-
-    def test_tracker_rejects_symlink(self):
-        """security_tracker_exists returns False for symlinks."""
+    def test_rejects_symlink(self):
+        """security_triaged_exists returns False for symlinks."""
         real_file = self.smm_dir / "real_target"
         real_file.write_text("x")
-        link = self.smm_dir / ".security-reviewed-abc1234"
+        link = security.security_triaged_path(self.smm_dir)
         link.symlink_to(real_file)
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
+        self.assertFalse(security.security_triaged_exists(self.smm_dir))
 
-    def test_cleanup_skips_non_hash_files(self):
-        """_cleanup_old_security_trackers skips files with non-hash suffixes."""
-        notes = self.smm_dir / ".security-reviewed-notes.txt"
-        notes.write_text("keep me")
-        security.write_security_tracker(self.smm_dir, "abc1234")
-        self.assertTrue(notes.exists(), "Non-hash file should survive cleanup")
-
-    def test_mark_security_reviewed(self):
-        """mark_security_reviewed encapsulates hash fetch + tracker write."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            security.mark_security_reviewed(self.smm_dir)
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_mark_security_reviewed_no_hash(self):
-        """mark_security_reviewed no-ops when HEAD hash unavailable."""
-        with patch.object(security, "get_head_hash", return_value=None):
-            security.mark_security_reviewed(self.smm_dir)
-        # No tracker, no crash
-
-    def test_write_tracker_content(self):
-        """write_security_tracker writes JSON with commit_hash and ts."""
-        security.write_security_tracker(self.smm_dir, "abc1234")
-        path = security.security_tracker_path(self.smm_dir, "abc1234")
+    def test_write_marker_content(self):
+        """write_security_triaged writes JSON with ts."""
+        security.write_security_triaged(self.smm_dir)
+        path = security.security_triaged_path(self.smm_dir)
         data = json.loads(path.read_text())
-        self.assertEqual(data["commit_hash"], "abc1234")
         self.assertIn("ts", data)
 
 

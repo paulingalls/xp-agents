@@ -5,24 +5,18 @@ Records what the user said into the SMM so all agents can see it.
 Truncates to 10,000 chars to prevent event bloat.
 """
 
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
-import security
 
 _MAX_PROMPT_LENGTH = 10_000
 _GOAL_NUDGE_TRACKER = ".goal-nudge-sent"
 _BLOCK_GOALS = "block_goals"
 _NUDGE_MESSAGE = "REMINDER: No project goals recorded yet. Run /xp-goal-collection."
 _BLOCK_REASON = "No project goals recorded. Run /xp-goal-collection."
-
-_SECURITY_REVIEW_PATTERN = re.compile(
-    r"(?:/security-review\b|security\s+review|security\s+audit)", re.IGNORECASE
-)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -50,10 +44,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     event = _common.make_event(_common.CUSTOMER_INPUT, "customer", prompt)
     _common.append_safe(smm_dir, event)
-
-    # Path 1: detect security review invocation in user prompt
-    if isinstance(prompt, str) and _SECURITY_REVIEW_PATTERN.search(prompt):
-        security.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
     # Goal collection — block first prompt of a goalless session.
     # Only block once (tracker file prevents infinite loop), then nudge.

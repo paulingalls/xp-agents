@@ -8,14 +8,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-import security
 import subagent_stop
 import user_prompt_log
 from conftest import _HookTestCase, make_event
@@ -496,173 +494,12 @@ class TestSubagentStopNoReviewerNudge(_HookTestCase):
         self.assertIsNone(result)
 
 
-# ===========================================================================
-# UserPromptLog security review detection (Path 1) — Milestone 5.5
-# ===========================================================================
-
-
-class TestUserPromptLogSecurity(_HookTestCase):
-    """Tests for security review pattern detection in user_prompt_log.py."""
-
-    def _prompt_input(self, prompt: str, **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "prompt": prompt,
-            "agent_id": "main",
-        }
-        data.update(overrides)
-        return data
-
-    def test_security_review_slash_writes_tracker(self):
-        """/security-review in prompt writes tracker file."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            user_prompt_log.run(
-                self._prompt_input("/security-review"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_security_review_natural_writes_tracker(self):
-        """'security review' in prompt writes tracker file."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            user_prompt_log.run(
-                self._prompt_input("please run a security review"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_security_audit_writes_tracker(self):
-        """'security audit' in prompt writes tracker file."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            user_prompt_log.run(
-                self._prompt_input("do a security audit"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_case_insensitive(self):
-        """Pattern matching is case insensitive."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            user_prompt_log.run(
-                self._prompt_input("Run a Security Review"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_no_match_no_tracker(self):
-        """Non-security prompts don't write tracker."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            user_prompt_log.run(
-                self._prompt_input("fix the bug in app.py"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_event_still_logged(self):
-        """Event is logged as customer_input regardless of security match."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            user_prompt_log.run(
-                self._prompt_input("/security-review"),
-                smm_dir=self.smm_dir,
-            )
-        events = _common.read_events_raw(self.smm_dir)
-        ci_events = [e for e in events if e.get("type") == "customer_input"]
-        self.assertEqual(len(ci_events), 1)
-
-    def test_no_hash_degrades(self):
-        """No HEAD hash → no tracker, no crash."""
-        with patch.object(security, "get_head_hash", return_value=None):
-            user_prompt_log.run(
-                self._prompt_input("/security-review"),
-                smm_dir=self.smm_dir,
-            )
-        # No tracker written, but no crash either
-
-
-# ===========================================================================
-# SubagentStop security review detection (Path 2) — Milestone 5.5
-# ===========================================================================
-
-
-class TestSubagentStopSecurity(_HookTestCase):
-    """Tests for security review output detection in subagent_stop.py."""
-
-    def _subagent_input(self, last_message: str = "", **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "agent_id": "sub1",
-            "last_assistant_message": last_message,
-        }
-        data.update(overrides)
-        return data
-
-    def test_security_review_output_writes_tracker(self):
-        """Security review output with 2+ signals writes tracker."""
-        msg = "## Security Review\n\nNo vulnerabilities found in the codebase."
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            subagent_stop.run(
-                self._subagent_input(msg),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_vulnerability_report_writes_tracker(self):
-        """Vulnerability report with severity markers writes tracker."""
-        msg = (
-            "Security audit complete.\n"
-            "Critical: 0\nHigh: 1\nMedium: 2\nLow: 3\n"
-            "Found 3 vulnerabilities total."
-        )
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            subagent_stop.run(
-                self._subagent_input(msg),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_normal_output_no_tracker(self):
-        """Normal subagent output doesn't write tracker."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            subagent_stop.run(
-                self._subagent_input("Refactored the database module."),
-                smm_dir=self.smm_dir,
-            )
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_single_mention_below_threshold(self):
-        """Single security mention (below threshold) doesn't write tracker."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            subagent_stop.run(
-                self._subagent_input("Fixed a vulnerability in the auth code."),
-                smm_dir=self.smm_dir,
-            )
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_linter_output_no_false_positive(self):
-        """Linter output with severity labels alone doesn't write tracker."""
-        msg = "Critical: 3 issues\nHigh: 5 issues\nMedium: 12 issues\nLow: 1"
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            subagent_stop.run(
-                self._subagent_input(msg),
-                smm_dir=self.smm_dir,
-            )
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-    def test_empty_message_no_tracker(self):
-        """Empty message doesn't write tracker."""
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            subagent_stop.run(
-                self._subagent_input(""),
-                smm_dir=self.smm_dir,
-            )
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
-
-
+import security  # noqa: E402
 import security_review_done  # noqa: E402
 
 
 class TestSecurityReviewDone(_HookTestCase):
-    """PostToolUse:Skill hook writes tracker after /security-review."""
+    """PostToolUse:Skill hook writes triage marker after /security-review."""
 
     def _skill_input(self, skill: str = "security-review", **overrides) -> dict:
         data = {
@@ -673,17 +510,20 @@ class TestSecurityReviewDone(_HookTestCase):
         data.update(overrides)
         return data
 
-    def test_writes_tracker_on_security_review(self):
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            security_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertTrue(security.security_tracker_exists(self.smm_dir, "abc1234"))
+    def test_writes_marker_on_security_review(self):
+        security_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
     def test_ignores_other_skills(self):
-        with patch.object(security, "get_head_hash", return_value="abc1234"):
-            security_review_done.run(
-                self._skill_input("simplify"), smm_dir=self.smm_dir
-            )
-        self.assertFalse(security.security_tracker_exists(self.smm_dir, "abc1234"))
+        security_review_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
+        self.assertFalse(security.security_triaged_exists(self.smm_dir))
+
+    def test_ignores_triage_skill(self):
+        """xp-security-triage writes its own marker, hook should not double-write."""
+        security_review_done.run(
+            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
+        )
+        self.assertFalse(security.security_triaged_exists(self.smm_dir))
 
     def test_xp_agent_skips(self):
         result = security_review_done.run(

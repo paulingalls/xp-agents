@@ -248,7 +248,7 @@ tests/
 │   ├── test_common.py       ← _common.py utilities
 │   ├── test_session.py      ← session_start, session_end, retrospective, review gate
 │   ├── test_pre_tool_write.py ← conflicts, TDD order, plan review gate
-│   ├── test_pre_tool_bash.py  ← push security gate, file-modification heuristic
+│   ├── test_pre_tool_bash.py  ← commit security triage gate, file-modification heuristic
 │   ├── test_post_tool.py    ← post_tool_use, lint_check, bash_post_tool, bash_failure
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
 │   ├── test_gates.py        ← simplify_gate, quality_review_gate, tdd_stop_gate

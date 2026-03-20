@@ -31,8 +31,7 @@
         "answer",
         "assumption",
         "session_end",
-        "retrospective",
-        "security_review_requested"
+        "retrospective"
       ]
     },
     "agent_id": {

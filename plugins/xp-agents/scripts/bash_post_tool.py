@@ -16,15 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import security
 
 # ---------------------------------------------------------------------------
 # Command classification
 # ---------------------------------------------------------------------------
-
-
-def is_git_commit(command: str) -> bool:
-    """Check if the command contains a git commit."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
 
 
 def is_test_run(command: str) -> str | None:
@@ -197,7 +193,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         response_text = str(tool_response)
 
     # Git commit detection
-    if is_git_commit(command):
+    if security.is_git_commit(command):
         msg = parse_commit_message(response_text)
         if msg:
             # Auto-draft decision
@@ -222,6 +218,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
                     severity="medium",
                 )
                 _common.append_safe(smm_dir, concern)
+
+        # Consume security triage marker after successful commit
+        security.consume_security_triaged(smm_dir)
 
         return None
 

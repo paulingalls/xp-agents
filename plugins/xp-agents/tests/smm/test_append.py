@@ -541,9 +541,9 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
-    def test_schema_has_15_types(self):
+    def test_schema_has_14_types(self):
         types = self.schema["properties"]["type"]["enum"]
-        self.assertEqual(len(types), 15)
+        self.assertEqual(len(types), 14)
         expected = {
             "customer_input",
             "customer_intent",
@@ -559,7 +559,6 @@ class TestSchemaJson(unittest.TestCase):
             "assumption",
             "session_end",
             "retrospective",
-            "security_review_requested",
         }
         self.assertEqual(set(types), expected)
 

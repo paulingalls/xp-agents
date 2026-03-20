@@ -98,9 +98,9 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 ## Security Practices (Courage Lens)
 
-- **`security_review_requested` events** — were they followed by an actual review? Unresolved requests are a Fix item.
-- **Proactive security** — voluntary reviews before the gate forced them? Keep item under Courage.
-- **Review gaps** — multiple requests suggest pushing without reviewing. Fix item.
+- **Security triage** — were commits preceded by `/xp-security-triage`? Consistent triage is a Keep item.
+- **Proactive security** — voluntary `/security-review` before the gate forced triage? Keep item under Courage.
+- **Triage quality** — were security-relevant changes correctly identified and reviewed? Misclassification is a Fix item.
 
 ## Actions
 

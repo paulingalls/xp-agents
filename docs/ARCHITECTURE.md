@@ -37,7 +37,6 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
 | `retrospective` | Subagent (retrospective) | Keep/Fix/Try analysis |
-| `security_review_requested` | Hook (PreToolUse push gate) | Security review needed before push |
 
 ## Curated SMM (SHARED_MENTAL_MODEL.md)
 
@@ -77,14 +76,14 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
-| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Push security gate, file-modification conflict heuristic (advisory) |
+| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit security triage gate, file-modification conflict heuristic (advisory) |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing. `async: true` |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
-| **PostToolUse** | `Skill` | `security_review_done.py` | Write security tracker when `/security-review` completes. `async: true` |
+| **PostToolUse** | `Skill` | `security_review_done.py` | Write triage marker when `/security-review` completes. `async: true` |
 | **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker |
 | **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
 | **Stop** | | `quality_review_gate.py` | Block if subagent reviews still pending |
@@ -131,7 +130,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | After housekeeping | Behavioral guide via PostToolUse:Skill hook (`kickoff_done.py`) |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
-| Before Bash | Push security gate (blocks), file-modification conflict heuristic (advisory) |
+| Before Bash | Commit security triage gate (blocks), file-modification conflict heuristic (advisory) |
 | Subagent spawn | Tiered context: Explore gets Intent+Constraints only, others get full curated SMM + behavioral guide |
 | After compaction | Full SMM re-injection |
 
@@ -184,12 +183,12 @@ Next prompt  → Gates pass through (marker cleared)
 ```
 UserPrompt   → prompt_nugget.py: inject new signal events since last prompt
 PreToolUse   → pre_tool_write.py (Write/Edit): conflicts, TDD, plan review gate (all file-based)
-             → pre_tool_bash.py (Bash): push gate, file-modification heuristic
+             → pre_tool_bash.py (Bash): commit triage gate, file-modification heuristic
 Tool executes
 PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
              → lint_check.py: linter (Write/Edit)
              → bash_post_tool.py: commit/test analysis (Bash)
-             → security_review_done.py: write tracker when /security-review completes (Skill)
+             → security_review_done.py: write triage marker when /security-review completes (Skill)
 ```
 
 ### Stop
@@ -315,7 +314,7 @@ SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees 
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, security review push gate + tracker (`security_review_done.py`), simplify gate (≥3 code files), quality review gate (`quality_review_gate.py`), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit security triage gate + marker (`security_review_done.py`), simplify gate (≥3 code files), quality review gate (`quality_review_gate.py`), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
 **Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-kickoff` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 
@@ -382,7 +381,7 @@ Single gate: `kickoff_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-kic
 
 ### Blocks as Maturity Signal
 
-In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, security review, simplify gate. These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0.
+In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, security triage, simplify gate. These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0.
 
 ### Open Questions (resolve during 1.0 dogfooding)
 

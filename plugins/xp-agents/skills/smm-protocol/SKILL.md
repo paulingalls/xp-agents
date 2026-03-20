@@ -47,7 +47,6 @@ Events are materialized into four pillars in the SMM. The mapping:
 | `debt` | Risks | Acknowledged tradeoff, known issue | content, files (affected file list) |
 | `retrospective` | Wisdom | (Written by retrospective agent) | content |
 | `session_end` | (lifecycle) | (Auto-logged by hook) | content |
-| `security_review_requested` | (lifecycle) | (Auto-logged by push gate) | content |
 
 ## Question Priority Guide
 

@@ -89,7 +89,7 @@ $ claude
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
 - **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate via marker file
-- **Before every push** — security review gate blocks until review is done
+- **Before every commit** — security triage gate blocks until `/xp-security-triage` classifies changes
 - **After every write** — status auto-updated, linter runs
 - **At stop** — `/simplify` required for significant changes (≥3 code files), then `/xp-quality-review` checks courage + drift + debt, TDD gate blocks if tests failing
 - **Technical debt** — tracked, aged across sessions, surfaced during quality review when touching affected files
@@ -143,14 +143,14 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker) | TDD, Planning Game |
-| **PreToolUse** (Bash) | Push security gate, file-modification conflict heuristic (advisory) | Coding Standards |
+| **PreToolUse** (Bash) | Commit security triage gate, file-modification conflict heuristic (advisory) | Coding Standards |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
 | **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
-| **PostToolUse** (Skill) | Security review tracker when `/security-review` completes; behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
+| **PostToolUse** (Skill) | Security triage marker when `/security-review` completes; behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
 | **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
 | **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |

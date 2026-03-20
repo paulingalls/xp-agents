@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: write security tracker after /security-review.
+"""PostToolUse:Skill hook: write security triage marker after /security-review.
 
 When the built-in /security-review skill completes, write the
-.security-reviewed-{hash} tracker file so the push gate clears.
+.security-triaged marker file so the commit gate clears.
+(/xp-security-triage writes its own marker via mark_triaged.py.)
 """
 
 import sys
@@ -15,7 +16,7 @@ import security
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Write security tracker if the Skill tool ran security-review."""
+    """Write security triage marker if the Skill tool ran a security skill."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -31,11 +32,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    head_hash = security.get_head_hash()
-    if head_hash is None:
-        return None
-
-    security.write_security_tracker(smm_dir, head_hash)
+    security.write_security_triaged(smm_dir)
     return None
 
 

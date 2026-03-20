@@ -5,7 +5,6 @@ Appends a minimal status event and checks for structural conflicts
 (patterns 2-5, no file_path so pattern 1 is skipped).
 """
 
-import re
 import sys
 from pathlib import Path
 
@@ -13,42 +12,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import concerns
-import security
-
-# ---------------------------------------------------------------------------
-# Path 2: Security review output detection
-# ---------------------------------------------------------------------------
-
-# At least one "anchor" signal must match (explicitly security-related)
-_SECURITY_ANCHOR_SIGNALS = [
-    re.compile(r"security\s+review", re.IGNORECASE),
-    re.compile(r"security\s+audit", re.IGNORECASE),
-]
-# Additional signals that boost confidence (but alone are too generic)
-_SECURITY_BOOST_SIGNALS = [
-    re.compile(r"no\s+vulnerabilit(?:y|ies)\s+found", re.IGNORECASE),
-    re.compile(r"no\s+(?:security\s+)?issues?\s+found", re.IGNORECASE),
-    re.compile(r"(?:Critical|High|Medium|Low)\s*:", re.IGNORECASE),
-    re.compile(r"vulnerabilit(?:y|ies)", re.IGNORECASE),
-]
-_SECURITY_REVIEW_THRESHOLD = 2
-
-
-def _detect_security_review(message: str) -> bool:
-    """Detect security review output.
-
-    Requires an anchor signal (security review/audit) plus total
-    score >= threshold. Boost signals alone cannot trigger detection,
-    preventing false positives from linter output.
-    """
-    if not message:
-        return False
-    has_anchor = any(sig.search(message) for sig in _SECURITY_ANCHOR_SIGNALS)
-    if not has_anchor:
-        return False
-    all_signals = _SECURITY_ANCHOR_SIGNALS + _SECURITY_BOOST_SIGNALS
-    score = sum(1 for sig in all_signals if sig.search(message))
-    return score >= _SECURITY_REVIEW_THRESHOLD
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -82,11 +45,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     concern_events = concerns.detect_conflicts(events, agent_id)
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
-
-    # Path 2: detect security review output from subagent
-    last_message = input_data.get("last_assistant_message", "")
-    if isinstance(last_message, str) and _detect_security_review(last_message):
-        security.mark_security_reviewed(smm_dir, input_data.get("cwd", "."))
 
     # Plan review gate — write marker event for PreToolUse to detect.
     # Don't block (causes re-planning loops) or nudge via reason (silently dropped).

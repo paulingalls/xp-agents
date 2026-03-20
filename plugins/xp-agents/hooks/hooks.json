@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_bash.py",
-            "statusMessage": "Checking push gate..."
+            "statusMessage": "Checking commit constraints..."
           }
         ]
       }

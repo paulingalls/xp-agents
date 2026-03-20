@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""PreToolUse hook for Bash: push security gate + file-modification detection."""
+"""PreToolUse hook for Bash: commit security gate + file-modification detection."""
 
 import re
-import shlex
 import sys
 from pathlib import Path
 
@@ -12,47 +11,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import security
-
-# ---------------------------------------------------------------------------
-# Git push detection
-# ---------------------------------------------------------------------------
-
-
-def is_git_push(command: str) -> bool:
-    """Detect git push in a shell command using argv parsing.
-
-    Handles /usr/bin/git, git -c key=val push, env git push, etc.
-    Falls back to regex on parse failure.
-    """
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        # Malformed shell quoting — fall back to simple regex
-        return bool(re.search(r"\bgit\s+push\b", command))
-
-    # Walk tokens looking for a git executable followed by push subcommand
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        # Check if token is 'git' or ends with '/git'
-        if tok == "git" or tok.endswith("/git"):
-            # Scan forward past flags/options for the subcommand
-            j = i + 1
-            while j < len(tokens) and tokens[j].startswith("-"):
-                j += 1
-                # Skip flag value for -c/-C style options
-                prev = tokens[j - 1]
-                if (
-                    j < len(tokens)
-                    and not prev.startswith("--")
-                    and prev in ("-c", "-C")
-                ):
-                    j += 1
-            if j < len(tokens) and tokens[j] == "push":
-                return True
-        i += 1
-    return False
-
 
 # ---------------------------------------------------------------------------
 # Bash file-modification heuristic
@@ -99,38 +57,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     parts: list[str] = []
 
-    # Push gate: block git push until security review has been run
-    if smm_dir is not None and is_git_push(command):
-        head_hash = security.get_head_hash(cwd)
-        if head_hash is not None and not security.security_tracker_exists(
-            smm_dir, head_hash
-        ):
-            # Check if a previous review can carry forward
-            # (only non-code changes since last reviewed commit)
-            reviewed_hash = security.find_last_reviewed_hash(smm_dir)
-            if reviewed_hash is not None and not security.diff_has_code_changes(
-                reviewed_hash, head_hash, cwd
-            ):
-                # Carry forward: only non-code changes since last review
-                security.write_security_tracker(smm_dir, head_hash)
-            else:
-                # Block and request review — tracker will be written
-                # by security_review_done.py PostToolUse:Skill hook
-                # when /security-review completes
-                event = _common.make_event(
-                    _common.SECURITY_REVIEW_REQUESTED,
-                    agent_id,
-                    f"Security review required before push (HEAD: {head_hash})",
-                )
-                _common.append_safe(smm_dir, event)
-                raise _common.BlockedError(
-                    "Security review required before pushing. "
-                    "Either run the /security-review skill to "
-                    "perform the review, or if you have already "
-                    "reviewed the code, run the /security-clear "
-                    "skill to clear the gate.",
-                    "Security review required before pushing.",
-                )
+    # Commit gate: block git commit until security triage has been run
+    if (
+        smm_dir is not None
+        and security.is_git_commit(command)
+        and not security.security_triaged_exists(smm_dir)
+    ):
+        raise _common.BlockedError(
+            "Run /xp-security-triage before committing.",
+            "Security triage required before committing.",
+        )
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Integration tests: extended and security tests.
+"""Integration tests: extended and commit gate tests.
 
 Tests for simplify gate, bash failure, lint check extended, bash post tool
-extended, and security review gate.
+extended, and commit security triage gate.
 """
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -399,26 +398,46 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
         self.assertEqual(result.stdout.strip(), "")
 
 
-class TestSecurityReviewGateIntegration(_IntegrationTestCase):
-    """Integration tests for security review push gate and detection paths."""
+class TestCommitGateIntegration(_IntegrationTestCase):
+    """Integration tests for commit security triage gate."""
 
-    def _get_head_hash(self) -> str:
-        """Get HEAD hash from the temp git repo."""
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            text=True,
-            cwd=self.tmpdir,
-        ).strip()
+    def _write_triage_marker(self) -> None:
+        """Write a .security-triaged marker in the SMM dir."""
+        marker = self.smm_dir / ".security-triaged"
+        marker.write_text(json.dumps({"ts": "2026-03-19T00:00:00"}))
 
-    def _write_tracker(self, commit_hash: str) -> None:
-        """Write a security tracker file in the SMM dir."""
-        tracker = self.smm_dir / f".security-reviewed-{commit_hash}"
-        tracker.write_text(
-            json.dumps({"commit_hash": commit_hash, "ts": "2026-03-14T00:00:00"})
+    def test_git_commit_blocked_no_triage(self):
+        """git commit blocked without security triage marker."""
+        result = self._run_script(
+            "pre_tool_bash.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m 'test'"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
         )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("/xp-security-triage", result.stderr)
 
-    def test_git_push_blocked_no_review(self):
-        """git push blocked without security review tracker."""
+    def test_git_commit_passes_with_marker(self):
+        """git commit passes when triage marker exists."""
+        self._write_triage_marker()
+        result = self._run_script(
+            "pre_tool_bash.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m 'test'"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+
+    def test_git_push_not_gated(self):
+        """git push is not gated anymore."""
         result = self._run_script(
             "pre_tool_bash.py",
             {
@@ -429,145 +448,97 @@ class TestSecurityReviewGateIntegration(_IntegrationTestCase):
                 "cwd": str(self.tmpdir),
             },
         )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("security", result.stderr.lower())
-        self.assertIn("/security-review", result.stderr)
-
-    def test_git_push_passes_with_tracker(self):
-        """git push passes when tracker exists for current HEAD."""
-        head = self._get_head_hash()
-        self._write_tracker(head)
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git push origin main"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
 
-    def test_security_review_event_written(self):
-        """Blocking a push writes security_review_requested event."""
-        self._run_script(
-            "pre_tool_bash.py",
+    def test_marker_consumed_after_commit(self):
+        """Triage marker is consumed after a successful git commit."""
+        self._write_triage_marker()
+        marker = self.smm_dir / ".security-triaged"
+        self.assertTrue(marker.exists())
+
+        # Simulate successful commit via bash_post_tool
+        result = self._run_script(
+            "bash_post_tool.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
-                "tool_input": {"command": "git push"},
-                "agent_id": "main",
+                "tool_input": {"command": "git commit -m 'test'"},
+                "tool_response": {"stdout": "[main abc1234] test"},
                 "cwd": str(self.tmpdir),
-            },
-        )
-        events = self._read_events()
-        sec_events = [e for e in events if e.get("type") == "security_review_requested"]
-        self.assertEqual(len(sec_events), 1)
-
-    def test_user_prompt_writes_tracker(self):
-        """/security-review in user prompt writes tracker file."""
-        result = self._run_script(
-            "user_prompt_log.py",
-            {
-                "session_id": "int-test",
-                "prompt": "/security-review",
                 "agent_id": "main",
             },
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        head = self._get_head_hash()
-        tracker = self.smm_dir / f".security-reviewed-{head}"
-        self.assertTrue(
-            tracker.exists(),
-            "Tracker should exist after /security-review",
-        )
+        self.assertFalse(marker.exists(), "Marker should be consumed after commit")
 
-    def test_subagent_security_output_writes_tracker(self):
-        """Security review output from subagent writes tracker file."""
-        msg = (
-            "## Security Review\n\nNo vulnerabilities found.\nSecurity audit complete."
-        )
+    def test_security_review_skill_writes_marker(self):
+        """PostToolUse:Skill for /security-review writes triage marker."""
         result = self._run_script(
-            "subagent_stop.py",
+            "security_review_done.py",
             {
                 "session_id": "int-test",
-                "agent_id": "sub1",
-                "last_assistant_message": msg,
+                "tool_name": "Skill",
+                "tool_input": {"skill": "security-review"},
+                "agent_id": "main",
             },
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        head = self._get_head_hash()
-        tracker = self.smm_dir / f".security-reviewed-{head}"
-        self.assertTrue(
-            tracker.exists(),
-            "Tracker should exist after security output",
-        )
-
-    def test_new_commit_invalidates_tracker(self):
-        """New commit creates new HEAD → old tracker invalid."""
-        old_head = self._get_head_hash()
-        self._write_tracker(old_head)
-
-        # Create a new commit
-        (self.tmpdir / "new_file").write_text("change")
-        subprocess.run(["git", "add", "new_file"], cwd=self.tmpdir, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-m", "new commit"],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
-
-        # Push should now be blocked (new HEAD, old tracker)
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git push"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 2)
+        marker = self.smm_dir / ".security-triaged"
+        self.assertTrue(marker.exists(), "Marker should exist after /security-review")
 
     def test_full_flow(self):
-        """Full flow: push blocked → user sends /security-review → push passes."""
-        # Step 1: push is blocked
+        """Full flow: commit blocked → triage → commit passes → marker consumed."""
+        # Step 1: commit is blocked
         result = self._run_script(
             "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
-                "tool_input": {"command": "git push"},
+                "tool_input": {"command": "git commit -m 'test'"},
                 "agent_id": "main",
                 "cwd": str(self.tmpdir),
             },
         )
         self.assertEqual(result.returncode, 2)
 
-        # Step 2: user sends /security-review
+        # Step 2: security review skill writes marker
         self._run_script(
-            "user_prompt_log.py",
+            "security_review_done.py",
             {
                 "session_id": "int-test",
-                "prompt": "/security-review",
+                "tool_name": "Skill",
+                "tool_input": {"skill": "security-review"},
                 "agent_id": "main",
             },
         )
 
-        # Step 3: push now passes
+        # Step 3: commit now passes
         result = self._run_script(
             "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
-                "tool_input": {"command": "git push"},
+                "tool_input": {"command": "git commit -m 'test'"},
                 "agent_id": "main",
                 "cwd": str(self.tmpdir),
             },
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+
+        # Step 4: marker is consumed after commit
+        self._run_script(
+            "bash_post_tool.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m 'test'"},
+                "tool_response": {"stdout": "[main abc1234] test"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        marker = self.smm_dir / ".security-triaged"
+        self.assertFalse(marker.exists(), "Marker should be consumed after commit")
 
 
 if __name__ == "__main__":

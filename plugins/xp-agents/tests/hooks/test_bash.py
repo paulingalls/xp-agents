@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_failure
 import bash_post_tool
+import security
 from conftest import _HookTestCase, _make_bash_input
 
 # ===========================================================================
@@ -27,22 +28,22 @@ from conftest import _HookTestCase, _make_bash_input
 
 class TestIsGitCommit(unittest.TestCase):
     def test_git_commit_m(self):
-        self.assertTrue(bash_post_tool.is_git_commit("git commit -m 'msg'"))
+        self.assertTrue(security.is_git_commit("git commit -m 'msg'"))
 
     def test_git_commit_am(self):
-        self.assertTrue(bash_post_tool.is_git_commit("git commit -am 'msg'"))
+        self.assertTrue(security.is_git_commit("git commit -am 'msg'"))
 
     def test_git_commit_with_path(self):
-        self.assertTrue(bash_post_tool.is_git_commit("cd /tmp && git commit -m 'x'"))
+        self.assertTrue(security.is_git_commit("cd /tmp && git commit -m 'x'"))
 
     def test_not_git_status(self):
-        self.assertFalse(bash_post_tool.is_git_commit("git status"))
+        self.assertFalse(security.is_git_commit("git status"))
 
     def test_not_ls(self):
-        self.assertFalse(bash_post_tool.is_git_commit("ls -la"))
+        self.assertFalse(security.is_git_commit("ls -la"))
 
     def test_git_commit_no_message(self):
-        self.assertTrue(bash_post_tool.is_git_commit("git commit"))
+        self.assertTrue(security.is_git_commit("git commit"))
 
 
 class TestIsTestRun(unittest.TestCase):
