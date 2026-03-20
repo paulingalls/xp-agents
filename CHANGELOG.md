@@ -1,9 +1,9 @@
 # Changelog
 
-## v0.9.61 — Lint Check: Question Instead of Concern
+## v0.9.62 — Lint Check: Blocking Question
 
 ### Changed
-- **Missing linter config now emits a question, not a concern** — "No linter configured. Want me to set one up?" as a 🟡 assumed question instead of a low-severity concern. Surfaces naturally in question triage and housekeeping, prompting the user to decide rather than just nagging.
+- **Missing linter config now emits a blocking question** — "No linter configured. Want me to set one up?" as a blocking question instead of a low-severity concern. Coding standards are a core XP practice — the user should consciously decide, not passively ignore.
 
 ### Stats
 - 846 tests (all passing)

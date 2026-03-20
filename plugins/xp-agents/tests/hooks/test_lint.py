@@ -65,7 +65,7 @@ class TestLintCheck(_HookTestCase):
         questions = [e for e in events if e.get("type") == "question"]
         self.assertEqual(len(questions), 1)
         self.assertIn("linter", questions[0]["content"].lower())
-        self.assertEqual(questions[0]["priority"], _common.PRIORITY_ASSUMED)
+        self.assertEqual(questions[0]["priority"], _common.PRIORITY_BLOCKING)
         # Flag file should exist
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
 

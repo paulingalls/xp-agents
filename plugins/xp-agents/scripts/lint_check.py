@@ -195,7 +195,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 agent_id,
                 "No linter configured. Want me to set one up? "
                 "(e.g., ruff for Python, eslint for JS/TS)",
-                priority=_common.PRIORITY_ASSUMED,
+                priority=_common.PRIORITY_BLOCKING,
             )
             _common.append_safe(smm_dir, question)
         except (FileExistsError, OSError):
