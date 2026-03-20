@@ -284,7 +284,7 @@ def _build_context_summary(
         "- **Keep**: What went well? Reference specific events.\n"
         "- **Fix**: What went wrong? Name the XP value violated.\n"
         "- **Try**: Concrete experiments for this session.\n\n"
-        "Display the analysis to the user, then run /xp-retrospective "
+        "Display the analysis to the user, then run /xp-run-retrospective "
         "to record results to the event log."
     )
     return "\n".join(parts)

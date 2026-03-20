@@ -58,7 +58,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         gate_event = _common.make_event(
             _common.STATUS,
             agent_id,
-            "plan_awaiting_review: Plan completed, run /xp-plan-reviewer",
+            "plan_awaiting_review: Plan completed, run /xp-review-plan",
             working_on=[],
         )
         _common.append_safe(smm_dir, gate_event)

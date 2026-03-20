@@ -94,7 +94,7 @@ class TestLargeEventLog(_IntegrationTestCase):
         # Should produce retro output (1000 >> threshold of 5)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-retrospective", ctx)
+        self.assertIn("xp-run-retrospective", ctx)
 
 
 class TestConcurrentAgentWrites(_IntegrationTestCase):

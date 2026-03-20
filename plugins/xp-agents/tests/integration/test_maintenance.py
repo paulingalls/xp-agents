@@ -535,7 +535,7 @@ class TestRetroPreloadIntegration(_IntegrationTestCase):
         preload_sh = (
             Path(__file__).parent.parent.parent
             / "skills"
-            / "xp-retrospective"
+            / "xp-run-retrospective"
             / "scripts"
             / "preload.sh"
         )

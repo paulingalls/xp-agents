@@ -1,7 +1,7 @@
 ---
-name: xp-retrospective
+name: xp-run-retrospective
 description: >-
-  XP retrospective analyst. Keep/Fix/Try analysis with XP values as lenses.
+  Run the session retrospective. Keep/Fix/Try analysis with XP values as lenses.
   Use at session start when retrospective data is available.
 effort: high
 context: fork

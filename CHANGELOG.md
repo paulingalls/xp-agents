@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.83 — Rename Skills to Active Voice
+
+### Changed
+- **Skills use active voice, agents use nouns** — eliminates confusion between skill and subagent invocation:
+  - `/xp-review-plan` (skill, action) wraps `xp-plan-reviewer` (agent, actor)
+  - `/xp-run-retrospective` (skill, action) wraps `xp-retrospective` (agent, actor)
+- All hook nudges, kickoff references, and test assertions updated to new skill names.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.82 — Plan Review Nudge Specifies Skill Invocation
 
 ### Fixed

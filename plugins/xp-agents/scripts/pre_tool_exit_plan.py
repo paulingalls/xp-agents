@@ -2,7 +2,7 @@
 """PreToolUse hook for ExitPlanMode: block until plan review runs.
 
 If .plan-awaiting-review marker exists, the plan hasn't been reviewed.
-Block ExitPlanMode so the agent runs /xp-plan-reviewer first.
+Block ExitPlanMode so the agent runs /xp-review-plan first.
 """
 
 import sys
@@ -27,7 +27,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     marker = smm_dir / ".plan-awaiting-review"
     if marker.exists() and not marker.is_symlink():
         raise _common.BlockedError(
-            "Run the /xp-plan-reviewer skill before exiting plan mode.",
+            "Run the /xp-review-plan skill before exiting plan mode.",
             "Plan review required before implementation.",
         )
 

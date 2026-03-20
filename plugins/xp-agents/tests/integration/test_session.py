@@ -272,7 +272,7 @@ class TestMilestone65Integration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("xp-retrospective", ctx)
+        self.assertIn("xp-run-retrospective", ctx)
 
     def test_agent_files_exist(self):
         """All 2 agent .md files exist in agents/ directory."""

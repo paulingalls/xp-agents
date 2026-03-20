@@ -380,7 +380,7 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("xp-plan-reviewer", result)
+        self.assertIn("xp-review-plan", result)
 
     def test_no_marker_no_nudge(self):
         """Write without marker should not nudge."""
@@ -389,7 +389,7 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         if result:
-            self.assertNotIn("xp-plan-reviewer", result)
+            self.assertNotIn("xp-review-plan", result)
 
     def test_marker_removed_no_nudge(self):
         """Write after marker removed should not nudge."""
@@ -401,7 +401,7 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         if result:
-            self.assertNotIn("xp-plan-reviewer", result)
+            self.assertNotIn("xp-review-plan", result)
 
 
 if __name__ == "__main__":
