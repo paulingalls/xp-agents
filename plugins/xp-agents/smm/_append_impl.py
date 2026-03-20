@@ -680,6 +680,11 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for append operations."""
     parser = argparse.ArgumentParser(description="Append an event to the SMM event log")
 
+    # Optional SMM directory override (avoids CLAUDE_PLUGIN_DATA env var issues)
+    parser.add_argument(
+        "--smm-dir", type=Path, help="SMM directory (auto-resolved if omitted)"
+    )
+
     # Universal required
     parser.add_argument("--type", required=True, choices=VALID_TYPES, help="Event type")
     parser.add_argument("--agent", required=True, help="Agent ID")
@@ -752,7 +757,7 @@ def main() -> None:
         sys.exit(1)
 
     # Resolve and validate SMM directory
-    smm_dir = resolve_smm_dir()
+    smm_dir = args.smm_dir if args.smm_dir else resolve_smm_dir()
     try:
         _validate_smm_dir(smm_dir)
     except ValueError as e:

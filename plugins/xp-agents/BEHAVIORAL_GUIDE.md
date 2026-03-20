@@ -36,4 +36,11 @@ When values conflict: Courage > Simplicity > Feedback > Communication > Respect.
 
 ---
 
-Record events using `${CLAUDE_PLUGIN_ROOT}/smm/append.sh`. Run `append.sh --help` to learn how. For detailed guidance on event types, invoke `/smm-protocol`.
+Record events using `append.sh`. Always prefix with `CLAUDE_PLUGIN_DATA` so the correct SMM path is resolved:
+
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "<type>" --agent "<agent>" --content "<content>"
+```
+
+Run `append.sh --help` for all options. For detailed guidance on event types, invoke `/smm-protocol`.

@@ -13,7 +13,7 @@ effort: low
 Use `append.sh` for all event writes. Never write directly to `events.jsonl`.
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "TYPE" \
   --agent "$AGENT_ID" \
   --content "Description here" \
@@ -71,7 +71,7 @@ Link related events by ID:
 - A `decision` references the `convention` it follows (or should reference)
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "answer" \
   --agent "main" \
   --content "Customer confirmed: use PostgreSQL" \
@@ -105,7 +105,7 @@ Read Intent and Risks before every significant action. Check Constraints when ma
 
 ### Starting a new task
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "status" \
   --agent "main" \
   --content "Starting auth module refactor to typed errors" \
@@ -114,7 +114,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 
 ### Making an architectural choice
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "decision" \
   --agent "main" \
   --content "Using typed error classes instead of string matching for auth errors — safer refactoring, better IDE support" \
@@ -123,7 +123,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 
 ### Flagging technical debt
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "debt" \
   --agent "main" \
   --content "Legacy string error matching still in place for 3 edge cases — will migrate in next pass" \
@@ -132,7 +132,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 
 ### Recording an assumption
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "assumption" \
   --agent "main" \
   --content "Assuming all auth errors are subclasses of AuthError — not verified for third-party providers"

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.71 — CLAUDE_PLUGIN_DATA in All Bash Commands
+
+### Fixed
+- **All `append.sh` and `save_retrospective.py` calls now inject `CLAUDE_PLUGIN_DATA`** — the env var is inline-substituted in skill/agent content but not exported to Bash tool processes. Every bash code block in skills, agents, and the behavioral guide now prefixes commands with `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}"` so the actual path is baked into the command.
+- **`_append_impl.py` accepts `--smm-dir`** — optional argument for direct path override, bypassing env var resolution.
+
+### Stats
+- 851 tests (all passing)
+
 ## v0.9.70 — Housekeeping Asks User About Goal Completion
 
 ### Fixed

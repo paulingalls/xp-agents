@@ -57,7 +57,7 @@ Actions:
 
 Record confirmed decisions:
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "decision" \
   --agent "xp-housekeeping" \
   --content "<decision content>" \
@@ -120,7 +120,7 @@ If any pillar is unhealthy, note the warning in your output to the user.
 
 For any items resolved during curation (goals completed, concerns addressed, debt fixed, decisions rejected), record resolution events:
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "status" \
   --agent "xp-housekeeping" \
   --content "<resolution description>" \

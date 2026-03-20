@@ -23,7 +23,7 @@ The current goals above were preloaded automatically.
    - "Any goals for this session?" with options like "Add goals", "No new goals"
 3. If the user wants to add goals, ask what they are and record each as a `goal` event:
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
      --type "goal" \
      --agent "xp-goal-collection" \
      --content "Goal description from user"

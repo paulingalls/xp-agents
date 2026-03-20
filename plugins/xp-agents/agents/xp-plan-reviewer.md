@@ -42,7 +42,7 @@ The plan content is in the conversation context. Analyze it directly.
 For each assumption the plan makes — where you can state a reasonable default and proceed — write an `assumption` event:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "assumption" \
   --agent "xp-plan-reviewer" \
   --content "Assumption: description of what is assumed"
@@ -52,7 +52,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 When the plan contains ambiguity that only the user or customer can resolve — and getting it wrong means significant rework — write a `question` event instead of an assumption:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "question" \
   --agent "xp-plan-reviewer" \
   --content "Question text — include current assumption if priority is assumed" \
@@ -70,7 +70,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 
 For assumed-priority questions, include the current assumption so question triage can present it:
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "question" \
   --agent "xp-plan-reviewer" \
   --content "Should auth tokens be stored in cookies or localStorage? Assuming cookies (more secure), but the existing codebase may have a localStorage dependency." \
@@ -81,7 +81,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 For decisions embedded in the plan, write `decision` events with `metadata.draft: true`:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "decision" \
   --agent "xp-plan-reviewer" \
   --content "Decision: description" \
