@@ -303,6 +303,22 @@ class TestParseTestResults(unittest.TestCase):
     def test_vitest_detected(self):
         self.assertEqual(bash_post_tool.is_test_run("npx vitest"), "vitest")
 
+    # --- Bun ---
+    def test_bun_test_detected(self):
+        self.assertEqual(bash_post_tool.is_test_run("bun test"), "bun")
+
+    def test_bun_pass(self):
+        output = "130 pass\n 0 fail\n 418 expect() calls"
+        result = bash_post_tool.parse_test_results(output, "bun")
+        self.assertEqual(result["passed"], 130)
+        self.assertEqual(result["failed"], 0)
+
+    def test_bun_fail(self):
+        output = "8 pass\n 2 fail\n 30 expect() calls"
+        result = bash_post_tool.parse_test_results(output, "bun")
+        self.assertEqual(result["passed"], 8)
+        self.assertEqual(result["failed"], 2)
+
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_records_status(self):

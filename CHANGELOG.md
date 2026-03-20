@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.96 — Add Bun Test Detection
+
+### Added
+- **`bun test` detection and result parsing** — matches "N pass, M fail" output format. The retro kept flagging "test runs not tracked" because `bun test` wasn't in `is_test_run()`.
+
+### Stats
+- 894 tests (all passing, +3 new)
+
 ## v0.9.95 — Show Plugin Version at Startup
 
 ### Added

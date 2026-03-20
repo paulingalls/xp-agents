@@ -39,6 +39,8 @@ def is_test_run(command: str) -> str | None:
         return "jest"
     if re.search(r"\b(npx\s+)?vitest\b", command):
         return "vitest"
+    if re.search(r"\bbun\s+test\b", command):
+        return "bun"
     # Go
     if re.search(r"\bgo\s+test\b", command):
         return "go"
@@ -304,6 +306,15 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             m = re.search(r"(\d+)\s+passed", tool_response)
             if m:
                 result["passed"] = int(m.group(1))
+
+        case "bun":
+            # "130 pass\n 0 fail" or "130 pass, 0 fail"
+            m = re.search(r"(\d+)\s+pass", tool_response)
+            if m:
+                result["passed"] = int(m.group(1))
+            m = re.search(r"(\d+)\s+fail", tool_response)
+            if m:
+                result["failed"] = int(m.group(1))
 
     return result
 
