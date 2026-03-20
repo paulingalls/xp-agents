@@ -155,9 +155,9 @@ SMMEOF
 
 ## 8. Load Session Context
 
-After writing the SMM, load the full context:
+After writing the SMM, load the full context. Pass the SMM_DIR from the preload output (shown at the top under "## SMM_DIR"):
 
-1. Run: `${CLAUDE_SKILL_DIR}/scripts/load_context.sh`
+1. Run: `${CLAUDE_SKILL_DIR}/scripts/load_context.sh <SMM_DIR>`  (replace `<SMM_DIR>` with the actual path from the preload)
 2. Read the file at the SMM_FILE path from the output
 3. Read the file at the GUIDE_FILE path from the output
 

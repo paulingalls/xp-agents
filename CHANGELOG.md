@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.64 — Fix load_context.sh SMM Path
+
+### Fixed
+- **`load_context.sh` accepts SMM_DIR as argument** — when called by the agent via Bash during housekeeping, the script couldn't resolve `CLAUDE_PLUGIN_DATA` and fell back to the wrong path. Now accepts the preloaded SMM_DIR as `$1`, with init.sh as fallback.
+- **Housekeeping SKILL.md updated** — step 8 instructions tell the agent to pass the SMM_DIR from the preload output.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.63 — Fix Subagent SMM Path Resolution
 
 ### Fixed
