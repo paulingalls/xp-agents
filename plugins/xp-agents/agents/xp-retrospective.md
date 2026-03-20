@@ -100,9 +100,11 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 ## Actions
 
-### 1. Save the retrospective (event + file + materialize):
+**You MUST complete BOTH actions before returning. Action 1 (save) is mandatory — do NOT skip it.**
 
-Build a JSON object with your Keep/Fix/Try analysis and pipe it to the save script:
+### 1. Save the retrospective (MANDATORY — do this FIRST):
+
+Build a JSON object with your Keep/Fix/Try analysis and pipe it to the save script. **You must run this Bash command before returning.** Do not use the Write tool. Do not skip this step.
 
 ```bash
 cat <<'RETRO_JSON' | CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
@@ -118,12 +120,14 @@ RETRO_JSON
 This single command:
 - Writes the retrospective event to events.jsonl
 - Saves a timestamped JSON file to the retrospectives directory
-- Materializes the updated SMM
+- Cleans up .retro-input.json
 - Outputs `EVENT_ID=<id>` and `RETRO_FILE=<path>`
+
+**If you do not see `EVENT_ID=` in the output, the save failed — retry it.**
 
 ### 2. Return summary to the main agent:
 
-Provide a concise Keep/Fix/Try summary that the main agent can act on immediately.
+After saving, provide a concise Keep/Fix/Try summary that the main agent can act on immediately.
 
 ## Cross-Session Trends
 

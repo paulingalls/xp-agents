@@ -7,6 +7,7 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
+  - Bash(cat *| CLAUDE_PLUGIN_DATA=* python3 */save_retrospective.py)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/check_session_needs.sh`
@@ -20,6 +21,20 @@ The session status above was preloaded automatically.
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
 If the preload shows "RETRO_NEEDED", run `/xp-retrospective` now. Wait for it to complete, then proceed to step 2.
+
+The retrospective subagent saves its own results via `save_retrospective.py`. **Do NOT use the Write tool to save retrospective files yourself.**
+
+After the subagent returns, check if `.retro-input.json` still exists in the SMM directory. If it does, the subagent failed to save — run the save yourself as a fallback:
+
+```bash
+cat <<'RETRO_JSON' | CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
+{
+  "keep": [<keep items from the subagent's output>],
+  "fix": [<fix items from the subagent's output>],
+  "try": [<try items from the subagent's output>]
+}
+RETRO_JSON
+```
 
 If not needed, proceed to step 2.
 

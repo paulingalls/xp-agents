@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.75 — Ensure Retrospective Saves via Script
+
+### Fixed
+- **Retro subagent must save via `save_retrospective.py` before returning** — strengthened agent prompt with mandatory save instruction. Previously the subagent returned analysis as text and the main agent used `Write` to save, bypassing the event log, structured JSON format, and `.retro-input.json` cleanup.
+- **Kickoff has fallback save** — if `.retro-input.json` still exists after the retro subagent returns, kickoff runs `save_retrospective.py` itself. Belt and suspenders.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.74 — Clean Up Retro Input After Consumption
 
 ### Fixed
