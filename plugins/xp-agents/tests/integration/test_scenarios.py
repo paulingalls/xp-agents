@@ -6,7 +6,6 @@ full session lifecycle, plan review flow, and three-session accumulation.
 """
 
 import json
-import os
 import subprocess
 import sys
 import unittest
@@ -220,7 +219,7 @@ class TestRetrospectiveIntegration(_IntegrationTestCase):
 class TestNewEventTypesIntegration(_IntegrationTestCase):
     def _run_append(self, *args: str) -> subprocess.CompletedProcess:
         """Run append.sh with given args in the temp git repo."""
-        env = os.environ.copy()
+        env = self._test_env.copy()
         env["CLAUDE_PLUGIN_ROOT"] = str(Path(__file__).parent.parent.parent)
         append_sh = Path(__file__).parent.parent.parent / "smm" / "append.sh"
         return subprocess.run(

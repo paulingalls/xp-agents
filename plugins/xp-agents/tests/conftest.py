@@ -174,7 +174,11 @@ class _IntegrationTestCase(unittest.TestCase):
             check=True,
         )
 
-        # Init SMM
+        # Init SMM — use a temp plugin data dir for test isolation
+        self._plugin_data_dir = Path(tempfile.mkdtemp())
+        self._test_env = os.environ.copy()
+        self._test_env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+
         init_sh = _PLUGIN_ROOT / "smm" / "init.sh"
         result = subprocess.run(
             ["bash", str(init_sh)],
@@ -182,27 +186,30 @@ class _IntegrationTestCase(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
+            env=self._test_env,
         )
         self.smm_dir = Path(result.stdout.strip())
         self.scripts_dir = _SCRIPTS_DIR
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
-        # Clean up SMM dir (under ~/.claude/xp-agents/<hash>)
-        smm_parent = self.smm_dir.parent
-        if smm_parent.exists():
-            shutil.rmtree(smm_parent)
+        shutil.rmtree(self._plugin_data_dir, ignore_errors=True)
 
     def _run_script(
         self, script_name: str, input_data: dict
     ) -> subprocess.CompletedProcess:
-        """Run a hook script as a subprocess with JSON on stdin."""
+        """Run a hook script as a subprocess with JSON on stdin.
+
+        Uses the same CLAUDE_PLUGIN_DATA as setUp so scripts resolve
+        the same SMM path.
+        """
         return subprocess.run(
             ["python3", str(self.scripts_dir / script_name)],
             input=json.dumps(input_data),
             capture_output=True,
             text=True,
             cwd=self.tmpdir,
+            env=self._test_env,
         )
 
     def _read_events(self) -> list[dict]:
@@ -224,7 +231,7 @@ class _IntegrationTestCase(unittest.TestCase):
         self, script_name: str, input_data: dict, env_overrides: dict
     ) -> subprocess.CompletedProcess:
         """Run a hook script with custom environment variables."""
-        env = os.environ.copy()
+        env = self._test_env.copy()
         env.update(env_overrides)
         return subprocess.run(
             ["python3", str(self.scripts_dir / script_name)],

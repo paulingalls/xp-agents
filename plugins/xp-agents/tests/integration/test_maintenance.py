@@ -312,6 +312,7 @@ class TestLoadContext(_IntegrationTestCase):
             capture_output=True,
             text=True,
             cwd=self.tmpdir,
+            env=self._test_env,
         )
 
     def _assert_output_file_exists(
@@ -543,6 +544,7 @@ class TestRetroPreloadIntegration(_IntegrationTestCase):
             capture_output=True,
             text=True,
             cwd=self.tmpdir,
+            env=self._test_env,
         )
 
     def test_preload_excludes_raw_events(self):
