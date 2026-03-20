@@ -28,4 +28,4 @@ Changes triaged as non-security-relevant. Commit gate cleared.
 
 ## If security-relevant
 
-Do NOT write the marker. Instead, run `/security-review` which will perform a full security review and write the marker upon completion.
+Do NOT write the marker. Instead, run `/security-review` to perform a full security review. This is a **built-in Claude Code command** — invoke it as `/security-review`, NOT as `xp-agents:security-review`. The built-in review will write the triage marker when it completes.

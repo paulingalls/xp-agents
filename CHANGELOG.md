@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.85 — Security Review Is a Built-in Skill
+
+### Fixed
+- **Security triage clarifies `/security-review` is built-in** — the agent was prefixing it with `xp-agents:` (plugin namespace), causing "Unknown skill" error. The triage skill now explicitly says it's a built-in Claude Code command and not to prefix it.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.84 — Rename smm-protocol to xp-smm-protocol
 
 ### Changed
