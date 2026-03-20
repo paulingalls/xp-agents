@@ -185,7 +185,7 @@ class TestPostToolUseIntegration(_IntegrationTestCase):
 
 
 class TestLintCheckIntegration(_IntegrationTestCase):
-    def test_no_linter_config_warns_once(self):
+    def test_no_linter_config_asks_once(self):
         result = self._run_script(
             "lint_check.py",
             {
@@ -200,12 +200,12 @@ class TestLintCheckIntegration(_IntegrationTestCase):
         self.assertEqual(result.stdout, "")
 
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 1)
-        self.assertIn("linter", concerns[0]["content"].lower())
+        questions = [e for e in events if e.get("type") == "question"]
+        self.assertEqual(len(questions), 1)
+        self.assertIn("linter", questions[0]["content"].lower())
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
 
-        # Second run — no new concern
+        # Second run — no new question
         result2 = self._run_script(
             "lint_check.py",
             {
@@ -218,8 +218,8 @@ class TestLintCheckIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result2.returncode, 0)
         events2 = self._read_events()
-        concerns2 = [e for e in events2 if e.get("type") == "concern"]
-        self.assertEqual(len(concerns2), 1)
+        questions2 = [e for e in events2 if e.get("type") == "question"]
+        self.assertEqual(len(questions2), 1)
 
 
 class TestBashPostToolIntegration(_IntegrationTestCase):

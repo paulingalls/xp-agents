@@ -56,15 +56,16 @@ class TestDetectLinterConfig(unittest.TestCase):
 
 
 class TestLintCheck(_HookTestCase):
-    def test_no_config_warns_once(self):
+    def test_no_config_asks_once(self):
         lint_check.run(
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 1)
-        self.assertIn("linter", concerns[0]["content"].lower())
+        questions = [e for e in events if e.get("type") == "question"]
+        self.assertEqual(len(questions), 1)
+        self.assertIn("linter", questions[0]["content"].lower())
+        self.assertEqual(questions[0]["priority"], _common.PRIORITY_ASSUMED)
         # Flag file should exist
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
 
@@ -75,8 +76,8 @@ class TestLintCheck(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 0)
+        questions = [e for e in events if e.get("type") == "question"]
+        self.assertEqual(len(questions), 0)
 
     def test_linter_binary_missing(self):
         # Create a ruff.toml in a temp dir but ruff isn't on PATH

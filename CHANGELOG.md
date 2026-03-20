@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.61 — Lint Check: Question Instead of Concern
+
+### Changed
+- **Missing linter config now emits a question, not a concern** — "No linter configured. Want me to set one up?" as a 🟡 assumed question instead of a low-severity concern. Surfaces naturally in question triage and housekeeping, prompting the user to decide rather than just nagging.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.60 — Plugin Data Path Fix for Skill Preloads
 
 ### Fixed

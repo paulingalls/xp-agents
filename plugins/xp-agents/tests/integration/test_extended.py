@@ -177,8 +177,8 @@ class TestLintCheckIntegrationExtended(_IntegrationTestCase):
         events = self._read_events()
         self.assertEqual(len(events), 0)
 
-    def test_no_linter_warning_only_once(self):
-        """Second run without linter config → no duplicate concern."""
+    def test_no_linter_question_only_once(self):
+        """Second run without linter config → no duplicate question."""
         for _ in range(2):
             self._run_script(
                 "lint_check.py",
@@ -191,8 +191,8 @@ class TestLintCheckIntegrationExtended(_IntegrationTestCase):
                 },
             )
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 1, "Should warn exactly once")
+        questions = [e for e in events if e.get("type") == "question"]
+        self.assertEqual(len(questions), 1, "Should ask exactly once")
 
 
 class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
