@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.95 — Show Plugin Version at Startup
+
+### Added
+- **Plugin version in startup message** — "XP agents (v0.9.95) active. Run /xp-kickoff." Reads from plugin.json.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.94 — Draft Promotion Resolves, Doesn't Create New Events
 
 ### Fixed

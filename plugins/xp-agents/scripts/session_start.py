@@ -7,6 +7,7 @@ Sets .needs-kickoff marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -101,11 +102,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _get_version() -> str:
+    """Read plugin version from plugin.json."""
+    try:
+        plugin_json = _common.resolve_plugin_root() / ".claude-plugin" / "plugin.json"
+        data = json.loads(plugin_json.read_text())
+        return data.get("version", "?")
+    except (OSError, json.JSONDecodeError, ValueError):
+        return "?"
+
+
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
+        version = _get_version()
         _common.hook_output(
-            "SessionStart", context, "XP agents active. Run /xp-kickoff."
+            "SessionStart", context, f"XP agents (v{version}) active. Run /xp-kickoff."
         )
     sys.exit(0)
