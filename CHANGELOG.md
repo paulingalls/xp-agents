@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.56 — SMM Path Fix
+
+### Fixed
+- **SMM directory now uses `CLAUDE_PLUGIN_DATA`** — `resolve_smm_dir()` in Python was hardcoded to `~/.claude/xp-agents/`, ignoring the `CLAUDE_PLUGIN_DATA` environment variable that the plugin platform provides. `init.sh` already used it correctly. Now both are in sync, placing the SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` when installed via marketplace.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.55 — Kickoff Gate Fix
 
 ### Fixed

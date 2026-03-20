@@ -43,7 +43,12 @@ def resolve_smm_dir() -> Path:
         git_common_path = git_common_path.resolve()
 
     project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
-    return Path.home() / ".claude" / "xp-agents" / project_id / "smm"
+    # Use CLAUDE_PLUGIN_DATA if available (standard plugin ecosystem path),
+    # fall back to ~/.claude/xp-agents for --plugin-dir development mode.
+    base_dir = os.environ.get("CLAUDE_PLUGIN_DATA", "")
+    if not base_dir:
+        base_dir = str(Path.home() / ".claude" / "xp-agents")
+    return Path(base_dir) / project_id / "smm"
 
 
 # ---------------------------------------------------------------------------
