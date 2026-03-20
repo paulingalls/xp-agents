@@ -1,4 +1,4 @@
-# Manual Test Plan (v0.9.54)
+# Manual Test Plan (v0.9.93)
 
 Hands-on acceptance tests for the xp-agents plugin. Organized by workflow. Each test has **Do** and **Verify** steps.
 
@@ -32,7 +32,7 @@ claude plugin list
 ```
 
 **Verify:**
-- `xp-agents` appears with version `0.9.54`
+- `xp-agents` appears with current version
 - No errors during installation
 
 ---
@@ -144,7 +144,7 @@ Stage and commit the todo.py and test_todo.py files
 - After Claude runs `/xp-security-triage`:
   - For trivial changes (dataclass + tests): auto-cleared, `.security-triaged` marker written
   - Commit proceeds on retry
-- `events.jsonl` may contain a draft `decision` event from the commit message
+- `events.jsonl` contains a `status` event recording the commit
 - If commit has >10 files: a concern event warns about commit size
 
 ---
@@ -256,7 +256,7 @@ plugins/xp-agents/smm/append.sh \
 - After the write, `lint_check.py` detects the linter config
 - Lint errors appear immediately as context (additionalContext)
 - Concern events are appended for lint violations
-- If no linter configured: a one-time note, no errors
+- If no linter configured: a blocking question ("Want me to set one up?")
 
 ---
 
@@ -434,7 +434,7 @@ Then type a new prompt in the active session.
 **Verify:**
 - Each skill loads and provides reference content
 - `xp-smm-protocol` covers event types, `working_on`, recording patterns
-- `/xp-kickoff` orchestrates session start (retro → goals → question triage → housekeeping)
+- `/xp-kickoff` orchestrates session start (retro → question triage → goals → housekeeping)
 - `/xp-housekeeping` curates the four-pillar SMM
 
 ---
@@ -465,32 +465,32 @@ Then type a new prompt in the active session.
 
 ## Test Results Checklist
 
-| # | Test | Status |
-|---|------|--------|
-| 1.1 | Installation | |
-| 1.2 | SMM init + kickoff gate | |
-| 1.3 | Kickoff + goal collection | |
-| 1.4 | User prompt logging | |
-| 1.5 | File write + auto status + lint | |
-| 1.6 | TDD order check | |
-| 1.7 | Test writing and execution | |
-| 1.8 | Commit + security triage gate | |
-| 1.9 | Plan review | |
-| 1.10 | Simplify gate | |
-| 1.11 | Quality review gate | |
-| 1.12 | TDD stop gate | |
-| 1.13 | Session end event | |
-| 1.14 | Desktop notifications | |
-| 2.1 | Install into existing project | |
-| 2.2 | Lint integration | |
-| 2.3 | Conflict detection | |
-| 2.4 | Retrospective | |
-| 2.5 | Question triage | |
-| 2.6 | Debt aging | |
-| 2.7 | Subagent context injection | |
-| 2.8 | Prompt nuggets | |
-| 2.9 | Event log compaction | |
-| 2.10 | Security-relevant triage | |
-| 2.11 | Skills availability | |
-| 2.12 | Concurrent access | |
-| 2.13 | Graceful degradation | |
+| # | Test | Status | Notes |
+|---|------|--------|-------|
+| 1.1 | Installation | PASS | Marketplace install works (v0.9.55+) |
+| 1.2 | SMM init + kickoff gate | PASS | Gate blocks, SMM dir created at CLAUDE_PLUGIN_DATA path |
+| 1.3 | Kickoff + goal collection | PASS | Fixed: gate blocked AskUserQuestion (v0.9.55), kickoff must complete before work (v0.9.59) |
+| 1.4 | User prompt logging | PASS | customer_input events recorded |
+| 1.5 | File write + auto status + lint | PASS | Status events with working_on recorded. Linter question fires for new projects (v0.9.62) |
+| 1.6 | TDD order check | PASS | Fixed: Swift test files now recognized (v0.9.72) |
+| 1.7 | Test writing and execution | PASS | Fixed: xcodebuild/swift test parsing added (v0.9.65) |
+| 1.8 | Commit + security triage gate | PASS | Commit blocked, triage classifies, security-relevant chains to built-in /security-review (v0.9.85) |
+| 1.9 | Plan review | PASS | Fixed: ExitPlanMode blocked until review runs (v0.9.77), skill/agent naming clarified (v0.9.83) |
+| 1.10 | Simplify gate | PASS | Gate fires, 3 review agents launch |
+| 1.11 | Quality review gate | PASS | Fixed: shell compat for preload (v0.9.58) |
+| 1.12 | TDD stop gate | PASS | Blocks on failing tests |
+| 1.13 | Session end event | PASS | session_end events recorded |
+| 1.14 | Desktop notifications | PASS | Blocking question triggers macOS notification |
+| 2.1 | Install into existing project | PASS | SMM at plugin data level, goals collected |
+| 2.2 | Lint integration | PASS | Blocking question for missing linter (v0.9.62), SwiftLint detected |
+| 2.3 | Conflict detection | | Not tested manually |
+| 2.4 | Retrospective | PASS | Retro runs via subagent, saves via save_retrospective.py (v0.9.75), full output shown (v0.9.93) |
+| 2.5 | Question triage | PASS | Fixed: detects questions from raw events (v0.9.67), runs before goals (v0.9.67) |
+| 2.6 | Debt aging | PASS | Bun.serve() risk aged to ⚠️ after 4 sessions |
+| 2.7 | Subagent context injection | PASS | SMM + behavioral guide injected via SubagentStart |
+| 2.8 | Prompt nuggets | PASS | New events surfaced at UserPromptSubmit |
+| 2.9 | Event log compaction | PASS | Fixed: watermark clamping (v0.9.87), kickoff_done fires (v0.9.79), retros capped at 2, drafts compactable (v0.9.92) |
+| 2.10 | Security-relevant triage | PASS | Triage classifies correctly, chains to /security-review |
+| 2.11 | Skills availability | PASS | All skills load with xp- prefix (v0.9.84) |
+| 2.12 | Concurrent access | | Not tested manually |
+| 2.13 | Graceful degradation | | Not tested manually |
