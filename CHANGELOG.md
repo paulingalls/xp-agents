@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.65 — Xcode and Swift Test Detection
+
+### Added
+- **Xcode and Swift test result parsing** — `xcodebuild test` and `swift test` commands now detected and parsed. Matches "Executed N tests, with M failures" output format. Test pass/fail events are recorded to the SMM, enabling TDD stop gate enforcement for iOS/macOS projects.
+
+### Stats
+- 851 tests (all passing, +5 new)
+
 ## v0.9.64 — Fix load_context.sh SMM Path
 
 ### Fixed

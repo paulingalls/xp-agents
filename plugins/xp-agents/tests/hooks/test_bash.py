@@ -139,6 +139,51 @@ class TestParseTestResults(unittest.TestCase):
         )
         self.assertIsNone(bash_post_tool.is_test_run("echo unittest"))
 
+    def test_xcodebuild_pass(self):
+        output = (
+            "Executed 12 tests, with 0 failures (0 unexpected) in 1.234 (2.345) seconds"
+        )
+        result = bash_post_tool.parse_test_results(output, "xcodebuild")
+        self.assertEqual(result["passed"], 12)
+        self.assertEqual(result["failed"], 0)
+
+    def test_xcodebuild_fail(self):
+        output = (
+            "Executed 12 tests, with 3 failures (2 unexpected) in 1.234 (2.345) seconds"
+        )
+        result = bash_post_tool.parse_test_results(output, "xcodebuild")
+        self.assertEqual(result["passed"], 9)
+        self.assertEqual(result["failed"], 3)
+
+    def test_swift_test_pass(self):
+        output = (
+            "Executed 5 tests, with 0 failures (0 unexpected) in 0.456 (0.789) seconds"
+        )
+        result = bash_post_tool.parse_test_results(output, "swift")
+        self.assertEqual(result["passed"], 5)
+        self.assertEqual(result["failed"], 0)
+
+    def test_is_test_run_xcodebuild(self):
+        self.assertEqual(
+            bash_post_tool.is_test_run("xcodebuild test -scheme MyApp"),
+            "xcodebuild",
+        )
+        self.assertEqual(
+            bash_post_tool.is_test_run("xcodebuild -workspace Foo.xcworkspace test"),
+            "xcodebuild",
+        )
+        self.assertIsNone(bash_post_tool.is_test_run("xcodebuild build"))
+
+    def test_is_test_run_swift(self):
+        self.assertEqual(
+            bash_post_tool.is_test_run("swift test"),
+            "swift",
+        )
+        self.assertEqual(
+            bash_post_tool.is_test_run("swift test --filter MyTests"),
+            "swift",
+        )
+
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_auto_drafts_decision(self):

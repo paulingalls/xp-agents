@@ -37,6 +37,10 @@ def is_test_run(command: str) -> str | None:
         return "jest"
     if re.search(r"\bgo\s+test\b", command):
         return "go"
+    if re.search(r"\bxcodebuild\b.*\btest\b", command):
+        return "xcodebuild"
+    if re.search(r"\bswift\s+test\b", command):
+        return "swift"
     return None
 
 
@@ -130,6 +134,18 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             result["failed"] = failures + errors
             result["errors"] = errors
             result["passed"] = max(0, total - result["failed"])
+
+        case "xcodebuild" | "swift":
+            # "Executed 5 tests, with 2 failures ..."
+            m = re.search(
+                r"Executed\s+(\d+)\s+tests?,\s+with\s+(\d+)\s+failures?",
+                tool_response,
+            )
+            if m:
+                total = int(m.group(1))
+                failures = int(m.group(2))
+                result["failed"] = failures
+                result["passed"] = max(0, total - failures)
 
     return result
 
