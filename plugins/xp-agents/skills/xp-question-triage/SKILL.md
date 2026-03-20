@@ -10,7 +10,7 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/check_questions.sh`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/check_questions.sh`
 
 # Question Triage & Intent Reconciliation
 

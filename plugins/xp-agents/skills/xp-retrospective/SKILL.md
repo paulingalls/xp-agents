@@ -17,6 +17,6 @@ allowed-tools:
   - Bash(cat *| python3 */save_retrospective.py)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
 Analyze the retrospective data above using the Keep/Fix/Try framework with XP values as lenses. Record findings to the event log and retrospectives directory.

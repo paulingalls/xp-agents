@@ -17,7 +17,7 @@ allowed-tools:
   - Bash(python3 -m unittest *)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
 # Quality Review
 

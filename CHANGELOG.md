@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.60 — Plugin Data Path Fix for Skill Preloads
+
+### Fixed
+- **Skill `!` preloads now use correct SMM path** — `CLAUDE_PLUGIN_DATA` is inline-substituted in skill content but not exported as an env var to `!` preload commands. All 8 skill preloads now pass `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}"` explicitly so `init.sh` resolves the correct plugin data path instead of falling back to `~/.claude/xp-agents/`.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.59 — Kickoff Must Complete Before Work Begins
 
 ### Fixed

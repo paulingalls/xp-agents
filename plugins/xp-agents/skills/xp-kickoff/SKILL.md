@@ -9,7 +9,7 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/check_session_needs.sh`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/check_session_needs.sh`
 
 # Session Kickoff
 

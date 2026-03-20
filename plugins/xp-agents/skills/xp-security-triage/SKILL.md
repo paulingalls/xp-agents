@@ -22,7 +22,7 @@ Review the staged changes (`git diff --cached`) and classify them:
 
 Write the triage marker:
 
-!`python3 ${CLAUDE_SKILL_DIR}/scripts/mark_triaged.py`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 ${CLAUDE_SKILL_DIR}/scripts/mark_triaged.py`
 
 Changes triaged as non-security-relevant. Commit gate cleared.
 

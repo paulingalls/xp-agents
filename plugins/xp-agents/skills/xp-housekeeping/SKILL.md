@@ -11,7 +11,7 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
 ---
 
-!`${CLAUDE_SKILL_DIR}/scripts/prepare_curation_preload.sh`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/prepare_curation_preload.sh`
 
 # Housekeeping — Four-Pillar SMM Curation
 
