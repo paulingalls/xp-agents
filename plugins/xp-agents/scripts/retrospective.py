@@ -220,29 +220,15 @@ def _write_retro_input(smm_dir: Path, data: dict) -> None:
     _common.write_json_atomic(smm_dir / ".retro-input.json", data)
 
 
-def _summarize_key_events(events: list[dict]) -> str:
-    """Produce a condensed text summary of non-status events for analysis."""
-    lines: list[str] = []
-    skip_types = {_common.STATUS}
-    for e in events:
-        etype = e.get("type", "")
-        if etype in skip_types:
-            continue
-        eid = e.get("id", "?")[:8]
-        content = e.get("content", "")
-        if len(content) > 200:
-            content = content[:200] + "..."
-        lines.append(f"- [{etype}] ({eid}) {content}")
-    return "\n".join(lines[-50:])  # cap at 50 most recent
-
-
 def _build_context_summary(
     unanalyzed_count: int,
     type_counts: dict,
     session_stats: dict | None = None,
-    key_events: list[dict] | None = None,
 ) -> str:
-    """Build kickoff preparation context with session data summary."""
+    """Build kickoff preparation context — counts and health only.
+
+    No event details — those are for the retro subagent via .retro-input.json.
+    """
     parts: list[str] = []
 
     # Header with stats
@@ -270,12 +256,6 @@ def _build_context_summary(
             health.append(f"{qo} open questions")
         if health:
             parts.append("Health: " + "; ".join(health) + ".")
-
-    # Key events for analysis
-    if key_events:
-        event_summary = _summarize_key_events(key_events)
-        if event_summary:
-            parts.append(f"\nKey events:\n{event_summary}")
 
     # Direct to kickoff — don't analyze here
     parts.append(
@@ -317,11 +297,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     retro_input = _build_retro_input(events, start_idx, retro_history)
     _write_retro_input(smm_dir, retro_input)
 
+    # Main agent gets counts + health only — no event details.
+    # The retro subagent reads .retro-input.json for the full data.
     return _build_context_summary(
         unanalyzed_count,
         retro_input["event_type_counts"],
         retro_input.get("session_stats"),
-        retro_input.get("events_since_last_retro"),
     )
 
 

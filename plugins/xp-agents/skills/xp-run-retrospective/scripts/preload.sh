@@ -13,7 +13,18 @@ if [ -f "$RETRO_INPUT" ]; then
     python3 -c "
 import json, sys
 data = json.load(open(sys.argv[1]))
+# Drop raw events — digest has the structured version
 data.pop('events_since_last_retro', None)
+# Slim signal events: keep only type, content, short id
+digest = data.get('digest', {})
+if 'signal_events' in digest:
+    digest['signal_events'] = [
+        {'type': e.get('type',''), 'content': e.get('content',''), 'id': e.get('id','')[:8]}
+        for e in digest['signal_events']
+    ]
+# Drop status samples — counts are sufficient
+ss = digest.get('status_summary', {})
+ss.pop('samples', None)
 json.dump(data, sys.stdout, indent=2)
 " "$RETRO_INPUT"
 else

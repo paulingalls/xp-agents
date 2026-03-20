@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.91 — Slim Retro Context Injection
+
+### Changed
+- **Main agent no longer gets event details at SessionStart** — only counts and health signals (~100 tokens). Previously injected key events (~2,000+ tokens) which the agent would analyze itself instead of delegating to kickoff.
+- **Retro subagent preload slimmed** — signal events stripped to `{type, content, short_id}`, status samples dropped (counts sufficient). Cuts subagent context from ~5,500 to ~1,500 tokens.
+- **Removed `_summarize_key_events`** — dead code after removing event details from main agent context.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.90 — Source-Dependent GUPP + Kickoff Framing
 
 ### Changed
