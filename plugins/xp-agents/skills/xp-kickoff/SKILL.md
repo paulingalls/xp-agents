@@ -15,38 +15,26 @@ allowed-tools:
 
 The session status above was preloaded automatically.
 
-Complete the following actions **in order**, skipping any marked as not needed:
+**You MUST complete ALL steps below in order. Do NOT stop after any single step. Housekeeping (step 4) MUST always run — it is not optional.**
 
-## 1. Retrospective (if RETRO_NEEDED)
+## Step 1: Retrospective (if RETRO_NEEDED)
 
-Run `/xp-retrospective` to analyze the previous session.
+If the preload shows "RETRO_NEEDED", run `/xp-retrospective` now. Wait for it to complete, then proceed to step 2.
 
-If the preload shows "RETRO_NEEDED", invoke the retrospective skill now. Wait for it to complete before proceeding.
+If not needed, proceed to step 2.
 
-If not needed, skip to step 2.
+## Step 2: Goal Collection
 
-## 2. Goal Collection
+Run `/xp-goal-collection`. This always runs — it shows existing goals and asks for session goals. After it completes, proceed to step 3.
 
-Run `/xp-goal-collection` to review goals and collect any new ones from the user.
+## Step 3: Question Triage (if QUESTIONS_NEEDED)
 
-The preload shows current goals under "GOALS_REVIEW". Always invoke the goal collection skill — it shows existing goals and asks for session goals. Quick to skip if no new goals.
+If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. Wait for it to complete, then proceed to step 4.
 
-## 3. Question Triage (if QUESTIONS_NEEDED)
+If not needed, proceed to step 4.
 
-Run `/xp-question-triage` to resolve open questions and reconcile customer intent.
+## Step 4: Housekeeping (ALWAYS RUNS)
 
-If the preload shows "QUESTIONS_NEEDED", invoke the question triage skill now. Wait for it to complete before proceeding.
+Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and triggers the behavioral guide injection. **Kickoff is not complete until housekeeping finishes.**
 
-If not needed, skip to step 4.
-
-## 4. Housekeeping
-
-Run `/xp-housekeeping` to curate Intent, Constraints, Risks, and Wisdom pillars.
-
-Housekeeping always runs as the final step. It triages open items across all four pillars. This also ensures the PostToolUse:Skill hook fires to inject the SMM and behavioral guide.
-
-## Guidelines
-
-- Complete each step before moving to the next.
-- If the user says "skip" at any step, move to the next one.
-- The PostToolUse:Skill hook will automatically materialize the SMM and inject it (along with the behavioral guide) when `/xp-housekeeping` completes. No manual materialize step needed.
+If the user says "skip" at any earlier step, still proceed to the next step. Housekeeping must always run.

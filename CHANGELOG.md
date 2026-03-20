@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.57 — Kickoff Sequencing Fix
+
+### Fixed
+- **Housekeeping now reliably runs after goal collection** — strengthened `/xp-kickoff` skill instructions. The agent was stopping after goal collection without proceeding to housekeeping (step 4). Instructions now use imperative language: "You MUST complete ALL steps", "Housekeeping MUST always run", "Kickoff is not complete until housekeeping finishes."
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.56 — SMM Path Fix
 
 ### Fixed
