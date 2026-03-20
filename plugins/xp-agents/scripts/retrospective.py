@@ -242,11 +242,14 @@ def _build_context_summary(
     session_stats: dict | None = None,
     key_events: list[dict] | None = None,
 ) -> str:
-    """Build inline retrospective context with data and analysis instructions."""
+    """Build kickoff preparation context with session data summary."""
     parts: list[str] = []
 
     # Header with stats
-    parts.append(f"**Retrospective: {unanalyzed_count} unanalyzed events.**")
+    parts.append(
+        f"**Kickoff preparation complete.** "
+        f"{unanalyzed_count} events from previous session ready for review."
+    )
     if type_counts:
         summary = ", ".join(f"{count} {t}" for t, count in sorted(type_counts.items()))
         parts.append(f"Event breakdown: {summary}.")
@@ -274,18 +277,13 @@ def _build_context_summary(
         if event_summary:
             parts.append(f"\nKey events:\n{event_summary}")
 
-    # Inline K/F/T instructions
+    # Direct to kickoff — don't analyze here
     parts.append(
         "\n\n---\n"
-        "**ACTION REQUIRED:** Perform Keep/Fix/Try retrospective analysis "
-        "before starting new work.\n\n"
-        "Using the SMM context and event data above, analyze through XP values "
-        "(Honesty, Communication, Courage, Simplicity, Respect):\n"
-        "- **Keep**: What went well? Reference specific events.\n"
-        "- **Fix**: What went wrong? Name the XP value violated.\n"
-        "- **Try**: Concrete experiments for this session.\n\n"
-        "Display the analysis to the user, then run /xp-run-retrospective "
-        "to record results to the event log."
+        "**ACTION REQUIRED:** Run /xp-kickoff to process this data. "
+        "It handles retrospective, questions, goals, and housekeeping. "
+        "Do NOT analyze these events yourself — the kickoff skill "
+        "delegates to dedicated subagents."
     )
     return "\n".join(parts)
 
@@ -336,12 +334,11 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
-        # Extract unanalyzed count from context for user message
-        _match = re.search(r"(\d+) unanalyzed events", context)
+        _match = re.search(r"(\d+) events", context)
         _count = _match.group(1) if _match else "some"
         _common.hook_output(
             "SessionStart",
             context,
-            f"Retrospective data available — {_count} unanalyzed events.",
+            f"Kickoff data prepared — {_count} events to review.",
         )
     sys.exit(0)

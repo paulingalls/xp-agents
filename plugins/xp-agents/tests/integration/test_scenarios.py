@@ -465,7 +465,7 @@ class TestThreeSessionAccumulation(_IntegrationTestCase):
         self.assertGreaterEqual(data["unanalyzed_count"], 6)
         ctx2 = json.loads(r2.stdout)
         self.assertIn(
-            "xp-run-retrospective",
+            "xp-kickoff",
             ctx2["hookSpecificOutput"]["additionalContext"],
         )
 

@@ -317,7 +317,7 @@ class TestRetrospectiveNudge(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("xp-run-retrospective", result)
+        self.assertIn("xp-kickoff", result)
 
     def test_retro_below_threshold_no_nudge(self):
         import retrospective

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.89 — Reframe Retro Prep as Kickoff Prep
+
+### Changed
+- **SessionStart context reframed from "retrospective" to "kickoff preparation"** — the agent was seeing "Retrospective: N unanalyzed events" with inline K/F/T instructions and doing its own analysis before invoking the skill. Now says "Kickoff preparation complete" and directs to `/xp-kickoff`. All session data (health signals, key events, type counts) preserved.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.88 — Completed Goals Must Be Resolved and Pruned
 
 ### Fixed
