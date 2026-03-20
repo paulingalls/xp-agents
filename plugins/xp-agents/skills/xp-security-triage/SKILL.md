@@ -10,6 +10,7 @@ effort: high
 allowed-tools:
   - Bash(git diff --cached*)
   - Bash(*/skills/*/scripts/*)
+  - Skill(security-review)
 ---
 
 Review the staged changes (`git diff --cached`) and classify them:
