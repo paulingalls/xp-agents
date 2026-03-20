@@ -50,21 +50,13 @@ Review `current_smm.constraints` (existing) and `new_since_last_curation.decisio
 For each new draft decision, ask the user: **Confirm as architectural decision, or reject?**
 
 Actions:
-- Confirmed decisions → add as constraint
-- Rejected drafts → record resolution via append.sh
+- Confirmed drafts → resolve the draft (the original event already has the content). Add the decision text to Constraints in the SMM. **Do NOT create a new decision event** — just resolve the draft.
+- Rejected drafts → resolve the draft.
 - Keep existing constraints unless explicitly superseded
 - Graduate constraints stable for 10+ sessions and enforced by code/tests (remove from SMM — the codebase embodies them)
 - **Cap: ~20 items.**
 
-Record confirmed decisions:
-```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "decision" \
-  --agent "xp-housekeeping" \
-  --content "<decision content>" \
-  --topic "<topic>" \
-  --references '["<draft-decision-id>"]'
-```
+Both confirmed and rejected drafts use the same resolution pattern (see step 6).
 
 ## 3. Curate Risks
 

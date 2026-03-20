@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.94 — Draft Promotion Resolves, Doesn't Create New Events
+
+### Fixed
+- **Promoting a draft decision just resolves it** — housekeeping was creating new decision events with generic "Promoted from draft" content, adding noise (9 empty events in one session). Now: resolve the draft, add the text to Constraints in the SMM. The original draft event already has the content.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.93 — Show Full Retrospective to User
 
 ### Changed
