@@ -318,7 +318,7 @@ The materializer prepares structured data that enables housekeeping's judgment. 
   },
   "retro_history": {
     "latest_tries": ["Split large commits", "Add materializer tests"],
-    "recurring_fixes": ["Navigator silent (4 retros)"],
+    "recurring_fixes": ["Low decision recording rate (4 retros)"],
     "adopted_tries": ["Concern auto-resolution"]
   },
   "aging": {

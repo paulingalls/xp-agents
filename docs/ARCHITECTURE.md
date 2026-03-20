@@ -32,7 +32,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 | `convention` | Agent | Team standards |
 | `concern` | Subagent (quality reviewer) + agent | Problems needing attention |
 | `discovery` | Agent | Unexpected findings |
-| `question` | Agent | Customer input needed: 🔴 blocking, 🟡 assumed, 🟢 info |
+| `question` | Agent + subagent (plan reviewer) | Customer input needed: 🔴 blocking, 🟡 assumed, 🟢 info |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
@@ -101,11 +101,11 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
-| `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/decision events |
+| `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
 
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
-- `/xp-kickoff` — orchestrator, sequences retro → goals → housekeeping at session start. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
+- `/xp-kickoff` — orchestrator, sequences retro → goals → question triage → housekeeping at session start. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
 - `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`. Curates four-pillar SMM.
 - `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage
@@ -170,9 +170,10 @@ User types   → kickoff_gate.py blocks: "Run /xp-kickoff"
 
 /xp-kickoff:
              1. Retro (if .retro-input.json exists) → /xp-retrospective
-             2. Goals (if none recorded) → /xp-goal-collection
-             3. Housekeeping (if open items) → /xp-housekeeping (curates four-pillar SMM)
-             4. Clear .needs-kickoff marker
+             2. Goals → /xp-goal-collection
+             3. Question triage (if open questions/assumptions in Risks) → /xp-question-triage
+             4. Housekeeping → /xp-housekeeping (curates four-pillar SMM)
+             5. Clear .needs-kickoff marker
 
 Next prompt  → Gates pass through (marker cleared)
              → Prompt nuggets inject new signal events

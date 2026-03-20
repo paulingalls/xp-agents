@@ -245,7 +245,7 @@ This keeps each skill self-contained — its prompt, scripts, hooks, and referen
 
 **Key property:** The `agent` field can reference **any** subagent type — built-in or custom:
 - Built-in: `Explore`, `Plan`, `general-purpose`
-- Plugin-defined: `xp-agents:xp-navigator`, `xp-agents:xp-quality-reviewer`, etc.
+- Plugin-defined: `xp-agents:xp-retrospective`, `xp-agents:xp-plan-reviewer`, etc.
 - User-defined: any agent in `~/.claude/agents/` or `.claude/agents/`
 
 This means a skill can be a curated front-end (prompt + arguments + `!`command`` + scoped hooks) that delegates execution to an existing specialized agent. The skill controls *what* and *when*; the agent controls *how*.
@@ -275,7 +275,7 @@ This means a skill can be a curated front-end (prompt + arguments + `!`command``
 | **Tools available** | Configurable via `tools` field (Read/Grep/Glob baseline, empirically confirmed) |
 | **Returns** | Result summary to invoking agent |
 | **Trigger** | Agent tool invocation — agent matches `description` against the task |
-| **Namespace** | `plugin-name:agent-name` (e.g., `xp-agents:xp-navigator`) |
+| **Namespace** | `plugin-name:agent-name` (e.g., `xp-agents:xp-plan-reviewer`) |
 | **Background** | Caller chooses `run_in_background: true/false` — background agents cannot prompt for permissions |
 
 ---

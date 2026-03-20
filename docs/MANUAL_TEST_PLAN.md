@@ -101,12 +101,12 @@ claude
 - `events.jsonl` exists (may be empty or have initial events)
 - `events.lock` exists
 - `retrospectives/` directory exists
-- Claude's first response includes project goal questions (customer proxy nudge)
+- Claude's first response includes project goal questions (via /xp-kickoff → /xp-goal-collection)
 - No errors in Claude's output about missing files or failed hooks
 
 ---
 
-### 1.3 Goal Collection (Customer Proxy)
+### 1.3 Goal Collection
 
 **Do:** When Claude asks about the project, respond with a goal:
 
@@ -134,7 +134,7 @@ Let's start by creating the data model
 
 ---
 
-### 1.5 File Write — Navigator Nudge + Auto Status
+### 1.5 File Write — Auto Status + Lint
 
 **Do:** Ask Claude to create a file:
 
@@ -144,7 +144,6 @@ Create a file called todo.py with a Todo dataclass that has id, title, and done 
 
 **Verify after the write completes:**
 - `events.jsonl` contains a `status` event with `working_on` including `todo.py`
-- Claude's context shows evidence of navigator guidance (strategic direction before the write)
 - If the project has a linter config (e.g., `ruff.toml`), a lint check runs after the write
 
 ---
@@ -304,27 +303,6 @@ I have a blocking question: should we use SQLite or PostgreSQL for storage?
 
 ---
 
-### 1.16 Enforcement Mode — Advisory
-
-**Do:** Change enforcement to advisory mode. Edit `settings.json` in the installed plugin (or temporarily modify the source before reinstalling):
-
-```json
-{
-  "commit_size_threshold": 10,
-  "enforcement": "advisory"
-}
-```
-
-Then trigger a situation that would normally block (e.g., `working_on` conflict, push without security review).
-
-**Verify:**
-- The hook fires and logs the same events as strict mode
-- Instead of blocking (exit 2), the issue appears as a warning in `additionalContext`
-- Claude sees `[enforcement: advisory]` indicator
-- The session is not interrupted — warnings only
-
----
-
 ## Part 2: Existing Project
 
 Use a project with existing code and git history but without the xp-agents plugin previously installed (no existing SMM). Ideally the project has a linter config (e.g., `ruff.toml` or `.eslintrc`) for test 2.2.
@@ -341,7 +319,7 @@ claude
 **Verify:**
 - SMM initializes without affecting existing project files
 - SMM directory is created at user level (`~/.claude/xp-agents/...`), not inside the project
-- Claude asks for project goals on first session (customer proxy)
+- Claude asks for project goals on first session (goal collection)
 - No interference with existing git state
 
 ---
@@ -395,7 +373,7 @@ claude
   - **Keep**: specific things that went well, with event references
   - **Fix**: issues identified, tagged with XP values (Communication, Simplicity, Courage, Feedback, Respect)
   - **Try**: actionable experiments for this session
-- Session stats are reported: navigator guidance count, concern resolution rate, decision recording rate
+- Session stats are reported: concern resolution rate, decision recording rate
 - A retrospective file is written to `$SMM_DIR/retrospectives/`
 - `events.jsonl` contains a `retrospective` event
 
@@ -418,7 +396,7 @@ claude  # starts new session
 
 **Verify:**
 - `customer_intent` events exist for each request
-- The customer proxy reviews open intents against completed work
+- Housekeeping reviews open intents against completed work
 - Delivered intents are marked with `intent_status: "delivered"`
 - Undelivered intents appear in the materialized SMM under Active Context
 
@@ -452,7 +430,7 @@ Then start a new session and check the materialized view.
 - Debt at 4-6 sessions appears with a warning emoji
 - Debt at 7+ sessions appears with a red circle emoji
 - The retrospective escalates aging debt in Fix items
-- Navigator nudges when modifying files with associated debt
+- Quality reviewer flags when modifying files with associated debt
 
 ---
 
@@ -602,15 +580,15 @@ Start a Claude session in the worktree.
 
 ```
 /smm-protocol
-/xp-values
-/pair-programming
+/xp-kickoff
+/xp-housekeeping
 ```
 
 **Verify:**
 - Each skill loads and provides reference content
 - `smm-protocol` covers event types, `working_on`, recording patterns
-- `xp-values` covers the five XP values as behaviors
-- `pair-programming` covers navigator/driver protocol
+- `/xp-kickoff` orchestrates session start (retro → goals → question triage → housekeeping)
+- `/xp-housekeeping` curates the four-pillar SMM
 
 ---
 
@@ -622,7 +600,7 @@ Start a Claude session in the worktree.
 | 1.2 | SMM initialization | x | | |
 | 1.3 | Goal collection | x | | |
 | 1.4 | User prompt logging | x | | |
-| 1.5 | File write + navigator + auto status | x | | |
+| 1.5 | File write + auto status + lint | x | | |
 | 1.6 | TDD order check | x | | |
 | 1.7 | Test writing and execution | x | | |
 | 1.8 | Quality reviewer | x | | |
@@ -633,7 +611,6 @@ Start a Claude session in the worktree.
 | 1.13 | TDD stop gate | x | | |
 | 1.14 | Session end event | x | | |
 | 1.15 | Desktop notifications | x | | |
-| 1.16 | Advisory enforcement mode | x | | |
 | 2.1 | Install into existing project | | x | |
 | 2.2 | Lint integration | | x | |
 | 2.3 | Working on conflict detection | | x | |

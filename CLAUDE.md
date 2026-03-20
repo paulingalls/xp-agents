@@ -258,7 +258,7 @@ tests/
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
 │   ├── test_scenarios.py    ← round trips, retro, plan review, multi-session
-│   ├── test_extended.py     ← simplify gate, advisory mode, security review
+│   ├── test_extended.py     ← simplify gate, security review
 │   └── test_advanced.py     ← compaction, concurrency, worktrees, repair, migration
 ├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
 │   ├── test_parse.py        ← JSONL parsing, index building, resolutions
@@ -295,8 +295,7 @@ tests/
 - SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` (shared across worktrees)
 - Install at user scope (`--scope user`)
 - Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
-- Navigator is required (PreToolUse plugin subagent), not opt-in
-- Quality reviewer is PostToolUse async plugin subagent (combined courage + simplicity)
+- Quality reviewer is post-simplify skill (courage + drift + debt)
 - Retrospective runs at session start, not session end
 - Keep/Fix/Try framework with XP values as analytical lenses
 - `customer_input` events from UserPromptSubmit
