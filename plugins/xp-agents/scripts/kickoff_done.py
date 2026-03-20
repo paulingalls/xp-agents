@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: inject behavioral guide after kickoff.
+"""PostToolUse:Skill hook: inject behavioral guide + compact after kickoff.
 
 When /xp-housekeeping completes (the final step of kickoff),
-injects BEHAVIORAL_GUIDE.md as additionalContext. The curated SMM is
-already in context — housekeeping reads and writes the file directly.
+injects BEHAVIORAL_GUIDE.md as additionalContext and compacts the
+event log. The curated SMM is already in context — housekeeping reads
+and writes the file directly.
 """
 
+import contextlib
 import functools
 import sys
 from pathlib import Path
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import compact
 
 
 @functools.lru_cache(maxsize=1)
@@ -48,6 +51,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Clean up kickoff marker
     (smm_dir / ".needs-kickoff").unlink(missing_ok=True)
+
+    # Compact event log — housekeeping just curated, safe to archive
+    with contextlib.suppress(Exception):
+        compact.compact_after_curation(smm_dir)
 
     # Inject behavioral guide only — the agent already has the SMM
     # from housekeeping step 8 (Read the file it just wrote).

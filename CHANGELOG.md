@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.69 — Deterministic Compaction After Housekeeping
+
+### Fixed
+- **Event log compacts deterministically after housekeeping** — previously compaction only ran on `PostCompact` (context window compaction), which barely fires with 1M context. Now `kickoff_done.py` runs `compact_after_curation()` after housekeeping completes, ensuring the event log stays manageable every session.
+
+### Stats
+- 851 tests (all passing)
+
 ## v0.9.68 — Retrospective Must Use save_retrospective.py
 
 ### Fixed

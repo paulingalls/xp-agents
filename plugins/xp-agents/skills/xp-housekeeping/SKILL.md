@@ -163,21 +163,6 @@ After writing the SMM, load the full context. Pass the SMM_DIR from the preload 
 
 This ensures the curated SMM and Behavioral Guide are in your conversation context.
 
-## 9. Compact Event Log
-
-After loading context, compact the event log to keep it at a manageable size (~50-200 events):
-
-```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/compact_log.py --smm-dir <SMM_DIR>
-```
-
-This archives old events that have already been curated into the SMM, keeping only:
-- Events since the last curation (not yet curated)
-- Last 3 session_end events (for aging calculations)
-- Events still referenced by active SMM items (unresolved goals, open concerns, etc.)
-
-The SMM is the durable record. The event log is the working buffer that feeds it.
-
 ## Guidelines
 
 - **Merge, don't replace.** Always read the existing SMM first. Preserve items that are still relevant.
