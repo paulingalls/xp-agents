@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.77 — Block ExitPlanMode Until Plan Review Runs
+
+### Added
+- **PreToolUse hook for ExitPlanMode** — blocks exiting plan mode when `.plan-awaiting-review` marker exists. Previously the plan review nudge only fired on Write/Edit, so the agent could exit plan mode and end its turn without ever triggering the review.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.76 — Verify Retro Event in Log After Subagent Returns
 
 ### Changed

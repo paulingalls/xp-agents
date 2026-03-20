@@ -20,6 +20,16 @@
             "statusMessage": "Checking commit constraints..."
           }
         ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_exit_plan.py",
+            "statusMessage": "Checking plan review..."
+          }
+        ]
       }
     ],
     "SessionStart": [
