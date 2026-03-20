@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.66 — Question Detection from Raw Events
+
+### Fixed
+- **Kickoff now detects unresolved questions in raw events, not just the curated SMM** — questions written to `events.jsonl` (like the linter question) weren't detected by `check_session_needs.sh` because housekeeping hadn't curated them into the Risks pillar yet. Now checks both the SMM file and raw events for unresolved blocking questions.
+
+### Stats
+- 851 tests (all passing)
+
 ## v0.9.65 — Xcode and Swift Test Detection
 
 ### Added
