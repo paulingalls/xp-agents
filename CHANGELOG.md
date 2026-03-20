@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.88 — Completed Goals Must Be Resolved and Pruned
+
+### Fixed
+- **Housekeeping must record resolution events for completed goals** — was marking goals ✅ in the SMM text but not writing resolution events, so goals lingered forever. Now: record resolution, remove from SMM, keep only the most recently completed one for context.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.87 — Fix Compaction Skipping When Watermark Ahead
 
 ### Fixed

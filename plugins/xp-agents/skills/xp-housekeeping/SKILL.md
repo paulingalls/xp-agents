@@ -35,12 +35,13 @@ For each new customer input, judge: **Is this a deliverable outcome or just a ta
 - "Fix the typo in README" → task (not an intent)
 
 Actions:
-- If there are existing intents, ask the user: "Are any of these goals complete or no longer relevant?" Present the list and let them mark items done. Record resolutions for completed goals.
+- If there are existing intents, ask the user: "Are any of these goals complete or no longer relevant?" Present the list and let them mark items done.
+- **For each completed goal, record a resolution event** (see step 6) referencing the goal's event ID. Remove completed goals from the SMM **except the most recently completed one** — keep it with a ✅ prefix for context on what just shipped. Older completed goals should be removed entirely.
 - Add new intents from customer inputs (only deliverable outcomes)
 - If Intent is empty, ask the user: "What should we build next?"
 - **Cap: ~10 items.** If over cap, ask user which are still priorities.
 
-Format each item as: `- 📋 <deliverable outcome> [source-id]`
+Format each active item as: `- 📋 <deliverable outcome> [source-id]`
 
 ## 2. Curate Constraints
 
