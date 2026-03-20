@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.9.54 — Question Pipeline, Effort Tuning, Legacy Cleanup
+
+### Added
+- **Plan reviewer emits `question` events** — new section 6 in the agent prompt distinguishes assumptions (can proceed with reasonable default) from questions (need user input, significant rework risk). Questions surface first in the subagent's output so the main agent sees them immediately.
+- **`/xp-question-triage` wired into kickoff** — step 3 (between goals and housekeeping), conditional on open questions/assumptions in the Risks pillar.
+- **`smm_has_section()` and `smm_section()` utilities** — shared functions in `_preload_base.sh` for extracting markdown sections from the SMM. Replaced 12 duplicate `grep -A N | sed` patterns across 4 preload scripts.
+- **Effort frontmatter on all skills** — `effort: high` for analytical skills (retrospective, housekeeping, quality-review, plan-reviewer, security-triage), `effort: low` for mechanical skills (goal-collection, question-triage, smm-protocol). Kickoff left at default.
+
+### Removed
+- **All navigator references** — stale docs, negative tests, and test fixtures. Navigator was removed as a functional component in v0.9.47 but references lingered.
+- **Legacy SMM format fallbacks** — `Project Goals`, `Blocking Questions`, `Customer Intent`, `Unacknowledged Concerns`, `Technical Debt` section patterns removed from all preload scripts. Four-pillar format (Intent, Constraints, Risks, Wisdom) is the only supported format.
+- **4 dead navigator negative tests** — `TestPreToolWriteNoNavigatorNudge` class, integration navigator nudge test.
+
+### Changed
+- **`check_open_items.sh` uses four-pillar headings** — Intent, Constraints, Risks instead of legacy section names.
+- **Question detection keywords tightened** — `question|assumption|blocking` instead of `question|unknown|assumed|blocking` to reduce false positives.
+- **Docs updated** — ARCHITECTURE.md (kickoff flow, plan reviewer events, question triage step), PLUGIN_TOOLS.md (subagent examples), SMM_DESIGN.md (retro example), CLAUDE.md (removed navigator decision).
+
+### Stats
+- 844 tests (all passing)
+
 ## v0.9.53 — Replace Push Gate with Commit-Time Security Triage
 
 ### Changed
