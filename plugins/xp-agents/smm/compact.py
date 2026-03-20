@@ -163,8 +163,12 @@ def compact_after_curation(smm_dir: Path) -> dict:
         return {"archived": 0, "retained": len(events), "smm_referenced": 0}
 
     wm_count = watermarks[0]["event_count"]  # min across all agents
-    if wm_count <= 0 or wm_count > len(events):
+    if wm_count <= 0:
         return {"archived": 0, "retained": len(events), "smm_referenced": 0}
+
+    # Watermark may be ahead of actual event count if housekeeping wrote
+    # events after setting the watermark. Clamp to actual count.
+    wm_count = min(wm_count, len(events))
 
     # Split at watermark
     pre_watermark = events[:wm_count]

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.87 — Fix Compaction Skipping When Watermark Ahead
+
+### Fixed
+- **Compaction no longer bails when watermark exceeds event count** — housekeeping writes the curation watermark including its own events, but compaction runs before all events are flushed. The watermark (73) was ahead of the actual event count (68), causing `wm_count > len(events)` to skip compaction entirely. Now clamps watermark to actual count.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.86 — Stop Main Agent Doing Inline Retro Before Skill
 
 ### Fixed
