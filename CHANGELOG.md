@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.59 — Kickoff Must Complete Before Work Begins
+
+### Fixed
+- **Agent no longer starts working on goals before housekeeping completes** — added explicit instruction: "Do NOT start working on the user's goal until ALL steps are done." The agent was collecting goals, then immediately executing on them before running housekeeping.
+
+### Stats
+- 846 tests (all passing)
+
 ## v0.9.58 — Shell Compatibility Fix
 
 ### Fixed

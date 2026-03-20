@@ -15,7 +15,7 @@ allowed-tools:
 
 The session status above was preloaded automatically.
 
-**You MUST complete ALL steps below in order. Do NOT stop after any single step. Housekeeping (step 4) MUST always run — it is not optional.**
+**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 4) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
