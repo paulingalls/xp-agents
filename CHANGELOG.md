@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.55 — Kickoff Gate Fix
+
+### Fixed
+- **Kickoff gate no longer blocks AskUserQuestion during kickoff sub-skills** — the `.needs-kickoff` marker is now cleared when `/xp-kickoff` starts, not when housekeeping finishes. Previously, goal collection's `AskUserQuestion` triggered `UserPromptSubmit` which hit the gate mid-kickoff.
+
+### Added
+- **Agent Teams design doc** (`docs/AGENT_TEAMS_DESIGN.md`) — maps XP sprint practices to Claude Code Agent Teams. Documents sprint lifecycle, role separation (lead as coach, teammates as developers), hook compatibility analysis, and required changes for teammate awareness.
+
+### Stats
+- 848 tests (all passing)
+
 ## v0.9.54 — Question Pipeline, Effort Tuning, Legacy Cleanup
 
 ### Added

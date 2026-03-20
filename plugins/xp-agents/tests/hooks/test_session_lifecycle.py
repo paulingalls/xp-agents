@@ -349,6 +349,33 @@ class TestKickoffGate(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_kickoff_clears_marker(self):
+        """Marker cleared when /xp-kickoff runs so sub-skills can AskUserQuestion."""
+        import kickoff_gate
+
+        marker = self.smm_dir / ".needs-kickoff"
+        marker.write_text("startup")
+        kickoff_gate.run(
+            {"session_id": "test", "prompt": "/xp-kickoff"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(marker.exists())
+
+    def test_subsequent_prompts_pass_after_kickoff_clears_marker(self):
+        """After /xp-kickoff clears the marker, AskUserQuestion prompts pass."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        kickoff_gate.run(
+            {"session_id": "test", "prompt": "/xp-kickoff"},
+            smm_dir=self.smm_dir,
+        )
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "Build a TODO app"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
     def test_passes_when_no_marker(self):
         import kickoff_gate
 

@@ -54,6 +54,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
         return None
 
     if "/xp-kickoff" in prompt:
+        # Clear marker now — kickoff is running, so sub-skills (goal collection,
+        # question triage) can use AskUserQuestion without hitting this gate.
+        marker.unlink(missing_ok=True)
         return None
 
     # Read marker content to determine block vs nudge.
