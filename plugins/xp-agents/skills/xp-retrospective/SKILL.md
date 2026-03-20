@@ -8,7 +8,6 @@ context: fork
 agent: xp-agents:xp-retrospective
 allowed-tools:
   - Read
-  - Write
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)

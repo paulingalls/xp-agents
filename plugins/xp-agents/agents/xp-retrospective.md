@@ -3,7 +3,7 @@ name: xp-retrospective
 description: >-
   XP retrospective analyst. Keep/Fix/Try analysis with XP values as lenses.
   Use at session start when retrospective data is available.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash
 model: inherit
 skills:
   - smm-protocol

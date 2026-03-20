@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.68 — Retrospective Must Use save_retrospective.py
+
+### Fixed
+- **Removed `Write` tool from retrospective agent and skill** — the agent was using `Write` to create the retro file directly, bypassing `save_retrospective.py` which handles atomic writes, event creation, and materialization. Without `Write` access, the agent must use the script.
+
+### Stats
+- 851 tests (all passing)
+
 ## v0.9.67 — Kickoff Reorder + Lightweight Question Detection
 
 ### Changed
