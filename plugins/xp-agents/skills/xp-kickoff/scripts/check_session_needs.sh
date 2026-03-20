@@ -8,6 +8,8 @@ SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
 RETRO_INPUT="${SMM_DIR}/.retro-input.json"
 MARKER="${SMM_DIR}/.needs-kickoff"
 
+echo "SMM_DIR=${SMM_DIR}"
+echo ""
 echo "## Session Review Status"
 echo ""
 

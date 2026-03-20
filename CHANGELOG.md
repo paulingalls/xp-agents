@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.76 — Verify Retro Event in Log After Subagent Returns
+
+### Changed
+- **Kickoff verifies retrospective event in event log** — after the retro subagent returns, kickoff greps the last 5 events for a `retrospective` event. If missing, runs `save_retrospective.py` as fallback. More reliable than checking `.retro-input.json` existence.
+- **Kickoff preload emits SMM_DIR** — `check_session_needs.sh` now outputs `SMM_DIR=<path>` for use in verification and fallback commands.
+
+### Stats
+- 891 tests (all passing)
+
 ## v0.9.75 — Ensure Retrospective Saves via Script
 
 ### Fixed

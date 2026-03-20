@@ -24,7 +24,13 @@ If the preload shows "RETRO_NEEDED", run `/xp-retrospective` now. Wait for it to
 
 The retrospective subagent saves its own results via `save_retrospective.py`. **Do NOT use the Write tool to save retrospective files yourself.**
 
-After the subagent returns, check if `.retro-input.json` still exists in the SMM directory. If it does, the subagent failed to save — run the save yourself as a fallback:
+After the subagent returns, verify the retrospective was saved by checking for a `retrospective` event at the end of the event log (use the SMM_DIR from the preload output above):
+
+```bash
+tail -5 <SMM_DIR>/events.jsonl | grep '"type": "retrospective"'
+```
+
+If no retrospective event is found, the subagent failed to save — run the save yourself as a fallback:
 
 ```bash
 cat <<'RETRO_JSON' | CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
