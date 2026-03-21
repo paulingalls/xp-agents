@@ -240,8 +240,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 "File conflict detected — another agent is working on this file.",
             )
 
-    # Plan review gate — block writes until plan is reviewed
-    if smm_dir:
+    # Plan review gate — block writes until plan is reviewed.
+    # Plan files (.claude/plans/) are exempt — writing the plan is not implementation.
+    is_plan_file = target_file and "/.claude/plans/" in target_file
+    if smm_dir and not is_plan_file:
         marker = smm_dir / ".plan-awaiting-review"
         if marker.exists() and not marker.is_symlink():
             raise _common.BlockedError(

@@ -382,6 +382,23 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             )
         self.assertIn("xp-review-plan", str(ctx.exception))
 
+    def test_plan_file_write_allowed_with_marker(self):
+        """Write to .claude/plans/ should be allowed even with marker."""
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.touch()
+        plan_input = _make_write_input(
+            session_id="t",
+            cwd="/tmp",
+            tool_input={
+                "file_path": "/Users/x/.claude/plans/my-plan.md",
+                "content": "# Plan\n1. Do stuff",
+            },
+        )
+        result = pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
+        # Should NOT raise — plan files are exempt
+        if result:
+            self.assertNotIn("xp-review-plan", result)
+
     def test_no_marker_no_block(self):
         """Write without marker should not block."""
         result = pre_tool_write.run(

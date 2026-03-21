@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.112 — Allow Plan File Writes During Plan Review Gate
+
+### Fixed
+- **Plan review gate blocked plan file writes** — after a Plan subagent completed, the `.plan-awaiting-review` marker blocked all writes including the plan file itself (`.claude/plans/*.md`). Plan files are now exempt from the gate since writing the plan is part of planning, not implementation.
+
+### Stats
+- 940 tests (all passing)
+
 ## v0.9.111 — Fix is_git_commit Heredoc False Positive
 
 ### Fixed
