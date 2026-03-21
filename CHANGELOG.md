@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.115 — Plan Reviewer: Stop Re-reading Preloaded Data
+
+### Changed
+- **Plan reviewer told not to re-read SMM or events.jsonl** — both are already in the preload context. Reviewer was wasting 10+ tool calls exploring files it already had. Explicit "do NOT read" list added.
+- **Source file reads scoped** — only read project files to verify specific decision conflicts, not speculatively.
+- **Assumptions filtered** — only record assumptions that matter (wrong assumption = rework). Don't re-record obvious defaults.
+- **Decisions filtered** — don't re-record decisions already in the SMM Constraints pillar.
+- **README updated** — fixed outdated hook table (added PostToolUse:ExitPlanMode, PostCompact, PostToolUseFailure; removed phantom Notification hook), added Skills table, documented plan review two-entry-point mechanism, added compaction section.
+
+### Stats
+- 940 tests (all passing)
+
 ## v0.9.114 — Courage in Reviews: Tighter Skip Criteria
 
 ### Changed

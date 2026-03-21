@@ -1,4 +1,4 @@
-# xp-agents: Extreme Programming for Claude Code Agent Teams
+# xp-agents: Extreme Programming for Claude Code
 
 A Claude Code plugin that makes your agents — solo or in teams — write better software through XP practices. Command hooks enforce deterministic rules. Plugin subagents provide judgment-based guidance. A broadcast event log keeps every agent aligned. Zero config. Install and go.
 
@@ -6,7 +6,7 @@ A Claude Code plugin that makes your agents — solo or in teams — write bette
 
 **What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection, question triage, quality review, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
 
-**How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (plan analysis, retrospectives, quality review) lives in plugin subagents and inline skills, triggered by command hook nudges or stop gates.
+**How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (plan analysis, retrospectives, quality review) lives in plugin subagents and inline skills, triggered by hook nudges or stop gates.
 
 **Who it's for:** Anyone using Claude Code — solo agents benefit from the quality review, retrospectives, and TDD enforcement. Agent Teams benefit from the broadcast coordination layer that replaces point-to-point mailboxes.
 
@@ -88,9 +88,10 @@ $ claude
 
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
-- **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate via marker file
+- **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate blocks writes until `/xp-review-plan` runs
 - **Before every commit** — security triage gate blocks until `/xp-security-triage` classifies changes
 - **After every write** — status auto-updated, linter runs
+- **After plan mode exits** — `PostToolUse:ExitPlanMode` nudges `/xp-review-plan` to extract assumptions, decisions, and risks
 - **At stop** — `/simplify` required for significant changes (≥3 code files), then `/xp-quality-review` checks courage + drift + debt, TDD gate blocks if tests failing
 - **Technical debt** — tracked, aged across sessions, surfaced during quality review when touching affected files
 
@@ -119,6 +120,7 @@ $ claude
 ### Try
 - Before reporting done, list what's tested and what isn't.
 
+[xp-agents] Triaging open questions and previous Try items...
 [xp-agents] Any goals for this session?
 
 > "Add role-based access control"
@@ -129,7 +131,7 @@ $ claude
 [xp-agents] Ready to work.
 ```
 
-Every session starts smarter than the last one ended. The kickoff sequences retrospective → goals → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
+Every session starts smarter than the last one ended. The kickoff sequences retrospective → question triage (including previous Try items) → goals → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
 
 ---
 
@@ -142,20 +144,43 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
-| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker) | TDD, Planning Game |
+| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate blocks writes until `/xp-review-plan` clears marker | TDD, Planning Game |
 | **PreToolUse** (Bash) | Commit security triage gate, file-modification conflict heuristic (advisory) | Coding Standards |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
-| **PostToolUse** (Bash) | Git commit size check, test result parsing | Small Releases, CI |
-| **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (PreToolUse nudges review before writes) | Planning Game, Simple Design |
+| **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
+| **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
+| **PostToolUse** (Skill) | Security triage completion, kickoff completion (behavioral guide injection + compaction) | Coding Standards, Communication |
+| **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
+| **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
+| **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
-| **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
-| **PostToolUse** (Skill) | Security triage marker when `/security-review` completes; behavioral guide injection when `/xp-housekeeping` completes | Coding Standards, Communication |
-| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
-| **Notification** | Desktop notification for 🔴 blocking questions | On-Site Customer |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
+| **PostCompact** | Compact event log (age decisions, cap retros, prune resolved items) | Sustainable Pace |
+| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
 
-The retrospective analyst and plan reviewer are plugin subagents with full tool access. Quality review, goal collection, question triage, and housekeeping run as inline skills in the main agent. Command hooks inject `additionalContext` nudging the main agent to invoke them at the right moment. The plan reviewer is triggered via a marker file: SubagentStop writes `.plan-awaiting-review`, then PreToolUse detects it and nudges the agent to invoke the reviewer before writes. The plan reviewer's preload script clears the marker. SubagentStart uses tiered context injection — Explore subagents get only Intent+Constraints (lightweight), while all others get the full curated SMM + behavioral guide.
+### Plan Review — Two Entry Points
+
+Plans can be created two ways: via `EnterPlanMode`/`ExitPlanMode` tools (the agent enters a read-only planning mode) or via a Plan subagent (the `Agent` tool with type `Plan`). Both flows trigger plan review:
+
+1. **ExitPlanMode tool** → `PostToolUse:ExitPlanMode` writes the `.plan-awaiting-review` marker and nudges the agent via `additionalContext`
+2. **Plan subagent** → `SubagentStop` writes the marker when `agent_type == "Plan"`
+
+In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files in `.claude/plans/`) until `/xp-review-plan` runs. The review skill's preload clears the marker. This ensures assumptions, decisions, and risks from every plan feed the Shared Mental Model.
+
+### Skills
+
+| Skill | Purpose | When It Runs |
+|---|---|---|
+| `/xp-kickoff` | Session start orchestrator — sequences retro, question triage, goals, housekeeping | Every session start |
+| `/xp-run-retrospective` | Keep/Fix/Try analysis with XP values as lenses | Kickoff step 1 (when retro data exists) |
+| `/xp-question-triage` | Resolve open questions, assumptions, and previous retro Try items | Kickoff step 2 (when questions/tries exist) |
+| `/xp-goal-collection` | Review existing goals, add session goals | Kickoff step 3 |
+| `/xp-housekeeping` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | Kickoff step 4 |
+| `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
+| `/xp-security-triage` | Classify committed files for security review | Before commits |
+| `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
+| `/xp-smm-protocol` | Reference guide for event types and append.sh usage | On demand |
 
 ### The Shared Mental Model
 
@@ -168,6 +193,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── .curation-watermark       ← last-curated event position
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .plan-awaiting-review     ← plan review gate marker
+├── .security-triaged         ← security triage gate marker
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
@@ -177,10 +203,10 @@ The SMM lives at user level (`~/.claude/`), not in the project's `.claude/`. Thi
 The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
 - **Intent** — project goals and active customer intents
 - **Constraints** — confirmed decisions, conventions, and architectural boundaries
-- **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity)
-- **Wisdom** — lessons learned, retrospective insights, behavioral experiments
+- **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity aging)
+- **Wisdom** — lessons learned, retrospective insights, behavioral conventions
 
-Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + behavioral guide). The main agent gets the SMM during housekeeping (reads the file directly) and the behavioral guide via PostToolUse:Skill hook.
+Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + behavioral guide). The main agent gets the SMM during housekeeping and the behavioral guide via PostToolUse:Skill hook.
 
 Events are semantically typed — each carries different synchronization semantics:
 
@@ -194,7 +220,7 @@ Events are semantically typed — each carries different synchronization semanti
 | `convention` | Team standards | Agent |
 | `concern` | Problems needing attention | Skill (quality review) + agent |
 | `discovery` | Unexpected findings | Agent |
-| `question` | Customer input needed (🔴 blocking / 🟡 assumed) | Agent |
+| `question` | Customer input needed (🔴 blocking / 🟡 assumed) | Agent + subagent (plan reviewer) |
 | `assumption` | Stated beliefs — escalates if contradicted | Agent + subagent (plan reviewer) |
 | `debt` | Acknowledged tradeoff — ages and escalates across sessions | Skill (quality review) + subagent (retrospective) |
 | `session_end` | Session summary with unresolved items | Command hook (automatic) |
@@ -292,16 +318,16 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 
 | Practice | Enforcement | Mechanism |
 |---|---|---|
-| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go test detection. | `tdd_stop_gate.py`, `pre_tool_write.py`, `bash_post_tool.py` |
+| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go/swift/bun/xcodebuild test detection. | `tdd_stop_gate.py`, `pre_tool_write.py`, `bash_post_tool.py` |
 | **Pair Programming** | Skill: quality review after simplify (courage + drift + debt awareness). | `/xp-quality-review` |
-| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Nudge via `.plan-awaiting-review` marker. Skills: goal collection + question triage. | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
+| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Three-layer enforcement via PostToolUse:ExitPlanMode, SubagentStop:Plan, and PreToolUse write block. Skills: goal collection + question triage (including Try item review). | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
-| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security review before push. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
+| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security triage before commit. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
 | **Refactoring** | Skill + gate: `/simplify` runs at loop end (≥3 code files), quality review checks skipped recommendations. | `/xp-quality-review`, `simplify_gate.py` |
 | **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` checks efficiency. | `xp-plan-reviewer`, `simplify_gate.py` |
 | **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + behavioral guide). Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
-| **On-Site Customer** | Deterministic: prompts logged, notifications sent. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
+| **On-Site Customer** | Deterministic: prompts logged. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
 
 ### Token Cost Model
@@ -324,11 +350,17 @@ Technical debt events age across sessions. The materializer counts `session_end`
 
 Repayment pressure comes from two sources: quality review surfaces debt when touching affected files, retrospective escalates aging debt in Fix items.
 
-### Architecture: Why Subagents Instead of Agent Hooks
+### Event Log Compaction
 
-Agent hooks (`type: "agent"` in hooks.json) are broken platform-wide — they crash with "Messages are required for agent hooks. This is a bug." on all events tested (PostToolUse, UserPromptSubmit). This is a Claude Code platform issue, not fixable from the plugin side.
+The event log grows over sessions. PostCompact runs `compact.py` to keep it manageable:
 
-Plugin subagents (`agents/` directory) have full tool access (Bash, Read, Write, Edit, AskUserQuestion), return their full conversational response to the main agent, support background mode, and can preload skills. Each subagent is wrapped by a forked skill with `!` preloads for deterministic SMM state injection — the `allowed-tools` field (e.g., `Bash(*/skills/*/scripts/*)`) pre-approves preload script permissions. Command hooks trigger subagents via `additionalContext` nudge (strong encouragement) or exit 2 block (deterministic, like the `/simplify` gate).
+- **Status events**: compacted freely (counts preserved in session summaries)
+- **Customer inputs**: compacted freely (captured in Intent pillar)
+- **Decisions**: aged after 3 sessions (confirmed decisions live in Constraints pillar)
+- **Retrospectives**: capped at 2 in the log (archived in `retrospectives/` directory)
+- **Resolved items**: pruned (goals, concerns, questions with resolution events)
+
+Watermark-based — only events before the curation watermark are eligible for compaction.
 
 ---
 
@@ -347,6 +379,8 @@ Plugin subagents (`agents/` directory) have full tool access (Bash, Read, Write,
 ---
 
 ## Project Status
+
+940 tests. All passing.
 
 See [MILESTONES.md](docs/MILESTONES.md) for the development roadmap.
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.

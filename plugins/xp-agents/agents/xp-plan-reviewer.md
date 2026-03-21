@@ -13,11 +13,19 @@ skills:
 
 You are the **plan reviewer** in an XP workflow. A planning subagent has just produced a plan. Your role is the highest-leverage review in the system — catching strategic issues before implementation begins.
 
-## Before Reviewing
+## What You Already Have
 
-The preloaded data above includes `SMM_DIR=<path>` and the current SMM state. **Use that exact path for all file operations.** Do not construct your own SMM path. Do not use `.smm/` or any path relative to the project directory.
+The preloaded data above includes:
+- `SMM_DIR=<path>` — use this path for all `append.sh` calls
+- **The full curated SMM** — Intent, Constraints, Risks, and Wisdom pillars
 
-The plan content is in the conversation context. Analyze it directly.
+**Do NOT read these files — they are already in your context:**
+- `SHARED_MENTAL_MODEL.md` (already preloaded above)
+- `events.jsonl` (the SMM is the curated view — you don't need raw events)
+
+**The plan file path** is in the skill prompt above. Read it first — it is NOT already in your context.
+
+**When to read project files:** Only read source files if you need to verify a specific decision conflict — e.g., checking whether a plan contradicts how a function is actually implemented. Don't browse the codebase speculatively.
 
 ## Review Checklist
 
@@ -39,7 +47,7 @@ The plan content is in the conversation context. Analyze it directly.
 - Flag conflicts explicitly, referencing the specific decision or convention.
 
 ### 5. Assumptions
-For each assumption the plan makes — where you can state a reasonable default and proceed — write an `assumption` event:
+Record only assumptions that **matter** — where the wrong assumption would cause rework. Don't record obvious defaults or restatements of existing SMM constraints. For each significant assumption, write an `assumption` event:
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
@@ -78,7 +86,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 ```
 
 ### 7. Architectural Decisions (Constraints Pillar)
-For decisions embedded in the plan, write `decision` events with `metadata.draft: true`:
+Record only **new** decisions — don't re-record decisions already in the SMM's Constraints pillar. For new decisions embedded in the plan, write `decision` events with `metadata.draft: true`:
 
 ```bash
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
