@@ -79,6 +79,50 @@ class TestInit(_TempRepoTestCase):
         self.assertEqual(events_file.read_text(), "existing content\n")
 
 
+class TestSeedSMM(_TempRepoTestCase):
+    """Tests for seed_smm.py — default SMM created by init.sh."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.smm_dir = cls._get_smm_dir()
+
+    def test_seed_creates_smm_file(self):
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        self.assertTrue(smm_file.exists(), "init.sh should seed SHARED_MENTAL_MODEL.md")
+
+    def test_seed_has_four_pillars(self):
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        content = smm_file.read_text()
+        self.assertIn("## Intent", content)
+        self.assertIn("## Constraints", content)
+        self.assertIn("## Risks", content)
+        self.assertIn("## Wisdom", content)
+
+    def test_seed_has_xp_constraints(self):
+        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
+        self.assertIn("TDD", content)
+        self.assertIn("plan", content.lower())
+        self.assertIn("Small commits", content)
+
+    def test_seed_detects_missing_linter(self):
+        """Fresh git repo has no linter — should be flagged as risk."""
+        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
+        self.assertIn("No linter configured", content)
+
+    def test_seed_detects_missing_hooks(self):
+        """Fresh git repo has no hooks — should be flagged as risk."""
+        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
+        self.assertIn("No git commit hooks", content)
+
+    def test_seed_idempotent(self):
+        """Running init.sh again does not overwrite existing SMM."""
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("# Custom SMM\n")
+        self._run_init()
+        self.assertEqual(smm_file.read_text(), "# Custom SMM\n")
+
+
 class TestValidateEvent(unittest.TestCase):
     """Tests for _append_impl.validate_event (unit tests, no subprocess)."""
 
