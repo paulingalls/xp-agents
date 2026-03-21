@@ -307,5 +307,9 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        _common.hook_output("PostToolUse", result)
+        _common.hook_output(
+            "PostToolUse",
+            result,
+            "Lint errors found — fix before committing.",
+        )
     sys.exit(0)

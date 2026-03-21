@@ -5,6 +5,7 @@ Auto-drafts decision events for commits, checks commit size, and records
 test pass/fail status from pytest/jest/go test output.
 """
 
+import contextlib
 import json
 import re
 import subprocess
@@ -102,26 +103,21 @@ def parse_commit_message(tool_response: str) -> str | None:
     return None
 
 
-def count_commit_files(cwd: str) -> int:
-    """Run git diff HEAD~1 --stat to count files changed."""
+def get_committed_files(cwd: str) -> list[str]:
+    """Get list of files changed in the last commit."""
     try:
         result = subprocess.run(
-            ["git", "diff", "HEAD~1", "--stat"],
+            ["git", "diff", "HEAD~1", "--name-only"],
             capture_output=True,
             text=True,
             timeout=5,
             cwd=cwd,
         )
-        if result.returncode != 0:
-            return 0
-        # Last line: " N files changed, ..."
-        for line in reversed(result.stdout.strip().splitlines()):
-            match = re.search(r"(\d+)\s+files?\s+changed", line)
-            if match:
-                return int(match.group(1))
+        if result.returncode == 0:
+            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
         pass
-    return 0
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +320,43 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_lint_on_commit(
+    smm_dir: Path, cwd: str, agent_id: str, files: list[str]
+) -> None:
+    """Run linter on committed files and resolve lint concerns for passing ones."""
+    if not files:
+        return
+
+    import lint_check
+
+    git_root = cwd
+    with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
+        git_root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+
+    config = lint_check.detect_linter_config(cwd, git_root)
+    if config is None:
+        return
+
+    linter_name, _ = config
+
+    for file_path in files:
+        normalized = _common.normalize_path(file_path, cwd)
+        lint_output = lint_check.run_linter(linter_name, normalized)
+        if lint_output is None:
+            # File passes lint (or linter doesn't apply) — resolve concern
+            prefix = f"{concerns.LINT_CONCERN_PREFIX}{normalized}:"
+            concerns.resolve_concerns(
+                smm_dir,
+                lambda c, p=prefix: c.startswith(p),
+                agent_id,
+                "Lint concern resolved on commit",
+            )
+
+
 def load_commit_threshold() -> int:
     """Load commit_size_threshold from settings.json, default 10."""
     try:
@@ -393,7 +426,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
             # Commit size check
             threshold = load_commit_threshold()
-            file_count = count_commit_files(cwd)
+            committed_files = get_committed_files(cwd)
+            file_count = len(committed_files)
             if file_count >= threshold:
                 concern = _common.make_event(
                     _common.CONCERN,
@@ -402,6 +436,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
                     severity="medium",
                 )
                 _common.append_safe(smm_dir, concern)
+
+        # Resolve lint concerns for committed files that now pass
+        _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
 
         # Consume security triage marker after successful commit
         security.consume_security_triaged(smm_dir)

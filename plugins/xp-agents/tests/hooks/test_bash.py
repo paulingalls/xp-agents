@@ -322,7 +322,7 @@ class TestParseTestResults(unittest.TestCase):
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_records_status(self):
-        with patch("bash_post_tool.count_commit_files", return_value=3):
+        with patch("bash_post_tool.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add auth'",
@@ -336,7 +336,7 @@ class TestBashPostTool(_HookTestCase):
         self.assertIn("Add auth", statuses[0]["content"])
 
     def test_git_commit_small_no_concern(self):
-        with patch("bash_post_tool.count_commit_files", return_value=3):
+        with patch("bash_post_tool.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix bug'",
@@ -349,7 +349,10 @@ class TestBashPostTool(_HookTestCase):
         self.assertEqual(len(concerns), 0)
 
     def test_git_commit_large_appends_concern(self):
-        with patch("bash_post_tool.count_commit_files", return_value=12):
+        with patch(
+            "bash_post_tool.get_committed_files",
+            return_value=[f"f{i}" for i in range(12)],
+        ):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Big change'",
@@ -367,7 +370,10 @@ class TestBashPostTool(_HookTestCase):
         original = settings_path.read_text()
         try:
             settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
-            with patch("bash_post_tool.count_commit_files", return_value=6):
+            with patch(
+                "bash_post_tool.get_committed_files",
+                return_value=[f"f{i}" for i in range(6)],
+            ):
                 bash_post_tool.run(
                     _make_bash_input(
                         command="git commit -m 'x'",

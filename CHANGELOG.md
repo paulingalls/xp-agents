@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.103 — Lint: systemMessage + Commit-Time Resolution
+
+### Changed
+- **Lint errors show as systemMessage** — "Lint errors found — fix before committing." now visible in the UI, not just additionalContext that the agent may ignore.
+- **Lint concerns resolve on successful commit** — after a commit, the linter runs on committed files. Files that now pass lint get their concerns resolved. Fixes the gap where lint fixes via Bash commands (e.g., `swiftlint --fix`, `bun run lint:fix`) didn't trigger the Write/Edit-based resolution path.
+
+### Stats
+- 894 tests (all passing)
+
 ## v0.9.102 — Slim Previous Retros in Retro Input
 
 ### Changed
