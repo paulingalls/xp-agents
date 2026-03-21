@@ -17,7 +17,7 @@ The session status above was preloaded automatically.
 
 **Before starting:** Run `ToolSearch` with query `"select:Skill"` to load the Skill tool schema.
 
-**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 5) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
+**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 4) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
@@ -27,27 +27,20 @@ If the preload shows "RETRO_NEEDED", invoke the `/xp-run-retrospective` skill im
 
 Proceed to step 2.
 
-## Step 2: Review Previous Try Items
+## Step 2: Question Triage + Try Review (if QUESTIONS_NEEDED)
 
-If the preload shows Try items under "PREVIOUS_TRIES", briefly review each one with the user. For each Try item, note whether it was:
-- **Adopted** — became a practice this session
-- **Deferred** — still relevant, carry forward
-- **Dropped** — no longer relevant
+If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. It handles open questions, assumptions, AND previous retro Try items. Resolve before setting goals.
 
 Proceed to step 3.
 
-## Step 3: Question Triage (if QUESTIONS_NEEDED)
+## Step 3: Goal Collection (ALWAYS RUNS)
 
-If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. Resolve questions first — answers may inform goals.
+Run `/xp-goal-collection`. Shows existing goals and asks for session goals.
 
 Proceed to step 4.
 
-## Step 4: Goal Collection
-
-Run `/xp-goal-collection`. This always runs — it shows existing goals and asks for session goals. After it completes, proceed to step 5.
-
-## Step 5: Housekeeping (ALWAYS RUNS)
+## Step 4: Housekeeping (ALWAYS RUNS)
 
 Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and triggers the behavioral guide injection. **Kickoff is not complete until housekeeping finishes.**
 
-If the user says "skip" at any earlier step, still proceed to the next step. Housekeeping must always run.
+If the user says "skip" at any earlier step, still run housekeeping.

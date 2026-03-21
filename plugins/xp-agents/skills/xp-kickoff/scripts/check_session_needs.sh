@@ -30,10 +30,8 @@ else
 fi
 echo ""
 
-# 3. Check for open questions needing triage
-# Check both the curated SMM (Risks pillar) and raw events.
-# Lightweight: grep only, no full JSON parsing. Question triage
-# handles resolution checking itself.
+# 3. Check for open questions or Try items needing triage
+# Check SMM Risks, raw events, and previous retro Try items.
 echo "### QUESTIONS_CHECK"
 QUESTIONS_FOUND=false
 if [ -f "$SMM_FILE" ] && smm_has_section "Risks"; then
@@ -46,40 +44,32 @@ if [ "$QUESTIONS_FOUND" = false ] && [ -f "${SMM_DIR}/events.jsonl" ]; then
         QUESTIONS_FOUND=true
     fi
 fi
-if [ "$QUESTIONS_FOUND" = true ]; then
-    echo "QUESTIONS_NEEDED"
-    echo "Open questions or assumptions found."
-else
-    echo "No open questions."
-fi
-echo ""
-
-# 4. Extract previous Try items for review
-echo "### PREVIOUS_TRIES"
-RETRO_DIR="${SMM_DIR}/retrospectives"
-if [ -d "$RETRO_DIR" ]; then
-    LATEST_RETRO=$(find "$RETRO_DIR" -maxdepth 1 -name "*.json" 2>/dev/null | sort -r | head -1)
-    if [ -n "$LATEST_RETRO" ]; then
-        python3 -c "
+# Check for Try items from latest retro
+if [ "$QUESTIONS_FOUND" = false ]; then
+    RETRO_DIR="${SMM_DIR}/retrospectives"
+    if [ -d "$RETRO_DIR" ]; then
+        LATEST_RETRO=$(find "$RETRO_DIR" -maxdepth 1 -name "*.json" 2>/dev/null | sort -r | head -1)
+        if [ -n "$LATEST_RETRO" ]; then
+            HAS_TRIES=$(python3 -c "
 import json, sys
 data = json.load(open(sys.argv[1]))
-tries = data.get('try', [])
-if tries:
-    for t in tries:
-        content = t.get('content', t) if isinstance(t, dict) else t
-        print(f'- {content}')
-else:
-    print('(no Try items from last retro)')
-" "$LATEST_RETRO" 2>/dev/null || echo "(could not read retro file)"
-    else
-        echo "(no previous retrospective)"
+print('yes' if data.get('try', []) else 'no')
+" "$LATEST_RETRO" 2>/dev/null || echo "no")
+            if [ "$HAS_TRIES" = "yes" ]; then
+                QUESTIONS_FOUND=true
+            fi
+        fi
     fi
+fi
+if [ "$QUESTIONS_FOUND" = true ]; then
+    echo "QUESTIONS_NEEDED"
+    echo "Open questions, assumptions, or Try items to review."
 else
-    echo "(no retrospectives directory)"
+    echo "No open questions or Try items."
 fi
 echo ""
 
-# 5. Housekeeping always runs as the final step
+# 4. Housekeeping always runs as the final step
 echo "### HOUSEKEEPING"
 echo "Housekeeping runs as final step (ensures SMM + behavioral guide injection)."
 

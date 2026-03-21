@@ -23,3 +23,29 @@ if [ -f "$SMM_FILE" ] && smm_has_section "Intent"; then
 else
     echo "### Customer Intent: none tracked"
 fi
+
+echo ""
+
+# Previous Try items from latest retrospective
+RETRO_DIR="${SMM_DIR}/retrospectives"
+echo "### Previous Try Items:"
+if [ -d "$RETRO_DIR" ]; then
+    LATEST_RETRO=$(find "$RETRO_DIR" -maxdepth 1 -name "*.json" 2>/dev/null | sort -r | head -1)
+    if [ -n "$LATEST_RETRO" ]; then
+        python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+tries = data.get('try', [])
+if tries:
+    for t in tries:
+        content = t.get('content', t) if isinstance(t, dict) else t
+        print(f'- {content}')
+else:
+    print('(none)')
+" "$LATEST_RETRO" 2>/dev/null || echo "(could not read retro file)"
+    else
+        echo "(no previous retrospective)"
+    fi
+else
+    echo "(none)"
+fi

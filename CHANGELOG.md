@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.108 — Try Items Folded into Question Triage
+
+### Changed
+- **Try item review moved into `/xp-question-triage`** — no longer a separate kickoff step. Question triage now handles open questions, assumptions, AND previous retro Try items. Adopted items become decisions, deferred/dropped recorded as status.
+- **Kickoff back to 4 steps** — retro → question triage (+ try review) → goals → housekeeping.
+- **`check_session_needs.sh` detects Try items** — triggers QUESTIONS_NEEDED when the latest retro has Try items, even if no open questions.
+- **Question triage preload includes Try items** — `check_questions.sh` extracts them from the latest retro file.
+
+### Stats
+- 927 tests (all passing)
+
 ## v0.9.106 — Simplify Kickoff + Status working_on Default
 
 ### Changed

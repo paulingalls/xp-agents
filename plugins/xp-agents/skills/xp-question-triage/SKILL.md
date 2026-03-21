@@ -68,9 +68,24 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
    ```
 4. **Err toward keeping intents open.** Only mark delivered when there is clear evidence.
 
+## Try Item Review
+
+If the preload shows "Previous Try Items", present them to the user and ask for each: **adopt, defer, or drop?**
+
+For adopted items, record a decision:
+```bash
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "decision" \
+  --agent "xp-question-triage" \
+  --content "Adopted retro Try: <item description>" \
+  --topic "retro-try-adopted"
+```
+
+For deferred or dropped items, record a status noting the disposition.
+
 ## If Nothing Needs Doing
 
-If no open questions and no intents to reconcile — do nothing. Report briefly that no triage is needed.
+If no open questions, no intents to reconcile, and no Try items — do nothing. Report briefly that no triage is needed.
 
 ## Guidelines
 
