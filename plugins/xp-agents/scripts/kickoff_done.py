@@ -33,6 +33,27 @@ def _load_behavioral_guide() -> str:
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Inject SMM + behavioral guide after xp-kickoff completes."""
+    # Debug: log all Skill PostToolUse inputs to diagnose matching
+    try:
+        debug_file = Path("/tmp/kickoff-done-debug.json")
+        import json as _json
+
+        existing = []
+        if debug_file.exists():
+            with open(debug_file) as f:
+                existing = _json.load(f)
+        existing.append(
+            {
+                "tool_input": input_data.get("tool_input", {}),
+                "tool_name": input_data.get("tool_name", ""),
+                "agent_type": input_data.get("agent_type", ""),
+            }
+        )
+        with open(debug_file, "w") as f:
+            _json.dump(existing, f, indent=2)
+    except Exception:
+        pass
+
     if _common.is_xp_agent(input_data):
         return None
 
