@@ -43,6 +43,10 @@ chmod 600 "${SMM_DIR}/events.jsonl"
 touch "${SMM_DIR}/events.lock"
 chmod 600 "${SMM_DIR}/events.lock"
 
+# Seed default SMM for new projects (scans for linter, tests, hooks, CI)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "${SCRIPT_DIR}/seed_smm.py" "${SMM_DIR}" 2>/dev/null || true
+
 # Output the SMM directory path
 echo "${SMM_DIR}"
 exit 0

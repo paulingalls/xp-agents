@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.104 — Seed Default SMM for New Projects
+
+### Added
+- **Default SHARED_MENTAL_MODEL.md on first init** — `seed_smm.py` scans the project for linter config, test files, git hooks, and CI setup. Writes initial SMM with:
+  - **Constraints**: XP defaults (TDD, plan before execute, small commits, strict linting, commit hooks)
+  - **Risks**: flags for anything missing (no linter, no tests, no hooks, no CI)
+  - **Wisdom**: run /xp-kickoff at session start
+- Only runs when SMM doesn't exist (idempotent). Housekeeping curates from there.
+
+### Stats
+- 918 tests (all passing, +24 new)
+
 ## v0.9.103 — Lint: systemMessage + Commit-Time Resolution
 
 ### Changed
