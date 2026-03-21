@@ -163,6 +163,8 @@ def build_event(args: argparse.Namespace) -> dict:
         case "status":
             if args.working_on is not None:
                 event["working_on"] = parse_json_arg(args.working_on, "working-on")
+            else:
+                event["working_on"] = []
 
         case "decision" | "convention":
             if args.topic is not None:

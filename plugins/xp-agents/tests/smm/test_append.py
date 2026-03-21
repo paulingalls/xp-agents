@@ -106,9 +106,12 @@ class TestAppendIntegration(_TempRepoTestCase):
         r = self._run_append("--type", "invalid", "--agent", "main", "--content", "bad")
         self.assertNotEqual(r.returncode, 0)
 
-    def test_reject_missing_working_on(self):
+    def test_status_defaults_working_on_to_empty(self):
         r = self._run_append("--type", "status", "--agent", "main", "--content", "x")
-        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.returncode, 0)
+        events = self._read_events()
+        status = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(status[-1]["working_on"], [])
 
     def test_reject_missing_topic(self):
         r = self._run_append("--type", "decision", "--agent", "main", "--content", "x")

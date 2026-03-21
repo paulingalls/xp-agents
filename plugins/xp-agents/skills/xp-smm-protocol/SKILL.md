@@ -36,7 +36,7 @@ Events are materialized into four pillars in the SMM. The mapping:
 | Type | Pillar | When to Use | Required Fields |
 |------|--------|-------------|-----------------|
 | `goal` | Intent | Project north star, what we're building | content |
-| `status` | (activity) | What you're working on right now | content, working_on (file list) |
+| `status` | (activity) | What you're working on right now | content (working_on defaults to []) |
 | `concern` | Risks | Problem needing attention | content, severity (low/medium/high) |
 | `question` | Risks | Need customer input | content, priority |
 | `customer_input` | Intent | (Auto-logged by hook) | content |

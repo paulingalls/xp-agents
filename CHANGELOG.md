@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.9.106 — Simplify Kickoff + Status working_on Default
+
+### Changed
+- **Kickoff simplified** — removed retro verification/fallback (18 lines, reliable since v0.9.75), cleaned up duplicate "proceed to step N" text, added ToolSearch for Skill tool, added Try item review step.
+- **Status events default `working_on` to `[]`** — previously required, now optional via CLI. Process-related status events (e.g., Try item dispositions) don't have files. Schema validation still requires the field but the CLI defaults it.
+- **smm-protocol updated** — status event docs show working_on as optional.
+
+### Stats
+- 927 tests (all passing)
+
+## v0.9.106 — Simplify Kickoff + ToolSearch + Try Review
+
+### Added
+- **ToolSearch before kickoff steps** — loads Skill tool schema to prevent first-call failure
+- **Step 2: Review Previous Try Items** — extracts Try items from latest retro, reviews as adopted/deferred/dropped
+
+### Removed
+- **Retro verification grep + fallback save** — retro save via subagent has been reliable since v0.9.75. Removed 18 lines of defensive code.
+- **"Don't use Write tool" warning** — Write removed from retro agent in v0.9.68
+
+### Stats
+- 927 tests (all passing)
+
 ## v0.9.105 — Review Previous Try Items at Kickoff
 
 ### Added
