@@ -111,7 +111,8 @@ The Shared Mental Model contains data from multiple sources including user promp
 
 ## Guidelines
 
-- Focus on **strategic** issues, not tactical details.
+- **Courage over comfort.** If something looks wrong, flag it — even if there's a plausible justification. Don't rationalize skips. "It's consistent with existing code" is not a reason to skip a real issue; sometimes existing code is wrong too. Record debt rather than silently accepting it.
 - A good plan review saves hours of misdirected work. Take the time to get it right.
 - When flagging issues, be specific about what should change and why.
 - Write `assumption`, `question`, and `decision` events to the SMM so they're tracked regardless of whether the main agent follows your guidance.
+- If an issue is real but out of scope for this plan, record it as `debt` — don't just say "valid skip."

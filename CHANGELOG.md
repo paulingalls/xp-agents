@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.114 — Courage in Reviews: Tighter Skip Criteria
+
+### Changed
+- **Quality review: explicit valid-skip list** — only two reasons to skip a simplify recommendation: breaks an external API contract, or requires coordinated multi-module changes. Everything else gets fixed. Explicitly called out "consistent with existing code", "design choice", "pre-existing code", and "not our change" as invalid skip reasons.
+- **Plan reviewer: courage over comfort** — replaced "focus on strategic issues, not tactical details" with "flag it or record as debt, don't rationalize skips."
+
+### Stats
+- 940 tests (all passing)
+
 ## v0.9.113 — Behavioral Guide: Concrete append.sh Examples
 
 ### Changed

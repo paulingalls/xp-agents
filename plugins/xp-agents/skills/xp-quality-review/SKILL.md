@@ -29,7 +29,10 @@ Look back through the conversation for what `/simplify` recommended. **Default t
 
 For each recommendation:
 - **Applied?** Move on.
-- **Skipped?** Read the file and the recommendation. Apply it unless there is a **concrete, specific reason** not to (e.g., it would break an API contract, it requires a design discussion). "It's fine as-is" or "low severity" are not valid reasons to skip — if a reviewer found it, fix it. If truly too large to fix here, record it as `debt` with the specific reason it can't be done now.
+- **Skipped?** Read the file and the recommendation. Apply it unless it would **break a public API contract or require a multi-file design change beyond the current scope**. These are the ONLY valid reasons to skip:
+  - Breaks an external API contract (not internal refactors — those are fine to do)
+  - Requires coordinated changes across multiple unrelated modules
+  - Everything else gets fixed now. "It's consistent with existing code", "it's a design choice", "low severity", "pre-existing code", and "not our change" are **not valid reasons to skip**. If existing code is wrong, fix it. If a reviewer found it, it matters. If truly too large, record as `debt` with the specific reason.
 
 ## Step 2: Drift Management — Check Against SMM Constraints
 
