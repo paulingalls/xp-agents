@@ -120,15 +120,28 @@ def has_linter(root: Path) -> bool:
 
 
 def has_tests(root: Path) -> bool:
-    """Check if test files or directories exist."""
-    # Check test directories
-    for test_dir in _TEST_DIRS:
-        if (root / test_dir).is_dir():
-            return True
-    # Check for src/test (Maven/Gradle)
+    """Check if test files or directories exist.
+
+    Searches up to 3 levels deep for test directories (fast — just names)
+    and 2 levels deep for test file patterns (covers monorepos).
+    """
+    # Check test directories up to 3 levels deep
+    for depth in ("", "*/", "*/*/", "*/*/*/"):
+        for test_dir in _TEST_DIRS:
+            if list(root.glob(f"{depth}{test_dir}/")):
+                return True
+    # Check for src/test (Maven/Gradle) up to 2 levels
     if (root / "src" / "test").is_dir():
         return True
-    # Check for test file patterns (shallow — just top-level and one level deep)
+    for subdir in root.glob("*/"):
+        if (subdir / "src" / "test").is_dir():
+            return True
+    # Check *Tests/ directories (Xcode) up to 2 levels
+    for depth in ("", "*/"):
+        for d in root.glob(f"{depth}*Tests/"):
+            if d.is_dir():
+                return True
+    # Check test file patterns at root and one level deep
     for pattern in _TEST_FILE_PATTERNS:
         if list(root.glob(pattern)):
             return True

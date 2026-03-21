@@ -69,6 +69,18 @@ class TestDetection(unittest.TestCase):
         (self.tmpdir / "src" / "test").mkdir(parents=True)
         self.assertTrue(seed_smm.has_tests(self.tmpdir))
 
+    def test_has_nested_tests_dir(self):
+        (self.tmpdir / "packages" / "api" / "tests").mkdir(parents=True)
+        self.assertTrue(seed_smm.has_tests(self.tmpdir))
+
+    def test_has_xcode_tests_dir(self):
+        (self.tmpdir / "app" / "MyAppTests").mkdir(parents=True)
+        self.assertTrue(seed_smm.has_tests(self.tmpdir))
+
+    def test_has_monorepo_src_test(self):
+        (self.tmpdir / "packages" / "api" / "src" / "test").mkdir(parents=True)
+        self.assertTrue(seed_smm.has_tests(self.tmpdir))
+
     def test_no_hooks(self):
         self.assertFalse(seed_smm.has_git_hooks(self.tmpdir))
 
