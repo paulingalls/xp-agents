@@ -39,8 +39,18 @@ When values conflict: Courage > Simplicity > Feedback > Communication > Respect.
 Record events using `append.sh`. Always prefix with `CLAUDE_PLUGIN_DATA` so the correct SMM path is resolved:
 
 ```bash
+# Assumption (no --severity — assumptions are inherently uncertain)
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "<type>" --agent "<agent>" --content "<content>"
+  --type "assumption" --agent "main" --content "Description of what is assumed"
+
+# Decision (requires --topic)
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "decision" --agent "main" --content "Decision description" \
+  --topic "topic-name" --metadata '{"draft": true}'
+
+# Concern (--severity: high, medium, or low — NOT uncertainty/problem/debt)
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+  --type "concern" --agent "main" --content "What's wrong" --severity "medium"
 ```
 
 Run `append.sh --help` for all options. For detailed guidance on event types, invoke `/xp-smm-protocol`.

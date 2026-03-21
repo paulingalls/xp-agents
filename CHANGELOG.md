@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.113 — Behavioral Guide: Concrete append.sh Examples
+
+### Changed
+- **Behavioral Guide now shows concrete examples** for assumption, decision, and concern events — including correct flags. Prevents the agent from using invalid values like `--severity "uncertainty"` (should be `high/medium/low`, and assumptions don't take severity at all).
+
+### Stats
+- 940 tests (all passing)
+
 ## v0.9.112 — Allow Plan File Writes During Plan Review Gate
 
 ### Fixed
