@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.105 — Review Previous Try Items at Kickoff
+
+### Added
+- **Step 2 in kickoff: Review Previous Try Items** — extracts Try items from the most recent retrospective and presents them for review. Each item is marked adopted, deferred, or dropped. Closes the feedback loop from retro → next session that was flagged as a recurring Fix.
+- **Preload extracts PREVIOUS_TRIES** — `check_session_needs.sh` reads the latest retro JSON file and outputs Try items.
+- Kickoff is now 5 steps: retro → try review → questions → goals → housekeeping.
+
+### Stats
+- 927 tests (all passing)
+
 ## v0.9.104 — Seed Default SMM for New Projects
 
 ### Added

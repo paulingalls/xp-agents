@@ -16,7 +16,7 @@ allowed-tools:
 
 The session status above was preloaded automatically.
 
-**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 4) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
+**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 5) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
@@ -46,17 +46,26 @@ RETRO_JSON
 
 If not needed, proceed to step 2.
 
-## Step 2: Question Triage (if QUESTIONS_NEEDED)
+## Step 2: Review Previous Try Items
 
-If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. Resolve questions first — answers may inform goals. Wait for it to complete, then proceed to step 3.
+If the preload shows Try items under "PREVIOUS_TRIES", briefly review each one with the user. For each Try item, note whether it was:
+- **Adopted** — became a practice this session
+- **Deferred** — still relevant, carry forward
+- **Dropped** — no longer relevant
 
-If not needed, proceed to step 3.
+This takes 1-2 minutes. If there are no Try items, skip to step 3.
 
-## Step 3: Goal Collection
+## Step 3: Question Triage (if QUESTIONS_NEEDED)
 
-Run `/xp-goal-collection`. This always runs — it shows existing goals and asks for session goals. After it completes, proceed to step 4.
+If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` now. Resolve questions first — answers may inform goals. Wait for it to complete, then proceed to step 4.
 
-## Step 4: Housekeeping (ALWAYS RUNS)
+If not needed, proceed to step 4.
+
+## Step 4: Goal Collection
+
+Run `/xp-goal-collection`. This always runs — it shows existing goals and asks for session goals. After it completes, proceed to step 5.
+
+## Step 5: Housekeeping (ALWAYS RUNS)
 
 Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and triggers the behavioral guide injection. **Kickoff is not complete until housekeeping finishes.**
 
