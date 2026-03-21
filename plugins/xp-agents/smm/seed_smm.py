@@ -188,7 +188,7 @@ def generate_smm(root: Path) -> str:
     # Constraints — XP defaults
     constraints = [
         "Write tests before implementation (TDD) — red, green, refactor",
-        "Plan before executing new features — use plan mode for design",
+        "Plan before building new features — use plan mode for design",
         "Small commits — one logical change per commit",
         "Use strict linting — enforce coding standards automatically",
         "Use git commit hooks — run lint and tests before every commit",
