@@ -249,5 +249,63 @@ class TestPostToolUseHooksConfig(unittest.TestCase):
         self.assertEqual(data["commit_size_threshold"], 10)
 
 
+import post_tool_exit_plan  # noqa: E402
+
+
+class TestPostToolExitPlan(_HookTestCase):
+    """PostToolUse:ExitPlanMode writes marker, event, and returns context."""
+
+    def test_returns_review_nudge(self):
+        """Should return additionalContext nudging /xp-review-plan."""
+        result = post_tool_exit_plan.run(
+            {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-review-plan", result)
+
+    def test_writes_marker_file(self):
+        """Should create .plan-awaiting-review marker."""
+        post_tool_exit_plan.run(
+            {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".plan-awaiting-review"
+        self.assertTrue(marker.exists())
+
+    def test_writes_gate_event(self):
+        """Should append plan_awaiting_review status event."""
+        post_tool_exit_plan.run(
+            {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
+        self.assertEqual(len(gate), 1)
+
+    def test_skips_xp_agents(self):
+        """XP agent types should be skipped."""
+        result = post_tool_exit_plan.run(
+            {
+                "session_id": "t",
+                "agent_id": "main",
+                "agent_type": "xp-test",
+                "tool_name": "ExitPlanMode",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+        marker = self.smm_dir / ".plan-awaiting-review"
+        self.assertFalse(marker.exists())
+
+    def test_no_smm_dir_returns_none(self):
+        """Missing SMM dir should return None gracefully."""
+        result = post_tool_exit_plan.run(
+            {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
+            smm_dir=Path("/nonexistent/path"),
+        )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,16 +20,6 @@
             "statusMessage": "Checking commit constraints..."
           }
         ]
-      },
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_exit_plan.py",
-            "statusMessage": "Checking plan review..."
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -176,6 +166,17 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/kickoff_done.py",
             "timeout": 10000,
             "statusMessage": "Loading session context..."
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_exit_plan.py",
+            "timeout": 5000,
+            "statusMessage": "Preparing plan review..."
           }
         ]
       }

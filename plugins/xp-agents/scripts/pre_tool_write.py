@@ -240,13 +240,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 "File conflict detected — another agent is working on this file.",
             )
 
-    # Plan review gate — check marker file (O(1), no event log scan)
+    # Plan review gate — block writes until plan is reviewed
     if smm_dir:
         marker = smm_dir / ".plan-awaiting-review"
         if marker.exists() and not marker.is_symlink():
-            parts.append(
-                "Run the /xp-review-plan skill (invoke as a skill, not a subagent) "
-                "to review the plan before implementing."
+            raise _common.BlockedError(
+                "Run /xp-review-plan before writing any code. "
+                "The plan review extracts assumptions, decisions, and risks "
+                "that feed the Shared Mental Model.",
+                "Plan review required before implementation.",
             )
 
     # TDD order check

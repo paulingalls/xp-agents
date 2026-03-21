@@ -46,15 +46,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
 
-    # Plan review gate — write marker event for PreToolUse to detect.
-    # Don't block (causes re-planning loops) or nudge via reason (silently dropped).
+    # Plan review gate — Plan subagent (via Agent tool) also needs review.
+    # PostToolUse:ExitPlanMode handles the EnterPlanMode/ExitPlanMode tool flow;
+    # this handles the SubagentStop flow for Plan-type subagents.
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
-        # Write marker file for O(1) check in pre_tool_write.py
         marker = smm_dir / ".plan-awaiting-review"
         marker.write_text(agent_id)
 
-        # Keep the event for SMM history
         gate_event = _common.make_event(
             _common.STATUS,
             agent_id,

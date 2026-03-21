@@ -431,11 +431,11 @@ class TestSubagentStop(_HookTestCase):
 
 
 class TestSubagentStopPlanGate(_HookTestCase):
-    """SubagentStop writes plan_awaiting_review marker for Plan subagents."""
+    """SubagentStop writes plan gate for Plan subagents (Agent tool flow)."""
 
     def test_plan_writes_awaiting_review_marker(self):
-        """Plan subagent should write plan_awaiting_review event."""
-        result = subagent_stop.run(
+        """Plan subagent should write marker file and gate event."""
+        subagent_stop.run(
             {
                 "session_id": "t",
                 "agent_id": "plan-1",
@@ -444,14 +444,15 @@ class TestSubagentStopPlanGate(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        marker = self.smm_dir / ".plan-awaiting-review"
+        self.assertTrue(marker.exists())
         events = _common.read_events_raw(self.smm_dir)
         gate_events = [
             e for e in events if "plan_awaiting_review" in e.get("content", "")
         ]
         self.assertEqual(len(gate_events), 1)
 
-    def test_plan_records_completion_status(self):
+    def test_plan_records_completion_and_gate(self):
         """Both completion status and gate marker should be written."""
         subagent_stop.run(
             {

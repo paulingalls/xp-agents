@@ -369,30 +369,31 @@ class TestPreToolWritePerformance(_HookTestCase):
 
 
 class TestPreToolWritePlanReviewGate(_HookTestCase):
-    """PreToolUse nudges plan review for writes when plan is unreviewed."""
+    """PreToolUse blocks writes when plan is unreviewed."""
 
-    def test_unreviewed_plan_nudges_review(self):
-        """Write with .plan-awaiting-review marker should nudge plan review."""
+    def test_unreviewed_plan_blocks_write(self):
+        """Write with .plan-awaiting-review marker should block."""
         marker = self.smm_dir / ".plan-awaiting-review"
         marker.touch()
-        result = pre_tool_write.run(
-            _make_write_input(session_id="t", cwd="/tmp"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("xp-review-plan", result)
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("xp-review-plan", str(ctx.exception))
 
-    def test_no_marker_no_nudge(self):
-        """Write without marker should not nudge."""
+    def test_no_marker_no_block(self):
+        """Write without marker should not block."""
         result = pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
         )
+        # Should not raise — result is None or context string without plan review
         if result:
             self.assertNotIn("xp-review-plan", result)
 
-    def test_marker_removed_no_nudge(self):
-        """Write after marker removed should not nudge."""
+    def test_marker_removed_no_block(self):
+        """Write after marker removed should not block."""
         marker = self.smm_dir / ".plan-awaiting-review"
         marker.touch()
         marker.unlink()

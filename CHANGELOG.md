@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.9.109 — Fix Plan Review Gate, Block Writes Until Reviewed
+
+### Fixed
+- **Plan review gate never fired** — `EnterPlanMode`/`ExitPlanMode` are regular tools, not subagents. The `SubagentStop` hook that wrote `.plan-awaiting-review` never triggered because no `SubagentStop` event is emitted for plan mode. Root cause confirmed via transcript analysis.
+
+### Changed
+- **Three-layer plan review enforcement:**
+  1. `PostToolUse:ExitPlanMode` — nudges agent via `additionalContext` to run `/xp-review-plan`
+  2. `SubagentStop:Plan` — writes marker for the Agent-tool plan flow (belt and suspenders)
+  3. `PreToolUse:Write|Edit|MultiEdit` — **blocks** writes while marker exists (was: nudge)
+- **Marker cleared only by `/xp-review-plan`** preload — agent cannot skip the review
+- **Removed dead `PreToolUse:ExitPlanMode` hook** — blocking ExitPlanMode trapped the agent in plan mode where it couldn't run skills
+
+### Stats
+- 934 tests (all passing)
+
 ## v0.9.108 — Try Items Folded into Question Triage
 
 ### Changed

@@ -385,10 +385,10 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
 
 
 class TestPlanReviewFlow(_IntegrationTestCase):
-    """M7: Plan subagent → block, regular subagent → nudge."""
+    """Both plan flows (ExitPlanMode tool + Plan subagent) nudge plan review."""
 
-    def test_plan_subagent_blocks_with_reviewer(self):
-        """Plan agent_type → decision:block with xp-plan-reviewer instruction."""
+    def test_exit_plan_mode_nudges_review(self):
+        """ExitPlanMode tool → additionalContext nudges /xp-review-plan."""
         # Seed decisions so plan review has context
         self._seed_events(
             [
@@ -406,6 +406,27 @@ class TestPlanReviewFlow(_IntegrationTestCase):
             ]
         )
         result = self._run_script(
+            "post_tool_exit_plan.py",
+            {
+                "session_id": "m7-plan",
+                "agent_id": "main",
+                "tool_name": "ExitPlanMode",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        import json
+
+        output = json.loads(result.stdout)
+        self.assertIn(
+            "xp-review-plan", output["hookSpecificOutput"]["additionalContext"]
+        )
+        events = self._read_events()
+        gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
+        self.assertEqual(len(gate), 1)
+
+    def test_plan_subagent_writes_gate(self):
+        """Plan subagent (via Agent tool) → writes gate marker and event."""
+        result = self._run_script(
             "subagent_stop.py",
             {
                 "session_id": "m7-plan",
@@ -415,10 +436,11 @@ class TestPlanReviewFlow(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
         events = self._read_events()
         gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
         self.assertEqual(len(gate), 1)
+        marker = self.smm_dir / ".plan-awaiting-review"
+        self.assertTrue(marker.exists())
 
     def test_regular_subagent_no_reviewer_nudge(self):
         """Non-Plan subagent → no reviewer nudge (xp-subagent-reviewer removed)."""

@@ -232,7 +232,7 @@ class TestMilestone6Integration(_IntegrationTestCase):
 
 class TestMilestone65Integration(_IntegrationTestCase):
     def test_subagent_stop_plan_writes_gate_marker(self):
-        """Plan agent_type → writes plan_awaiting_review marker event."""
+        """Plan agent_type (via Agent tool) → writes plan_awaiting_review marker."""
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -243,7 +243,31 @@ class TestMilestone65Integration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
+        events = self._read_events()
+        gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
+        self.assertEqual(len(gate), 1)
+
+    def test_post_tool_exit_plan_writes_gate(self):
+        """PostToolUse:ExitPlanMode writes marker and gate event."""
+        result = self._run_script(
+            "post_tool_exit_plan.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "main",
+                "tool_name": "ExitPlanMode",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        # Should output additionalContext JSON
+        import json
+
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("xp-review-plan", ctx)
+        # Should write marker file
+        marker = self.smm_dir / ".plan-awaiting-review"
+        self.assertTrue(marker.exists())
+        # Should write gate event
         events = self._read_events()
         gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
         self.assertEqual(len(gate), 1)
