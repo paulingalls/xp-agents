@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.101 — Fix Retro Cap and Remove Debug Logging
+
+### Fixed
+- **Retro cap counts across all events, not just pre-watermark** — post-watermark retro events (written during the current kickoff) weren't counted toward the cap of 2, resulting in 3 retro events surviving compaction. Now counts globally and only keeps the last 2.
+- **Removed debug logging** from `kickoff_done.py` (was writing to `/tmp/kickoff-done-debug.json`).
+
+### Stats
+- 894 tests (all passing)
+
 ## v0.9.99 — Retro Agent: Use Task Prompt Data Only
 
 ### Fixed

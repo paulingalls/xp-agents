@@ -204,11 +204,17 @@ def compact_after_curation(smm_dir: Path) -> dict:
     ]
     keep_session_end_indices = set(pre_session_ends[-3:])
 
-    # Keep last 2 retro events (trend detection; archive in retrospectives/)
-    pre_retros = [
-        i for i, e in enumerate(pre_watermark) if e.get("type") == "retrospective"
+    # Keep last 2 retro events across ALL events (not just pre-watermark).
+    # Post-watermark retros count toward the cap so we don't accumulate 3+.
+    all_retro_ids = [
+        e.get("id", "") for e in events if e.get("type") == "retrospective"
     ]
-    keep_retro_indices = set(pre_retros[-2:])
+    keep_retro_ids = set(all_retro_ids[-2:])
+    pre_retro_indices = {
+        i
+        for i, e in enumerate(pre_watermark)
+        if e.get("type") == "retrospective" and e.get("id", "") in keep_retro_ids
+    }
 
     # Classify pre-watermark events
     retained: list[dict] = []
@@ -218,7 +224,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
     for i, event in enumerate(pre_watermark):
         eid = event.get("id", "")
 
-        if i in keep_session_end_indices or i in keep_retro_indices:
+        if i in keep_session_end_indices or i in pre_retro_indices:
             retained.append(event)
             continue
 
