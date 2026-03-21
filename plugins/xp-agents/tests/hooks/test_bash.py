@@ -53,6 +53,10 @@ class TestIsGitCommit(unittest.TestCase):
     def test_not_in_single_quotes(self):
         self.assertFalse(security.is_git_commit("echo 'git commit is great'"))
 
+    def test_not_in_heredoc(self):
+        cmd = "cat <<'SMMEOF' | python3 x.py\nbefore git commit\nSMMEOF"
+        self.assertFalse(security.is_git_commit(cmd))
+
 
 class TestIsTestRun(unittest.TestCase):
     def test_pytest(self):

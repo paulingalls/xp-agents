@@ -89,6 +89,18 @@ class TestPreToolBashCommitGate(_HookTestCase):
         # But real git commit with quoted message still matches
         self.assertTrue(security.is_git_commit('git commit -m "fix bug"'))
 
+    def test_is_git_commit_ignores_heredocs(self):
+        """is_git_commit must not match 'git commit' inside heredoc content."""
+        heredoc_cmd = (
+            "cat <<'SMMEOF' | python3 save_smm.py\n"
+            "- Run swiftlint before git commit\n"
+            "SMMEOF"
+        )
+        self.assertFalse(security.is_git_commit(heredoc_cmd))
+        # Unquoted delimiter too
+        heredoc_unquoted = "cat <<EOF | python3 save_smm.py\nbefore git commit\nEOF"
+        self.assertFalse(security.is_git_commit(heredoc_unquoted))
+
     def test_commit_blocked_without_marker(self):
         """git commit is blocked when no triage marker exists."""
         with self.assertRaises(_common.BlockedError) as ctx:

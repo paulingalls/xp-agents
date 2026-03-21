@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.111 — Fix is_git_commit Heredoc False Positive
+
+### Fixed
+- **Security triage gate blocked heredoc commands** — `is_git_commit` matched "git commit" inside heredoc content (e.g., `cat <<'SMMEOF' | python3 save_smm.py` with "before git commit" in the body). `_strip_quoted` now strips heredoc content (`<<DELIM...DELIM` and `<<'DELIM'...DELIM`) in addition to quoted strings.
+
+### Stats
+- 939 tests (all passing)
+
 ## v0.9.110 — Fix is_git_commit False Positive on Quoted Strings
 
 ### Fixed

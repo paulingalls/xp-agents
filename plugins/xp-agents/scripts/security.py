@@ -62,9 +62,16 @@ def is_code_file(path: str) -> bool:
 
 
 def _strip_quoted(command: str) -> str:
-    """Remove single- and double-quoted strings to avoid matching inside arguments."""
-    # Remove escaped quotes first, then quoted strings
-    s = command.replace("\\'", "").replace('\\"', "")
+    """Remove quoted strings and heredocs to avoid matching inside arguments."""
+    # Strip heredocs first (<<'DELIM'...DELIM or <<DELIM...DELIM)
+    s = re.sub(
+        r"<<-?\s*'?(\w+)'?.*?\n.*?\1",
+        "",
+        command,
+        flags=re.DOTALL,
+    )
+    # Remove escaped quotes, then quoted strings
+    s = s.replace("\\'", "").replace('\\"', "")
     s = re.sub(r"'[^']*'", "", s)
     s = re.sub(r'"[^"]*"', "", s)
     return s
