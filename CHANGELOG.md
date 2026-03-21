@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.110 — Fix is_git_commit False Positive on Quoted Strings
+
+### Fixed
+- **Security triage gate blocked all Bash commands** — `is_git_commit` regex matched "git commit" inside quoted arguments (e.g., `append.sh --content "before git commit"`). Now strips quoted strings before matching, so only actual `git commit` commands trigger the gate.
+
+### Stats
+- 937 tests (all passing)
+
 ## v0.9.109 — Fix Plan Review Gate, Block Writes Until Reviewed
 
 ### Fixed

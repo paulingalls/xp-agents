@@ -79,6 +79,16 @@ class TestPreToolBashCommitGate(_HookTestCase):
         self.assertFalse(security.is_git_commit("git pull"))
         self.assertFalse(security.is_git_commit("echo commit"))
 
+    def test_is_git_commit_ignores_quoted_strings(self):
+        """is_git_commit must not match 'git commit' inside quoted arguments."""
+        self.assertFalse(
+            security.is_git_commit('append.sh --content "before git commit"')
+        )
+        self.assertFalse(security.is_git_commit("echo 'git commit is great'"))
+        self.assertFalse(security.is_git_commit('echo "not a git commit"'))
+        # But real git commit with quoted message still matches
+        self.assertTrue(security.is_git_commit('git commit -m "fix bug"'))
+
     def test_commit_blocked_without_marker(self):
         """git commit is blocked when no triage marker exists."""
         with self.assertRaises(_common.BlockedError) as ctx:

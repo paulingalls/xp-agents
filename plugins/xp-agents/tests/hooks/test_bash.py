@@ -45,6 +45,14 @@ class TestIsGitCommit(unittest.TestCase):
     def test_git_commit_no_message(self):
         self.assertTrue(security.is_git_commit("git commit"))
 
+    def test_not_in_double_quotes(self):
+        self.assertFalse(
+            security.is_git_commit('append.sh --content "before git commit"')
+        )
+
+    def test_not_in_single_quotes(self):
+        self.assertFalse(security.is_git_commit("echo 'git commit is great'"))
+
 
 class TestIsTestRun(unittest.TestCase):
     def test_pytest(self):

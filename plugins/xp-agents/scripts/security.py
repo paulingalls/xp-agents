@@ -61,9 +61,18 @@ def is_code_file(path: str) -> bool:
     return Path(path).name.lower() not in _NON_CODE_NAMES
 
 
+def _strip_quoted(command: str) -> str:
+    """Remove single- and double-quoted strings to avoid matching inside arguments."""
+    # Remove escaped quotes first, then quoted strings
+    s = command.replace("\\'", "").replace('\\"', "")
+    s = re.sub(r"'[^']*'", "", s)
+    s = re.sub(r'"[^"]*"', "", s)
+    return s
+
+
 def is_git_commit(command: str) -> bool:
-    """Detect git commit in a shell command."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
+    """Detect git commit as an actual command, not inside quoted arguments."""
+    return bool(re.search(r"\bgit\s+commit\b", _strip_quoted(command)))
 
 
 def security_triaged_path(smm_dir: Path) -> Path:
