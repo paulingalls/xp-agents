@@ -15,22 +15,21 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
 
 ## Before Analyzing
 
-The preloaded data above includes `SMM_DIR=<path>` — use that exact path for all file operations. **Do not construct your own SMM path.** Do not use `.smm/` or any path relative to the project directory.
+Your task prompt contains all the data you need — `SMM_DIR`, event digest, session stats, and previous retros. **Do not read any files.** Do not browse the filesystem, `.claude/`, tool-results, or transcripts. Analyze only the data provided in your task prompt.
 
-1. **If the preload shows "no .retro-input.json found"**, there is insufficient data for a retrospective. Return immediately with no analysis.
+1. **If the task prompt shows "no .retro-input.json found"**, there is insufficient data. Return immediately.
 
-2. **If the preload shows retrospective input data**, it contains:
+2. **If the task prompt shows retrospective input data**, it contains:
    - `unanalyzed_count` — number of events since the last retro
-   - `digest` — **structured summary** (use this instead of raw events):
-     - `signal_events` — full event dicts for decisions, concerns, goals, debt, discoveries, questions, answers, assumptions, conventions, customer_input (~30 events vs 200+ raw)
-     - `status_summary` — `{total, file_writes, test_runs, other, samples}` with counts and 10 newest samples per category
-     - `concern_groups` — deduplicated concerns grouped by normalized content, each with `{key, count, events}`
-   - `events_since_last_retro` — raw event list (kept for backward compat, prefer `digest`)
+   - `digest` — structured summary for analysis:
+     - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions
+     - `status_summary` — `{total, file_writes, test_runs, other}` counts
+     - `concern_groups` — deduplicated concerns grouped by content
    - `previous_retros` — last 2-3 retrospective summaries for trend detection
    - `event_type_counts` — breakdown by event type
    - `session_stats` — concern resolution ratio, decision counts, etc.
 
-**Use `digest` for analysis.** It contains the same information as `events_since_last_retro` but structured for efficient analysis. Status events are summarized as counts; signal events and concerns are preserved in full.
+**Use `digest.signal_events` for analysis.** These are the meaningful events. Status events are summarized as counts only.
 
 ## Analysis Framework
 

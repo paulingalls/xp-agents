@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.99 — Retro Agent: Use Task Prompt Data Only
+
+### Fixed
+- **Retro agent told to use task prompt data, not browse filesystem** — the subagent was reading cached tool-results files (40KB) instead of using the slimmed preload data (~1,500 tokens) already in its task prompt. Updated prompt: "Do not read any files. Analyze only the data provided in your task prompt."
+- **Field descriptions match slimmed preload** — removed references to `samples` and `events_since_last_retro` which the preload strips.
+
+### Stats
+- 894 tests (all passing)
+
 ## v0.9.98 — Recurring Concerns Escalate in Severity
 
 ### Changed
