@@ -122,7 +122,8 @@ class TestRetrospective(_HookTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertEqual(len(data["previous_retros"]), 1)
-        self.assertEqual(data["previous_retros"][0]["keep"][0]["content"], "good TDD")
+        # Slimmed: content strings only, no event_refs/values
+        self.assertEqual(data["previous_retros"][0]["keep"][0], "good TDD")
 
     def test_retro_history_limited_to_3(self):
         import retrospective
@@ -141,7 +142,7 @@ class TestRetrospective(_HookTestCase):
         )
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
-        self.assertEqual(len(data["previous_retros"]), 3)
+        self.assertEqual(len(data["previous_retros"]), 2)
 
     def test_retro_history_empty_dir(self):
         import retrospective

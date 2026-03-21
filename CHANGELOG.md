@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.102 — Slim Previous Retros in Retro Input
+
+### Changed
+- **Previous retros slimmed to content strings only** — stripped event_refs, values, xp_value metadata. The retro agent only needs content for trend detection (recurring fixes, adopted tries). Saves ~37% per retro file.
+- **Retro history limited to 2** (was 3) — combined with slimming, reduces previous_retros from ~4,400 tokens to ~1,800 tokens (59% savings).
+
+### Stats
+- 894 tests (all passing)
+
 ## v0.9.101 — Fix Retro Cap and Remove Debug Logging
 
 ### Fixed

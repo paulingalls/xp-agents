@@ -503,7 +503,7 @@ class TestThreeSessionAccumulation(_IntegrationTestCase):
             data3 = json.load(f)
         self.assertEqual(len(data3["previous_retros"]), 1)
         self.assertEqual(
-            data3["previous_retros"][0]["keep"][0]["content"],
+            data3["previous_retros"][0]["keep"][0],
             "Good TDD practice",
         )
 
