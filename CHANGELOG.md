@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.6
+
+### Changed
+- **Retro preload slimmed** — outputs just paths + behavioral guide (~500 tokens). Subagent reads `.retro-input.json` itself. Data slimmed at write time (no `events_since_last_retro`, signal events trimmed, status samples dropped). Saves ~30KB in main agent context when fork fails.
+- **init.sh fallback path corrected** — default changed from `~/.claude/xp-agents` to `~/.claude/plugins/data/xp-agents-xp-agents` (matches actual platform plugin data path).
+
+### Fixed
+- **Test parser "0 passed, 0 failed"** — when test output is truncated and the parser can't extract counts, records "Tests passed (framework)" instead of the misleading zero counts. Exit 0 means tests passed.
+
+### Stats
+- 962 tests (all passing)
+
 ## v1.0.5
 
 ### Changed
