@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.3
+
+### Fixed
+- **Security triage now visible in event log** — `mark_triaged.py` and `security_review_done.py` write status events so the retro can track triage compliance (fixes 7-session recurring Fix item about undetectable triage).
+- **Superseded decision concern dedup** — only flags the most recent pair per topic, not every historical pair. Reduces noise from duplicate concerns accumulating.
+
+### Changed
+- **Plan review output shown to user** — three layers (PostToolUse nudge, skill content, agent prompt) all instruct showing the full review. Prevents the agent from silently acting on review findings.
+
+### Stats
+- 963 tests (all passing)
+
 ## v1.0.2 — Remove Draft Decision Concept
 
 ### Removed
