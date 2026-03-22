@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.1 — Fix Security Triage Preload Quoting
+
+### Fixed
+- **Security triage preload failed** — inline `!` command with quoted `echo "---FULL DIFF---"` triggered "Command contains quoted characters in flag names" permission error. Moved to a preload script (`preload_diff.sh`) to avoid the quoting issue.
+
+### Stats
+- 963 tests (all passing)
+
 ## v1.0.0
 
 ### Added

@@ -13,7 +13,7 @@ allowed-tools:
   - Skill(security-review)
 ---
 
-!`git diff --cached --stat && echo "---FULL DIFF---" && git diff --cached`
+!`${CLAUDE_SKILL_DIR}/scripts/preload_diff.sh`
 
 Classify the staged changes above:
 
