@@ -5,7 +5,6 @@ Constructs a JSON event from CLI arguments, validates against the SMM schema,
 and appends it atomically to events.jsonl using flock.
 """
 
-import argparse
 import contextlib
 import fcntl
 import hashlib
@@ -16,8 +15,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -81,110 +78,23 @@ def _validate_agent_id(agent_id: str) -> None:
 # Event schema (re-exported from event_schema.py)
 # ---------------------------------------------------------------------------
 
+from event_builder import (  # noqa: E402
+    build_event,
+    build_parser,
+    parse_json_arg,  # noqa: F401
+)
 from event_schema import (  # noqa: E402
     MAX_CONTENT_LENGTH,  # noqa: F401
     MAX_EVENT_BYTES,
     MAX_EVENTS_FILE_SIZE,
-    MAX_JSON_ARG_SIZE,
     PRIORITY_ASSUMED,  # noqa: F401
     PRIORITY_BLOCKING,  # noqa: F401
     PRIORITY_INFO,  # noqa: F401
     VALID_INTENT_STATUSES,  # noqa: F401
     VALID_PRIORITIES,  # noqa: F401
     VALID_SEVERITIES,  # noqa: F401
-    VALID_TYPES,
     validate_event,
 )
-
-
-def parse_json_arg(value: str, name: str) -> list | dict:
-    """Parse a JSON string argument, exit on failure or oversized input."""
-    if len(value) > MAX_JSON_ARG_SIZE:
-        print(
-            f"Error: --{name} value too large "
-            f"({len(value)} > {MAX_JSON_ARG_SIZE} bytes)",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON for --{name}: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-def build_event(args: argparse.Namespace) -> dict:
-    """Construct an event dict from parsed CLI arguments.
-
-    Does not validate required fields — that's validate_event's job.
-    """
-    event: dict = {
-        "id": str(uuid.uuid4()),
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "type": args.type,
-        "agent_id": args.agent,
-        "content": args.content,
-        "schema_version": 1,
-    }
-
-    # Universal optional fields
-    if args.references:
-        event["references"] = parse_json_arg(args.references, "references")
-    if args.metadata:
-        event["metadata"] = parse_json_arg(args.metadata, "metadata")
-
-    # Type-specific fields — just map args to event fields, no validation
-    match args.type:
-        case "debt":
-            if args.files is not None:
-                event["files"] = parse_json_arg(args.files, "files")
-
-        case "customer_intent":
-            if args.intent_status is not None:
-                event["intent_status"] = args.intent_status
-
-        case "status":
-            if args.working_on is not None:
-                event["working_on"] = parse_json_arg(args.working_on, "working-on")
-            else:
-                event["working_on"] = []
-
-        case "decision" | "convention":
-            if args.topic is not None:
-                event["topic"] = args.topic
-
-        case "concern":
-            if args.severity:
-                event["severity"] = args.severity
-
-        case "question":
-            if args.priority is not None:
-                event["priority"] = args.priority
-
-        case "session_end":
-            if args.duration_seconds is not None:
-                event["duration_seconds"] = args.duration_seconds
-            if args.event_count is not None:
-                event["event_count"] = args.event_count
-            if args.unresolved_items:
-                event["unresolved_items"] = parse_json_arg(
-                    args.unresolved_items, "unresolved-items"
-                )
-            if args.working_on:
-                event["working_on"] = parse_json_arg(args.working_on, "working-on")
-            if args.final_status_recorded is not None:
-                event["final_status_recorded"] = args.final_status_recorded
-
-        case "retrospective":
-            if args.keep:
-                event["keep"] = parse_json_arg(args.keep, "keep")
-            if args.fix:
-                event["fix"] = parse_json_arg(args.fix, "fix")
-            if args.try_items:
-                event["try"] = parse_json_arg(args.try_items, "try-items")
-
-    return event
-
 
 # Resolution tracking: see resolution.py
 from resolution import compute_resolutions, resolve_prefix  # noqa: F401, E402
@@ -534,75 +444,6 @@ def replace_events_file(smm_dir: Path, events: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for append operations."""
-    parser = argparse.ArgumentParser(description="Append an event to the SMM event log")
-
-    # Optional SMM directory override (avoids CLAUDE_PLUGIN_DATA env var issues)
-    parser.add_argument(
-        "--smm-dir", type=Path, help="SMM directory (auto-resolved if omitted)"
-    )
-
-    # Universal required
-    parser.add_argument("--type", required=True, choices=VALID_TYPES, help="Event type")
-    parser.add_argument("--agent", required=True, help="Agent ID")
-    parser.add_argument("--content", required=True, help="Event content")
-
-    # Universal optional
-    parser.add_argument("--references", help="JSON array of referenced event IDs")
-    parser.add_argument("--metadata", help="JSON object of metadata")
-
-    # Type-specific
-    parser.add_argument(
-        "--working-on",
-        help="JSON array of file paths",
-    )
-    parser.add_argument("--topic", help="Topic string")
-    parser.add_argument("--priority", help="Priority emoji")
-    parser.add_argument(
-        "--severity",
-        choices=["high", "medium", "low"],
-    )
-
-    # debt specific
-    parser.add_argument("--files", help="JSON array of file paths (debt)")
-
-    # customer_intent specific
-    parser.add_argument(
-        "--intent-status",
-        choices=["open", "delivered", "superseded"],
-        help="Intent status (customer_intent)",
-    )
-
-    # session_end specific
-    parser.add_argument(
-        "--duration-seconds",
-        type=float,
-        help="Session duration",
-    )
-    parser.add_argument(
-        "--event-count",
-        type=int,
-        help="Event count",
-    )
-    parser.add_argument(
-        "--unresolved-items",
-        help="JSON array of unresolved IDs",
-    )
-    parser.add_argument(
-        "--final-status-recorded",
-        type=lambda v: v.lower() == "true",
-        help="Whether final status was recorded (session_end)",
-    )
-
-    # retrospective specific
-    parser.add_argument("--keep", help="JSON array of keep items (retrospective)")
-    parser.add_argument("--fix", help="JSON array of fix items (retrospective)")
-    parser.add_argument("--try-items", help="JSON array of try items (retrospective)")
-
-    return parser
 
 
 def main() -> None:
