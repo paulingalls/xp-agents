@@ -28,9 +28,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = input_data.get("agent_id", "main")
 
-    # Write marker for pre_tool_write.py backup nudge
+    # Capture plan file path from ExitPlanMode response
+    tool_response = input_data.get("tool_response", {})
+    if isinstance(tool_response, str):
+        plan_path = ""
+    else:
+        plan_path = tool_response.get("planFilePath", "")
+
+    # Write marker with plan path so the review preload can include the plan
     marker = smm_dir / ".plan-awaiting-review"
-    marker.write_text(agent_id)
+    marker.write_text(plan_path or agent_id)
 
     # Record event for SMM history
     gate_event = _common.make_event(

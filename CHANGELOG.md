@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.0.0
+
+### Added
+- **Behavioral Guide: Process section** — explicit instructions for when to run /simplify, /xp-security-triage, /xp-quality-review, /xp-review-plan, and how to respond to Stop hook blocks
+- **Seed SMM wisdom items** — new projects get process guidance from day one
+- **PostToolUse:Bash /simplify nudge** — after commits with 3+ code files, additionalContext tells agent to run /simplify immediately
+- **Plan content injected into plan review preload** — PostToolUse:ExitPlanMode captures planFilePath, preload dumps plan into subagent prompt (fixes context:fork not including conversation history)
+- **Agent tool schema loaded at kickoff** — ensures plugin subagents are discoverable for skill delegation
+- **Preloaded staged diff in security triage** — eliminates extra tool call for trivial classification
+- **--smm-dir for save_retrospective.py** — subagents can pass path directly instead of relying on CLAUDE_PLUGIN_DATA
+
+### Changed
+- **Subagent commands use --smm-dir instead of CLAUDE_PLUGIN_DATA** — forked subagents don't have the env var, so xp-retrospective and xp-plan-reviewer now use the SMM_DIR from their preload
+- **Quality review: "courageous senior engineer"** — simplified skip criteria (only public API breaks), "fix it now" for worsening debt
+- **Security triage: security-relevant case first** — reordered for the important path
+
+### Removed
+- Obsolete docs: MILESTONES.md, SMM_REFACTOR_MILESTONES.md, MANUAL_TEST_PLAN.md
+- Stale "agent hooks broken" claim from ARCHITECTURE.md
+
+### Fixed
+- ARCHITECTURE.md file structure updated with all current files (event_schema.py, event_builder.py, test_parsing.py, seed_smm.py, xp-security-triage, etc.)
+- SMM_DESIGN.md: removed constraint graduation, updated compaction rules to match implementation
+- CLAUDE.md: removed Build Order section, updated file structure and test layout
+
+### Stats
+- 963 tests (all passing)
+
 ## v0.9.118 — Nudge /simplify After Commits with 3+ Code Files
 
 ### Added
