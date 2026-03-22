@@ -51,7 +51,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     return (
         "IMPORTANT: Run the /xp-review-plan skill NOW before writing any code. "
         "The plan must be reviewed for XP compliance (TDD order, scope, risks) "
-        "before implementation begins."
+        "before implementation begins. Show the full review output to the user."
     )
 
 

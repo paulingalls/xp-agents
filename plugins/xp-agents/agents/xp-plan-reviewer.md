@@ -98,7 +98,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Output — Guidance for the Main Agent
 
-Your response is returned directly to the main agent. Structure it so the most actionable items come first.
+Your response is returned to the main agent, which **must show it to the user in full** — do not write a summary, write the complete review. Structure it so the most actionable items come first.
 
 **Questions first.** If you recorded any `question` events, list them at the top under a "Questions for the user" heading:
 - State the question clearly

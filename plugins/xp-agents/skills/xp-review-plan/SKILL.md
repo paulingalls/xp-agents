@@ -16,3 +16,5 @@ allowed-tools:
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
 Review the plan in progress against the SMM state above. Check plan size, TDD ordering, milestone boundaries, and decision conflicts. Record assumptions and decisions to the event log.
+
+**Show the full review output to the user** — do not summarize or act on it silently.
