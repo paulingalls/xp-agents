@@ -65,7 +65,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 # Decision (requires --topic)
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --type "decision" --agent "main" --content "Decision description" \
-  --topic "topic-name" --metadata '{"draft": true}'
+  --topic "topic-name"
 
 # Concern (--severity: high, medium, or low — NOT uncertainty/problem/debt)
 CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \

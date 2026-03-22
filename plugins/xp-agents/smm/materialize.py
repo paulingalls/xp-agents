@@ -303,13 +303,11 @@ def prepare_curation_data(smm_dir: Path) -> dict:
             }
         )
 
-    # Constraints: non-draft unresolved decisions + conventions
+    # Constraints: unresolved decisions + conventions
     decision_resolutions = indices["decision_resolutions"]
     constraint_items: list[dict] = []
     for d in indices["by_type"].get("decision", []):
         if d["id"] in decision_resolutions:
-            continue
-        if d.get("metadata", {}).get("draft"):
             continue
         constraint_items.append(
             {
@@ -419,7 +417,6 @@ def prepare_curation_data(smm_dir: Path) -> dict:
                 new_since["customer_inputs"].append(summary)
             case "decision":
                 summary["topic"] = e.get("topic", "")
-                summary["draft"] = bool(e.get("metadata", {}).get("draft"))
                 new_since["decisions"].append(summary)
             case "concern":
                 new_since["concerns"].append(summary)

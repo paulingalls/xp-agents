@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.0.2 — Remove Draft Decision Concept
+
+### Removed
+- **Draft decisions eliminated** — all decisions are final when created. The draft/final distinction caused 7+ consecutive retro Fix items about draft accumulation. Plans are always executed immediately after review, so drafts were never meaningfully tentative.
+
+### Changed
+- **Housekeeping Constraints curation** — no longer asks user to confirm/reject drafts. Instead, uses judgment to decide which decisions are architectural constraints (technology choices, design patterns, conventions that bound future work). Prunes superseded, absorbed, and stale constraints automatically. Only asks user if still over cap after pruning.
+- **Compaction** — all decisions follow 3-session aging (drafts were previously skipped and immediately compactable).
+- **Materialize** — all unresolved decisions go into Constraints (drafts were previously filtered out).
+- **Retrospective** — removed `decisions_draft` stat and health signal.
+- **Plan reviewer** — records decisions without `metadata.draft`.
+
+### Stats
+- 963 tests (all passing)
+
 ## v1.0.1 — Fix Security Triage Preload Quoting
 
 ### Fixed

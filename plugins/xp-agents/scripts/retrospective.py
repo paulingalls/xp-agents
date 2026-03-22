@@ -179,7 +179,6 @@ def _compute_session_stats(events: list[dict]) -> dict:
         "questions_open": 0,
         "questions_answered": 0,
         "decisions_total": 0,
-        "decisions_draft": 0,
     }
 
     question_ids: set[str] = set()
@@ -194,8 +193,6 @@ def _compute_session_stats(events: list[dict]) -> dict:
                 question_ids.add(e.get("id", ""))
             case _common.DECISION:
                 stats["decisions_total"] += 1
-                if e.get("metadata", {}).get("draft"):
-                    stats["decisions_draft"] += 1
 
     resolutions = resolution.compute_resolutions(events)
     stats["concerns_resolved"] = len(resolutions["resolved_concern_ids"])
@@ -262,9 +259,8 @@ def _build_context_summary(
         if cr:
             health.append(f"Concerns: {cr} raised, {cres} resolved")
         dt = session_stats.get("decisions_total", 0)
-        dd = session_stats.get("decisions_draft", 0)
         if dt:
-            health.append(f"Decisions: {dt} total, {dd} still draft")
+            health.append(f"Decisions: {dt}")
         qo = session_stats.get("questions_open", 0)
         if qo:
             health.append(f"{qo} open questions")

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """PostToolUse command hook for Bash: parse git commits and test results.
 
-Auto-drafts decision events for commits, checks commit size, and records
-test pass/fail status from pytest/jest/go test output.
+Records commit status events, checks commit size, and records test
+pass/fail status. Nudges /simplify after commits with 3+ code files.
 """
 
 import contextlib

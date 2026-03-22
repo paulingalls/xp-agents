@@ -86,15 +86,14 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ```
 
 ### 7. Architectural Decisions (Constraints Pillar)
-Record only **new** decisions — don't re-record decisions already in the SMM's Constraints pillar. For new decisions embedded in the plan, write `decision` events with `metadata.draft: true`:
+Record only **new** decisions — don't re-record decisions already in the SMM's Constraints pillar. For new decisions embedded in the plan:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" \
   --agent "xp-plan-reviewer" \
   --content "Decision: description" \
-  --topic "topic-name" \
-  --metadata '{"draft": true}'
+  --topic "topic-name"
 ```
 
 ## Output — Guidance for the Main Agent

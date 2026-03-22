@@ -278,9 +278,7 @@ class TestRetrospective(_HookTestCase):
 
         events = [
             make_event("decision", content="Use Postgres", topic="db"),
-            make_event(
-                "decision", content="Use REST", topic="api", metadata={"draft": True}
-            ),
+            make_event("decision", content="Use REST", topic="api"),
             make_event(content="f1"),
             make_event(content="f2"),
             make_event(content="f3"),
@@ -293,7 +291,7 @@ class TestRetrospective(_HookTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertEqual(data["session_stats"]["decisions_total"], 2)
-        self.assertEqual(data["session_stats"]["decisions_draft"], 1)
+        self.assertNotIn("decisions_draft", data["session_stats"])
 
 
 # ===========================================================================

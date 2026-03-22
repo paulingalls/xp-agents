@@ -101,9 +101,7 @@ class TestPrepareCurationData(_SMMTestCase):
         """Without watermark, all events appear in new_since_last_curation."""
         events = [
             make_event("customer_input", content="Build an API"),
-            make_event(
-                "decision", topic="db", content="Use Postgres", metadata={"draft": True}
-            ),
+            make_event("decision", topic="db", content="Use Postgres"),
             make_event("concern", content="No tests yet"),
         ]
         self._write_events(events)
@@ -150,23 +148,20 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertEqual(len(intents), 2)
 
     def test_current_smm_constraints(self):
-        """current_smm.constraints = non-draft decisions + conventions."""
+        """current_smm.constraints = all unresolved decisions + conventions."""
         events = [
             make_event("decision", topic="db", content="Use Postgres"),
-            make_event(
-                "decision", topic="hash", content="Use bcrypt", metadata={"draft": True}
-            ),
+            make_event("decision", topic="hash", content="Use bcrypt"),
             make_event("convention", topic="api", content="REST only"),
         ]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
         constraints = result["current_smm"]["constraints"]
-        # Only non-draft decision + convention = 2
-        self.assertEqual(len(constraints), 2)
+        self.assertEqual(len(constraints), 3)
         contents = [c["content"] for c in constraints]
         self.assertIn("Use Postgres", contents)
+        self.assertIn("Use bcrypt", contents)
         self.assertIn("REST only", contents)
-        self.assertNotIn("Use bcrypt", contents)
 
     def test_current_smm_risks(self):
         """current_smm.risks = unresolved concerns + assumptions + debt + questions."""
@@ -340,7 +335,6 @@ class TestPrepareCurationData(_SMMTestCase):
                 topic="db",
                 content="Use PG",
                 agent_id="agent-a",
-                metadata={"draft": True},
             ),
             make_event("concern", content="No tests", agent_id="agent-b"),
         ]
@@ -503,8 +497,10 @@ class TestBuildEvent(_SMMTestCase):
         self.assertEqual(event["severity"], "high")
 
     def test_metadata_parsed(self):
-        event = _append_impl.build_event(self._namespace(metadata='{"draft": true}'))
-        self.assertEqual(event["metadata"], {"draft": True})
+        event = _append_impl.build_event(
+            self._namespace(metadata='{"notes": "from plan review"}')
+        )
+        self.assertEqual(event["metadata"], {"notes": "from plan review"})
 
 
 class TestStripAnsi(_SMMTestCase):

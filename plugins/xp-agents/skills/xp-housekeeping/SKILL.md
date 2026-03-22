@@ -47,16 +47,16 @@ Format each active item as: `- 📋 <deliverable outcome> [source-id]`
 
 Review `current_smm.constraints` (existing) and `new_since_last_curation.decisions` (new).
 
-For each new draft decision, ask the user: **Confirm as architectural decision, or reject?**
+Not every decision is a constraint. Constraints are **architectural boundaries** that other agents need to respect — technology choices, design patterns, conventions. A decision like "use bcrypt for hashing" is a constraint. A decision like "put the helper in utils.py" is not — it's a one-time choice that doesn't bound future work.
 
 Actions:
-- Confirmed drafts → resolve the draft (the original event already has the content). Add the decision text to Constraints in the SMM. **Do NOT create a new decision event** — just resolve the draft.
-- Rejected drafts → resolve the draft.
-- Keep existing constraints unless explicitly superseded
-- Graduate constraints stable for 10+ sessions and enforced by code/tests (remove from SMM — the codebase embodies them)
+- For each new decision, judge: **Would another agent need to know this to avoid making a conflicting choice?** If yes → add to Constraints. If no → skip it.
+- **Prune actively** — remove constraints that are:
+  - **Superseded** — a newer decision on the same topic replaces it
+  - **Absorbed** — now enforced by linting, tests, or CI (the codebase embodies it)
+  - **Stale** — no longer relevant to current work
+- If still over cap after pruning, ask the user which are still priorities
 - **Cap: ~20 items.**
-
-Both confirmed and rejected drafts use the same resolution pattern (see step 6).
 
 ## 3. Curate Risks
 

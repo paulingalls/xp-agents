@@ -57,7 +57,7 @@ _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
-    Active = unresolved goals, non-draft decisions (< 3 sessions old),
+    Active = unresolved goals, decisions (< 3 sessions old),
     conventions, unresolved concerns/debt/questions/assumptions,
     open customer_intents.
     Retrospectives kept via separate retention logic (last 2).
@@ -79,9 +79,6 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if eid not in resolutions["resolved_goal_ids"]:
                     referenced.add(eid)
             case "decision":
-                is_draft = (event.get("metadata") or {}).get("draft", False)
-                if is_draft:
-                    continue
                 if eid in resolutions["resolved_decision_ids"]:
                     continue
                 # Age-based: keep for _DECISION_MAX_AGE sessions

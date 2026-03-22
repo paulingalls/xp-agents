@@ -396,7 +396,6 @@ class TestPlanReviewFlow(_IntegrationTestCase):
                     "decision",
                     content="Use REST API",
                     topic="api",
-                    metadata={"draft": False},
                 ),
                 make_event(
                     "convention",

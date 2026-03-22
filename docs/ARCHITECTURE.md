@@ -106,7 +106,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
 - `/xp-kickoff` — orchestrator, sequences retro → question triage → goals → housekeeping at session start. Questions first so answers can inform goals. PostToolUse:Skill hook (`kickoff_done.py`) triggers on `/xp-housekeeping` completion to handle marker cleanup and behavioral guide injection.
-- `/xp-housekeeping` — lifecycle triage for open goals, concerns, draft decisions, and debt. Records resolutions via `metadata.resolves`. Curates four-pillar SMM.
+- `/xp-housekeeping` — lifecycle triage for open goals, concerns, and debt. Records resolutions via `metadata.resolves`. Curates four-pillar SMM.
 - `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage
 - `/xp-quality-review` — post-simplify review: courage accountability for skipped recommendations, drift management against SMM Constraints, debt awareness for changed files
@@ -334,7 +334,7 @@ Resolution via `metadata: {"resolves": ["target-event-id"]}`. Questions resolved
 | Goal | `metadata.resolves` | `/xp-housekeeping` | Unresolved in A1, completed in R8 |
 | Concern | `metadata.resolves` | `/xp-housekeeping` + agents mid-session | Unresolved in A4, resolved in R7 |
 | Debt | `metadata.resolves` | `/xp-housekeeping` + quality reviewer | Open in R6 (with aging), resolved omitted |
-| Decision (draft) | New decision with `draft: false` on same topic | `/xp-housekeeping` | Drafts in R1, rejected omitted |
+| Decision | `metadata.resolves` (superseded) | `/xp-housekeeping` | Active in Constraints, superseded omitted |
 | Question | `answer` event with `references` | `/xp-question-triage` | Blocking in A3, resolved in R3 |
 
 ### Kickoff Gate
@@ -381,10 +381,9 @@ Single gate: `kickoff_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-kic
 
 ### Autonomous Decision-Making (M11)
 
-- **Draft decision lifecycle.** Foundation in 1.0: `/xp-housekeeping` reviews drafts and asks user to confirm or reject. 2.0 adds auto-promotion: drafts with no concerns after N sessions get promoted to confirmed. Drafts with concerns get escalated to 🔴 questions.
+- **Decision lifecycle simplified.** Decisions are final when created. Housekeeping adds them to Constraints and asks the user about removing superseded or stale ones. No draft/confirm workflow.
 - **Convention-based gates.** Conventions can require explicit customer approval for specific domains (e.g., "all auth decisions require approval"). Quality reviewer and plan reviewer already enforce conventions — this is configuration, not new code.
-- **Retrospective feedback loop.** Analyst tracks draft decision outcomes. High revision/contradiction rate → Fix item: "too many auto-decisions revised in {domain}, increase customer involvement." Evidence-based calibration.
-- **Promotion thresholds** configurable in `settings.json` — sessions-to-promote, concern-count-to-escalate. Conservative defaults.
+- **Retrospective feedback loop.** Analyst tracks decision outcomes. High revision/contradiction rate → Fix item: "too many decisions revised in {domain}, increase customer involvement." Evidence-based calibration.
 
 ### Blocks as Maturity Signal
 
@@ -393,7 +392,7 @@ In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, securit
 ### Open Questions (resolve during 1.0 dogfooding)
 
 - How does the planner distribute backlog items across Agent Team teammates?
-- What's the right default sessions-to-promote for draft decisions?
+
 - How do dependencies between backlog items interact with multi-agent parallelism?
 - Should the burn down feed into session length / sustainable pace decisions?
 - What granularity of requirements decomposition produces right-sized backlog items?

@@ -34,16 +34,6 @@ else
     echo ""
 fi
 
-# Draft decisions
-if grep -q "(draft)" "$SMM_FILE" 2>/dev/null; then
-    echo "### Draft Decisions:"
-    grep "(draft)" "$SMM_FILE" | head -20
-    echo ""
-else
-    echo "### Draft Decisions: none"
-    echo ""
-fi
-
 # Risks pillar (concerns, assumptions, debt, questions, discoveries)
 if smm_has_section "Risks"; then
     echo "### Risks:"

@@ -162,7 +162,7 @@ During a session, command hooks leave raw event trails in the event log. These a
 
 - `customer_input` — the user's exact words
 - `status` — what files are being touched
-- `decision` (draft) — architectural choices as they happen
+- `decision` — architectural choices as they happen
 - `concern` — problems noticed by hooks or subagents
 - `session_end` — session summary
 
@@ -173,7 +173,7 @@ Hooks don't curate the SMM. They just leave breadcrumbs.
 At session start, after the retrospective, housekeeping reads the raw event trail and curates the four pillars with LLM judgment:
 
 - Distills `customer_input` events into Intent items (or not — "fix the typo" is a task, not an intent)
-- Promotes draft decisions to Constraints (or drops them)
+- Adds new decisions to Constraints
 - Unifies assumptions, concerns, and debt into Risks with severity
 - Promotes retro Try items to Wisdom (or drops them)
 - Prunes graduated Constraints, resolved Risks, delivered Intents
@@ -199,7 +199,7 @@ The current `materialize.py` shifts from rendering the SMM to preparing data for
 
 - Aggregates events since last curation
 - Computes aging for risks and constraints
-- Identifies new customer_input, draft decisions, concerns
+- Identifies new customer_input, decisions, concerns
 - Outputs structured data that housekeeping can reason about
 
 The SMM.md file is written by housekeeping (with judgment), not by the materializer (mechanically).
@@ -251,7 +251,7 @@ Flock protection on SMM.md writes (like events.jsonl) provides additional safety
 | Agent Activity | Event Trail | Pillar Affected |
 |---|---|---|
 | Customer speaks | `customer_input` | Intent (housekeeping distills) |
-| Architectural choice | `decision` (draft) | Constraints (housekeeping promotes) |
+| Architectural choice | `decision` | Constraints (housekeeping adds) |
 | Problem noticed | `concern` | Risks (housekeeping unifies) |
 | Uncertainty stated | `assumption` | Risks (housekeeping unifies) |
 | Debt acknowledged | `debt` | Risks (housekeeping unifies) |
@@ -338,7 +338,7 @@ The materializer prepares structured data that enables housekeeping's judgment. 
 |---|---|---|
 | `current_smm.*` | All | Merge, don't replace — update existing items |
 | `customer_inputs` | Intent | "Is this a deliverable outcome or just a task?" |
-| `decisions` | Constraints | "Promote this draft to a constraint?" |
+| `decisions` | Constraints | "Add to constraints, or remove stale ones?" |
 | `concerns` + `assumptions` + `debt` + `questions` | Risks | "Unify into risks, assign severity, resolve if evidence exists" |
 | `resolutions` | Risks | "This risk was resolved — remove it" |
 | `retro_history` | Wisdom | "This Try worked for 3 sessions — promote to Wisdom?" |

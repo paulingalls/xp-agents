@@ -294,13 +294,13 @@ class TestMigrate(_SMMTestCase):
             content="Use REST",
             ts="2026-03-12T00:00:00",
             references=["abc"],
-            metadata={"draft": True},
+            metadata={"notes": "from plan review"},
         )
         result = migrate.migrate_event(event)
         self.assertEqual(result["topic"], "api")
         self.assertEqual(result["content"], "Use REST")
         self.assertEqual(result["references"], ["abc"])
-        self.assertEqual(result["metadata"], {"draft": True})
+        self.assertEqual(result["metadata"], {"notes": "from plan review"})
 
     def test_migrate_ts_with_timezone_unchanged(self):
         """Timestamps that already have timezone info are not modified."""
