@@ -11,8 +11,6 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
-  - Bash(python3 */materialize.py)
-  - Bash(python3 */save_retrospective.py)
   - Bash(cat *| python3 */save_retrospective.py)
 ---
 

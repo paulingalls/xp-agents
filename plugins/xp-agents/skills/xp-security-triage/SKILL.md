@@ -8,7 +8,6 @@ description: >-
   changes require /security-review first.
 effort: high
 allowed-tools:
-  - Bash(git diff --cached*)
   - Bash(*/skills/*/scripts/*)
   - Skill(security-review)
 ---
