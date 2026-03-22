@@ -197,10 +197,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         passed = results["passed"]
         failed = results["failed"]
 
+        # If parser couldn't extract numbers (truncated output),
+        # still record that tests passed — just without counts
+        if passed == 0 and failed == 0:
+            content = f"Tests passed ({framework})"
+        else:
+            content = f"Tests: {passed} passed, {failed} failed ({framework})"
+
         status = _common.make_event(
             _common.STATUS,
             agent_id,
-            f"Tests: {passed} passed, {failed} failed ({framework})",
+            content,
             working_on=[],
         )
         _common.append_safe(smm_dir, status)
