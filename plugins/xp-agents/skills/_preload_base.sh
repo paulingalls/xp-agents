@@ -7,6 +7,7 @@ set -euo pipefail
 #
 # After sourcing, PLUGIN_ROOT and SMM_DIR are set.
 # Call dump_smm to output the SMM state section.
+# Call dump_guide to output the behavioral guide.
 # Call dump_diff to output git diff stats.
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,6 +23,17 @@ dump_smm() {
         cat "$smm_file"
     else
         echo "## SMM State: no materialized view"
+    fi
+}
+
+dump_guide() {
+    local guide="${PLUGIN_ROOT}/BEHAVIORAL_GUIDE.md"
+    if [ -f "$guide" ]; then
+        echo ""
+        echo "## Behavioral Guide"
+        cat "$guide"
+    else
+        echo "## Behavioral Guide: not found"
     fi
 }
 

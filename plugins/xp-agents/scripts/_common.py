@@ -194,6 +194,18 @@ def resolve_plugin_root() -> Path:
     return Path(__file__).parent.parent
 
 
+@functools.lru_cache(maxsize=1)
+def load_behavioral_guide() -> str:
+    """Load BEHAVIORAL_GUIDE.md from plugin root."""
+    try:
+        guide_path = resolve_plugin_root() / "BEHAVIORAL_GUIDE.md"
+        if guide_path.is_file():
+            return guide_path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Event reading (no locking — for hook scripts that don't need atomicity)
 # ---------------------------------------------------------------------------

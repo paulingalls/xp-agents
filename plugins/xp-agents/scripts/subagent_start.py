@@ -7,7 +7,6 @@ Tiered injection based on agent type:
 - xp-* agents: skipped (use own preloads)
 """
 
-import functools
 import re
 import sys
 from pathlib import Path
@@ -16,24 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-
-# ---------------------------------------------------------------------------
-# Behavioral guide loader (shared pattern with kickoff_done.py)
-# ---------------------------------------------------------------------------
-
-
-@functools.lru_cache(maxsize=1)
-def _load_behavioral_guide() -> str:
-    """Load BEHAVIORAL_GUIDE.md from plugin root."""
-    try:
-        plugin_root = _common.resolve_plugin_root()
-        guide_path = plugin_root / "BEHAVIORAL_GUIDE.md"
-        if guide_path.is_file():
-            return guide_path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        pass
-    return ""
-
 
 # ---------------------------------------------------------------------------
 # SMM section extraction for Explore agents
@@ -110,7 +91,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Plan, general-purpose, background — full SMM + behavioral guide
         if smm_content:
             parts.append(_common.wrap_smm_context(smm_content))
-        guide = _load_behavioral_guide()
+        guide = _common.load_behavioral_guide()
         if guide:
             parts.append(guide)
 

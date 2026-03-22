@@ -23,7 +23,7 @@ The preloaded data above includes:
 - `SHARED_MENTAL_MODEL.md` (already preloaded above)
 - `events.jsonl` (the SMM is the curated view — you don't need raw events)
 
-**The plan file path** is in the skill prompt above. Read it first — it is NOT already in your context.
+**The plan** is NOT in your context — you are a subagent. The plan file path comes from the conversation context that invoked this skill. Read the plan file first.
 
 **When to read project files:** Only read source files if you need to verify a specific decision conflict — e.g., checking whether a plan contradicts how a function is actually implemented. Don't browse the codebase speculatively.
 
