@@ -15,7 +15,7 @@ allowed-tools:
 
 The session status above was preloaded automatically.
 
-**Before starting:** Run `ToolSearch` with query `"select:Skill"` to load the Skill tool schema.
+**Before starting:** Run `ToolSearch` with query `"select:Skill,Agent"` to load the Skill and Agent tool schemas. Both are needed — skills invoke `/xp-run-retrospective` and `/xp-review-plan`, which delegate to plugin subagents via the Agent tool.
 
 **You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 4) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
