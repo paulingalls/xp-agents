@@ -19,7 +19,7 @@ import _common
 import bash_failure
 import bash_post_tool
 import security
-from conftest import _HookTestCase, _make_bash_input
+from conftest import _HookTestCase, _make_bash_input, make_event
 
 # ===========================================================================
 # bash_post_tool.py tests — Milestone 3.3
@@ -615,6 +615,30 @@ class TestBashFailureSecurity(_HookTestCase):
             command="pytest", error="exit 1", agent_id="../../evil"
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+
+class TestResolveTestConcerns(_HookTestCase):
+    """Tests for bash_post_tool._resolve_test_concerns."""
+
+    def test_resolves_test_concern(self):
+        """Test concerns are resolved when tests pass."""
+        # Seed a test-failure concern
+        concern = make_event(
+            "concern", content="Test failures detected: 3 failed", severity="high"
+        )
+        _common.append_safe(self.smm_dir, concern)
+
+        bash_post_tool._resolve_test_concerns(self.smm_dir, "main")
+
+        events = _common.read_events_raw(self.smm_dir)
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+
+    def test_no_concerns_no_resolution(self):
+        """No test concerns → no resolution events."""
+        bash_post_tool._resolve_test_concerns(self.smm_dir, "main")
         events = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(events), 0)
 

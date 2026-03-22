@@ -398,5 +398,167 @@ class TestWriteAtomic(_SMMTestCase):
         self.assertEqual(loaded, data)
 
 
+class TestExtractRetroHistory(_SMMTestCase):
+    """Tests for materialize._extract_retro_history."""
+
+    def _retro(self, keep=None, fix=None, try_items=None, ts="2026-01-01"):
+        e = make_event("retrospective", ts=ts)
+        if keep:
+            e["keep"] = [{"content": k} for k in keep]
+        if fix:
+            e["fix"] = [{"content": f} for f in fix]
+        if try_items:
+            e["try"] = [{"content": t} for t in try_items]
+        return e
+
+    def test_empty_returns_empty(self):
+        result = materialize._extract_retro_history([])
+        self.assertEqual(result["latest_tries"], [])
+        self.assertEqual(result["recurring_fixes"], [])
+        self.assertEqual(result["adopted_tries"], [])
+
+    def test_latest_tries_from_most_recent(self):
+        retros = [
+            self._retro(try_items=["old try"], ts="2026-01-01"),
+            self._retro(try_items=["new try"], ts="2026-01-02"),
+        ]
+        result = materialize._extract_retro_history(retros)
+        self.assertEqual(result["latest_tries"], ["new try"])
+
+    def test_recurring_fixes_at_three(self):
+        retros = [
+            self._retro(fix=["same fix"], ts="2026-01-01"),
+            self._retro(fix=["same fix"], ts="2026-01-02"),
+            self._retro(fix=["same fix"], ts="2026-01-03"),
+        ]
+        result = materialize._extract_retro_history(retros)
+        self.assertIn("same fix", result["recurring_fixes"])
+
+    def test_non_recurring_fix_excluded(self):
+        retros = [
+            self._retro(fix=["rare fix"], ts="2026-01-01"),
+            self._retro(fix=["rare fix"], ts="2026-01-02"),
+        ]
+        result = materialize._extract_retro_history(retros)
+        self.assertEqual(result["recurring_fixes"], [])
+
+    def test_adopted_tries(self):
+        retros = [
+            self._retro(try_items=["worked"], ts="2026-01-01"),
+            self._retro(ts="2026-01-02"),  # no fix about "worked" = adopted
+        ]
+        result = materialize._extract_retro_history(retros)
+        self.assertIn("worked", result["adopted_tries"])
+
+
+class TestBuildEvent(_SMMTestCase):
+    """Tests for _append_impl.build_event."""
+
+    def _namespace(self, **kwargs):
+        import argparse
+
+        defaults = {
+            "type": "status",
+            "agent": "main",
+            "content": "test",
+            "references": None,
+            "metadata": None,
+            "working_on": None,
+            "topic": None,
+            "priority": None,
+            "severity": None,
+            "files": None,
+            "intent_status": None,
+            "duration_seconds": None,
+            "event_count": None,
+            "unresolved_items": None,
+            "final_status_recorded": None,
+            "keep": None,
+            "fix": None,
+            "try_items": None,
+        }
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    def test_basic_fields(self):
+        event = _append_impl.build_event(self._namespace())
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["agent_id"], "main")
+        self.assertEqual(event["content"], "test")
+        self.assertIn("id", event)
+        self.assertIn("ts", event)
+
+    def test_status_defaults_working_on(self):
+        event = _append_impl.build_event(self._namespace(type="status"))
+        self.assertEqual(event["working_on"], [])
+
+    def test_decision_includes_topic(self):
+        event = _append_impl.build_event(self._namespace(type="decision", topic="auth"))
+        self.assertEqual(event["topic"], "auth")
+
+    def test_concern_includes_severity(self):
+        event = _append_impl.build_event(
+            self._namespace(type="concern", severity="high")
+        )
+        self.assertEqual(event["severity"], "high")
+
+    def test_metadata_parsed(self):
+        event = _append_impl.build_event(self._namespace(metadata='{"draft": true}'))
+        self.assertEqual(event["metadata"], {"draft": True})
+
+
+class TestStripAnsi(_SMMTestCase):
+    """Tests for _append_impl._strip_ansi."""
+
+    def test_strips_color_codes(self):
+        result = _append_impl._strip_ansi("\033[31mred\033[0m")
+        self.assertEqual(result, "red")
+
+    def test_strips_bold(self):
+        result = _append_impl._strip_ansi("\033[1mbold\033[0m")
+        self.assertEqual(result, "bold")
+
+    def test_passthrough_plain(self):
+        result = _append_impl._strip_ansi("no ansi here")
+        self.assertEqual(result, "no ansi here")
+
+    def test_empty_string(self):
+        result = _append_impl._strip_ansi("")
+        self.assertEqual(result, "")
+
+
+class TestReplaceEventsFile(_SMMTestCase):
+    """Tests for _append_impl.replace_events_file."""
+
+    def test_replaces_content(self):
+        # Seed initial events
+        e1 = make_event("status", content="old")
+        _append_impl.append_event(self.smm_dir, e1)
+
+        # Replace with new events
+        e2 = make_event("status", content="new")
+        original = _append_impl.replace_events_file(self.smm_dir, [e2])
+
+        # Original content returned
+        self.assertIn("old", original)
+
+        # File now contains only new event
+        content = (self.smm_dir / "events.jsonl").read_text()
+        self.assertIn("new", content)
+        self.assertNotIn("old", content)
+
+    def test_returns_empty_for_missing_file(self):
+        e = make_event("status", content="first")
+        original = _append_impl.replace_events_file(self.smm_dir, [e])
+        self.assertEqual(original, "")
+
+    def test_atomic_replacement(self):
+        """File should contain exactly the replacement events."""
+        events = [make_event("status", content=f"item-{i}") for i in range(3)]
+        _append_impl.replace_events_file(self.smm_dir, events)
+        lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
+        self.assertEqual(len(lines), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
