@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.7
+
+### Changed
+- **Assumptions and questions age after 5 sessions** — previously retained forever if unresolved, causing event log bloat (22 unresolved assumptions in one project). Housekeeping now instructed to resolve them when curating into Risks. Compaction ages them out after 5 sessions as a safety net.
+
+### Stats
+- 962 tests (all passing)
+
 ## v1.0.6
 
 ### Changed
