@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.9.117 — Behavioral Guide: Process Section + Seed SMM Wisdom
+
+### Added
+- **Behavioral Guide: "Process — When to Run XP Skills"** — explicit instructions for when to run /xp-security-triage (after git add, before commit), /simplify (after each 3+ code file commit), /xp-quality-review (after simplify), /xp-review-plan (after plan mode), and how to respond to Stop hook blocks (run the skill, don't dismiss).
+- **Seed SMM wisdom items** — new projects get process guidance from day one: simplify after commits, proactive security triage, plan review after planning, honor Stop hooks.
+
+### Stats
+- 963 tests (all passing)
+
 ## v0.9.116 — Security Triage Gate: Code Files Only
 
 ### Changed

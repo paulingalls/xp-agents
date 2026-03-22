@@ -239,6 +239,22 @@ def generate_smm(root: Path) -> str:
         "- Run /xp-kickoff at every session start — "
         "it handles retrospective, goals, and housekeeping"
     )
+    lines.append(
+        "- Run /simplify after each commit that touches 3+ code files — "
+        "don't batch across commits, review while changes are fresh"
+    )
+    lines.append(
+        "- After git add, run /xp-security-triage, then git commit — "
+        "commit goes through first try instead of block-triage-retry"
+    )
+    lines.append(
+        "- After exiting plan mode, run /xp-review-plan before writing code — "
+        "it extracts assumptions, decisions, and risks into the SMM"
+    )
+    lines.append(
+        "- When a Stop hook blocks, run the requested skill — "
+        "it's a requirement, not a suggestion"
+    )
     lines.append("")
 
     return "\n".join(lines)

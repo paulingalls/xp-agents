@@ -34,6 +34,25 @@ Honor collective decisions. Don't bypass conventions without recording a concern
 
 When values conflict: Courage > Simplicity > Feedback > Communication > Respect.
 
+## Process — When to Run XP Skills
+
+These are not optional. Hooks enforce some of these as safety nets, but the right judgment is to follow the process proactively rather than waiting to be blocked.
+
+**Per commit:**
+- After `git add`, run `/xp-security-triage` to review staged changes, then `git commit`. This way the commit goes through on the first try. If you skip triage, the commit gate blocks you and you'll have to triage and retry. Non-code commits (tests only, docs only) skip the gate automatically.
+
+**After each commit that touches 3+ code files:**
+- Run `/simplify` immediately, before starting the next piece of work. Don't batch across multiple commits — review while changes are fresh. If you have a multi-commit plan, run `/simplify` between commits, not just at the end.
+
+**After `/simplify` completes:**
+- Run `/xp-quality-review`. Don't wait for the Stop hook to block you — run it proactively.
+
+**After exiting plan mode:**
+- Run `/xp-review-plan` before writing any code. The write hook blocks until you do, but run it proactively.
+
+**When a Stop hook blocks you:**
+- A Stop hook saying "run /simplify" or "run /xp-quality-review" is a **requirement**, not a suggestion. Do not dismiss it as "not stopping, continuing with work." Run the requested skill, then continue. If you genuinely believe the skill shouldn't run (e.g., only docs were changed), record a `debt` event explaining why you skipped it.
+
 ---
 
 Record events using `append.sh`. Always prefix with `CLAUDE_PLUGIN_DATA` so the correct SMM path is resolved:
