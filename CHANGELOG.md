@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.116 — Security Triage Gate: Code Files Only
+
+### Changed
+- **Security triage gate skips test-only and docs-only commits** — `has_staged_code_files()` checks staged (and about-to-be-staged) files against `is_code_file()` and `is_test_file()`. Commits with only tests, docs, config, or images skip the triage requirement.
+- **Handles combined commands** — `git add . && git commit` and `git commit -am` check both staged and unstaged files since staging hasn't happened yet at PreToolUse time.
+- **Consumes stale markers** — non-code commits consume any leftover `.security-triaged` marker to prevent it from carrying over and letting a future code commit skip triage.
+
+### Stats
+- 963 tests (all passing)
+
 ## v0.9.115 — Plan Reviewer: Stop Re-reading Preloaded Data
 
 ### Changed

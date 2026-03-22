@@ -58,15 +58,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts: list[str] = []
 
     # Commit gate: block git commit until security triage has been run
-    if (
-        smm_dir is not None
-        and security.is_git_commit(command)
-        and not security.security_triaged_exists(smm_dir)
-    ):
-        raise _common.BlockedError(
-            "Run /xp-security-triage before committing.",
-            "Security triage required before committing.",
-        )
+    # Only require triage for commits that include production code files
+    # (skip for test-only, docs-only, or config-only commits)
+    if smm_dir is not None and security.is_git_commit(command):
+        has_code = security.has_staged_code_files(cwd, command)
+        if has_code and not security.security_triaged_exists(smm_dir):
+            raise _common.BlockedError(
+                "Run /xp-security-triage before committing.",
+                "Security triage required before committing.",
+            )
+        if not has_code:
+            # Non-code commit — consume any stale marker so it doesn't
+            # carry over and let a future code commit skip triage
+            security.consume_security_triaged(smm_dir)
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:

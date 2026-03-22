@@ -61,6 +61,47 @@ def is_code_file(path: str) -> bool:
     return Path(path).name.lower() not in _NON_CODE_NAMES
 
 
+def has_staged_code_files(cwd: str, command: str = "") -> bool:
+    """Check if the commit will include production code files.
+
+    Checks both already-staged files (git diff --cached) and files that
+    will be staged by the command itself (git add in the same command,
+    or git commit -a which auto-stages tracked files).
+    """
+    import subprocess
+
+    from pre_tool_write import is_test_file
+
+    diff_commands = [["git", "diff", "--cached", "--name-only"]]
+
+    # If the command includes 'git add' or 'git commit -a', the staged
+    # index won't reflect what will actually be committed. Also check
+    # unstaged tracked changes.
+    if re.search(r"\bgit\s+add\b", command) or re.search(
+        r"\bgit\s+commit\s+-a", command
+    ):
+        diff_commands.append(["git", "diff", "--name-only"])
+
+    try:
+        all_files: list[str] = []
+        for cmd in diff_commands:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=cwd,
+            )
+            if result.returncode != 0:
+                return True  # Can't determine — require triage
+            all_files.extend(
+                f.strip() for f in result.stdout.strip().splitlines() if f.strip()
+            )
+        return any(is_code_file(f) and not is_test_file(f) for f in all_files)
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return True  # Can't determine — require triage
+
+
 def _strip_quoted(command: str) -> str:
     """Remove quoted strings and heredocs to avoid matching inside arguments."""
     # Strip heredocs first (<<'DELIM'...DELIM or <<DELIM...DELIM)

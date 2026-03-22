@@ -6,6 +6,7 @@ extended, and commit security triage gate.
 """
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -401,6 +402,17 @@ class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
 class TestCommitGateIntegration(_IntegrationTestCase):
     """Integration tests for commit security triage gate."""
 
+    def _stage_code_file(self) -> None:
+        """Stage a code file so the commit gate sees production code."""
+        code_file = self.tmpdir / "src" / "app.ts"
+        code_file.parent.mkdir(parents=True, exist_ok=True)
+        code_file.write_text("export const x = 1;\n")
+        subprocess.run(
+            ["git", "add", "src/app.ts"],
+            cwd=self.tmpdir,
+            capture_output=True,
+        )
+
     def _write_triage_marker(self) -> None:
         """Write a .security-triaged marker in the SMM dir."""
         marker = self.smm_dir / ".security-triaged"
@@ -408,6 +420,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
 
     def test_git_commit_blocked_no_triage(self):
         """git commit blocked without security triage marker."""
+        self._stage_code_file()
         result = self._run_script(
             "pre_tool_bash.py",
             {
@@ -488,6 +501,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
 
     def test_full_flow(self):
         """Full flow: commit blocked → triage → commit passes → marker consumed."""
+        self._stage_code_file()
         # Step 1: commit is blocked
         result = self._run_script(
             "pre_tool_bash.py",

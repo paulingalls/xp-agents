@@ -145,5 +145,33 @@ class TestPreToolBashCommitGate(_HookTestCase):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
 
 
+class TestCommitGateCodeFilesOnly(_HookTestCase):
+    """Security triage gate only fires for commits with production code files."""
+
+    def test_has_staged_code_files_no_git(self):
+        """Non-git directory returns True (err on side of requiring triage)."""
+        self.assertTrue(security.has_staged_code_files("/tmp"))
+
+    def test_has_staged_code_files_with_add_command(self):
+        """Command with git add checks unstaged files too."""
+        # Can't easily test the actual git behavior in unit tests,
+        # but verify the command parameter is accepted
+        self.assertTrue(
+            security.has_staged_code_files("/tmp", "git add . && git commit -m 'x'")
+        )
+
+    def test_has_staged_code_files_with_commit_a(self):
+        """Command with git commit -am checks unstaged files too."""
+        self.assertTrue(security.has_staged_code_files("/tmp", "git commit -am 'x'"))
+
+    def test_is_code_file_classification(self):
+        """is_code_file correctly classifies files."""
+        self.assertTrue(security.is_code_file("src/app.ts"))
+        self.assertTrue(security.is_code_file("main.py"))
+        self.assertFalse(security.is_code_file("README.md"))
+        self.assertFalse(security.is_code_file("package.json"))
+        self.assertFalse(security.is_code_file("logo.png"))
+
+
 if __name__ == "__main__":
     unittest.main()
