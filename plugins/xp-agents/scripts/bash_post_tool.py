@@ -179,14 +179,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         # Consume security triage marker after successful commit
         security.consume_security_triaged(smm_dir)
 
-        # Nudge /simplify if commit has 3+ production code files
-        from pre_tool_write import is_test_file
-
-        code_files = [
-            f
-            for f in committed_files
-            if security.is_code_file(f) and not is_test_file(f)
-        ]
+        # Nudge /simplify if commit has 3+ code files (including tests —
+        # test code benefits from simplify too, unlike security triage)
+        code_files = [f for f in committed_files if security.is_code_file(f)]
         if len(code_files) >= 3:
             return (
                 f"You just committed {len(code_files)} code files. "
