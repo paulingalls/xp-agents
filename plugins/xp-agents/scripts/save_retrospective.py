@@ -102,13 +102,24 @@ def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | 
 
 def main() -> None:
     """CLI entry point: read JSON from stdin, save retrospective."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Save retrospective analysis")
+    parser.add_argument(
+        "--smm-dir",
+        type=Path,
+        help="SMM directory (auto-resolved from CLAUDE_PLUGIN_DATA if omitted)",
+    )
+    args = parser.parse_args()
+
     try:
         kft_data = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError) as exc:
         print(f"Error: invalid JSON on stdin: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    result = run(kft_data)
+    smm_dir = args.smm_dir if args.smm_dir else None
+    result = run(kft_data, smm_dir=smm_dir)
     if result is None:
         sys.exit(1)
 

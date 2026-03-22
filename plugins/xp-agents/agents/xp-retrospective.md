@@ -67,7 +67,7 @@ For each item:
 When a Fix item will be intentionally deferred, record it as a `debt` event:
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "debt" \
   --agent "xp-retrospective" \
   --content "Description of deferred fix" \
@@ -105,8 +105,10 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 Build a JSON object with your Keep/Fix/Try analysis and pipe it to the save script. **You must run this Bash command before returning.** Do not use the Write tool. Do not skip this step.
 
+Use the `SMM_DIR` path from the preload output above. Pass it via `--smm-dir` so the script doesn't need CLAUDE_PLUGIN_DATA:
+
 ```bash
-cat <<'RETRO_JSON' | CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
+cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py --smm-dir <SMM_DIR>
 {
   "keep": [{"content": "description", "event_refs": ["id1"], "values": ["Courage"]}],
   "fix": [{"content": "description", "event_refs": ["id2"], "xp_value": "Simplicity"}],
