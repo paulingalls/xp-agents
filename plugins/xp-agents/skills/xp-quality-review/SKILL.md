@@ -46,7 +46,7 @@ For each decision/convention that relates to the changed files, check alignment:
 For each drift found, record a concern:
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" \
   --agent "xp-quality-review" \
   --content "Decision drift: [describe how code contradicts decision/convention]" \
@@ -73,7 +73,7 @@ Edit the files to address the issue. Run tests afterward to verify.
 If the fix is too large for this review or would change behavior:
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "debt" \
   --agent "xp-quality-review" \
   --content "Description of what needs fixing and why" \
@@ -83,7 +83,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 ## Step 5: Record Summary
 
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" \
   --agent "xp-quality-review" \
   --content "Quality review complete. Fixed: [list]. Debt recorded: [list]. No issues: [list]." \

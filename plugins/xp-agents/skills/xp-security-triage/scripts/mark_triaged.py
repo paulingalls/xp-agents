@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Write .security-triaged marker for the commit gate."""
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -9,7 +10,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 import _common
 import security
 
-smm_dir = _common.resolve_smm_dir()
+parser = argparse.ArgumentParser(description="Write security triage marker")
+parser.add_argument(
+    "--smm-dir",
+    type=Path,
+    help="SMM directory (auto-resolved if omitted)",
+)
+args = parser.parse_args()
+
+smm_dir = args.smm_dir if args.smm_dir else _common.resolve_smm_dir()
 smm_dir = _common.try_validate_smm_dir(smm_dir)
 if smm_dir is None:
     print("SMM not initialized.")

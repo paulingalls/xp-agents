@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.5
+
+### Changed
+- **All skill/agent instructions use `--smm-dir <SMM_DIR>` instead of `CLAUDE_PLUGIN_DATA` prefix** — ~20 references replaced across 6 skill files and the behavioral guide. SMM_DIR comes from preload output. Reduces tokens, eliminates env var dependency in instructions, consistent with subagent pattern.
+- **Retro preload slimmed** — outputs just paths + behavioral guide (~500 tokens). Subagent reads `.retro-input.json` itself. Retro data slimmed at write time (no events_since_last_retro, signal events trimmed).
+- **init.sh fallback path corrected** — default changed from `~/.claude/xp-agents` to `~/.claude/plugins/data/xp-agents-xp-agents` (matches actual platform plugin data path).
+
+### Stats
+- 962 tests (all passing)
+
 ## v1.0.4
 
 ### Added

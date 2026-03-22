@@ -58,20 +58,20 @@ These are not optional. Hooks enforce some of these as safety nets, but the righ
 
 ---
 
-Record events using `append.sh`. Always prefix with `CLAUDE_PLUGIN_DATA` so the correct SMM path is resolved:
+Record events using `append.sh` with `--smm-dir`. The SMM_DIR path is available from preload output or from running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`:
 
 ```bash
 # Assumption (no --severity — assumptions are inherently uncertain)
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "assumption" --agent "main" --content "Description of what is assumed"
 
 # Decision (requires --topic)
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" --agent "main" --content "Decision description" \
   --topic "topic-name"
 
 # Concern (--severity: high, medium, or low — NOT uncertainty/problem/debt)
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "main" --content "What's wrong" --severity "medium"
 ```
 

@@ -113,7 +113,7 @@ If any pillar is unhealthy, note the warning in your output to the user.
 
 For any items resolved during curation (goals completed, concerns addressed, debt fixed, decisions rejected), record resolution events:
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" \
   --agent "xp-housekeeping" \
   --content "<resolution description>" \

@@ -4,6 +4,8 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
+echo "SMM_DIR=${SMM_DIR}"
+echo ""
 SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
 echo "### Current Goals"
 if [ -f "$SMM_FILE" ] && smm_has_section "Intent"; then

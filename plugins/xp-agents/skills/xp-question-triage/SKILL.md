@@ -28,7 +28,7 @@ Use `AskUserQuestion`. Include:
 
 ### 2. Record the answer:
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "answer" \
   --agent "xp-question-triage" \
   --content "Answer: the user's response" \
@@ -38,7 +38,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 ### 3. If the answer contradicts a stated assumption:
 Record a discovery event:
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "discovery" \
   --agent "xp-question-triage" \
   --content "Customer answer contradicts assumption: description" \
@@ -50,7 +50,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 1. Check for open `customer_intent` items in the state above.
 2. For each open intent, check if recent events suggest delivery:
    ```bash
-   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
      --type "customer_intent" \
      --agent "xp-question-triage" \
      --content "Intent delivered: description" \
@@ -59,7 +59,7 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
    ```
 3. Distill new intents from recent `customer_input` events:
    ```bash
-   CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
      --type "customer_intent" \
      --agent "xp-question-triage" \
      --content "New intent distilled from customer input" \
@@ -74,7 +74,7 @@ If the preload shows "Previous Try Items", present them to the user and ask for 
 
 For adopted items, record a decision:
 ```bash
-CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" \
   --agent "xp-question-triage" \
   --content "Adopted retro Try: <item description>" \
