@@ -2,7 +2,7 @@
 """Test framework detection and result parsing.
 
 Pure functions for identifying test commands and parsing their output.
-No SMM dependencies — stdlib only (re, json).
+No SMM dependencies — stdlib only (re).
 
 Extracted from bash_post_tool.py for module size management.
 """

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""SMM event builder, validator, and atomic appender.
+"""SMM atomic appender and CLI entry point.
 
-Constructs a JSON event from CLI arguments, validates against the SMM schema,
-and appends it atomically to events.jsonl using flock.
+Appends events atomically to events.jsonl using flock. Event construction
+and validation are in event_builder.py and event_schema.py respectively.
 """
 
 import contextlib

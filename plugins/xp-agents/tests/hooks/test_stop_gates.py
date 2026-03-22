@@ -14,14 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import quality_review_gate
-from conftest import _HookTestCase, make_event
-
-
-def _make_stop_input(**overrides) -> dict:
-    """Build a canonical Stop hook input dict."""
-    data = {"session_id": "t", "agent_id": "main"}
-    data.update(overrides)
-    return data
+from conftest import _HookTestCase, _make_stop_input, make_event
 
 
 class TestQualityReviewGate(_HookTestCase):

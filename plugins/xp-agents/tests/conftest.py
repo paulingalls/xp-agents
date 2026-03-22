@@ -130,6 +130,13 @@ def _make_bash_input(command: str = "echo hi", stdout: str = "", **overrides) ->
     return data
 
 
+def _make_stop_input(**overrides) -> dict:
+    """Build a canonical Stop hook input dict."""
+    data = {"session_id": "t", "agent_id": "main"}
+    data.update(overrides)
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Integration test base
 # ---------------------------------------------------------------------------
