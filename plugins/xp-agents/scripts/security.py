@@ -129,9 +129,17 @@ def security_triaged_path(smm_dir: Path) -> Path:
 
 
 def security_triaged_exists(smm_dir: Path) -> bool:
-    """Check if triage marker exists and is not a symlink."""
+    """Check if triage marker exists with valid JSON content."""
+    import json as _json
+
     path = security_triaged_path(smm_dir)
-    return path.exists() and not path.is_symlink()
+    if not path.exists() or path.is_symlink():
+        return False
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        return isinstance(data, dict) and "ts" in data
+    except (OSError, _json.JSONDecodeError, ValueError):
+        return False
 
 
 def write_security_triaged(smm_dir: Path) -> None:

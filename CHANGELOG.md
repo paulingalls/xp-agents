@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.8
+
+### Fixed
+- **Security triage marker validates JSON content** — `security_triaged_exists` now verifies the marker contains valid JSON with a `ts` field, not just that the file exists. Prevents the agent from bypassing triage by touching the file directly instead of running `mark_triaged.py`.
+
+### Changed
+- **Cleaned up allowed-tools** — removed unnecessary entries from xp-run-retrospective (materialize.py, direct save_retrospective.py) and xp-security-triage (git diff --cached, handled by preload).
+
+### Stats
+- 962 tests (all passing)
+
 ## v1.0.7
 
 ### Changed
