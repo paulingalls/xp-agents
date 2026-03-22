@@ -218,14 +218,16 @@ plugins/xp-agents/
 │   ├── xp-retrospective.md
 │   └── xp-plan-reviewer.md
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
+│   ├── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
 │   ├── xp-smm-protocol/SKILL.md
 │   ├── xp-quality-review/SKILL.md
-│   ├── xp-review-plan/SKILL.md
-│   ├── xp-run-retrospective/SKILL.md
-│   ├── xp-kickoff/SKILL.md  ← inline, orchestrates session start lifecycle
-│   ├── xp-housekeeping/SKILL.md    ← inline, lifecycle triage for open items
-│   ├── xp-goal-collection/SKILL.md ← inline, first-session goal collection
-│   └── xp-question-triage/SKILL.md ← inline, ongoing question triage
+│   ├── xp-review-plan/SKILL.md     ← forked, agent: xp-plan-reviewer
+│   ├── xp-run-retrospective/SKILL.md ← forked, agent: xp-retrospective
+│   ├── xp-security-triage/SKILL.md ← inline, classifies staged changes
+│   ├── xp-kickoff/SKILL.md         ← inline, orchestrates session start lifecycle
+│   ├── xp-housekeeping/SKILL.md    ← inline, four-pillar SMM curation
+│   ├── xp-goal-collection/SKILL.md ← inline, session goal collection
+│   └── xp-question-triage/SKILL.md ← inline, questions + retro Try items
 ├── hooks/hooks.json                 ← command hooks only
 ├── scripts/                         ← command hooks + shared modules (Python 3.10+, stdlib only)
 │   ├── _common.py               ← core helpers (hook I/O, constants, event factories)
@@ -252,23 +254,27 @@ plugins/xp-agents/
 │   ├── tdd_stop_gate.py
 │   ├── security_review_done.py
 │   ├── kickoff_gate.py
-│   └── kickoff_done.py
-├── prompts/                         ← empty (tdd_check.md removed, replaced by tdd_stop_gate.py)
+│   ├── kickoff_done.py
+│   ├── post_tool_exit_plan.py       ← PostToolUse:ExitPlanMode nudge + marker
+│   └── test_parsing.py              ← is_test_run, parse_test_results (extracted from bash_post_tool)
 └── smm/
     ├── init.sh
     ├── append.sh
-    ├── _append_impl.py              ← event construction, validation, atomic append
+    ├── _append_impl.py              ← atomic append, locking, JSONL parsing, CLI entry point
+    ├── event_schema.py              ← validation constants, validate_event (extracted from _append_impl)
+    ├── event_builder.py             ← CLI arg parsing, build_event (extracted from _append_impl)
     ├── resolution.py                ← event resolution tracking, desktop notifications
     ├── materialize.py               ← prepare_curation_data() for housekeeping
     ├── read_delta.py                ← watermark reader for prompt nuggets
     ├── compact.py                   ← event log compaction (PostCompact hook)
+    ├── seed_smm.py                  ← default SMM generation on first init
     └── schema.json
 ```
 
 ## Platform Constraints
 
 - All matching hooks run **in parallel** — no ordering between hooks, no `additionalContext` visibility between hooks
-- Agent hooks (`type: "agent"`) are **broken platform-wide** — crash with "Messages are required for agent hooks. This is a bug." on all events (PostToolUse, UserPromptSubmit tested). Use command/prompt hooks or plugin subagents instead
+- Agent hooks (`type: "agent"`) are documented as working but limited — they support Read/Grep/Glob only (no Bash/Write), return ok/reason decisions, and have a 60-second default timeout. We use command hooks + plugin subagents instead for tasks requiring Bash or extended processing
 - Plugin subagents have full tool access and return full conversational response
 - `additionalContext` appends after prompt cache — cache is preserved
 - PostToolUse supports `additionalContext` and `decision: "block"`

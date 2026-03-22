@@ -4,7 +4,7 @@
 
 A Claude Code plugin that enforces XP practices via hooks. Broadcast event log (Shared Mental Model) replaces point-to-point mailboxes. All XP agents are implemented as hook handlers.
 
-Read `docs/ARCHITECTURE.md` before starting any milestone. It is the source of truth for design decisions, hook map, event types, and platform constraints.
+Read `docs/ARCHITECTURE.md` for design decisions, hook map, event types, and platform constraints.
 
 ## Official Claude Code Docs (check for latest API)
 
@@ -17,10 +17,6 @@ Read `docs/ARCHITECTURE.md` before starting any milestone. It is the source of t
 - **Full docs index**: https://code.claude.com/docs/llms.txt
 
 Always verify hook I/O formats against the hooks reference before implementing new hooks. The API evolves.
-
-## Build Order
-
-Follow `docs/MILESTONES.md` sequentially. Each milestone's acceptance criteria must pass before moving to the next. The milestones are: SMM Foundation → SMM Engine → Core Hooks (4 sub-milestones) → Agent Hooks Quality/Navigation → Agent Hooks Session Lifecycle → CLAUDE.md & Skills → Integration Testing → Hardening.
 
 ## Coding Standards
 
@@ -197,18 +193,23 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json         ← plugin manifest
-├── BEHAVIORAL_GUIDE.md                ← loaded by kickoff_done.py (PostToolUse:Skill)
+├── BEHAVIORAL_GUIDE.md                ← XP values + process rules, loaded by kickoff_done.py
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
-├── scripts/*.py                       ← command hooks (incl. kickoff_gate.py)
-├── agents/*.md                        ← subagent definitions
-├── prompts/*.md                       ← agent/prompt hook definitions
+├── scripts/*.py                       ← command hooks + shared modules
+├── agents/*.md                        ← subagent definitions (xp-retrospective, xp-plan-reviewer)
 ├── skills/                            ← forked + inline skills
-│   ├── xp-smm-protocol/SKILL.md
-│   ├── xp-kickoff/SKILL.md    ← session start orchestrator
-│   ├── xp-housekeeping/SKILL.md      ← lifecycle triage
-│   └── {xp-goal-collection,xp-question-triage}/SKILL.md
-└── smm/{init.sh,append.sh,materialize.py,read_delta.py,compact.py,schema.json}
+│   ├── xp-kickoff/SKILL.md           ← session start orchestrator
+│   ├── xp-run-retrospective/SKILL.md ← forked, delegates to xp-retrospective agent
+│   ├── xp-question-triage/SKILL.md   ← inline, questions + retro Try items
+│   ├── xp-goal-collection/SKILL.md   ← inline, session goals
+│   ├── xp-housekeeping/SKILL.md      ← inline, four-pillar SMM curation
+│   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
+│   ├── xp-security-triage/SKILL.md   ← inline, classifies staged changes
+│   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
+│   └── xp-smm-protocol/SKILL.md      ← reference guide for event types
+└── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
+         resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,schema.json}
 ```
 
 ## Error Handling
@@ -245,29 +246,34 @@ python3 -m unittest plugins/xp-agents/tests/hooks/test_session.py -k TestSession
 tests/
 ├── conftest.py              ← shared helpers: make_event, base classes, input factories
 ├── hooks/                   ← unit tests for command hooks (from scripts/)
-│   ├── test_common.py       ← _common.py utilities
+│   ├── test_common.py       ← _common.py core utilities
+│   ├── test_common_smm.py   ← _common.py SMM data operations (events, watermarks, conflicts)
 │   ├── test_session.py      ← session_start, session_end, retrospective, review gate
 │   ├── test_pre_tool_write.py ← conflicts, TDD order, plan review gate
 │   ├── test_pre_tool_bash.py  ← commit security triage gate, file-modification heuristic
-│   ├── test_post_tool.py    ← post_tool_use, lint_check, bash_post_tool, bash_failure
+│   ├── test_post_tool.py    ← post_tool_use, lint_check, post_tool_exit_plan
+│   ├── test_bash.py         ← bash_post_tool hook tests, bash_failure
+│   ├── test_bash_parsing.py ← is_test_run, parse_test_results, is_git_commit
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
-│   ├── test_gates.py        ← simplify_gate, quality_review_gate, tdd_stop_gate
-│   ├── test_validation.py   ← hooks.json structure, plugin integrity, milestone checks
+│   ├── test_gates.py        ← simplify_gate, security triage markers
+│   ├── test_stop_gates.py   ← quality_review_gate, tdd_stop_gate
+│   ├── test_validation.py   ← hooks.json structure and registration
+│   ├── test_plugin_integrity.py ← plugin file structure, agent files, milestone files
 │   └── test_features.py     ← auto-resolve, retro digest, coordination, prompt nuggets
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
 │   ├── test_scenarios.py    ← round trips, retro, plan review, multi-session
-│   ├── test_extended.py     ← simplify gate, security review
+│   ├── test_extended.py     ← simplify gate, security review, commit gate
 │   └── test_advanced.py     ← compaction, concurrency, worktrees, repair, migration
 ├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
 │   ├── test_parse.py        ← JSONL parsing, index building, resolutions
 │   ├── test_delta.py        ← watermarks, read_delta, symlink protection
 │   ├── test_compact.py      ← event log compaction
 │   ├── test_maintenance.py  ← repair, migration, benchmarks
-│   └── test_curation.py     ← bulk append, prepare_curation_data, atomic writes
+│   └── test_curation.py     ← bulk append, prepare_curation_data, retro history, atomic writes
 └── smm/                     ← SMM foundation tests (init.sh, append.sh)
-    ├── test_init.py          ← initialization, schema validation
+    ├── test_init.py          ← initialization, schema validation, seed SMM
     └── test_append.py        ← append operations, concurrency, safety
 ```
 

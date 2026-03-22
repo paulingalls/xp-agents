@@ -53,11 +53,9 @@ Decisions and conventions that bound the solution space.
 
 **Enter:** Agent makes an architectural choice or establishes a convention, with rationale. Must be stated explicitly — not inferred from code.
 
-**Leave:** Only when explicitly superseded by a new constraint that references the old one. Constraints don't age out — "use Postgres" doesn't become less true over time.
+**Leave:** Only when explicitly superseded by a new constraint that references the old one. Constraints don't age out — "use Postgres" doesn't become less true over time. Decisions age after 3 sessions in the event log (compacted if confirmed and curated into the SMM).
 
-**Graduate:** A constraint stable for 10+ sessions and enforced by code/tests is part of the project's DNA. It can leave the SMM because the codebase embodies it.
-
-**Cap:** ~20 items. Beyond this, some are too granular (move to code/linting) or have graduated.
+**Cap:** ~20 items. Beyond this, some are too granular (move to code/linting).
 
 ---
 
@@ -116,7 +114,7 @@ Behavioral rules learned from experience. The institutional memory.
 - Write tests before implementation — the TDD gate blocks otherwise
 - Split large changes into separate commits
 - Always record decisions when making architectural choices
-- Run /simplify before stopping — don't skip it
+- Run /simplify FIRST after every commit with 3+ code files
 - Don't amend pushed commits — creates divergent history
 ```
 
@@ -373,18 +371,23 @@ Subagent hex-ID watermarks (`.watermark-abf63d10...`) are eliminated. No per-too
 
 ### Event log compaction — housekeeping compacts after curation
 
-The event log is a staging buffer, not an archive. Housekeeping compacts as part of curation:
+The event log is a staging buffer, not an archive. `kickoff_done.py` triggers compaction after housekeeping curates:
 
 1. Housekeeping curates events into the SMM
-2. Writes its curation watermark (event count or timestamp)
-3. For solo: compacts events before the watermark, retaining only:
-   - Last 3 `session_end` events (for aging calculations)
-   - Any events referenced by current SMM items (traceability)
-4. For teams: compacts only events before the **oldest** agent's curation watermark
+2. Writes its curation watermark (event count)
+3. `kickoff_done.py` fires (PostToolUse:Skill), calls `compact.compact_after_curation()`
+4. Compaction prunes events before the watermark, with these rules:
+   - **Status events**: compacted freely (counts preserved in session summaries)
+   - **Customer inputs**: compacted freely (captured in Intent pillar)
+   - **Decisions**: retained for 3 sessions after creation, then compacted (confirmed decisions live in Constraints pillar)
+   - **Retrospectives**: capped at 2 in the event log (archived in `retrospectives/` directory)
+   - **Resolved items**: pruned (goals, concerns, questions with resolution events)
+   - **Session_end events**: all retained (needed for aging calculations)
+5. For teams: compacts only events before the **oldest** agent's curation watermark
 
 The SMM is the durable record. The event log is the working buffer that feeds it. Once curated, raw events have served their purpose.
 
-**Size target:** The event log should stabilize at ~1-2 sessions of events (~50-200 entries), not grow indefinitely. The current 1000+ events would compact to ~100.
+**Size target:** The event log should stabilize at ~1-2 sessions of events (~50-200 entries).
 
 ### Conflict detection — dedicated coordination file
 

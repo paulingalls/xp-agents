@@ -380,9 +380,8 @@ Watermark-based — only events before the curation watermark are eligible for c
 
 ## Project Status
 
-940 tests. All passing.
+963 tests. All passing.
 
-See [MILESTONES.md](docs/MILESTONES.md) for the development roadmap.
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
 See [RESEARCH.md](docs/RESEARCH.md) for competitive landscape and lessons learned.
 
