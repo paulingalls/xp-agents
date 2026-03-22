@@ -38,6 +38,9 @@ When values conflict: Courage > Simplicity > Feedback > Communication > Respect.
 
 These are not optional. Hooks enforce some of these as safety nets, but the right judgment is to follow the process proactively rather than waiting to be blocked.
 
+**Before implementing multi-file changes:**
+- Use `EnterPlanMode` when the work will touch 3+ files. Plan mode spends focused time making sure we come up with the best approach. Then, when you exit plan mode, run `/xp-review-plan` to get a second pair of eyes looking at the plan, all before a single line of code is written.
+
 **Per commit:**
 - After `git add`, run `/xp-security-triage` to review staged changes, then `git commit`. This way the commit goes through on the first try. If you skip triage, the commit gate blocks you and you'll have to triage and retry. Non-code commits (tests only, docs only) skip the gate automatically.
 
