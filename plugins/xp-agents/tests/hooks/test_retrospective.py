@@ -85,11 +85,11 @@ class TestRetrospective(_HookTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertIn("unanalyzed_count", data)
-        self.assertIn("events_since_last_retro", data)
+        self.assertNotIn("events_since_last_retro", data)  # slimmed at write time
         self.assertIn("previous_retros", data)
         self.assertIn("event_type_counts", data)
+        self.assertIn("digest", data)
         self.assertEqual(data["unanalyzed_count"], 6)
-        self.assertEqual(len(data["events_since_last_retro"]), 6)
 
     def test_counts_events_after_last_retro(self):
         import retrospective

@@ -15,11 +15,9 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
 
 ## Before Analyzing
 
-Your task prompt contains all the data you need — `SMM_DIR`, event digest, session stats, and previous retros. **Do not read any files.** Do not browse the filesystem, `.claude/`, tool-results, or transcripts. Analyze only the data provided in your task prompt.
+1. **Find SMM_DIR.** The preloaded data above should include `SMM_DIR=<path>`. If not, run `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` to resolve it.
 
-1. **If the task prompt shows "no .retro-input.json found"**, there is insufficient data. Return immediately.
-
-2. **If the task prompt shows retrospective input data**, it contains:
+2. **Read the retrospective input.** The data is at `${SMM_DIR}/.retro-input.json`. Read this file — it contains everything you need:
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — structured summary for analysis:
      - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions
@@ -28,6 +26,10 @@ Your task prompt contains all the data you need — `SMM_DIR`, event digest, ses
    - `previous_retros` — last 2-3 retrospective summaries for trend detection
    - `event_type_counts` — breakdown by event type
    - `session_stats` — concern resolution ratio, decision counts, etc.
+
+3. **If `.retro-input.json` doesn't exist**, there is insufficient data. Return immediately.
+
+**Do not** browse the filesystem, `.claude/`, tool-results, or transcripts. Read `.retro-input.json` and analyze that data.
 
 **Use `digest.signal_events` for analysis.** These are the meaningful events. Status events are summarized as counts only.
 

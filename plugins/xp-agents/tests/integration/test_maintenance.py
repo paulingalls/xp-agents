@@ -547,43 +547,17 @@ class TestRetroPreloadIntegration(_IntegrationTestCase):
             env=self._test_env,
         )
 
-    def test_preload_excludes_raw_events(self):
-        """Preload output must not contain events_since_last_retro."""
-        retro_input = {
-            "unanalyzed_count": 3,
-            "events_since_last_retro": [
-                make_event(content=f"raw-event-{i}") for i in range(3)
-            ],
-            "digest": {
-                "signal_events": [make_event("concern", content="test concern")],
-                "status_summary": {"total": 2, "samples": []},
-                "concern_groups": [],
-            },
-            "previous_retros": [],
-            "event_type_counts": {"status": 2, "concern": 1},
-            "session_stats": {"concerns_raised": 1, "concerns_resolved": 0},
-        }
-        (self.smm_dir / ".retro-input.json").write_text(
-            json.dumps(retro_input, ensure_ascii=False)
-        )
-
+    def test_preload_outputs_paths_and_guide(self):
+        """Preload outputs SMM_DIR, RETRO_INPUT path, and behavioral guide."""
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-
         output = result.stdout
-        # Must contain digest data
-        self.assertIn("signal_events", output)
-        self.assertIn("test concern", output)
-        self.assertIn("unanalyzed_count", output)
-        # Must NOT contain raw events array
-        self.assertNotIn("events_since_last_retro", output)
-        self.assertNotIn("raw-event-", output)
-
-    def test_preload_missing_file(self):
-        """Preload gracefully handles missing .retro-input.json."""
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("no .retro-input.json found", result.stdout)
+        self.assertIn("SMM_DIR=", output)
+        self.assertIn("RETRO_INPUT=", output)
+        self.assertIn(".retro-input.json", output)
+        # Should NOT dump retro data — subagent reads file itself
+        self.assertNotIn("signal_events", output)
+        self.assertNotIn("unanalyzed_count", output)
 
 
 if __name__ == "__main__":

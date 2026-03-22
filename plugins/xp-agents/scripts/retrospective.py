@@ -216,9 +216,25 @@ def _build_retro_input(
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
     digest = _build_retro_digest(events, start_idx)
+
+    # Slim the digest for the subagent — reduce token cost
+    # Signal events: keep only type, content, short id
+    if "signal_events" in digest:
+        digest["signal_events"] = [
+            {
+                "type": e.get("type", ""),
+                "content": e.get("content", ""),
+                "id": e.get("id", "")[:8],
+            }
+            for e in digest["signal_events"]
+        ]
+    # Drop status samples — counts are sufficient
+    ss = digest.get("status_summary", {})
+    ss.pop("samples", None)
+
     return {
         "unanalyzed_count": len(unanalyzed),
-        "events_since_last_retro": unanalyzed[-MAX_EVENTS_IN_RETRO:],
+        # No events_since_last_retro — digest has the structured version
         "previous_retros": retro_history,
         "event_type_counts": type_counts,
         "session_stats": session_stats,
