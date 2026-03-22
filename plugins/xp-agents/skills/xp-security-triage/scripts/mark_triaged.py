@@ -19,4 +19,12 @@ if security.security_triaged_exists(smm_dir):
     print("Security triage marker already exists.")
 else:
     security.write_security_triaged(smm_dir)
+    # Record triage in the event log so the retro can see it happened
+    event = _common.make_event(
+        _common.STATUS,
+        "xp-security-triage",
+        "Security triage complete — changes classified as non-security-relevant",
+        working_on=[],
+    )
+    _common.append_safe(smm_dir, event)
     print("Security triage marker written. Commit gate cleared.")

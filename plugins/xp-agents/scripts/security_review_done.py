@@ -33,6 +33,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     security.write_security_triaged(smm_dir)
+    # Record in event log so retro can see security review happened
+    event = _common.make_event(
+        _common.STATUS,
+        "xp-security-review",
+        "Security review complete — full review performed",
+        working_on=[],
+    )
+    _common.append_safe(smm_dir, event)
     return None
 
 
