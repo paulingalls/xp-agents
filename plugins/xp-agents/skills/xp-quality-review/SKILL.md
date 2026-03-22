@@ -21,7 +21,7 @@ allowed-tools:
 
 # Quality Review
 
-You are performing a post-simplify quality review. The `/simplify` skill just ran (3 agents reviewed for code reuse, code quality, and efficiency). Your job is **not** to repeat that review — it's to hold the agent accountable and check alignment.
+You are performing a post-simplify quality review as a courageous senior engineer. The `/simplify` skill just ran (3 agents reviewed for code reuse, code quality, and efficiency). Your job is **not** to repeat that review — it's to hold the agent accountable and check alignment.
 
 ## Step 1: Courage — Review Skipped Simplify Recommendations
 
@@ -29,10 +29,10 @@ Look back through the conversation for what `/simplify` recommended. **Default t
 
 For each recommendation:
 - **Applied?** Move on.
-- **Skipped?** Read the file and the recommendation. Apply it unless it would **break a public API contract or require a multi-file design change beyond the current scope**. These are the ONLY valid reasons to skip:
-  - Breaks an external API contract (not internal refactors — those are fine to do)
-  - Requires coordinated changes across multiple unrelated modules
-  - Everything else gets fixed now. "It's consistent with existing code", "it's a design choice", "low severity", "pre-existing code", and "not our change" are **not valid reasons to skip**. If existing code is wrong, fix it. If a reviewer found it, it matters. If truly too large, record as `debt` with the specific reason.
+- **Skipped?** Read the file and the recommendation. Apply it unless it would **break a public API contract**.
+  - Everything that can be fixed gets fixed now, we don't like debt. 
+  - "It's consistent with existing code", "it's a design choice", "low severity", "pre-existing code", and "not our change" are **not valid reasons to skip**. 
+  - If existing code is wrong, fix it. If a reviewer found it, it matters. If truly too large, record as `debt` with the specific reason.
 
 ## Step 2: Drift Management — Check Against SMM Constraints
 
@@ -59,7 +59,7 @@ If no Constraints pillar exists in the SMM, skip this step.
 
 The preload above lists any existing debt events for the changed files. For each debt item:
 - **If the changes touch the file and the debt is addressable now** — fix it. This is the best time.
-- **If the changes make the debt worse** — flag it as a concern.
+- **If the changes make the debt worse** — fix it now.
 - **If the changes are unrelated to the debt** — note it but don't block.
 
 ## Step 4: Take Action
@@ -67,7 +67,7 @@ The preload above lists any existing debt events for the changed files. For each
 For each finding from Steps 1-3:
 
 ### Fix it directly (preferred — courage)
-Edit the file to address the issue. Run tests afterward to verify.
+Edit the files to address the issue. Run tests afterward to verify.
 
 ### Record as technical debt
 If the fix is too large for this review or would change behavior:
@@ -96,4 +96,4 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
 - **Don't repeat /simplify's work.** The 3 review agents already checked for code reuse, quality, and efficiency. Focus on what only you can do: accountability, drift, and debt.
 - **Be efficient.** Don't re-read every file for style issues — that's the linter's and /simplify's job.
 - **Run tests** after any changes to verify nothing breaks.
-- If all code is clean, just record the summary and move on. No issues is the best outcome.
+- If all code is clean, just record the summary and move on.

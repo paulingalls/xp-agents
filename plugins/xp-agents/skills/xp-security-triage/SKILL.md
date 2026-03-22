@@ -13,11 +13,17 @@ allowed-tools:
   - Skill(security-review)
 ---
 
-Review the staged changes (`git diff --cached`) and classify them:
+!`git diff --cached --stat && echo "---FULL DIFF---" && git diff --cached`
+
+Classify the staged changes above:
 
 **Trivial (auto-clear):** renames, documentation, tests, config formatting, comments, imports, type annotations, CI/CD metadata — changes that cannot introduce security vulnerabilities.
 
 **Security-relevant (require review):** any change touching authentication, authorization, cryptography, input validation/sanitization, file I/O with user-controlled paths, network requests, secret/credential handling, permission checks, SQL/command construction, cookie/session management, CORS/CSP headers, or dependency version changes.
+
+## If security-relevant
+
+Do NOT write the marker. Instead, run `/security-review` to perform a full security review. This is a **built-in Claude Code command** — invoke it as `/security-review`, NOT as `xp-agents:security-review`. The built-in review will write the triage marker when it completes.
 
 ## If trivial
 
@@ -26,7 +32,3 @@ Write the triage marker:
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" python3 ${CLAUDE_SKILL_DIR}/scripts/mark_triaged.py`
 
 Changes triaged as non-security-relevant. Commit gate cleared.
-
-## If security-relevant
-
-Do NOT write the marker. Instead, run `/security-review` to perform a full security review. This is a **built-in Claude Code command** — invoke it as `/security-review`, NOT as `xp-agents:security-review`. The built-in review will write the triage marker when it completes.
