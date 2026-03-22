@@ -223,23 +223,23 @@ def detect_conflicts(
             concern_pos_list.append(i)
 
     # concern_pos_list is already sorted (built in event order)
+    # Only flag the most recent pair per topic — not every historical pair
     for topic, decs in decisions_by_topic.items():
         if len(decs) < 2:
             continue
-        for j in range(1, len(decs)):
-            prev_pos = decs[j - 1][0]
-            curr_pos = decs[j][0]
-            # Binary search: any concern position in (prev_pos, curr_pos)?
-            lo = bisect.bisect_right(concern_pos_list, prev_pos)
-            has_concern_between = (
-                lo < len(concern_pos_list) and concern_pos_list[lo] < curr_pos
+        prev_pos = decs[-2][0]
+        curr_pos = decs[-1][0]
+        # Binary search: any concern position in (prev_pos, curr_pos)?
+        lo = bisect.bisect_right(concern_pos_list, prev_pos)
+        has_concern_between = (
+            lo < len(concern_pos_list) and concern_pos_list[lo] < curr_pos
+        )
+        if not has_concern_between:
+            _add_concern(
+                f"Superseded decision: topic '{topic}' has multiple "
+                f"decisions without an intervening concern.",
+                "low",
             )
-            if not has_concern_between:
-                _add_concern(
-                    f"Superseded decision: topic '{topic}' has multiple "
-                    f"decisions without an intervening concern.",
-                    "low",
-                )
 
     return concerns
 
