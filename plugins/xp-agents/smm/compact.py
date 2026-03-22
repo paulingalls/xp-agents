@@ -52,14 +52,14 @@ def _parse_events(raw: str) -> list[dict]:
 
 
 _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
+_ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can compact
 
 
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
-    Active = unresolved goals, decisions (< 3 sessions old),
-    conventions, unresolved concerns/debt/questions/assumptions,
-    open customer_intents.
+    Active = unresolved goals, decisions/assumptions/questions (< 3 sessions old),
+    conventions, unresolved concerns/debt, open customer_intents.
     Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = compute_resolutions(events)
@@ -97,14 +97,28 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 if eid not in resolutions["resolved_debt_ids"]:
                     referenced.add(eid)
             case "question":
-                if eid not in resolutions["answered_question_ids"]:
+                if eid in resolutions["answered_question_ids"]:
+                    continue
+                # Age-based: unanswered questions compact after 3 sessions
+                q_ts = event.get("ts", "")
+                q_sessions = len(se_timestamps) - bisect.bisect_right(
+                    se_timestamps, q_ts
+                )
+                if q_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case "customer_intent":
                 intent_status = event.get("intent_status", "open")
                 if intent_status == "open":
                     referenced.add(eid)
             case "assumption":
-                if eid not in resolutions["resolved_assumption_ids"]:
+                if eid in resolutions["resolved_assumption_ids"]:
+                    continue
+                # Age-based: unresolved assumptions compact after 3 sessions
+                a_ts = event.get("ts", "")
+                a_sessions = len(se_timestamps) - bisect.bisect_right(
+                    se_timestamps, a_ts
+                )
+                if a_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case "retrospective":
                 # Keep last 2 for trend detection. _find_unanalyzed_start

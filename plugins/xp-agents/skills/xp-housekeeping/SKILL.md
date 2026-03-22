@@ -70,8 +70,8 @@ Unify all risk types into one section with severity:
 Actions:
 - Apply aging from curation data: ⚠️ for 3+ sessions, 🔴 for 6+ sessions
 - Remove risks that have resolutions in `new_since_last_curation.resolutions`
+- **Resolve processed assumptions and questions.** When you add an assumption to Risks, drop it as verified, or decide it's irrelevant — record a resolution event for the original. This lets compaction clean up the raw event. Unresolved assumptions and questions accumulate in the event log forever if you don't resolve them.
 - Record resolutions via append.sh with `metadata.resolves`
-- Same-session assumptions (from plan reviews): verify or drop — don't let them linger
 - Ask user about 🔴 risks: "This has been open 6+ sessions. Resolve or accept?"
 - **Cap: ~10 items.** If over cap, the SMM itself should flag: "Risk register at capacity"
 
