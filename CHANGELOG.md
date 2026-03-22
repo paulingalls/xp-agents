@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.4
+
+### Added
+- **Behavioral Guide: plan before multi-file changes** — encourages `EnterPlanMode` for work touching 3+ files, followed by `/xp-review-plan` before writing code.
+
+### Fixed
+- **Security triage preload shows both staged and unstaged diffs** — when `git add && git commit` is blocked before `git add` executes, nothing is staged. Preload now shows both so the agent can always triage.
+- **Simplify nudge counts test files** — the PostToolUse nudge was filtering out test files, but test code benefits from simplify too. Now consistent with the Stop hook gate which already counted tests.
+
+### Stats
+- 963 tests (all passing)
+
 ## v1.0.3
 
 ### Fixed
