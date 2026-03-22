@@ -23,9 +23,7 @@ from _append_impl import (
     replace_events_file,
     resolve_smm_dir,
 )
-
-# Required fields — same set validated by _append_impl.validate_event()
-_REQUIRED_FIELDS = {"id", "type", "ts", "agent_id", "content"}
+from event_schema import REQUIRED_FIELDS as _REQUIRED_FIELDS
 
 _EMPTY_RESULT = {
     "malformed": 0,

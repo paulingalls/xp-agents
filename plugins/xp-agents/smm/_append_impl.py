@@ -84,20 +84,16 @@ from event_builder import (  # noqa: E402
     parse_json_arg,  # noqa: F401
 )
 from event_schema import (  # noqa: E402
-    MAX_CONTENT_LENGTH,  # noqa: F401
     MAX_EVENT_BYTES,
     MAX_EVENTS_FILE_SIZE,
     PRIORITY_ASSUMED,  # noqa: F401
     PRIORITY_BLOCKING,  # noqa: F401
     PRIORITY_INFO,  # noqa: F401
-    VALID_INTENT_STATUSES,  # noqa: F401
-    VALID_PRIORITIES,  # noqa: F401
-    VALID_SEVERITIES,  # noqa: F401
     validate_event,
 )
 
 # Resolution tracking: see resolution.py
-from resolution import compute_resolutions, resolve_prefix  # noqa: F401, E402
+from resolution import compute_resolutions  # noqa: F401, E402
 
 # ---------------------------------------------------------------------------
 # Shared JSONL parsing

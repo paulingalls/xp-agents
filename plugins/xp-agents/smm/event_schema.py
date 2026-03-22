@@ -44,6 +44,10 @@ MAX_EVENT_BYTES = 100_000
 MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 
 
+# Required fields — used by validate_event() and repair.py's fast issubset check
+REQUIRED_FIELDS = frozenset({"id", "type", "ts", "agent_id", "content"})
+
+
 # ---------------------------------------------------------------------------
 # Event validation (single source of truth for required-field checks)
 # ---------------------------------------------------------------------------
@@ -54,7 +58,7 @@ def validate_event(event: dict) -> list[str]:
     errors: list[str] = []
 
     # Universal required fields
-    for field in ("id", "ts", "type", "agent_id", "content"):
+    for field in REQUIRED_FIELDS:
         if field not in event:
             errors.append(f"Missing required field: {field}")
         elif not isinstance(event[field], str):

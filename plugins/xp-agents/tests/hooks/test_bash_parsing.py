@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import bash_post_tool
 import security
+import test_parsing
 
 
 class TestIsGitCommit(unittest.TestCase):
@@ -50,28 +51,28 @@ class TestIsGitCommit(unittest.TestCase):
 
 class TestIsTestRun(unittest.TestCase):
     def test_pytest(self):
-        self.assertEqual(bash_post_tool.is_test_run("pytest"), "pytest")
+        self.assertEqual(test_parsing.is_test_run("pytest"), "pytest")
 
     def test_python_m_pytest(self):
-        self.assertEqual(bash_post_tool.is_test_run("python -m pytest"), "pytest")
+        self.assertEqual(test_parsing.is_test_run("python -m pytest"), "pytest")
 
     def test_python3_m_pytest(self):
-        self.assertEqual(bash_post_tool.is_test_run("python3 -m pytest"), "pytest")
+        self.assertEqual(test_parsing.is_test_run("python3 -m pytest"), "pytest")
 
     def test_jest(self):
-        self.assertEqual(bash_post_tool.is_test_run("npx jest"), "jest")
+        self.assertEqual(test_parsing.is_test_run("npx jest"), "jest")
 
     def test_jest_bare(self):
-        self.assertEqual(bash_post_tool.is_test_run("jest"), "jest")
+        self.assertEqual(test_parsing.is_test_run("jest"), "jest")
 
     def test_go_test(self):
-        self.assertEqual(bash_post_tool.is_test_run("go test ./..."), "go")
+        self.assertEqual(test_parsing.is_test_run("go test ./..."), "go")
 
     def test_not_test(self):
-        self.assertIsNone(bash_post_tool.is_test_run("ls -la"))
+        self.assertIsNone(test_parsing.is_test_run("ls -la"))
 
     def test_npm_test(self):
-        self.assertEqual(bash_post_tool.is_test_run("npm test"), "jest")
+        self.assertEqual(test_parsing.is_test_run("npm test"), "jest")
 
 
 class TestParseCommitMessage(unittest.TestCase):
@@ -88,64 +89,64 @@ class TestParseCommitMessage(unittest.TestCase):
 class TestParseTestResults(unittest.TestCase):
     def test_pytest_pass(self):
         output = "===== 5 passed in 0.3s ====="
-        result = bash_post_tool.parse_test_results(output, "pytest")
+        result = test_parsing.parse_test_results(output, "pytest")
         self.assertEqual(result["passed"], 5)
         self.assertEqual(result["failed"], 0)
 
     def test_pytest_fail(self):
         output = "===== 3 passed, 2 failed in 1.2s ====="
-        result = bash_post_tool.parse_test_results(output, "pytest")
+        result = test_parsing.parse_test_results(output, "pytest")
         self.assertEqual(result["passed"], 3)
         self.assertEqual(result["failed"], 2)
 
     def test_jest_pass(self):
         output = "Tests:  5 passed, 5 total"
-        result = bash_post_tool.parse_test_results(output, "jest")
+        result = test_parsing.parse_test_results(output, "jest")
         self.assertEqual(result["passed"], 5)
         self.assertEqual(result["failed"], 0)
 
     def test_jest_fail(self):
         output = "Tests:  2 failed, 3 passed, 5 total"
-        result = bash_post_tool.parse_test_results(output, "jest")
+        result = test_parsing.parse_test_results(output, "jest")
         self.assertEqual(result["passed"], 3)
         self.assertEqual(result["failed"], 2)
 
     def test_go_pass(self):
         output = "ok  \tgithub.com/user/pkg\t0.3s"
-        result = bash_post_tool.parse_test_results(output, "go")
+        result = test_parsing.parse_test_results(output, "go")
         self.assertEqual(result["passed"], 1)
         self.assertEqual(result["failed"], 0)
 
     def test_go_fail(self):
         output = "--- FAIL: TestSomething (0.00s)\nFAIL\tgithub.com/user/pkg\t0.3s"
-        result = bash_post_tool.parse_test_results(output, "go")
+        result = test_parsing.parse_test_results(output, "go")
         self.assertEqual(result["failed"], 1)
 
     def test_unittest_pass(self):
         output = "Ran 821 tests in 32.346s\n\nOK"
-        result = bash_post_tool.parse_test_results(output, "unittest")
+        result = test_parsing.parse_test_results(output, "unittest")
         self.assertEqual(result["passed"], 821)
         self.assertEqual(result["failed"], 0)
 
     def test_unittest_fail(self):
         output = "Ran 50 tests in 1.2s\n\nFAILED (failures=2, errors=1)"
-        result = bash_post_tool.parse_test_results(output, "unittest")
+        result = test_parsing.parse_test_results(output, "unittest")
         self.assertEqual(result["passed"], 47)
         self.assertEqual(result["failed"], 3)
         self.assertEqual(result["errors"], 1)
 
     def test_is_test_run_unittest(self):
         self.assertEqual(
-            bash_post_tool.is_test_run("python3 -m unittest tests/test_foo.py -v"),
+            test_parsing.is_test_run("python3 -m unittest tests/test_foo.py -v"),
             "unittest",
         )
-        self.assertIsNone(bash_post_tool.is_test_run("echo unittest"))
+        self.assertIsNone(test_parsing.is_test_run("echo unittest"))
 
     def test_xcodebuild_pass(self):
         output = (
             "Executed 12 tests, with 0 failures (0 unexpected) in 1.234 (2.345) seconds"
         )
-        result = bash_post_tool.parse_test_results(output, "xcodebuild")
+        result = test_parsing.parse_test_results(output, "xcodebuild")
         self.assertEqual(result["passed"], 12)
         self.assertEqual(result["failed"], 0)
 
@@ -153,7 +154,7 @@ class TestParseTestResults(unittest.TestCase):
         output = (
             "Executed 12 tests, with 3 failures (2 unexpected) in 1.234 (2.345) seconds"
         )
-        result = bash_post_tool.parse_test_results(output, "xcodebuild")
+        result = test_parsing.parse_test_results(output, "xcodebuild")
         self.assertEqual(result["passed"], 9)
         self.assertEqual(result["failed"], 3)
 
@@ -161,163 +162,163 @@ class TestParseTestResults(unittest.TestCase):
         output = (
             "Executed 5 tests, with 0 failures (0 unexpected) in 0.456 (0.789) seconds"
         )
-        result = bash_post_tool.parse_test_results(output, "swift")
+        result = test_parsing.parse_test_results(output, "swift")
         self.assertEqual(result["passed"], 5)
         self.assertEqual(result["failed"], 0)
 
     def test_is_test_run_xcodebuild(self):
         self.assertEqual(
-            bash_post_tool.is_test_run("xcodebuild test -scheme MyApp"),
+            test_parsing.is_test_run("xcodebuild test -scheme MyApp"),
             "xcodebuild",
         )
         self.assertEqual(
-            bash_post_tool.is_test_run("xcodebuild -workspace Foo.xcworkspace test"),
+            test_parsing.is_test_run("xcodebuild -workspace Foo.xcworkspace test"),
             "xcodebuild",
         )
-        self.assertIsNone(bash_post_tool.is_test_run("xcodebuild build"))
+        self.assertIsNone(test_parsing.is_test_run("xcodebuild build"))
 
     def test_is_test_run_swift(self):
         self.assertEqual(
-            bash_post_tool.is_test_run("swift test"),
+            test_parsing.is_test_run("swift test"),
             "swift",
         )
         self.assertEqual(
-            bash_post_tool.is_test_run("swift test --filter MyTests"),
+            test_parsing.is_test_run("swift test --filter MyTests"),
             "swift",
         )
 
     # --- Rust ---
     def test_cargo_test_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("cargo test"), "cargo")
+        self.assertEqual(test_parsing.is_test_run("cargo test"), "cargo")
 
     def test_cargo_pass(self):
         output = "test result: ok. 15 passed; 0 failed; 0 ignored"
-        result = bash_post_tool.parse_test_results(output, "cargo")
+        result = test_parsing.parse_test_results(output, "cargo")
         self.assertEqual(result["passed"], 15)
         self.assertEqual(result["failed"], 0)
 
     def test_cargo_fail(self):
         output = "test result: FAILED. 10 passed; 3 failed; 0 ignored"
-        result = bash_post_tool.parse_test_results(output, "cargo")
+        result = test_parsing.parse_test_results(output, "cargo")
         self.assertEqual(result["passed"], 10)
         self.assertEqual(result["failed"], 3)
 
     # --- Maven/Gradle ---
     def test_mvn_test_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("mvn test"), "maven")
+        self.assertEqual(test_parsing.is_test_run("mvn test"), "maven")
 
     def test_gradle_test_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("./gradlew test"), "gradle")
+        self.assertEqual(test_parsing.is_test_run("./gradlew test"), "gradle")
 
     def test_maven_pass(self):
         output = "Tests run: 10, Failures: 0, Errors: 0, Skipped: 1"
-        result = bash_post_tool.parse_test_results(output, "maven")
+        result = test_parsing.parse_test_results(output, "maven")
         self.assertEqual(result["passed"], 10)
         self.assertEqual(result["failed"], 0)
 
     def test_maven_fail(self):
         output = "Tests run: 10, Failures: 2, Errors: 1, Skipped: 0"
-        result = bash_post_tool.parse_test_results(output, "maven")
+        result = test_parsing.parse_test_results(output, "maven")
         self.assertEqual(result["passed"], 7)
         self.assertEqual(result["failed"], 3)
 
     # --- Ruby ---
     def test_rspec_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("rspec"), "rspec")
+        self.assertEqual(test_parsing.is_test_run("rspec"), "rspec")
 
     def test_rspec_pass(self):
         output = "10 examples, 0 failures"
-        result = bash_post_tool.parse_test_results(output, "rspec")
+        result = test_parsing.parse_test_results(output, "rspec")
         self.assertEqual(result["passed"], 10)
         self.assertEqual(result["failed"], 0)
 
     def test_minitest_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("rake test"), "minitest")
+        self.assertEqual(test_parsing.is_test_run("rake test"), "minitest")
 
     def test_minitest_fail(self):
         output = "5 runs, 10 assertions, 1 failures, 1 errors"
-        result = bash_post_tool.parse_test_results(output, "minitest")
+        result = test_parsing.parse_test_results(output, "minitest")
         self.assertEqual(result["passed"], 3)
         self.assertEqual(result["failed"], 2)
 
     # --- PHP ---
     def test_phpunit_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("phpunit"), "phpunit")
+        self.assertEqual(test_parsing.is_test_run("phpunit"), "phpunit")
 
     def test_phpunit_pass(self):
         output = "OK (10 tests, 20 assertions)"
-        result = bash_post_tool.parse_test_results(output, "phpunit")
+        result = test_parsing.parse_test_results(output, "phpunit")
         self.assertEqual(result["passed"], 10)
 
     def test_phpunit_fail(self):
         output = "FAILURES!\nTests: 10, Assertions: 20, Failures: 3."
-        result = bash_post_tool.parse_test_results(output, "phpunit")
+        result = test_parsing.parse_test_results(output, "phpunit")
         self.assertEqual(result["passed"], 7)
         self.assertEqual(result["failed"], 3)
 
     # --- .NET ---
     def test_dotnet_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("dotnet test"), "dotnet")
+        self.assertEqual(test_parsing.is_test_run("dotnet test"), "dotnet")
 
     def test_dotnet_pass(self):
         output = "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5"
-        result = bash_post_tool.parse_test_results(output, "dotnet")
+        result = test_parsing.parse_test_results(output, "dotnet")
         self.assertEqual(result["passed"], 5)
         self.assertEqual(result["failed"], 0)
 
     # --- Dart ---
     def test_dart_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("dart test"), "dart")
-        self.assertEqual(bash_post_tool.is_test_run("flutter test"), "dart")
+        self.assertEqual(test_parsing.is_test_run("dart test"), "dart")
+        self.assertEqual(test_parsing.is_test_run("flutter test"), "dart")
 
     def test_dart_pass(self):
         output = "+5: All tests passed!"
-        result = bash_post_tool.parse_test_results(output, "dart")
+        result = test_parsing.parse_test_results(output, "dart")
         self.assertEqual(result["passed"], 5)
 
     def test_dart_fail(self):
         output = "+3 -2: Some tests failed."
-        result = bash_post_tool.parse_test_results(output, "dart")
+        result = test_parsing.parse_test_results(output, "dart")
         self.assertEqual(result["passed"], 3)
         self.assertEqual(result["failed"], 2)
 
     # --- Elixir ---
     def test_elixir_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("mix test"), "elixir")
+        self.assertEqual(test_parsing.is_test_run("mix test"), "elixir")
 
     def test_elixir_pass(self):
         output = "10 tests, 0 failures"
-        result = bash_post_tool.parse_test_results(output, "elixir")
+        result = test_parsing.parse_test_results(output, "elixir")
         self.assertEqual(result["passed"], 10)
         self.assertEqual(result["failed"], 0)
 
     # --- CTest ---
     def test_ctest_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("ctest"), "ctest")
+        self.assertEqual(test_parsing.is_test_run("ctest"), "ctest")
 
     def test_ctest_pass(self):
         output = "100% tests passed, 0 tests failed out of 10"
-        result = bash_post_tool.parse_test_results(output, "ctest")
+        result = test_parsing.parse_test_results(output, "ctest")
         self.assertEqual(result["passed"], 10)
         self.assertEqual(result["failed"], 0)
 
     # --- Vitest ---
     def test_vitest_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("npx vitest"), "vitest")
+        self.assertEqual(test_parsing.is_test_run("npx vitest"), "vitest")
 
     # --- Bun ---
     def test_bun_test_detected(self):
-        self.assertEqual(bash_post_tool.is_test_run("bun test"), "bun")
+        self.assertEqual(test_parsing.is_test_run("bun test"), "bun")
 
     def test_bun_pass(self):
         output = "130 pass\n 0 fail\n 418 expect() calls"
-        result = bash_post_tool.parse_test_results(output, "bun")
+        result = test_parsing.parse_test_results(output, "bun")
         self.assertEqual(result["passed"], 130)
         self.assertEqual(result["failed"], 0)
 
     def test_bun_fail(self):
         output = "8 pass\n 2 fail\n 30 expect() calls"
-        result = bash_post_tool.parse_test_results(output, "bun")
+        result = test_parsing.parse_test_results(output, "bun")
         self.assertEqual(result["passed"], 8)
         self.assertEqual(result["failed"], 2)
 
