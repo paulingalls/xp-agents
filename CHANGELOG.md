@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.118 — Nudge /simplify After Commits with 3+ Code Files
+
+### Added
+- **PostToolUse:Bash nudge after commits** — when a commit touches 3+ production code files (excluding tests and docs), `bash_post_tool.py` returns additionalContext telling the agent to run /simplify immediately. Two-layer enforcement: nudge right after commit (PostToolUse), gate if agent tries to stop without running it (Stop hook).
+
+### Stats
+- 963 tests (all passing)
+
 ## v0.9.117 — Behavioral Guide: Process Section + Seed SMM Wisdom
 
 ### Added
