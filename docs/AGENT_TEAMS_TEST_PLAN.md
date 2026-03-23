@@ -50,37 +50,31 @@ python3 plugins/xp-agents/scripts/merge_probe_hooks.py
 
 This merges entries from `hooks/agent_teams_test_hooks.json` into `hooks/hooks.json`.
 
-### 3. Bump plugin version
-
-Edit `plugins/xp-agents/.claude-plugin/plugin.json` and increment the version so the plugin cache picks up the changes.
-
-### 4. Clear old probe data
+### 3. Clear old probe data
 
 ```bash
 rm -f ~/.claude/plugins/data/xp-agents-xp-agents/agent-teams-probe.jsonl
 ```
 
-### 5. Update the installed plugin
+### 4. Use `--plugin-dir` for testing
 
-```bash
-claude plugin update xp-agents@xp-agents
-```
-
-Or if using `--plugin-dir` for development:
+Use `--plugin-dir` to run Claude with the local plugin directly. This avoids marketplace caching and version bumping — local changes take effect immediately. It's session-only and won't affect other projects that have the marketplace plugin installed.
 
 ```bash
 claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
+`CLAUDE_PLUGIN_ROOT` points to your local directory. `CLAUDE_PLUGIN_DATA` still resolves to `~/.claude/plugins/data/xp-agents-xp-agents/` (the probe log writes there).
+
 ## Run the Test
 
 ### Phase 1: Baseline (lead only)
 
-Start Claude Code in a test project:
+Start Claude Code in a test project with the local plugin:
 
 ```bash
 cd /path/to/test-project
-claude
+claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
 Run kickoff to establish a baseline of lead-only hook firings:
