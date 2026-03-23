@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Prompt nugget: tiny delta injection at UserPromptSubmit time.
+"""Prompt nugget: prioritized delta injection at UserPromptSubmit time.
 
 Uses watermark-based read_delta to show only NEW signal events since
-the last injection. Produces ~20-50 tokens max. If nothing new, no
-injection (exit 0 with no output).
+the last injection. Picks the top 3 by priority (concerns > questions >
+assumptions > discoveries > debt > decisions). ~100 tokens max.
+If nothing new, no injection (exit 0 with no output).
 """
 
 import sys
@@ -15,21 +16,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import read_delta
 
-# Signal types worth surfacing in the nugget
-_NUGGET_TYPES = frozenset(
-    {
-        _common.CONCERN,
-        _common.DECISION,
-        _common.GOAL,
-        _common.DEBT,
-        _common.QUESTION,
-    }
-)
+# Signal types worth surfacing, in priority order.
+# Higher priority = more likely to affect the agent's current work.
+_NUGGET_PRIORITY = {
+    _common.CONCERN: 0,
+    _common.QUESTION: 1,
+    _common.ASSUMPTION: 2,
+    _common.DISCOVERY: 3,
+    _common.DEBT: 4,
+    _common.DECISION: 5,
+}
 
+_MAX_NUGGETS = 3
 _WATERMARK_ID = "prompt-nugget"
 
 
-def _truncate(text: str, max_len: int = 60) -> str:
+def _truncate(text: str, max_len: int = 120) -> str:
     """Truncate text with ellipsis if too long."""
     if len(text) <= max_len:
         return text
@@ -58,12 +60,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except Exception:
         return None
 
-    signals = [e for e in new_events if e.get("type") in _NUGGET_TYPES]
+    signals = [e for e in new_events if e.get("type") in _NUGGET_PRIORITY]
     if not signals:
         return None
 
+    # Sort by priority (type), then by recency (position in list = chronological).
+    # For events of the same type, most recent comes last in the original list,
+    # so we reverse to get most recent first, then stable-sort by priority.
+    signals.reverse()
+    signals.sort(key=lambda e: _NUGGET_PRIORITY.get(e.get("type", ""), 99))
+
     lines = []
-    for e in signals[-5:]:  # cap at 5 most recent
+    for e in signals[:_MAX_NUGGETS]:
         etype = e.get("type", "")
         content = _truncate(e.get("content", ""))
         lines.append(f"- [{etype}] {content}")

@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.10
+
+### Changed
+- **Prompt nuggets: prioritized, fewer, longer** — top 3 signals by priority (concern > question > assumption > discovery > debt > decision) instead of 5 most recent. Truncation increased from 60 to 120 chars. Added `assumption` and `discovery` types, removed `goal` (already in SMM Intent). Most recent wins within same priority.
+
+### Stats
+- 965 tests (all passing)
+
 ## v1.0.9
 
 ### Changed

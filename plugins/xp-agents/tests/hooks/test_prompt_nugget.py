@@ -95,8 +95,8 @@ class TestPromptNugget(_HookTestCase):
         )
         self.assertIsNone(result2)
 
-    def test_caps_at_five(self):
-        """At most 5 items shown even with more new events."""
+    def test_caps_at_three(self):
+        """At most 3 items shown even with more new events."""
         import prompt_nugget
 
         self._write_events(
@@ -107,7 +107,81 @@ class TestPromptNugget(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertEqual(result.count("[concern]"), 5)
+        self.assertEqual(result.count("[concern]"), 3)
+
+    def test_priority_ordering(self):
+        """Higher priority types shown before lower priority."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event("decision", content="Use REST", topic="api"),
+                make_event("debt", content="Missing tests", files=["a.py"]),
+                make_event("concern", content="Auth issue", severity="high"),
+                make_event("assumption", content="API is stable"),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        lines = result.strip().split("\n")[1:]  # skip header
+        self.assertEqual(len(lines), 3)
+        # Concern first, then assumption, then debt (decision dropped)
+        self.assertIn("[concern]", lines[0])
+        self.assertIn("[assumption]", lines[1])
+        self.assertIn("[debt]", lines[2])
+
+    def test_most_recent_within_same_priority(self):
+        """Within same type, most recent event is shown."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event("concern", content="Old concern", severity="high"),
+                make_event("concern", content="Middle concern", severity="high"),
+                make_event("concern", content="Newest concern", severity="high"),
+                make_event("concern", content="Latest concern", severity="high"),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        lines = result.strip().split("\n")[1:]  # skip header
+        self.assertEqual(len(lines), 3)
+        # Most recent 3, newest first
+        self.assertIn("Latest concern", lines[0])
+        self.assertIn("Newest concern", lines[1])
+        self.assertIn("Middle concern", lines[2])
+        self.assertNotIn("Old concern", result)
+
+    def test_mixed_priority_and_recency(self):
+        """High priority type beats more recent low priority type."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event("concern", content="Early concern", severity="high"),
+                make_event("decision", content="Decision 1", topic="api"),
+                make_event("decision", content="Decision 2", topic="db"),
+                make_event("decision", content="Decision 3", topic="auth"),
+                make_event("debt", content="Recent debt", files=["a.py"]),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        lines = result.strip().split("\n")[1:]
+        self.assertEqual(len(lines), 3)
+        # Concern beats debt beats decision despite recency
+        self.assertIn("[concern]", lines[0])
+        self.assertIn("[debt]", lines[1])
+        self.assertIn("[decision]", lines[2])
 
 
 if __name__ == "__main__":
