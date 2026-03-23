@@ -294,12 +294,11 @@ A standup where agents report "everything is fine" when tests are failing is wor
 | **Simplicity** | Agent builds `AbstractEndpointFactory` for one endpoint. **Cost: 200 lines of dead abstraction.** | Agent writes a plain function. Notes "will extract if we add a second." |
 | **Courage** | Agent notices single-tenant schema, stays quiet. Three sessions later: 14 files, 23 broken tests. | Agent raises a `concern`. Fixed in 30 minutes. |
 
-xp-agents enforces honesty through hooks, not aspiration:
+xp-agents enforces honesty through data, not aspiration:
 
+- **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, commits without security triage, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
 - **Quality review skill** — post-simplify courage check: were recommendations skipped? Drift management: do code changes contradict recorded decisions?
-- **Retrospective subagent** — analyzes honesty patterns: were status events truthful? Were concerns raised or did everyone agree too easily?
-- **Session end hook** — flags when the agent didn't write a final status summary
-- **Conflict detector** — catches convention violations and unacknowledged contradictions
+- **Conflict detector** — catches convention violations, superseded decisions, and unacknowledged contradictions
 - **Behavioral guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
 
 ---

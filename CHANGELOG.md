@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.0.12
+
+### Added
+- **Honesty signals in retro digest** — sequence-based analysis: longest streak of production code writes without a test run, commits without security triage, code-write-to-concern ratio, assumption count, and final status check. Gives the retro concrete data to flag honesty gaps.
+- **Retro agent honesty checklist** — specific thresholds: 5+ writes without test = Fix, any commit without triage = Fix, 10+ code writes with 0 concerns = question, 0 assumptions with significant work = Fix.
+
+### Changed
+- **TDD streak excludes test file writes** — writing test files before running them isn't a TDD gap. `max_writes_without_test` now tracks only production code writes.
+- **README honesty section updated** — replaced vague "analyzes honesty patterns" with concrete signals we actually provide.
+
+### Stats
+- 965 tests (all passing)
+
 ## v1.0.11
 
 ### Fixed

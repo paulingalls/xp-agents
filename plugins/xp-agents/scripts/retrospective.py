@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import security
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -117,6 +118,81 @@ def _group_concerns(events: list[dict]) -> list[dict]:
     return list(groups.values())
 
 
+def _build_honesty_signals(events: list[dict]) -> dict:
+    """Analyze event sequence for honesty red flags.
+
+    Looks at ordering and gaps, not just counts — gives the retro
+    concrete data to reason about instead of inferring from totals.
+    """
+    signals: dict = {}
+
+    # Track sequence for gap analysis
+    writes_since_last_test = 0
+    max_writes_without_test = 0
+    commits_without_triage = 0
+    total_commits = 0
+    last_triage_seen = False
+    concern_count = 0
+    assumption_count = 0
+    file_write_count = 0
+
+    for e in events:
+        etype = e.get("type", "")
+        content = e.get("content", "")
+
+        if etype == _common.STATUS:
+            if _FILE_WRITE_RE.search(content):
+                path = content.replace("Wrote to ", "").strip()
+                if security.is_code_file(path):
+                    file_write_count += 1
+                    # TDD streak: only production code writes count
+                    # (writing test files isn't a testing gap)
+                    from pre_tool_write import is_test_file
+
+                    if not is_test_file(path):
+                        writes_since_last_test += 1
+            elif _TEST_RUN_RE.search(content):
+                max_writes_without_test = max(
+                    max_writes_without_test, writes_since_last_test
+                )
+                writes_since_last_test = 0
+            elif _SECURITY_TRIAGE_RE.search(content):
+                last_triage_seen = True
+            elif _COMMIT_RE.search(content):
+                total_commits += 1
+                if not last_triage_seen:
+                    commits_without_triage += 1
+                last_triage_seen = False  # consumed by this commit
+        elif etype == _common.CONCERN:
+            concern_count += 1
+        elif etype == _common.ASSUMPTION:
+            assumption_count += 1
+
+    # Final streak (writes after last test)
+    max_writes_without_test = max(max_writes_without_test, writes_since_last_test)
+
+    signals["max_writes_without_test"] = max_writes_without_test
+    signals["commits_without_triage"] = commits_without_triage
+    signals["total_commits"] = total_commits
+
+    # Complexity vs scrutiny: many writes but no concerns = uncritical?
+    signals["code_file_writes"] = file_write_count
+    signals["concerns_raised"] = concern_count
+    signals["assumptions_stated"] = assumption_count
+
+    # Final status check — was the last status event before session_end?
+    has_final_status = False
+    for e in reversed(events):
+        if e.get("type") == "session_end":
+            continue
+        if e.get("type") == _common.STATUS:
+            has_final_status = True
+        break
+    signals["final_status_recorded"] = has_final_status
+
+    return signals
+
+
 def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
     """Build structured digest from unanalyzed events."""
     unanalyzed = events[start_idx:]
@@ -124,11 +200,13 @@ def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
     signal_events = [e for e in unanalyzed if e.get("type") in _SIGNAL_TYPES]
     status_summary = _classify_status_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed)
+    honesty_signals = _build_honesty_signals(unanalyzed)
 
     return {
         "signal_events": signal_events,
         "status_summary": status_summary,
         "concern_groups": concern_groups,
+        "honesty_signals": honesty_signals,
     }
 
 
