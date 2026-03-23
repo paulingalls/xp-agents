@@ -33,6 +33,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 | `concern` | Subagent (quality reviewer) + agent | Problems needing attention |
 | `discovery` | Agent | Unexpected findings |
 | `question` | Agent + subagent (plan reviewer) | Customer input needed: 🔴 blocking, 🟡 assumed, 🟢 info |
+| `answer` | Agent | Response to a question event |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
@@ -84,12 +85,14 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
 | **PostToolUse** | `Skill` | `security_review_done.py` | Write triage marker when `/security-review` completes. `async: true` |
-| **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker |
+| **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker, compact event log |
+| **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
 | **Stop** | | `quality_review_gate.py` | Block if subagent reviews still pending |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing (command hook, replaced prompt hook) |
 | **PostCompact** | | `compact.py` | Compact event log (watermark-based, retains recent + session_end + referenced events) |
 | **SessionEnd** | | `session_end.py` | Append session_end event. `async: true` |
+| **SessionEnd** | | `compact.py` | Compact event log at session end. `async: true` |
 | **PreCompact** | | `pre_compact.py` | Back up SMM state |
 | **UserPromptSubmit** | | `user_prompt_log.py` | Log as customer_input event |
 | **UserPromptSubmit** | | `kickoff_gate.py` | Block prompts until `/xp-kickoff` runs (allows the command itself through) |
@@ -266,8 +269,10 @@ plugins/xp-agents/
     ├── resolution.py                ← event resolution tracking, desktop notifications
     ├── materialize.py               ← prepare_curation_data() for housekeeping
     ├── read_delta.py                ← watermark reader for prompt nuggets
-    ├── compact.py                   ← event log compaction (PostCompact hook)
+    ├── compact.py                   ← event log compaction (PostCompact, SessionEnd, kickoff)
     ├── seed_smm.py                  ← default SMM generation on first init
+    ├── repair.py                    ← event log repair (malformed events, dedup, reorder)
+    ├── migrate.py                   ← event schema migration
     └── schema.json
 ```
 
@@ -308,6 +313,23 @@ Fail loud, never corrupt, always recoverable.
 | 7+ sessions | 🔴 |
 
 Age computed at materialize time by counting `session_end` events after debt timestamp.
+
+## Event Log Compaction
+
+Compaction runs at three points: after kickoff (`kickoff_done.py`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
+
+| Event Type | Retention Rule |
+|---|---|
+| Status, customer_input | Compact freely |
+| Decisions | Retain for 3 sessions, then compact |
+| Assumptions, questions | Retain for 5 sessions, then compact |
+| Concerns, debt | Retain while unresolved |
+| Goals | Retain while unresolved |
+| Session_end | Keep last 3 (for aging calculations) |
+| Retrospectives | Keep last 2 (archived in `retrospectives/` directory) |
+| Resolved items | Compact (resolution events prove they were addressed) |
+
+Only events before the curation watermark are eligible. Events after the watermark are retained unconditionally.
 
 ## Agent Teams
 

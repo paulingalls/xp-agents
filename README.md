@@ -154,7 +154,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
-| **SessionEnd** | Session summary: unresolved items, working state, missing status flag | Honesty |
+| **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 | **PostCompact** | Compact event log (age decisions, cap retros, prune resolved items) | Sustainable Pace |
 | **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
@@ -351,15 +351,16 @@ Repayment pressure comes from two sources: quality review surfaces debt when tou
 
 ### Event Log Compaction
 
-The event log grows over sessions. PostCompact runs `compact.py` to keep it manageable:
+The event log grows over sessions. Compaction runs at three points: after kickoff (PostToolUse:Skill when housekeeping completes), at session end (SessionEnd), and during context compaction (PostCompact). All use the same `compact.py` with watermark-based policy:
 
 - **Status events**: compacted freely (counts preserved in session summaries)
 - **Customer inputs**: compacted freely (captured in Intent pillar)
 - **Decisions**: aged after 3 sessions (confirmed decisions live in Constraints pillar)
+- **Assumptions/Questions**: aged after 5 sessions (gives housekeeping time to curate into Risks)
 - **Retrospectives**: capped at 2 in the log (archived in `retrospectives/` directory)
-- **Resolved items**: pruned (goals, concerns, questions with resolution events)
+- **Resolved items**: pruned (goals, concerns, debt with resolution events)
 
-Watermark-based — only events before the curation watermark are eligible for compaction.
+Only events before the curation watermark are eligible for compaction.
 
 ---
 
@@ -379,9 +380,10 @@ Watermark-based — only events before the curation watermark are eligible for c
 
 ## Project Status
 
-963 tests. All passing.
+965 tests. All passing.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
+See [SMM_DESIGN.md](docs/SMM_DESIGN.md) for the four-pillar Shared Mental Model design.
 See [RESEARCH.md](docs/RESEARCH.md) for competitive landscape and lessons learned.
 
 ## License
