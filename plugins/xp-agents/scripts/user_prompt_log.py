@@ -13,10 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common
 
 _MAX_PROMPT_LENGTH = 10_000
-_GOAL_NUDGE_TRACKER = ".goal-nudge-sent"
-_BLOCK_GOALS = "block_goals"
-_NUDGE_MESSAGE = "REMINDER: No project goals recorded yet. Run /xp-goal-collection."
-_BLOCK_REASON = "No project goals recorded. Run /xp-goal-collection."
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -45,27 +41,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     event = _common.make_event(_common.CUSTOMER_INPUT, "customer", prompt)
     _common.append_safe(smm_dir, event)
 
-    # Goal collection — block first prompt of a goalless session.
-    # Only block once (tracker file prevents infinite loop), then nudge.
-    events = _common.read_events_raw(smm_dir)
-    has_goals = any(e.get("type") == _common.GOAL for e in events)
-    if not has_goals:
-        tracker = smm_dir / _GOAL_NUDGE_TRACKER
-        if not tracker.exists():
-            tracker.write_text("")
-            return _BLOCK_GOALS
-        return _NUDGE_MESSAGE
-
     return None
 
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
-    if result == _BLOCK_GOALS:
-        import json
-
-        print(json.dumps({"decision": "block", "reason": _BLOCK_REASON}))
-    elif result:
+    if result:
         _common.hook_output("UserPromptSubmit", result)
     sys.exit(0)

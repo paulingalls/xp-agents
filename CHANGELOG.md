@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.13
+
+### Removed
+- **Goal collection gate in user_prompt_log.py** — blocked `/xp-kickoff` on fresh projects because no goals existed yet. Redundant: kickoff includes goal collection as step 3, and the kickoff gate already blocks non-kickoff prompts.
+
+### Stats
+- 965 tests (all passing)
+
 ## v1.0.12
 
 ### Added
