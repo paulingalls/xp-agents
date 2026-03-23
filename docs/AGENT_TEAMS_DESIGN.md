@@ -603,6 +603,30 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 
 ---
 
+## Platform Findings (from docs as of 2026-03-23)
+
+### Confirmed Behaviors
+
+- **Teammates load project context automatically** — CLAUDE.md, MCP servers, and skills. This means our plugin hooks and skills load for teammates.
+- **Team config on disk** — `~/.claude/teams/{team-name}/config.json` with `members` array (name, agent ID, agent type). Teammates can read this to discover each other.
+- **Task list on disk** — `~/.claude/tasks/{team-name}/`. Our hooks could read this.
+- **Plan approval is built-in** — lead can require teammates to plan before implementing. Lead reviews and approves/rejects autonomously. May complement or replace our plan review for teammates.
+- **File conflict is NOT enforced by platform** — "Two teammates editing the same file leads to overwrites" is a best practice, not enforcement. Our `.coordination.json` conflict detection is a genuine value-add.
+- **Permissions set at spawn** — all teammates inherit lead's permission mode. Can be changed individually after spawn.
+- **Teammate messaging** — direct (one-to-one) and broadcast. Automatic delivery. Lead doesn't need to poll.
+
+### Unconfirmed (Empirical Testing Required)
+
+- **Which hook events fire for teammates** — docs don't clarify. Only `TeammateIdle` and `TaskCompleted` are explicitly documented as teammate hooks.
+- **Worktree isolation for teammates** — design doc assumes `isolation: worktree` but Agent Teams docs don't explicitly say teammates get worktrees. Need to verify.
+- **Plugin hooks on teammates** — do `hooks/hooks.json` hooks fire for teammates, or only settings.json hooks?
+
+### Platform Gaps (We Need to Fill)
+
+- **No PR/merge workflow** — docs say nothing about PRs, merging, or integration. Entirely on us.
+- **No conflict prevention** — file-level, platform only warns. Our `.coordination.json` handles this.
+- **No sprint/backlog concept** — platform has tasks but no multi-session persistence. Our SMM handles this.
+
 ## Platform Limitations and Mitigations
 
 | Limitation | Impact | Mitigation |
@@ -615,6 +639,8 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 | Task status can lag | Blocked items may not auto-unblock | `TaskCompleted` hook as backup to update status |
 | Shutdown can be slow | Session end delayed | Design for graceful degradation |
 | Split panes require tmux/iTerm2 | Not all terminals supported | In-process mode works everywhere |
+| No PR/merge workflow | No integration mechanism | Lead reviews PRs, manages merges (see PR Workflow section) |
+| No worktree confirmation | Teammates may not get isolated worktrees | Verify empirically; request via spawn prompt if needed |
 
 ---
 
@@ -657,6 +683,93 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 16. **Simplify threshold on teammates.** Teammates run `/simplify` (same threshold as main agent: 3+ code files). Is that threshold right for teammate-sized work items, or should it be lower?
 
 ---
+
+## Underspecified Areas (Needs Design)
+
+### PR and Merge Workflow
+
+The platform has no PR workflow. We need to design the full cycle:
+
+1. **Teammate completes work** — commits in worktree, creates PR via `gh pr create`
+2. **Lead discovers PR is ready** — how? Options:
+   - Teammate sends message to lead: "PR #N ready for review"
+   - `TaskCompleted` hook checks for new PRs
+   - Lead polls periodically
+3. **Lead reviews PR** — reads diff, checks against acceptance criteria and SMM constraints
+   - Could delegate to a review subagent to preserve lead's context
+   - Uses `gh pr review` to approve/request changes
+4. **Merge** — lead merges via `gh pr merge`
+5. **Other teammates rebase** — after merge, teammates in worktrees may need to pull. How?
+   - Lead broadcasts "main updated, rebase your worktree"
+   - Teammates auto-rebase after each task completion
+   - Accept that short-lived worktrees rarely conflict
+
+**Key question:** Should the lead do PR reviews inline (context cost) or delegate to a review subagent (coordination cost)?
+
+### Teammate Behavioral Guide
+
+The current behavioral guide Process section is written for the main agent. Teammates need different instructions:
+
+- **DO:** Claim tasks, write tests first, commit frequently, create PRs, record decisions/assumptions/concerns
+- **DON'T:** Run kickoff, do housekeeping, set goals, run retrospectives
+- **SKIP:** EnterPlanMode guidance (built-in plan approval handles this), /xp-quality-review (lead reviews PRs instead)
+- **KEEP:** /simplify after commits, /xp-security-triage before commits, TDD discipline, concern recording
+
+Options:
+- Split behavioral guide into two files (main agent vs teammate)
+- Single guide with a "For teammates" section
+- Detect teammate in SubagentStart and inject a different guide
+
+### Cross-Teammate Communication
+
+The SMM is the broadcast channel, but it's async (prompt nuggets fire on next prompt). For urgent cross-cutting discoveries:
+
+- **Teammate A discovers a breaking API change** — other teammates need to know NOW
+- **Current mechanism:** A records a `concern` event → prompt nugget surfaces it to others on their next prompt
+- **Gap:** "next prompt" could be minutes away if the teammate is mid-implementation
+
+Options:
+- Direct messaging: teammate sends message to affected teammates (platform supports this)
+- Broadcast: send to all teammates (platform supports, but expensive)
+- Accept the async delay — prompt nuggets are "good enough" for most cases
+- Hybrid: concerns with `severity: high` trigger a broadcast via a hook
+
+### Bootstrap Flow (First Session with Agent Teams)
+
+What happens the very first time someone uses xp-agents with Agent Teams?
+
+1. `/xp-kickoff` runs — seed SMM, first retro (nothing to analyze), goals
+2. User describes what they want to build
+3. Lead runs sprint start — goal setting, spec gathering, planning game
+4. Lead decomposes into backlog items
+5. Lead spawns team, creates tasks from backlog
+6. Teammates execute
+
+This is the same as the sprint start flow, but without any prior sprint history. The seed SMM provides default constraints and wisdom. The planning game produces the first backlog.
+
+**Key question:** Does the lead need a special "first sprint" skill, or does `/xp-sprint-start` handle this naturally?
+
+### Velocity and Estimation
+
+Sprint 1 has no velocity history. The planning game produces backlog items with size estimates (small/medium/large) but no data to calibrate against.
+
+- **Sprint 1:** estimate-free. Plan what feels right, measure what actually gets done.
+- **Sprint 2+:** sprint retro reports items_planned vs items_delivered. Lead uses this to size the next sprint.
+- **Long-term:** velocity stabilizes. Lead can predict "we deliver ~8 medium items per sprint."
+
+Mechanism: the `sprint` end event already captures `items_planned`, `items_delivered`, `items_carried`. The sprint retro skill reads these for trend analysis. No new infrastructure needed — just the skills to compute and present the data.
+
+### Lead Context Management
+
+The lead coordinates everything: spawning teammates, reviewing PRs, handling messages, unblocking dependencies. Its context window fills fast.
+
+Options:
+- **Delegate PR reviews to a subagent** — lead spawns a review subagent for each PR, gets back a summary. Keeps detailed diffs out of lead's context.
+- **Periodic compaction** — lead's context compacts naturally. PostCompact reinjects SMM + sprint status.
+- **Lean on the task list** — task states are on disk, not in context. Lead reads them when needed.
+- **Limit broadcast messages** — teammates message lead only for blockers, not status updates. Status is in the SMM.
+
+Recommendation: delegate PR reviews to a subagent. The lead should orchestrate, not deep-read code.
 
 ## Prerequisites
 
