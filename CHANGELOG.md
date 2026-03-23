@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.9
+
+### Changed
+- **Security triage: single preload does everything** — merged diff display, marker write, and event logging into one `!` preload command. Running the skill IS the triage — the preload shows the diff and clears the gate, the agent's job is just to decide if `/security-review` is also needed.
+
+### Stats
+- 962 tests (all passing)
+
 ## v1.0.8
 
 ### Fixed
