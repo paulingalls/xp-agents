@@ -198,7 +198,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
 
-The SMM lives at user level (`~/.claude/`), not in the project's `.claude/`. This means Agent Team teammates in different git worktrees all share the same event log.
+The SMM lives in `CLAUDE_PLUGIN_DATA` (`~/.claude/plugins/data/xp-agents-xp-agents/`), keyed by a hash of the git repo's common directory. This means Agent Team teammates in different git worktrees all share the same event log.
 
 The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
 - **Intent** — project goals and active customer intents
@@ -248,7 +248,7 @@ The retrospective runs at session *start*, not session end — resilient to forc
 
 ### Agent Teams
 
-xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored at user level, every teammate in every worktree automatically gets:
+xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
 
 - Prompt nuggets at each user prompt and tiered context at subagent spawn
 - `working_on` conflict detection across teammates
