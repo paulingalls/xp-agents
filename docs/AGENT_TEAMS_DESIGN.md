@@ -17,7 +17,7 @@ Provides the execution primitives:
 | Component | What it does |
 |---|---|
 | **Team lead** | Main session. Creates team, spawns teammates, coordinates |
-| **Teammates** | Separate Claude Code instances, own context windows, own worktrees |
+| **Teammates** | Subagent-like instances within the lead's session, own context windows (worktree isolation unconfirmed) |
 | **Task list** | Shared, with states: pending / in-progress / completed. Supports dependencies |
 | **Messaging** | Direct (to one teammate) or broadcast. Automatic delivery |
 | **Self-claim** | Teammates pick up next unassigned, unblocked task autonomously (file-locked) |
@@ -60,7 +60,7 @@ Teammates **write code**:
 
 - Claim an unblocked backlog item from the task list
 - Execute with full xp-agents hook enforcement (TDD, lint, conflicts, security)
-- Work in isolated worktrees (`isolation: worktree`)
+- Work in isolated worktrees (unconfirmed — may need to request via spawn prompt)
 - Small, frequent commits
 - Create PR when item is complete
 - Signal done — lead reviews PR and merges
@@ -171,10 +171,10 @@ Merge strategy: **per-item, not per-sprint**. Each completed backlog item produc
 | XP Concept | Agent Teams Mechanism |
 |---|---|
 | Test first | `pre_tool_write.py` TDD order check applies to every teammate (PreToolUse — confirmed working) |
-| Tests must pass | `tdd_stop_gate.py` on Stop (may not fire for teammates — see Hook Compatibility Analysis). Backup: `TeammateIdle` + `TaskCompleted` handlers. |
+| Tests must pass | Stop doesn't fire for teammates. `TeammateIdle` + `TaskCompleted` handlers enforce TDD. |
 | Red-green-refactor | Each teammate follows the cycle independently |
 
-TDD order check (PreToolUse) works for teammates. TDD stop gate (Stop) needs empirical testing — if Stop doesn't fire for teammates, the `teammate_idle.py` and `task_completed.py` handlers provide equivalent enforcement.
+TDD order check (PreToolUse) works for teammates. TDD stop gate (Stop) confirmed NOT firing for teammates — `teammate_idle.py` and `task_completed.py` handlers provide equivalent enforcement.
 
 ### Pair Programming → PR Review
 
@@ -194,7 +194,7 @@ Traditional pair programming doesn't map to Agent Teams (teammates work independ
 | Shared understanding | SMM injected into every teammate via SubagentStart |
 | Conflict prevention | `.coordination.json` tracks working_on across teammates |
 
-The SMM is the mechanism for collective ownership. Every teammate gets the same curated view of Intent, Constraints, Risks, and Wisdom. Prompt nuggets surface new decisions and concerns as they happen.
+The SMM is the mechanism for collective ownership. Every teammate gets the curated SMM + behavioral guide at spawn via SubagentStart. **Limitation:** Prompt nuggets don't work for teammates (UserPromptSubmit doesn't fire). Mid-session discoveries must propagate via direct messaging or the shared event log — teammates won't see nuggets.
 
 ### Continuous Integration
 
@@ -477,30 +477,11 @@ Important: TeammateIdle and TaskCompleted do **not** support matchers — they f
 
 ## Integration Points
 
-### Hooks That Apply to Teammates (Confirmed Working)
-
-These hooks fire for teammates and work correctly without changes:
-
-| Hook | Effect on Teammates |
-|---|---|
-| `pre_tool_write.py` | Conflict detection via `.coordination.json`, TDD order check |
-| `pre_tool_bash.py` | Commit security triage gate (teammate can run `/xp-security-triage`) |
-| `post_tool_use.py` | Auto status/working_on, conflict detection |
-| `lint_check.py` | Linter after every write |
-| `bash_post_tool.py` | Commit size check, test result parsing |
-| `subagent_start.py` | SMM + behavioral guide injected at teammate spawn |
-| `prompt_nugget.py` | New decisions/concerns surfaced to teammates |
-
-### Hooks That Need Teammate Awareness
-
-| Hook | Change Needed |
-|---|---|
-| `session_start.py` | Skip `.needs-kickoff` marker for teammates |
-| `kickoff_gate.py` | Skip entirely for teammates |
-| `user_prompt_log.py` | Skip `customer_input` logging for teammates |
-| `retrospective.py` | Skip retro prep for teammates |
-| `session_end.py` | Skip `session_end` event for teammates |
-| `kickoff_done.py` | Skip marker clearing for teammates |
+See "Hook Compatibility — Empirical Results" section above for the full confirmed list. Summary:
+- **PreToolUse/PostToolUse** — work for teammates (conflict detection, TDD order, lint, security triage, commit parsing)
+- **SubagentStart** — injects SMM + behavioral guide at teammate spawn
+- **SessionStart/SessionEnd/UserPromptSubmit/Stop** — don't fire for teammates (no changes needed)
+- **Prompt nuggets** — don't work for teammates (UserPromptSubmit doesn't fire). **Limitation to address in v2.**
 
 ### New Hooks for Agent Teams
 
@@ -569,11 +550,15 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 - **Permissions set at spawn** — all teammates inherit lead's permission mode. Can be changed individually after spawn.
 - **Teammate messaging** — direct (one-to-one) and broadcast. Automatic delivery. Lead doesn't need to poll.
 
-### Unconfirmed (Empirical Testing Required)
+### Resolved by Empirical Testing (2026-03-23)
 
-- **Which hook events fire for teammates** — docs don't clarify. Only `TeammateIdle` and `TaskCompleted` are explicitly documented as teammate hooks.
-- **Worktree isolation for teammates** — design doc assumes `isolation: worktree` but Agent Teams docs don't explicitly say teammates get worktrees. Need to verify.
-- **Plugin hooks on teammates** — do `hooks/hooks.json` hooks fire for teammates, or only settings.json hooks?
+- **Hook events for teammates** — PreToolUse/PostToolUse/SubagentStart/SubagentStop fire. SessionStart/SessionEnd/UserPromptSubmit/Stop do NOT fire. TeammateIdle/TaskCompleted fire as documented.
+- **Plugin hooks on teammates** — **YES**, `hooks/hooks.json` hooks fire for teammates.
+- **Teammates share the lead's session_id** — they are subagent-like, not independent sessions.
+
+### Still Unconfirmed
+
+- **Worktree isolation for teammates** — Agent Teams docs don't explicitly say teammates get worktrees. Need to verify or request via spawn prompt.
 
 ### Platform Gaps (We Need to Fill)
 
@@ -633,7 +618,25 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 
 16. **Worktree isolation.** Do teammates automatically get worktrees? Needs empirical verification.
 
-16. **Simplify threshold on teammates.** Teammates run `/simplify` (same threshold as main agent: 3+ code files). Is that threshold right for teammate-sized work items, or should it be lower?
+17. **Simplify threshold on teammates.** Teammates run `/simplify` (same threshold as main agent: 3+ code files). Is that threshold right for teammate-sized work items, or should it be lower?
+
+---
+
+## v1 Limitations That Affect v2
+
+These are confirmed limitations from v1 testing and empirical results that must be addressed:
+
+| Limitation | Impact on Teams | Required Change |
+|---|---|---|
+| **Prompt nuggets don't work for teammates** | Teammates can't see mid-session signal events (new concerns, decisions, assumptions from other agents) | Need alternative: direct messaging, broadcast hook, or read-on-demand from event log |
+| **Stop gates don't fire for teammates** | No simplify, quality review, or TDD enforcement at stop time | Build TeammateIdle and TaskCompleted handlers |
+| **Behavioral guide is solo-focused** | Process section tells teammates to run kickoff, plan mode, etc. | Inject teammate-specific guide via SubagentStart detection |
+| **No sprint/backlog event types** | Can't persist sprint state across sessions | Add `sprint` and `backlog_item` to event schema + validation |
+| **Compaction doesn't know about sprint events** | Active sprint events might get compacted | Add retention rules for active sprint/backlog_item events |
+| **Housekeeping doesn't curate Sprint pillar** | No sprint progress in curated SMM | Add Sprint section to housekeeping curation |
+| **Kickoff doesn't check sprint status** | Lead needs to know if mid-sprint or starting new sprint | Add sprint status check to kickoff flow |
+| **No PR/merge workflow** | Platform has no integration mechanism | Build lead-driven PR review + merge flow |
+| **context:fork doesn't reliably delegate** | Plan reviewer and retro subagents sometimes run inline | v1 issue, still present — fallback instructions mitigate |
 
 ---
 
@@ -723,6 +726,62 @@ Options:
 - **Limit broadcast messages** — teammates message lead only for blockers, not status updates. Status is in the SMM.
 
 Recommendation: delegate PR reviews to a subagent. The lead should orchestrate, not deep-read code.
+
+### Backlog Item ↔ Task Mapping
+
+How does a `backlog_item` event in the SMM map to a task in `~/.claude/tasks/{team-name}/`? Two systems track work:
+- **SMM event log** — `backlog_item` events with acceptance criteria, dependencies, status. Persists across sessions.
+- **Platform task list** — `~/.claude/tasks/{team-name}/`. Ephemeral, per-team.
+
+The lead must translate: read backlog items from SMM, create platform tasks for the current team. When tasks complete, update backlog item status in SMM.
+
+**Key question:** Is this a skill (`/xp-spawn-team` reads backlog, creates tasks)? Or a hook (`TaskCompleted` updates backlog items)?
+
+### Compaction Rules for Sprint/Backlog Events
+
+Active sprint events must survive compaction. Rules needed:
+- `sprint` with `action: "start"` — retain while sprint is active
+- `sprint` with `action: "end"` — retain for 1 sprint (like session_end for aging)
+- `backlog_item` with `status: "ready"` or `status: "in-progress"` — retain (active work)
+- `backlog_item` with `status: "done"` or `status: "deferred"` — compact after sprint ends
+
+### Housekeeping Sprint Curation
+
+Housekeeping needs to curate the Sprint pillar:
+- Read active `sprint` and `backlog_item` events
+- Compute progress: N done, N in-progress, N ready, N blocked
+- Identify blockers (items with unmet dependencies)
+- Write Sprint section to curated SMM
+
+### Sprint Retro vs Session Retro
+
+Two retro levels:
+- **Session retro** (existing) — tactical, what happened since last session
+- **Sprint retro** (new) — strategic, patterns across all sessions in the sprint
+
+Sprint retro data:
+- All session retros from the sprint (trend analysis)
+- Sprint velocity: items_planned vs items_delivered vs items_carried
+- Backlog item completion times
+- Which items were reassigned or failed
+
+**Key question:** Is this a separate skill (`/xp-sprint-retro`) or an extension of the existing retro that detects sprint boundaries?
+
+### Lead Kickoff Flow Changes
+
+Current kickoff: retro → questions → goals → housekeeping
+
+For teams, kickoff needs to add sprint awareness:
+1. Session retro (existing)
+2. Question triage (existing)
+3. **Sprint status check** (new):
+   - If no active sprint → start new sprint (goal → specs → planning game → backlog)
+   - If mid-sprint → show remaining backlog, progress summary
+4. Goal collection (existing, but may be replaced by sprint goals)
+5. Housekeeping with Sprint pillar (modified)
+6. **Spawn team** (new) — create tasks from unblocked backlog items
+
+**Key question:** Modify existing `/xp-kickoff` to be sprint-aware, or create a separate `/xp-sprint-kickoff`?
 
 ## Prerequisites
 
