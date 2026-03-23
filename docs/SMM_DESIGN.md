@@ -277,7 +277,7 @@ New since last prompt:
 - [decision] Fix retrospective preload overflow, move prompt nugget...
 ```
 
-~50-100 tokens. Capped at 5 most recent items. If nothing is new, no nugget.
+~100 tokens. Top 3 by priority (concern > question > assumption > discovery > debt > decision). Most recent wins within same priority. If nothing is new, no nugget.
 
 ### SubagentStart
 
@@ -371,19 +371,20 @@ Subagent hex-ID watermarks (`.watermark-abf63d10...`) are eliminated. No per-too
 
 ### Event log compaction — housekeeping compacts after curation
 
-The event log is a staging buffer, not an archive. `kickoff_done.py` triggers compaction after housekeeping curates:
+The event log is a staging buffer, not an archive. Compaction runs at three points: after kickoff (`kickoff_done.py`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
 
 1. Housekeeping curates events into the SMM
 2. Writes its curation watermark (event count)
-3. `kickoff_done.py` fires (PostToolUse:Skill), calls `compact.compact_after_curation()`
-4. Compaction prunes events before the watermark, with these rules:
+3. Compaction prunes events before the watermark, with these rules:
    - **Status events**: compacted freely (counts preserved in session summaries)
    - **Customer inputs**: compacted freely (captured in Intent pillar)
-   - **Decisions**: retained for 3 sessions after creation, then compacted (confirmed decisions live in Constraints pillar)
+   - **Decisions**: retained for 3 sessions, then compacted (live in Constraints pillar)
+   - **Assumptions, questions**: retained for 5 sessions, then compacted (gives housekeeping time to curate into Risks)
+   - **Concerns, debt**: retained while unresolved
    - **Retrospectives**: capped at 2 in the event log (archived in `retrospectives/` directory)
-   - **Resolved items**: pruned (goals, concerns, questions with resolution events)
-   - **Session_end events**: all retained (needed for aging calculations)
-5. For teams: compacts only events before the **oldest** agent's curation watermark
+   - **Resolved items**: pruned (goals, concerns, debt with resolution events)
+   - **Session_end events**: last 3 retained (needed for aging calculations)
+4. For teams: compacts only events before the **oldest** agent's curation watermark
 
 The SMM is the durable record. The event log is the working buffer that feeds it. Once curated, raw events have served their purpose.
 
@@ -420,7 +421,7 @@ This is O(1) per check — read one small JSON file, check for `working_on` over
 
 **Hooks leave trails, housekeeping curates.** Raw events are cheap and mechanical. Curation requires judgment and happens once per session. The SMM is a curated document, not a mechanical rendering.
 
-**Items enter deliberately, leave automatically.** The current SMM's failure mode is automatic entry (hooks create events) with no exit (nothing resolves them). This design inverts it — housekeeping is the deliberate gate.
+**Events enter freely, the SMM is curated.** Hooks and agents create events automatically. But the curated SMM is deliberate — housekeeping decides what makes it into the four pillars. Compaction and aging handle cleanup so the event log doesn't grow unbounded.
 
 **Less is more.** A 50-line SMM that every agent reads is worth more than a 500-line SMM that agents skim or ignore. The caps enforce curation.
 

@@ -271,8 +271,8 @@ plugins/xp-agents/
     ├── read_delta.py                ← watermark reader for prompt nuggets
     ├── compact.py                   ← event log compaction (PostCompact, SessionEnd, kickoff)
     ├── seed_smm.py                  ← default SMM generation on first init
-    ├── repair.py                    ← event log repair (malformed events, dedup, reorder)
-    ├── migrate.py                   ← event schema migration
+    ├── repair.py                    ← CLI utility: fix malformed events, dedup, reorder (manual use only)
+    ├── migrate.py                   ← CLI utility: event schema migration (manual use only)
     └── schema.json
 ```
 

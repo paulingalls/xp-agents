@@ -2,6 +2,9 @@
 
 A Claude Code plugin that makes your agents — solo or in teams — write better software through XP practices. Command hooks enforce deterministic rules. Plugin subagents provide judgment-based guidance. A broadcast event log keeps every agent aligned. Zero config. Install and go.
 
+## Forward (from the Human)
+Agents are non-deterministic, dishonest, lazy and they constantly cheat, all in their unshakable desire to achieve their goal.  Kind of like humans.  
+
 ## TL;DR
 
 **What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection, question triage, quality review, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
