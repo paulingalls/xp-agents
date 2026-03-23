@@ -324,151 +324,105 @@ Status updates are new events with `metadata.resolves` pointing to the original:
 
 ---
 
-## Hook Compatibility Analysis
+## Hook Compatibility — Empirical Results (2026-03-23)
 
-### The Central Question: Do Teammates Get Stop Events?
+### Model B Confirmed: Teammates Are Subagents
 
-The docs are ambiguous on a critical point. The hooks reference says Stop fires for "the main Claude Code agent." But the agent teams docs say teammates are "separate Claude Code instances" and "full, independent Claude Code session[s]" — explicitly NOT subagents. If a teammate is its own full session, then it IS the main agent within that session.
+Empirical testing with probe hooks on every event type confirmed **Model B**. Teammates are treated as subagents within the lead's session, not as independent sessions. Key findings:
 
-Three possible architectures (empirical testing required):
-
-**Model A — Teammates get Stop.** Stop fires within the teammate's own session (it's a full session, so it's "the main agent" in that context). TeammateIdle fires separately — possibly on the lead — as an additional coordination event. Our Stop gates would work unchanged.
-
-**Model B — Teammates don't get Stop.** Stop only fires for the lead's session. TeammateIdle is the teammate replacement for Stop. SubagentStop fires on the lead when a teammate finishes. Our Stop gates would need TeammateIdle equivalents.
-
-**Model C — Hybrid.** Stop fires for teammates but only for hooks defined in the teammate's own frontmatter (converted to SubagentStop per the subagent docs). Global/plugin hooks on Stop only fire for the lead. TeammateIdle is the plugin-accessible gate for teammates.
-
-**Evidence for each:**
-
-| Evidence | Supports |
+| Question | Result |
 |---|---|
-| Agent teams doc: "separate Claude Code instances," "full, independent session" | Model A |
-| Agent teams doc: "Unlike subagents, which run within a single session" | Model A |
-| Hooks ref: Stop fires for "the main Claude Code agent" | Model B |
-| Hooks guide: "Stop hooks fire whenever Claude finishes responding" (no "main" qualifier) | Model A |
-| Subagent docs: "Stop hooks in frontmatter are automatically converted to SubagentStop" | Model C |
-| TeammateIdle exists at all — why, if Stop already fires for teammates? | Model B |
-| TeammateIdle exit 2: "teammate receives stderr as feedback and continues working" | Could be any |
+| Does **Stop** fire for teammates? | **NO.** Stop only fires for the lead (empty agent_id). |
+| Does **SessionStart** fire for teammates? | **NO.** Only fires for the lead. |
+| Does **SessionEnd** fire for teammates? | **NO.** Only fires for the lead. |
+| Does **UserPromptSubmit** fire for teammates? | **NO.** Only fires for lead prompts. Messaging a teammate directly does NOT trigger it. |
+| Do **plugin hooks** fire for teammates? | **YES.** PreToolUse and PostToolUse fire for teammates with their agent_id and agent_type. |
+| Do teammates get unique **session_ids**? | **NO.** All teammates share the lead's session_id. |
+| Does **SubagentStart** fire when teammates spawn? | **YES.** agent_type is the teammate's custom type (e.g., "agent-updater"). |
+| Does **SubagentStop** fire when teammates finish? | **YES.** Same agent_type. |
+| What does **TeammateIdle** provide? | `teammate_name`, `team_name`, `session_id`, `permission_mode`. No agent_id or agent_type. |
+| What does **TaskCompleted** provide? | `task_id`, `task_subject`, `task_description`, `teammate_name`, `team_name`. No agent_id. |
 
-**Recommendation:** Run empirical tests before building. Create a simple hook on Stop that writes a marker file, spawn a teammate, and check if the marker appears. This resolves the ambiguity definitively.
+### What This Means
 
-### Empirical Test Plan
+**Hooks that work for teammates unchanged:**
+- PreToolUse (Write/Edit/Bash) — conflict detection, TDD order, security triage gate
+- PostToolUse (Write/Edit/Bash) — status tracking, lint, commit parsing, simplify nudge
+- SubagentStart — SMM + behavioral guide injection (teammates appear here with their agent_type)
+- SubagentStop — completion recording
 
-Tests to run with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` enabled:
+**Hooks that DON'T fire for teammates (lead-only):**
+- Stop — our simplify gate, quality review gate, and TDD stop gate don't apply to teammates
+- SessionStart — no kickoff marker, no retro prep for teammates
+- SessionEnd — no session_end event for teammates
+- UserPromptSubmit — no customer_input logging, no kickoff gate, no prompt nuggets for teammates
 
-1. **Stop event scope.** Register a Stop hook that writes a timestamp to a file. Spawn a team with one teammate. Does the file get written when the teammate finishes?
+**New hooks needed for teammates:**
+- TeammateIdle — equivalent of Stop gates (TDD, simplify enforcement)
+- TaskCompleted — verify acceptance criteria before marking done
 
-2. **SessionStart scope.** Register a SessionStart hook that logs the `source` and `agent_id` fields. Spawn a teammate. Does SessionStart fire for the teammate? What source value?
+### Teammate Detection
 
-3. **TeammateIdle scope.** Register a TeammateIdle hook that logs all input fields. Where does it fire — on the lead's session or the teammate's?
-
-4. **UserPromptSubmit scope.** Does UserPromptSubmit fire for teammate prompts (messages from lead/other teammates)?
-
-5. **Plugin hooks on teammates.** Does a plugin's hooks.json fire for teammates? Or only settings.json hooks?
-
-6. **Skill availability.** Can a teammate invoke a plugin skill (e.g., `/xp-quality-review`)?
-
-7. **SubagentStart for teammates.** Does SubagentStart fire when a teammate is spawned? What `agent_type` value?
-
-### Known Compatibility Issues
-
-Regardless of which model is correct, several hooks have confirmed issues:
-
-#### Session Lifecycle Hooks
-
-| Hook | Event | Issue | Severity |
-|---|---|---|---|
-| `session_start.py` | SessionStart | Writes `.needs-kickoff` marker on `source: "startup"`. If teammates trigger SessionStart, this re-writes the marker the lead already cleared, blocking all teammates. | **Critical** |
-| `retrospective.py` | SessionStart | Prepares `.retro-input.json` for each teammate. Wasteful and may corrupt lead's retro data. | Medium |
-| `session_end.py` | SessionEnd | Would append `session_end` event for each teammate. Pollutes event log and breaks aging calculations. | Medium |
-| `kickoff_gate.py` | UserPromptSubmit | Blocks prompts until `/xp-kickoff` runs. If SessionStart re-writes the marker, teammates are blocked. Even without that, teammates don't need kickoff. | **Critical** |
-| `kickoff_done.py` | PostToolUse:Skill | Clears `.needs-kickoff` and injects behavioral guide. If a teammate runs housekeeping, it would interfere with lead's kickoff state. | Medium |
-
-#### Stop Gates (if Model B or C is correct)
-
-| Hook | Event | Issue | Severity |
-|---|---|---|---|
-| `simplify_gate.py` | Stop | Doesn't fire for teammates. No `/simplify` enforcement. | High |
-| `quality_review_gate.py` | Stop | Doesn't fire for teammates. No quality review enforcement. | High |
-| `tdd_stop_gate.py` | Stop | Doesn't fire for teammates. Can stop with failing tests. | **Critical** |
-
-#### UserPromptSubmit Hooks
-
-| Hook | Event | Issue | Severity |
-|---|---|---|---|
-| `user_prompt_log.py` | UserPromptSubmit | Logs every prompt as `customer_input`. Teammate prompts (messages from lead) aren't customer input — would pollute the event log. | Medium |
-| `prompt_nugget.py` | UserPromptSubmit | Injects new signal events. Probably works correctly and is beneficial. | None (works) |
-
-#### Hooks That Work Correctly
-
-| Hook | Event | Why It Works |
-|---|---|---|
-| `pre_tool_write.py` | PreToolUse:Write | File-based checks (`.coordination.json`, TDD order). Works for any agent. |
-| `pre_tool_bash.py` | PreToolUse:Bash | Security triage gate is file-based. Teammate needs skill access for `/xp-security-triage` (confirmed available). |
-| `post_tool_use.py` | PostToolUse:Write | Status/working_on tracking. Agent ID from input data. Works correctly. |
-| `lint_check.py` | PostToolUse:Write | Runs linter on written file. Agent-agnostic. |
-| `bash_post_tool.py` | PostToolUse:Bash | Commit size check, test result parsing. Agent-agnostic. |
-| `subagent_start.py` | SubagentStart | SMM + behavioral guide injection. Works for teammates (confirmed). |
-| `prompt_nugget.py` | UserPromptSubmit | Surfaces new events. Beneficial for teammates. |
-| `pre_compact.py` | PreCompact | SMM backup. Agent-agnostic. |
-
-### Required Changes
-
-#### 1. Teammate Detection
-
-Need a function to distinguish teammates from the main agent and from xp- subagents. The challenge: different hook events provide different fields.
+Two patterns depending on the hook event:
 
 ```python
-def is_teammate(input_data: dict) -> bool:
-    """True when running inside an Agent Team teammate.
-
-    Heuristic: has agent_id (not main), doesn't start with xp-.
-    Needs validation via empirical testing.
-    """
-    agent_id = input_data.get("agent_id", "")
+# In SubagentStart/SubagentStop/PreToolUse/PostToolUse:
+# agent_type is the teammate's custom name (e.g., "agent-updater")
+def is_teammate_by_agent_type(input_data: dict) -> bool:
     agent_type = input_data.get("agent_type", "")
-    if not agent_id or agent_id == "main":
+    if not agent_type:
         return False
-    if isinstance(agent_type, str) and agent_type.startswith("xp-"):
+    # Not a built-in subagent and not our xp- agents
+    if agent_type in ("Explore", "Plan", "general-purpose", "Bash"):
+        return False
+    if agent_type.startswith("xp-"):
         return False
     return True
+
+# In TeammateIdle/TaskCompleted:
+# Has teammate_name field (definitive)
+def is_teammate_event(input_data: dict) -> bool:
+    return bool(input_data.get("teammate_name"))
 ```
 
-Known fields by event:
-- `TeammateIdle` / `TaskCompleted`: have `teammate_name`, `team_name` (definitive)
-- `SubagentStart` / `SubagentStop`: have `agent_id`, `agent_type`
-- `PreToolUse` / `PostToolUse` / `Stop`: have `agent_id`, `agent_type` (when in subagent/teammate)
-- `SessionStart` / `UserPromptSubmit`: need empirical testing for what fields are present
+### Hooks That Work for Teammates (Confirmed)
 
-#### 2. Skip Ceremonies for Teammates
+| Hook | Event | Status |
+|---|---|---|
+| `pre_tool_write.py` | PreToolUse:Write | ✓ Conflict detection, TDD order, plan review gate |
+| `pre_tool_bash.py` | PreToolUse:Bash | ✓ Security triage gate, file-modification heuristic |
+| `post_tool_use.py` | PostToolUse:Write | ✓ Status/working_on tracking, conflict detection |
+| `lint_check.py` | PostToolUse:Write | ✓ Runs linter on written file |
+| `bash_post_tool.py` | PostToolUse:Bash | ✓ Commit parsing, test results, simplify nudge |
+| `subagent_start.py` | SubagentStart | ✓ SMM + behavioral guide injection |
+| `subagent_stop.py` | SubagentStop | ✓ Completion recording |
 
-Teammates execute, they don't orchestrate. These hooks should skip for teammates:
+### Hooks That DON'T Fire for Teammates (No Changes Needed)
 
-```python
-# In session_start.py — don't write kickoff marker for teammates
-if is_teammate(input_data):
-    return GUPP_TEXT + SKILLS_TEXT  # Context only, no marker
+| Hook | Event | Why It's Fine |
+|---|---|---|
+| `session_start.py` | SessionStart | Teammates don't trigger SessionStart — no kickoff marker conflict |
+| `retrospective.py` | SessionStart | Teammates don't trigger SessionStart — no retro prep corruption |
+| `session_end.py` | SessionEnd | Teammates don't trigger SessionEnd — no event log pollution |
+| `kickoff_gate.py` | UserPromptSubmit | Teammates don't trigger UserPromptSubmit — no blocking |
+| `user_prompt_log.py` | UserPromptSubmit | Teammates don't trigger UserPromptSubmit — no false customer_input |
+| `prompt_nugget.py` | UserPromptSubmit | Teammates don't get nuggets (lead-only), but they DO get SMM via SubagentStart |
 
-# In kickoff_gate.py — don't block teammates
-if is_teammate(input_data):
-    return None
+### Gaps: Stop Gates Don't Fire for Teammates
 
-# In user_prompt_log.py — don't log teammate prompts as customer_input
-if is_teammate(input_data):
-    return None
+| Hook | Event | Gap | Solution |
+|---|---|---|---|
+| `simplify_gate.py` | Stop | No simplify enforcement for teammates | TeammateIdle handler |
+| `quality_review_gate.py` | Stop | No quality review for teammates | Skip — lead reviews PRs instead |
+| `tdd_stop_gate.py` | Stop | Teammates can stop with failing tests | TeammateIdle handler |
 
-# In retrospective.py — don't prepare retro for teammates
-if is_teammate(input_data):
-    return None
+#### 2. No Ceremony Guards Needed
 
-# In session_end.py — don't write session_end for teammates
-if is_teammate(input_data):
-    return None
-```
+Empirical testing confirmed: SessionStart, SessionEnd, UserPromptSubmit, and Stop don't fire for teammates. No `is_teammate()` guards needed on ceremony hooks.
 
 #### 3. Stop Gate Equivalents for TeammateIdle / TaskCompleted
 
-If Stop doesn't fire for teammates (Model B/C), we need equivalent enforcement on the teammate-specific events. These use exit 2 + stderr (not `decision: "block"` JSON):
+Stop doesn't fire for teammates (Model B confirmed). We need equivalent enforcement via TeammateIdle and TaskCompleted. These use exit 2 + stderr (not `decision: "block"` JSON):
 
 **TeammateIdle handler** — TDD gate equivalent:
 
@@ -646,39 +600,38 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 
 ## Open Questions
 
-### Must Resolve Before Building (Empirical Testing)
+### Resolved by Empirical Testing (2026-03-23)
 
-1. **Stop event scope.** Does Stop fire for teammates? This determines whether our three Stop gates work or need TeammateIdle equivalents. See "Empirical Test Plan" above.
+| # | Question | Answer |
+|---|---|---|
+| 1 | Stop event scope | **Model B** — Stop does NOT fire for teammates. Need TeammateIdle equivalents. |
+| 2 | SessionStart scope | Does NOT fire for teammates. No guards needed. |
+| 3 | UserPromptSubmit scope | Does NOT fire for teammates, even when messaging them directly. No guards needed. |
+| 4 | Plugin hooks on teammates | **YES** — PreToolUse and PostToolUse fire for teammates. Plugin hooks work. |
+| 5 | Teammate agent_type | Custom teammate name (e.g., "agent-updater"). Appears in SubagentStart/SubagentStop. |
+| 6 | Teammate skill invocation | Skills load for teammates (docs confirmed). Invocation needs further testing. |
 
-2. **SessionStart scope.** Does SessionStart fire for teammates? What `source` value? This determines how many hooks need `is_teammate()` guards.
+### Still Open (Resolve During Implementation)
 
-3. **UserPromptSubmit scope.** Do teammate prompts (messages from lead/other teammates) trigger UserPromptSubmit? This affects `kickoff_gate.py`, `user_prompt_log.py`, and `prompt_nugget.py`.
+7. **Team size heuristics.** Agent Teams docs suggest 3-5 teammates, 5-6 tasks each. Should the planning game factor this in?
 
-4. **Plugin hooks on teammates.** Do hooks from `hooks/hooks.json` (plugin scope) fire for teammates, or only settings.json hooks?
+8. **Sprint length.** Explicit (customer sets it) or emergent (sprint ends when backlog is done)?
 
-5. **Teammate `agent_type` value.** What value appears in `agent_type` for a teammate? This determines how `is_teammate()` detection works.
+9. **Failed items.** Deferred to next sprint? Reassigned? Lead takes over?
 
-6. **Teammate skill invocation.** Can a teammate invoke a plugin skill by name (e.g., `/xp-security-triage`)? Confirmed by docs that skills load, but need to verify invocation works.
+10. **Integration order.** Lead enforces merge order, or worktree merges handle it naturally?
 
-### Design Decisions (Resolve During Implementation)
+11. **Teammate specialization.** Roles (e.g., "frontend specialist") or general-purpose?
 
-7. **Team size heuristics.** How many teammates for a given backlog size? Agent Teams docs suggest 3-5, with 5-6 tasks per teammate. Should the planning game factor this in?
+12. **Sprint review format.** Run acceptance criteria? Show test results? Generate summary?
 
-8. **Sprint length.** How many sessions constitute a sprint? Should this be explicit (customer sets it) or emergent (sprint ends when backlog is done)?
+13. **Lead context management.** Delegate PR reviews to subagent? (Recommendation: yes)
 
-9. **Failed items.** When a teammate can't complete an item — deferred to next sprint? Reassigned to another teammate? Lead takes over?
+14. **Worktree merge conflicts.** Lead resolves, or retry mechanism?
 
-10. **Integration order.** When items have dependencies, merge order matters. Does the lead enforce merge order, or do worktree merges handle this naturally?
+15. **Customer availability.** Queue questions with assumptions, or block?
 
-11. **Teammate specialization.** Should teammates have roles (e.g., "frontend specialist") or be general-purpose? Agent Teams supports custom agent types for teammates.
-
-12. **Sprint review format.** What does "demo" look like for agent teams? Run acceptance criteria? Show test results? Generate a summary document?
-
-13. **Lead context management.** The lead's context window fills with PR reviews and coordination. How do we keep it clean? Delegate reviews to a subagent?
-
-14. **Worktree merge conflicts.** When two teammates both merge into the main branch, what happens if they conflict? Does the lead resolve, or is there a retry mechanism?
-
-15. **Customer availability.** What if the customer isn't available when the lead needs to escalate? Queue questions and continue with assumptions? Block?
+16. **Worktree isolation.** Do teammates automatically get worktrees? Needs empirical verification.
 
 16. **Simplify threshold on teammates.** Teammates run `/simplify` (same threshold as main agent: 3+ code files). Is that threshold right for teammate-sized work items, or should it be lower?
 
