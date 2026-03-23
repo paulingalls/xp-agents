@@ -3,7 +3,17 @@
 A Claude Code plugin that makes your agents — solo or in teams — write better software through XP practices. Command hooks enforce deterministic rules. Plugin subagents provide judgment-based guidance. A broadcast event log keeps every agent aligned. Zero config. Install and go.
 
 ## Forward (from the Human)
-Agents are non-deterministic, dishonest, lazy and they constantly cheat, all in their unshakable desire to achieve their goal.  Kind of like humans.  
+Agents are non-deterministic, dishonest, lazy and they constantly cheat, all in their unshakable desire to achieve their goal.  They ignore what you tell them, they think instructions are for the weak. They do things their own way.
+
+Kind of like humans.
+
+Over 25 years I've been running, hiring and working with engineers.  Messy, spectrumy, brilliant, strange. They run the gamut. But one thing has constantly brought them together into a powerful team, and those are the values and discipline of Extreme Programming.
+
+So, as Agents become more and more human like, using some of the same practices with them just made sense.  This plugin is my attempt to coral them into a working team, first as a teammate of me (solo agent) and then as a teammate of each other (Agent Teams coming in v2).
+
+So, give it a shot and drop me an issue.  I'd love to hear what you think...
+
+Paul, the human theoretically in charge..;)
 
 ## TL;DR
 
