@@ -49,9 +49,11 @@ _SIGNAL_TYPES = frozenset(
 
 # Status classification patterns
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = re.compile(r"Tests?:.*\d+\s+passed", re.IGNORECASE)
-
-_MAX_STATUS_SAMPLES = 10
+_TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed)", re.IGNORECASE)
+_SECURITY_TRIAGE_RE = re.compile(r"Security triage complete", re.IGNORECASE)
+_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
+_QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
+_LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
 
 
 def _normalize_concern_content(content: str) -> str:
@@ -65,33 +67,40 @@ def _classify_status_events(
     events: list[dict],
 ) -> dict:
     """Classify status events into file_writes, test_runs, other."""
-    file_writes: list[dict] = []
-    test_runs: list[dict] = []
-    other: list[dict] = []
+    counts = {
+        "file_writes": 0,
+        "test_runs": 0,
+        "security_triages": 0,
+        "commits": 0,
+        "quality_reviews": 0,
+        "lint_events": 0,
+        "other": 0,
+    }
+
+    patterns = [
+        (_FILE_WRITE_RE, "file_writes"),
+        (_TEST_RUN_RE, "test_runs"),
+        (_SECURITY_TRIAGE_RE, "security_triages"),
+        (_COMMIT_RE, "commits"),
+        (_QUALITY_REVIEW_RE, "quality_reviews"),
+        (_LINT_RE, "lint_events"),
+    ]
 
     for e in events:
         if e.get("type") != _common.STATUS:
             continue
         content = e.get("content", "")
-        if _FILE_WRITE_RE.search(content):
-            file_writes.append(e)
-        elif _TEST_RUN_RE.search(content):
-            test_runs.append(e)
-        else:
-            other.append(e)
+        matched = False
+        for pattern, key in patterns:
+            if pattern.search(content):
+                counts[key] += 1
+                matched = True
+                break
+        if not matched:
+            counts["other"] += 1
 
-    total = len(file_writes) + len(test_runs) + len(other)
-    return {
-        "total": total,
-        "file_writes": len(file_writes),
-        "test_runs": len(test_runs),
-        "other": len(other),
-        "samples": {
-            "file_writes": file_writes[-_MAX_STATUS_SAMPLES:],
-            "test_runs": test_runs[-_MAX_STATUS_SAMPLES:],
-            "other": other[-_MAX_STATUS_SAMPLES:],
-        },
-    }
+    counts["total"] = sum(counts.values())
+    return counts
 
 
 def _group_concerns(events: list[dict]) -> list[dict]:
@@ -228,10 +237,6 @@ def _build_retro_input(
             }
             for e in digest["signal_events"]
         ]
-    # Drop status samples — counts are sufficient
-    ss = digest.get("status_summary", {})
-    ss.pop("samples", None)
-
     return {
         "unanalyzed_count": len(unanalyzed),
         # No events_since_last_retro — digest has the structured version

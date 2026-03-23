@@ -48,6 +48,13 @@
             "timeout": 2500,
             "statusMessage": "Recording session end...",
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/smm/compact.py",
+            "timeout": 1500,
+            "statusMessage": "Compacting event log...",
+            "async": true
           }
         ]
       }

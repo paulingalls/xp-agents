@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.0.11
+
+### Fixed
+- **Test run regex missed "Tests passed" format** — the status classifier only matched `Tests: N passed` but not `Tests passed (framework)` (our new format from v1.0.6). Retro falsely reported "zero test runs" for sessions that had tests passing.
+- **Security triage invisible to retro** — triage status events were classified as "other" and the retro couldn't see them. Now tracked as a separate `security_triages` count.
+
+### Added
+- **Richer status classification for retro digest** — now tracks commits, quality reviews, and lint events alongside file writes, test runs, and security triages. Gives the retro accurate session activity data.
+- **SessionEnd compaction** — event log is compacted at session end in addition to kickoff and context compaction. Reduces the one-session lag for cleanup.
+
+### Removed
+- Unused `_MAX_STATUS_SAMPLES` constant and status sample collection (samples were already dropped at write time).
+
+### Stats
+- 965 tests (all passing)
+
 ## v1.0.10
 
 ### Changed
