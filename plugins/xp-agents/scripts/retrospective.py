@@ -105,16 +105,20 @@ def _classify_status_events(
 
 
 def _group_concerns(events: list[dict]) -> list[dict]:
-    """Deduplicate concerns by normalized content."""
+    """Deduplicate concerns by normalized content.
+
+    Returns {key, count, ids} — ids are short (8 chars) for housekeeping
+    reference without bloating retro-input with full event objects.
+    """
     groups: dict[str, dict] = {}
     for e in events:
         if e.get("type") != _common.CONCERN:
             continue
         key = _normalize_concern_content(e.get("content", ""))
         if key not in groups:
-            groups[key] = {"key": key, "count": 0, "events": []}
+            groups[key] = {"key": key, "count": 0, "ids": []}
         groups[key]["count"] += 1
-        groups[key]["events"].append(e)
+        groups[key]["ids"].append(e.get("id", "")[:8])
     return list(groups.values())
 
 
@@ -306,15 +310,19 @@ def _build_retro_input(
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id
+    # Truncate customer_input (raw user prompts) to 100 chars
+    _MAX_CUSTOMER_INPUT = 100
     if "signal_events" in digest:
-        digest["signal_events"] = [
-            {
-                "type": e.get("type", ""),
-                "content": e.get("content", ""),
-                "id": e.get("id", "")[:8],
-            }
-            for e in digest["signal_events"]
-        ]
+        slimmed_signals = []
+        for e in digest["signal_events"]:
+            etype = e.get("type", "")
+            content = e.get("content", "")
+            if etype == _common.CUSTOMER_INPUT and len(content) > _MAX_CUSTOMER_INPUT:
+                content = content[:_MAX_CUSTOMER_INPUT]
+            slimmed_signals.append(
+                {"type": etype, "content": content, "id": e.get("id", "")[:8]}
+            )
+        digest["signal_events"] = slimmed_signals
     return {
         "unanalyzed_count": len(unanalyzed),
         # No events_since_last_retro — digest has the structured version
