@@ -6,6 +6,99 @@ This document maps XP sprint practices to Claude Code Agent Teams. The core insi
 
 Agent Teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`), with known limitations that shape this design. The most significant: teams don't survive session resumption. The sprint state must live outside the team.
 
+---
+
+## Vocabulary
+
+| Term | Definition |
+|---|---|
+| **Session** | A single Claude Code invocation. Has a start (SessionStart hook), work period, and end (SessionEnd hook). Ephemeral — context window, Agent Teams, and all runtime state die at session end. The atomic unit of compute. |
+| **Iteration** | One complete plan/work/accept cycle. Maps to a single session — a session naturally has this shape: kickoff → plan → work → accept → stop. Not split across sessions. |
+| **Sprint** | A unit of deliverable work toward a goal. One or more iterations. Persists across sessions via SMM. Has a goal, backlog items, and a definition of done. Ends when the goal is met or remaining work is deferred. |
+| **Backlog item** | A unit of work within a sprint. Has acceptance criteria (including e2e test definitions), dependencies, size estimate, file domain, and status. Created during planning, executed during work, verified during accept. |
+| **Acceptance criteria** | Concrete, testable conditions that prove a backlog item or sprint goal is done. Defined at plan time, verified at accept time. Includes e2e test definitions. |
+| **File domain** | The set of files/directories a backlog item owns. Used to verify non-overlapping task assignments and enforce coordination boundaries. |
+
+---
+
+## Iteration Lifecycle (Single Session)
+
+An iteration is one complete cycle within a session. Every session follows this structure:
+
+### Solo Iteration
+
+```
+1. Kickoff
+   → Retro (what happened last session)
+   → Goals (what are we doing this session)
+   → Housekeeping (curate SMM)
+
+2. Plan
+   → Decompose work into steps
+   → Plan review:
+     - Quality: right-sized? TDD-ordered? Dependencies correct?
+     - Acceptance criteria: what e2e tests prove this works?
+     - Execution mode: solo, subagents, or Agent Team?
+     - Parallelization: which items can run concurrently? Non-overlapping domains?
+
+3. Work (repeat per unit of work)
+   → Red: write failing test
+   → Green: make it pass
+   → Simplify: refactor (three review subagents run)
+   → Quality review: courage + drift + debt (triggered when simplify subagents complete)
+   → Security triage → commit
+
+4. Accept
+   → Run e2e tests defined in plan
+   → Verify acceptance criteria
+
+5. Stop
+   → Session end
+```
+
+### Team Iteration
+
+When the plan review recommends Agent Teams (cleanly separable domains, genuinely parallel work):
+
+```
+1. Kickoff
+   → Same as solo
+
+2. Plan
+   → Same as solo, but plan review also identifies:
+     - Parallel groups with non-overlapping file domains
+     - Acceptance criteria per backlog item AND for the integrated result
+
+3. Spawn
+   → Lead runs /xp-spawn-team
+   → Skill reads plan, structures tasks with domains and criteria
+   → Lead creates Agent Team with tasks
+
+4. Work (each teammate, in parallel)
+   → Red → green → simplify → quality review → security triage → commit
+   → Each teammate works within their assigned file domain
+   → .coordination.json enforces domain boundaries
+
+5. Accept
+   → Lead waits for all teammates to complete
+   → If worktrees: PR review → merge for each teammate's work
+   → If shared checkout: review commits
+   → Run e2e tests against the integrated result
+   → Verify acceptance criteria from the plan
+
+6. Stop
+   → Session end
+```
+
+### Key Design Points
+
+- **Simplify IS the refactor step** in red/green/refactor. It's not a separate ceremony — it's the third beat of TDD.
+- **Quality review triggers when simplify subagents complete** (detected via SubagentStop), not at Stop time. It checks courage (did you fix what simplify found?), drift (are you following SMM constraints?), and debt (are you creating new debt?).
+- **Acceptance is distinct from quality review.** Quality review checks code quality during work. Accept checks that the feature actually works end-to-end after all work is done.
+- **In team mode, accept is the synchronization point.** Individual teammates verify their own unit tests, but only the lead can run e2e tests against the integrated result.
+
+---
+
 ### When to Use Agent Teams
 
 Agent Teams are the heavy option. Most work should stay solo or use subagents.

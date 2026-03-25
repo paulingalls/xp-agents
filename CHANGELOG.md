@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.0.14
+
+### Changed
+- **Project-relative paths in events** — `normalize_path()` now strips the git root prefix, producing paths like `src/app.ts` instead of `/Users/paul/project/src/app.ts`. Reduces event log size (~40% smaller status events) and enables worktree-safe coordination for Agent Teams. Backward-compatible: old absolute paths in events are normalized to relative on read.
+- **Retro-input slimmed** — customer_input signals truncated to 100 chars (was full prompts ~1k each). Concern groups store key+count+ids instead of full event objects. Reduces `.retro-input.json` from ~50k to ~33k on real sessions.
+- **Lint concern matching handles mixed path formats** — new `lint_concern_matches()` resolves concerns correctly during the absolute-to-relative path transition.
+
+### Added
+- **GitHub Actions CI** — runs full test suite on Python 3.10 and 3.12, plus ruff lint. Safety net for cases where lefthook is bypassed.
+- **`resolve_git_root(cwd)`** — cached per-cwd helper for git root resolution. Replaces ad-hoc `git rev-parse --show-toplevel` calls in lint_check.py and bash_post_tool.py.
+
+### Fixed
+- **Stale goal gate tests removed** — two tests referenced `_BLOCK_GOALS` and `_GOAL_NUDGE_TRACKER` which were removed in v1.0.13 but the tests were not cleaned up.
+
+### Stats
+- 975 tests (all passing)
+
 ## v1.0.13
 
 ### Removed
