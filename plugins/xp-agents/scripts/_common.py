@@ -244,12 +244,37 @@ def try_validate_smm_dir(smm_dir: Path | None) -> Path | None:
         return None
 
 
-def normalize_path(file_path: str, cwd: str) -> str:
-    """Resolve a file path against cwd, return normalized string.
+_git_root_cache: dict[str, str | None] = {}
 
-    Uses realpath when the path exists to resolve symlinks, preventing
-    symlink-based confusion in working_on overlap detection. Falls back
-    to normpath for non-existent paths (e.g., planned file writes).
+
+def resolve_git_root(cwd: str) -> str | None:
+    """Return the git working tree root for the given cwd. Cached per cwd."""
+    if cwd in _git_root_cache:
+        return _git_root_cache[cwd]
+    try:
+        root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            cwd=cwd,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
+        root = None
+    _git_root_cache[cwd] = root
+    return root
+
+
+def _clear_git_root_cache() -> None:
+    """Clear the git root cache. For testing only."""
+    _git_root_cache.clear()
+
+
+def normalize_path(file_path: str, cwd: str) -> str:
+    """Resolve a file path against cwd, return project-relative string.
+
+    Returns a path relative to git root (e.g. 'src/app.ts') for shorter
+    events and worktree-safe coordination. Falls back to absolute path
+    when git root is unavailable or path is outside the repo.
     """
     p = Path(file_path)
     if not p.is_absolute():
@@ -258,9 +283,15 @@ def normalize_path(file_path: str, cwd: str) -> str:
     resolved = os.path.realpath(full)
     # Use realpath only if the path exists (avoids platform-specific
     # resolution of fictional paths like /home on macOS → /System/Volumes/Data/home)
-    if os.path.exists(resolved):
-        return resolved
-    return os.path.normpath(full)
+    absolute = resolved if os.path.exists(resolved) else os.path.normpath(full)
+
+    # Strip git root to get project-relative path
+    git_root = resolve_git_root(cwd)
+    if git_root:
+        prefix = os.path.realpath(git_root).rstrip("/") + "/"
+        if absolute.startswith(prefix):
+            return absolute[len(prefix) :]
+    return absolute
 
 
 def extract_file_path(tool_name: str, tool_input: dict) -> str | None:

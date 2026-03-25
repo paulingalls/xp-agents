@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import concerns
 import lint_check
 from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
 
@@ -246,6 +247,31 @@ class TestAutoResolveLintConcerns(_HookTestCase):
             if e.get("metadata", {}).get("resolves")
         ]
         self.assertEqual(len(new_resolutions), 0)
+
+
+class TestLintConcernMatches(unittest.TestCase):
+    """Test lint concern matching across absolute/relative path formats."""
+
+    def test_matches_relative_path(self):
+        content = "Lint errors in src/app.py:\nE302"
+        self.assertTrue(concerns.lint_concern_matches(content, "src/app.py"))
+
+    def test_matches_absolute_path_with_relative(self):
+        content = "Lint errors in /Users/paul/project/src/app.py:\nE302"
+        self.assertTrue(concerns.lint_concern_matches(content, "src/app.py"))
+
+    def test_no_match_different_file(self):
+        content = "Lint errors in src/other.py:\nE302"
+        self.assertFalse(concerns.lint_concern_matches(content, "src/app.py"))
+
+    def test_no_false_positive_suffix(self):
+        """old_app.py should not match app.py."""
+        content = "Lint errors in src/old_app.py:\nE302"
+        self.assertFalse(concerns.lint_concern_matches(content, "src/app.py"))
+
+    def test_non_lint_concern(self):
+        content = "Some other concern about src/app.py"
+        self.assertFalse(concerns.lint_concern_matches(content, "src/app.py"))
 
 
 if __name__ == "__main__":

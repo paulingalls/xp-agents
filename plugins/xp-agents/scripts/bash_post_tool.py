@@ -5,7 +5,6 @@ Records commit status events, checks commit size, and records test
 pass/fail status. Nudges /simplify after commits with 3+ code files.
 """
 
-import contextlib
 import json
 import re
 import subprocess
@@ -65,13 +64,7 @@ def _resolve_lint_on_commit(
 
     import lint_check
 
-    git_root = cwd
-    with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
-        git_root = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
+    git_root = _common.resolve_git_root(cwd) or cwd
 
     config = lint_check.detect_linter_config(cwd, git_root)
     if config is None:
@@ -84,10 +77,9 @@ def _resolve_lint_on_commit(
         lint_output = lint_check.run_linter(linter_name, normalized)
         if lint_output is None:
             # File passes lint (or linter doesn't apply) — resolve concern
-            prefix = f"{concerns.LINT_CONCERN_PREFIX}{normalized}:"
             concerns.resolve_concerns(
                 smm_dir,
-                lambda c, p=prefix: c.startswith(p),
+                lambda c, n=normalized: concerns.lint_concern_matches(c, n),
                 agent_id,
                 "Lint concern resolved on commit",
             )

@@ -42,6 +42,19 @@ TEST_CONCERN_RE = re.compile(
 LINT_CONCERN_PREFIX = "Lint errors in "
 
 
+def lint_concern_matches(content: str, rel_path: str) -> bool:
+    """Match lint concern for a file, handling both relative and absolute formats.
+
+    During the transition from absolute to project-relative paths, old concerns
+    have "Lint errors in /abs/path/src/app.py:" and new ones have
+    "Lint errors in src/app.py:". This matcher handles both.
+    """
+    if not content.startswith(LINT_CONCERN_PREFIX):
+        return False
+    path_part = content[len(LINT_CONCERN_PREFIX) :].split(":", 1)[0]
+    return path_part == rel_path or path_part.endswith("/" + rel_path)
+
+
 def resolve_concerns(
     smm_dir: Path,
     matcher: Callable[[str], object],

@@ -234,15 +234,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     normalized = _common.normalize_path(file_path, cwd)
 
-    # Detect git root for config walking
-    try:
-        git_root = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        git_root = cwd
+    git_root = _common.resolve_git_root(cwd) or cwd
 
     config = detect_linter_config(cwd, git_root)
 
@@ -287,10 +279,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Return as additionalContext for immediate feedback
         return f"Lint errors in {normalized}:\n{lint_output}"
     else:
-        prefix = f"{concerns.LINT_CONCERN_PREFIX}{normalized}:"
         concerns.resolve_concerns(
             smm_dir,
-            lambda c, p=prefix: c.startswith(p),
+            lambda c, n=normalized: concerns.lint_concern_matches(c, n),
             "lint-check",
             "Lint concern resolved",
         )

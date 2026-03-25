@@ -120,18 +120,110 @@ class TestResolvePluginRoot(unittest.TestCase):
             self.assertEqual(result, expected)
 
 
+class TestResolveGitRoot(unittest.TestCase):
+    def setUp(self):
+        _common._clear_git_root_cache()
+
+    def tearDown(self):
+        _common._clear_git_root_cache()
+
+    def test_returns_root_for_git_repo(self):
+        """resolve_git_root returns the repo root when cwd is inside a git repo."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            result = _common.resolve_git_root(tmpdir)
+            # realpath handles /private/tmp vs /tmp on macOS
+            self.assertEqual(os.path.realpath(result), os.path.realpath(tmpdir))
+
+    def test_returns_none_for_non_repo(self):
+        """resolve_git_root returns None when cwd is not in a git repo."""
+        result = _common.resolve_git_root("/")
+        self.assertIsNone(result)
+
+    def test_caches_per_cwd(self):
+        """resolve_git_root caches results per cwd."""
+        _common.resolve_git_root("/")
+        _common.resolve_git_root("/tmp")
+        self.assertIn("/", _common._git_root_cache)
+        self.assertIn("/tmp", _common._git_root_cache)
+
+    def test_clear_cache(self):
+        """_clear_git_root_cache empties the cache."""
+        _common.resolve_git_root("/")
+        _common._clear_git_root_cache()
+        self.assertEqual(len(_common._git_root_cache), 0)
+
+
 class TestNormalizePath(unittest.TestCase):
-    def test_absolute_unchanged(self):
+    def setUp(self):
+        _common._clear_git_root_cache()
+
+    def tearDown(self):
+        _common._clear_git_root_cache()
+
+    def test_absolute_outside_repo_unchanged(self):
+        """Paths outside any git repo stay absolute."""
         result = _common.normalize_path("/home/user/src/app.ts", "/tmp")
         self.assertEqual(result, "/home/user/src/app.ts")
 
-    def test_relative_resolved(self):
+    def test_relative_outside_repo_resolved_to_absolute(self):
+        """Relative paths outside any git repo resolve to absolute."""
         result = _common.normalize_path("src/app.ts", "/home/user")
         self.assertEqual(result, "/home/user/src/app.ts")
 
     def test_dotdot_resolved(self):
         result = _common.normalize_path("../app.ts", "/home/user/src")
         self.assertEqual(result, "/home/user/app.ts")
+
+    def test_returns_relative_inside_git_repo(self):
+        """Inside a git repo, normalize_path strips the repo root."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            # Create a file so realpath resolves it
+            src_dir = Path(tmpdir) / "src"
+            src_dir.mkdir()
+            (src_dir / "app.ts").touch()
+
+            result = _common.normalize_path("src/app.ts", tmpdir)
+            self.assertEqual(result, "src/app.ts")
+
+    def test_absolute_input_inside_repo_returns_relative(self):
+        """Absolute path input inside a repo is stripped to relative."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            src_dir = Path(tmpdir) / "src"
+            src_dir.mkdir()
+            (src_dir / "app.ts").touch()
+
+            abs_path = str(src_dir / "app.ts")
+            result = _common.normalize_path(abs_path, tmpdir)
+            self.assertEqual(result, "src/app.ts")
+
+    def test_old_absolute_events_normalize_to_relative(self):
+        """Old absolute paths from events converge to same relative form."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            src_dir = Path(tmpdir) / "src"
+            src_dir.mkdir()
+            (src_dir / "app.ts").touch()
+
+            # Both absolute and relative inputs produce the same result
+            abs_result = _common.normalize_path(str(src_dir / "app.ts"), tmpdir)
+            rel_result = _common.normalize_path("src/app.ts", tmpdir)
+            self.assertEqual(abs_result, rel_result)
+            self.assertEqual(abs_result, "src/app.ts")
 
 
 class TestStdlibOnly(unittest.TestCase):
