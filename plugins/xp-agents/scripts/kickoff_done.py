@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import compact
+import markers
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -37,7 +38,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     # Clean up kickoff marker
-    (smm_dir / ".needs-kickoff").unlink(missing_ok=True)
+    markers.marker_consume(smm_dir, markers.KICKOFF)
 
     # Compact event log — housekeeping just curated, safe to archive
     compact_result = None
