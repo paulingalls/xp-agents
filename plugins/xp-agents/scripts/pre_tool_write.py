@@ -5,7 +5,6 @@ All checks are file-based (coordination.json, marker files, tracker files).
 No event log reads.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -156,13 +155,12 @@ def check_tdd_order(
         _common._validate_agent_id(agent_id)
     except ValueError:
         return None
-    tracker_file = smm_dir / f".tdd-{agent_id}.json"
 
     # Load existing tracker
-    try:
-        tracker = json.loads(tracker_file.read_text())
-    except (FileNotFoundError, json.JSONDecodeError, ValueError):
-        tracker = {"writes": [], "test_written": False}
+    tracker = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id) or {
+        "writes": [],
+        "test_written": False,
+    }
 
     changed = False
 
@@ -171,7 +169,7 @@ def check_tdd_order(
             tracker["test_written"] = True
             changed = True
         if changed:
-            _write_tracker(tracker_file, tracker)
+            markers.marker_write(smm_dir, markers.TDD_TRACKER, tracker, agent_id)
         return None
 
     # Implementation file
@@ -180,7 +178,7 @@ def check_tdd_order(
         changed = True
 
     if changed:
-        _write_tracker(tracker_file, tracker)
+        markers.marker_write(smm_dir, markers.TDD_TRACKER, tracker, agent_id)
 
     # Grace period: first impl write doesn't trigger nudge
     if len(tracker["writes"]) < 2:
@@ -194,11 +192,6 @@ def check_tdd_order(
         )
 
     return None
-
-
-def _write_tracker(tracker_file: Path, tracker: dict) -> None:
-    """Atomic write of TDD tracker file."""
-    _common.write_json_atomic(tracker_file, tracker)
 
 
 # ---------------------------------------------------------------------------
