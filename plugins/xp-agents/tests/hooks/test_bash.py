@@ -18,12 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_failure
 import bash_post_tool
+import commits
 from conftest import _HookTestCase, _make_bash_input, make_event
 
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_records_status(self):
-        with patch("bash_post_tool.get_committed_files", return_value=["a", "b", "c"]):
+        with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add auth'",
@@ -37,7 +38,7 @@ class TestBashPostTool(_HookTestCase):
         self.assertIn("Add auth", statuses[0]["content"])
 
     def test_git_commit_small_no_concern(self):
-        with patch("bash_post_tool.get_committed_files", return_value=["a", "b", "c"]):
+        with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix bug'",
@@ -51,7 +52,7 @@ class TestBashPostTool(_HookTestCase):
 
     def test_git_commit_large_appends_concern(self):
         with patch(
-            "bash_post_tool.get_committed_files",
+            "commits.get_committed_files",
             return_value=[f"f{i}" for i in range(12)],
         ):
             bash_post_tool.run(
@@ -72,7 +73,7 @@ class TestBashPostTool(_HookTestCase):
         try:
             settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
             with patch(
-                "bash_post_tool.get_committed_files",
+                "commits.get_committed_files",
                 return_value=[f"f{i}" for i in range(6)],
             ):
                 bash_post_tool.run(
@@ -191,7 +192,7 @@ class TestBashPostTool(_HookTestCase):
 
     def test_git_commit_parse_message(self):
         response = "[main abc123] Fix login bug\n 1 file changed"
-        self.assertEqual(bash_post_tool.parse_commit_message(response), "Fix login bug")
+        self.assertEqual(commits.parse_commit_message(response), "Fix login bug")
 
 
 # ===========================================================================

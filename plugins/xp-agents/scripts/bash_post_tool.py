@@ -6,8 +6,6 @@ pass/fail status. Nudges /simplify after commits with 3+ code files.
 """
 
 import json
-import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -15,40 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import commits
 import concerns
 import security
 from test_parsing import is_test_run, parse_test_results
-
-# ---------------------------------------------------------------------------
-# Commit parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_commit_message(tool_response: str) -> str | None:
-    """Extract first line of commit message from git output."""
-    # Git commit output: [branch hash] message
-    match = re.search(r"\[[\w/.-]+\s+\w+\]\s+(.+)", tool_response)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-def get_committed_files(cwd: str) -> list[str]:
-    """Get list of files changed in the last commit."""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "HEAD~1", "--name-only"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
-        )
-        if result.returncode == 0:
-            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        pass
-    return []
-
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -111,6 +79,57 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Commit handling
+# ---------------------------------------------------------------------------
+
+
+def _handle_commit(
+    smm_dir: Path, agent_id: str, cwd: str, response_text: str
+) -> str | None:
+    """Process a successful git commit: record events, consume markers, nudge."""
+    committed_files: list[str] = []
+    msg = commits.parse_commit_message(response_text)
+    if msg:
+        status = _common.make_event(
+            _common.STATUS,
+            agent_id,
+            f"Committed: {msg}",
+            working_on=[],
+        )
+        _common.append_safe(smm_dir, status)
+
+        # Commit size check
+        threshold = load_commit_threshold()
+        committed_files = commits.get_committed_files(cwd)
+        file_count = len(committed_files)
+        if file_count >= threshold:
+            concern = _common.make_event(
+                _common.CONCERN,
+                agent_id,
+                f"Commit touches {file_count} files — consider smaller commits.",
+                severity="medium",
+            )
+            _common.append_safe(smm_dir, concern)
+
+    # Resolve lint concerns for committed files that now pass
+    _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
+
+    # Consume security triage marker after successful commit
+    security.consume_security_triaged(smm_dir)
+
+    # Nudge /simplify if commit has 3+ code files (including tests —
+    # test code benefits from simplify too, unlike security triage)
+    code_files = [f for f in committed_files if security.is_code_file(f)]
+    if len(code_files) >= 3:
+        return (
+            f"You just committed {len(code_files)} code files. "
+            "Run /simplify NOW before starting the next task."
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
 
@@ -140,47 +159,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Git commit detection
     if security.is_git_commit(command):
-        msg = parse_commit_message(response_text)
-        if msg:
-            # Record commit as status (not a decision — commit messages
-            # are activity, not architectural choices)
-            status = _common.make_event(
-                _common.STATUS,
-                agent_id,
-                f"Committed: {msg}",
-                working_on=[],
-            )
-            _common.append_safe(smm_dir, status)
-
-            # Commit size check
-            threshold = load_commit_threshold()
-            committed_files = get_committed_files(cwd)
-            file_count = len(committed_files)
-            if file_count >= threshold:
-                concern = _common.make_event(
-                    _common.CONCERN,
-                    agent_id,
-                    f"Commit touches {file_count} files — consider smaller commits.",
-                    severity="medium",
-                )
-                _common.append_safe(smm_dir, concern)
-
-        # Resolve lint concerns for committed files that now pass
-        _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
-
-        # Consume security triage marker after successful commit
-        security.consume_security_triaged(smm_dir)
-
-        # Nudge /simplify if commit has 3+ code files (including tests —
-        # test code benefits from simplify too, unlike security triage)
-        code_files = [f for f in committed_files if security.is_code_file(f)]
-        if len(code_files) >= 3:
-            return (
-                f"You just committed {len(code_files)} code files. "
-                "Run /simplify NOW before starting the next task."
-            )
-
-        return None
+        return _handle_commit(smm_dir, agent_id, cwd, response_text)
 
     # Test run detection
     framework = is_test_run(command)
