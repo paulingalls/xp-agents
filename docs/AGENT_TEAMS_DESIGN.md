@@ -13,11 +13,130 @@ Agent Teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`), with know
 | Term | Definition |
 |---|---|
 | **Session** | A single Claude Code invocation. Has a start (SessionStart hook), work period, and end (SessionEnd hook). Ephemeral — context window, Agent Teams, and all runtime state die at session end. The atomic unit of compute. |
-| **Iteration** | One complete plan/work/accept cycle. Maps to a single session — a session naturally has this shape: kickoff → plan → work → accept → stop. Not split across sessions. |
-| **Sprint** | A unit of deliverable work toward a goal. One or more iterations. Persists across sessions via SMM. Has a goal, backlog items, and a definition of done. Ends when the goal is met or remaining work is deferred. |
-| **Backlog item** | A unit of work within a sprint. Has acceptance criteria (including e2e test definitions), dependencies, size estimate, file domain, and status. Created during planning, executed during work, verified during accept. |
-| **Acceptance criteria** | Concrete, testable conditions that prove a backlog item or sprint goal is done. Defined at plan time, verified at accept time. Includes e2e test definitions. |
-| **File domain** | The set of files/directories a backlog item owns. Used to verify non-overlapping task assignments and enforce coordination boundaries. |
+| **Iteration** | One complete plan/work/accept cycle. Maps 1:1 to a session. Not split across sessions. |
+| **Sprint** | A unit of deliverable work toward a goal. One or more iterations. Persists across sessions via SMM. Has a goal, user stories, and a definition of done. Ends when all stories are done or remaining stories are deferred. |
+| **User story** | A customer-meaningful unit of work within a sprint. Has acceptance criteria including e2e test definitions. Right-sized to fit within one iteration (XL stories are split during sprint planning). Persists in `sprint.md` across sessions. |
+| **Task** | An implementation step within a story. File-level, TDD-ordered. Ephemeral to the iteration — created during iteration planning, maps to Agent Teams platform tasks. |
+| **Acceptance criteria** | Concrete, testable conditions that prove a story is done. Defined at sprint planning time, verified at accept time. Includes e2e test definitions. |
+| **File domain** | The set of files/directories a task owns. Used to verify non-overlapping task assignments and enforce coordination boundaries. |
+| **T-shirt size** | Rough estimate for user stories: S, M, L, XL. Used during sprint planning to right-size stories. XL = must split. L = full iteration. M = standard. S = can bundle multiple in one iteration. |
+
+---
+
+## Sprint Lifecycle (Cross-Session)
+
+A sprint spans one or more iterations (sessions). The sprint persists in the SMM; each session is ephemeral.
+
+### Sprint Start (First Iteration)
+
+```
+Prerequisite: product_spec.md exists (created via /xp-product-spec)
+
+/xp-sprint-start reads product_spec.md
+  → Selects [planned] features by priority for this sprint
+  → Decomposes selected features into user stories
+  → Each story gets acceptance criteria (including e2e test definitions)
+  → T-shirt size each story:
+      XL → split into smaller stories
+      L  → solo iteration, full session
+      M  → standard, one per iteration
+      S  → bundle multiple in one iteration
+  → Order by priority and dependencies
+  → Customer confirms sprint scope
+  → Writes sprint.md + sprint start event to events.jsonl
+  → First iteration begins (plan → work → accept)
+```
+
+For the very first session, `/xp-kickoff` detects no active sprint (no `sprint.md`). If `product_spec.md` doesn't exist either, the lead runs `/xp-product-spec` first to gather requirements, then `/xp-sprint-start` to plan the first sprint.
+
+### Mid-Sprint Iterations (Subsequent Sessions)
+
+```
+Kickoff (sprint-aware /xp-kickoff)
+  → Session retro (reflect before planning — surfaces unanswered questions, Try items)
+  → Product spec check: product_spec.md exists? NO → /xp-product-spec
+  → Sprint check: sprint.md exists? NO → /xp-sprint-start
+  → Housekeeping with Sprint pillar (curates SMM, surfaces unverified assumptions in Risks)
+  → Story selection: show ready stories, lead picks for this iteration
+      Pick next story(ies) by priority — must fit in one iteration
+      Multiple S stories can be bundled if non-overlapping
+      Questions about stories resolved here with full sprint context
+      Selected stories marked in-progress in sprint.md
+  → Clear accept marker (new iteration starting)
+
+No standalone question triage step — questions are handled in the phase where they naturally arise (retro, housekeeping, story selection, plan review), with the best context and the right mindset.
+
+Plan → plan review → execution mode recommendation
+  → Plan reviewer recommends solo/subagent/team based on parallelizability
+
+Work (commit-gated review cycle)
+  → Red → green → commit (gated: simplify → quality review → security triage)
+
+Accept (/xp-accept, gated at Stop)
+  → Verify acceptance criteria for in-progress stories
+  → Run e2e tests defined in criteria
+  → Mark stories done or deferred in sprint.md
+  → In team mode: PR review → merge → integrated e2e
+  → Sets accept marker
+
+Stop
+  → Accept gate: in-progress stories require /xp-accept before stopping
+  → TDD gate: tests must pass
+```
+
+### Sprint End (All Stories Done or Deferred)
+
+```
+Sprint review (/xp-sprint-review)
+  → What shipped vs what was planned (reads sprint.md)
+  → Stories completed, deferred, or added mid-sprint
+  → Updates product_spec.md: delivered features marked [delivered: sprint-XXX]
+  → Writes sprint end event to events.jsonl (velocity stats)
+
+Sprint retro (/xp-sprint-retro)
+  → Patterns across all iterations in the sprint
+  → Velocity: stories planned vs delivered
+  → Were T-shirt sizes accurate?
+  → Did the planning game produce right-sized stories?
+  → Process improvements for next sprint
+
+Prepare next sprint
+  → Deferred stories carry forward (remain in product_spec.md as [planned])
+  → /xp-sprint-start reads updated product_spec.md for next sprint
+```
+
+### Failed Stories
+
+A story that fails acceptance goes back to `ready` with failure notes. If time allows, retry in the current iteration. Otherwise it carries to the next iteration. A story that couldn't be completed in its iteration was sized wrong — it should have been split during planning. The sprint retro should flag this for future sizing calibration.
+
+### What Persists Across Sessions
+
+| What | Where | Purpose |
+|---|---|---|
+| Product requirements | `product_spec.md` | Full product vision with feature status — feeds sprint planning |
+| Sprint goal + stories | `sprint.md` | Current sprint backlog with status, acceptance criteria, priority |
+| Velocity data | SMM (`sprint` end event) | Stories planned vs delivered, for future sizing |
+| Constraints, risks, wisdom | SMM (curated four-pillar view) | Accumulated project knowledge |
+| Session retros | SMM (retrospective events + files) | Trend analysis for sprint retro |
+
+### Planning Hierarchy
+
+| Level | When | Produces | Granularity | Persists? |
+|---|---|---|---|---|
+| **Product spec** | Project start | Features with requirements, priorities | Product-level | Yes — `product_spec.md` |
+| **Sprint planning** | Sprint start | User stories with acceptance criteria, T-shirt sizes, priority order | Customer-meaningful | Yes — `sprint.md` |
+| **Iteration planning** | Each session | Tasks with file domains, TDD ordering, parallelization analysis | Implementation-level | No — ephemeral to session |
+
+Product spec answers: **what** is the full product vision?
+Sprint planning answers: **which** features are we building now and **how do we know they're done?**
+Iteration planning answers: **how** do we build it and **who** does what?
+
+Three levels of persistence:
+- **`product_spec.md`** — full product requirements with delivery status. Persists across sprints.
+- **`sprint.md`** — current sprint's stories with acceptance criteria and status. Persists across sessions within a sprint.
+- **Platform task list** — `~/.claude/tasks/{team-name}/`. Ephemeral, per-team.
+
+The `/xp-spawn-team` skill bridges sprint.md and the platform: it reads stories and creates platform tasks. The lead closes the loop during Accept by verifying acceptance criteria and updating story status in sprint.md.
 
 ---
 
@@ -28,31 +147,38 @@ An iteration is one complete cycle within a session. Every session follows this 
 ### Solo Iteration
 
 ```
-1. Kickoff
-   → Retro (what happened last session)
-   → Goals (what are we doing this session)
-   → Housekeeping (curate SMM)
+1. Kickoff (/xp-kickoff, gated at UserPromptSubmit)
+   → Retro (reflect before planning)
+   → Product spec + sprint checks
+   → Housekeeping with Sprint pillar
+   → Story selection: pick stories, mark in-progress
+   → Clear accept marker
 
-2. Plan
-   → Decompose work into steps
+2. Plan (gated at PreToolUse:Write until reviewed)
+   → Decompose selected stories into steps
    → Plan review:
      - Quality: right-sized? TDD-ordered? Dependencies correct?
      - Acceptance criteria: what e2e tests prove this works?
      - Execution mode: solo, subagents, or Agent Team?
      - Parallelization: which items can run concurrently? Non-overlapping domains?
 
-3. Work (repeat per unit of work)
-   → Red: write failing test
+3. Work (commit-gated review cycle at PreToolUse:Bash)
+   → Red: write failing test (PreToolUse:Write nudges test-first ordering)
    → Green: make it pass
-   → Simplify: refactor (three review subagents run)
-   → Quality review: courage + drift + debt (triggered when simplify subagents complete)
-   → Security triage → commit
+   → Commit: PreToolUse:Bash gates on code file threshold:
+       Below threshold → security triage only → commit
+       At/above threshold → review cycle:
+         /simplify → /xp-quality-review → /xp-security-triage → commit
+       Review cycle marker resets after commit
 
-4. Accept
-   → Run e2e tests defined in plan
-   → Verify acceptance criteria
+4. Accept (/xp-accept, gated at Stop)
+   → Verify acceptance criteria for in-progress stories
+   → Run e2e tests defined in criteria
+   → Mark stories done or deferred in sprint.md
 
-5. Stop
+5. Stop (gated: accept + TDD)
+   → Accept gate: blocks if in-progress stories without /xp-accept
+   → TDD gate: blocks if tests failing
    → Session end
 ```
 
@@ -67,7 +193,7 @@ When the plan review recommends Agent Teams (cleanly separable domains, genuinel
 2. Plan
    → Same as solo, but plan review also identifies:
      - Parallel groups with non-overlapping file domains
-     - Acceptance criteria per backlog item AND for the integrated result
+     - Acceptance criteria per user story AND for the integrated result
 
 3. Spawn
    → Lead runs /xp-spawn-team
@@ -75,25 +201,31 @@ When the plan review recommends Agent Teams (cleanly separable domains, genuinel
    → Lead creates Agent Team with tasks
 
 4. Work (each teammate, in parallel)
-   → Red → green → simplify → quality review → security triage → commit
+   → Same commit-gated review cycle as solo (PreToolUse:Bash enforces)
    → Each teammate works within their assigned file domain
    → .coordination.json enforces domain boundaries
 
-5. Accept
+5. Accept (/xp-accept, gated at Stop)
    → Lead waits for all teammates to complete
-   → If worktrees: PR review → merge for each teammate's work
-   → If shared checkout: review commits
+   → If worktrees:
+       1. Teammate sends message to lead: "PR #N ready for review"
+       2. Lead delegates PR review to a review subagent (preserves lead context)
+       3. Lead merges via `gh pr merge`; if merge fails, lead resolves conflicts
+       4. Short-lived worktrees rarely conflict; accept that risk
+   → If shared checkout: review commits post-hoc or via TaskCompleted hook
    → Run e2e tests against the integrated result
-   → Verify acceptance criteria from the plan
+   → Verify acceptance criteria for each story
+   → Mark stories done or deferred in sprint.md
 
-6. Stop
-   → Session end
+6. Stop (gated: accept + TDD)
+   → Same gates as solo
 ```
 
 ### Key Design Points
 
 - **Simplify IS the refactor step** in red/green/refactor. It's not a separate ceremony — it's the third beat of TDD.
-- **Quality review triggers when simplify subagents complete** (detected via SubagentStop), not at Stop time. It checks courage (did you fix what simplify found?), drift (are you following SMM constraints?), and debt (are you creating new debt?).
+- **Review cycle is commit-gated, not stop-gated.** When code file count since last review reaches threshold (3+), PreToolUse:Bash blocks the commit until all three reviews complete in sequence: simplify → quality review → security triage. This prevents skipping reviews and works identically for solo agents and teammates.
+- **Quality review applies courage.** After simplify recommends changes, quality review checks: did the agent actually implement them? Did they take shortcuts? Are they drifting from SMM constraints? This is valuable for both solo and teammate work.
 - **Acceptance is distinct from quality review.** Quality review checks code quality during work. Accept checks that the feature actually works end-to-end after all work is done.
 - **In team mode, accept is the synchronization point.** Individual teammates verify their own unit tests, but only the lead can run e2e tests against the integrated result.
 
@@ -141,8 +273,8 @@ Provides persistence, ceremonies, and XP enforcement:
 | Component | What it does |
 |---|---|
 | **SMM** | Sprint state persists across sessions even when teams are ephemeral |
-| **Sprint entity** | Groups backlog items with a goal, tracks progress across sessions |
-| **Backlog items** | Event type with acceptance criteria, dependencies, status |
+| **Sprint entity** | Groups user stories with a goal, tracks progress across sessions |
+| **User stories** | Event type with acceptance criteria, dependencies, status |
 | **Ceremonies** | Sprint start, planning game, review, retrospective — orchestrated by lead |
 | **Hook enforcement** | TDD, lint, conflicts, security, simplify — applies to every teammate automatically |
 | **Behavioral guide** | XP values injected into every teammate via SubagentStart |
@@ -186,7 +318,7 @@ The lead is the customer proxy. When a teammate raises a blocking question:
 
 Teammates **write code**:
 
-- Claim an unblocked backlog item from the task list
+- Claim an unblocked user story from the task list
 - Execute with full xp-agents hook enforcement (TDD, lint, conflicts, security)
 - Small, frequent commits
 - Create PR when item is complete (worktree mode) or commit directly (shared checkout)
@@ -218,6 +350,12 @@ Teammates don't inherit the lead's conversation history. Whatever context the le
 ### Keep the Lead Coordinating, Not Implementing
 
 The lead should delegate, not implement. Use delegate mode if needed. The lead's job is: spawn team, monitor progress, review work, handle questions, merge changes.
+
+The lead's context window fills fast. Key mitigations:
+- **PR reviews → subagent** — lead spawns a review subagent for each PR, gets back a summary. Accept batching (all PRs reviewed at once during Accept) further reduces overhead.
+- **Periodic compaction** — lead's context compacts naturally. PostCompact reinjects SMM + sprint status.
+- **Lean on the task list** — task states are on disk (`~/.claude/tasks/{team-name}/`), not in context. Lead reads them when needed.
+- **Limit broadcast messages** — teammates message lead only for blockers, not status updates. Status is in the SMM.
 
 ### Stay Engaged
 
@@ -290,90 +428,27 @@ SubagentStart automatically injects the full curated SMM + behavioral guide on t
 
 ---
 
-## Sprint Lifecycle
-
-### Sprint = N Sessions
-
-A sprint is a unit of deliverable work. A session is a unit of compute time. Most sprints span multiple sessions. The sprint persists in the SMM; the Agent Team is recreated each session.
-
-```
-Sprint Start (Session K)
-│
-├─ 1. Retrospective (session retro from K-1, sprint retro if sprint boundary)
-├─ 2. Sprint Goal — "what are we delivering?"
-├─ 3. Spec Gathering — questions, constraints, acceptance criteria
-├─ 4. Planning Game — decompose into backlog items with dependencies
-├─ 5. Backlog items written to SMM
-│
-Sprint Execution (Sessions K through K+N)
-│
-├─ 6. Lead reads sprint backlog from SMM
-├─ 7. Plan reviewer recommends execution mode (solo/subagent/team)
-├─ 8. If team: lead runs /xp-spawn-team, creates team with tasks
-├─ 9. Teammates self-claim unblocked items, execute
-├─ 10. Lead reviews work, merges, unblocks dependent items
-├─ 11. Session ends — sprint state persists in SMM
-├─ 12. Next session: recreate team, continue from remaining backlog
-│
-Sprint End (Session K+N, all items done or deferred)
-│
-├─ 13. Sprint Review — what shipped vs what was planned
-├─ 14. Sprint Retrospective — patterns across the sprint, broader than session retro
-├─ 15. Prepare Next Sprint — carry forward, update backlog
-```
-
-### Session Lifecycle Within a Sprint
-
-```
-Session start
-  → SessionStart hook: init SMM, write .needs-kickoff
-  → retrospective.py: prepare retro data
-
-/xp-kickoff (lead runs this)
-  → Session retro (what happened since last session)
-  → Sprint status check:
-      If no active sprint → start new sprint (goal → specs → planning game)
-      If mid-sprint → read remaining backlog, show progress
-  → Housekeeping (curate SMM)
-
-Plan review
-  → Lead creates plan for next chunk of work
-  → Plan reviewer reviews, recommends execution mode
-  → If team recommended → lead runs /xp-spawn-team
-
-Team execution (if applicable)
-  → Lead creates team with structured tasks from /xp-spawn-team output
-  → SubagentStart hook injects SMM + behavioral guide to each teammate
-  → All existing hooks enforce quality on teammate work
-  → Teammates work, commit, create PRs (worktree) or commit directly (shared checkout)
-  → Lead reviews, merges, handles questions
-  → TaskCompleted hook updates backlog_item status in SMM
-
-Session end
-  → session_end.py captures sprint progress
-  → Sprint state persists in SMM for next session
-```
-
----
-
 ## XP Practices Mapped to Agent Teams
 
-### Planning Game
+### Planning Game (Two Levels)
 
-| XP Concept | Agent Teams Mechanism |
+**Sprint planning** (once per sprint):
+
+| XP Concept | Mechanism |
 |---|---|
-| Customer sets priorities | Lead collects sprint goal, gathers specs via `AskUserQuestion` |
-| Stories decomposed into tasks | Planning game produces `backlog_item` events with acceptance criteria |
-| Estimates | Backlog items sized during planning (small/medium/large) |
-| Dependencies identified | `backlog_item.dependencies` field, maps to Agent Teams task dependencies |
-| Developer picks next task | Teammate self-claims from shared task list |
+| Customer sets priorities | Lead collects sprint goal via `AskUserQuestion` |
+| Stories with acceptance criteria | Lead decomposes goal into user stories with e2e test definitions |
+| Estimates | T-shirt sizing: S/M/L/XL. XL stories must be split. |
+| Dependencies identified | Story dependencies determine iteration ordering |
 
-The planning game is a lead-driven ceremony. The lead:
-1. Takes the sprint goal
-2. Gathers specs (questions to customer, reads existing code/docs)
-3. Decomposes into backlog items with acceptance criteria and dependencies
-4. Writes items to SMM as `backlog_item` events
-5. Plan reviewer validates: right-sized? TDD-ordered? Dependencies correct? Parallelizable?
+**Iteration planning** (each session):
+
+| XP Concept | Mechanism |
+|---|---|
+| Pick next stories | Lead selects by priority from backlog — must fit one iteration |
+| Decompose into tasks | Plan mode produces implementation steps with file domains |
+| Plan review | Quality + acceptance criteria + execution mode + parallelization |
+| Developer picks task | In team mode, teammates self-claim from shared task list |
 
 ### Small Releases
 
@@ -383,7 +458,7 @@ The planning game is a lead-driven ceremony. The lead:
 | Integration | Worktree mode: per-item PRs. Shared checkout: direct commits to branch |
 | Working software | Each merged PR / committed item is a working increment |
 
-Merge strategy: **per-item, not per-sprint**. Each completed backlog item produces a deliverable. Lead reviews and merges. This:
+Merge strategy: **per-story, not per-sprint**. Each completed user story produces a deliverable. Lead reviews and merges. This:
 - Unblocks dependent items sooner
 - Keeps merge conflicts small
 - Gives the lead incremental verification points
@@ -415,7 +490,14 @@ Traditional pair programming doesn't map to Agent Teams (teammates work independ
 | Shared understanding | SMM injected into every teammate via SubagentStart |
 | Conflict prevention | `.coordination.json` tracks working_on across teammates |
 
-The SMM is the mechanism for collective ownership. Every teammate gets the curated SMM + behavioral guide at spawn via SubagentStart. **Limitation:** Prompt nuggets don't work for teammates (UserPromptSubmit doesn't fire). Mid-session discoveries propagate via direct messaging or the shared event log.
+The SMM is the mechanism for collective ownership. Every teammate gets the curated SMM + behavioral guide at spawn via SubagentStart.
+
+**Cross-teammate communication** uses native Agent Teams messaging primitives (`message` for direct, `broadcast` for all). No custom communication hooks needed:
+- **Routine discoveries** — teammate records a `concern` event in the SMM for persistence. No interruption.
+- **Urgent breaking changes** — teammate messages the lead. Lead decides whether to broadcast to affected teammates.
+- **Dependency unblocking** — handled automatically by the platform's task dependency system.
+
+Prompt nuggets don't fire for teammates (UserPromptSubmit is lead-only), so mid-session SMM updates aren't visible to running teammates. This is fine — urgent items go through messaging, non-urgent items are in the SMM for the next iteration. The teammate behavioral guide should say: "If you discover something that affects other teammates' work, message the lead immediately."
 
 ### Continuous Integration
 
@@ -433,6 +515,9 @@ The SMM is the mechanism for collective ownership. Every teammate gets the curat
 | Customer sets priorities | Sprint goal and spec gathering at sprint start |
 | Quick answers | Lead as customer proxy for questions answerable from specs |
 | Escalation | Lead escalates genuinely new questions to human |
+| Availability gaps | Judgment call on impact — low-impact: record assumption, validate at retro. High-impact: `AskUserQuestion` (blocks, but avoids train wrecks). |
+
+Caution: assumptions that make it into code tend to auto-resolve (the resolution mechanism marks them done), so they never get revisited. The session retro must actively surface unvalidated assumptions to prevent silent drift.
 
 ### Retrospective
 
@@ -444,8 +529,8 @@ The SMM is the mechanism for collective ownership. Every teammate gets the curat
 | Process improvement | Try items become behavioral experiments for next sprint |
 
 Two levels of retrospective:
-- **Session retro** (existing): tactical, what happened since last session
-- **Sprint retro** (new): strategic, patterns across the sprint. Did we deliver the sprint goal? What slowed us down? Were estimates accurate? Did the planning game produce right-sized items?
+- **Session retro** (existing `/xp-run-retrospective`): tactical, what happened since last session
+- **Sprint retro** (new `/xp-sprint-retro` skill): strategic, patterns across the sprint. Analyzes all session retros from the sprint, sprint velocity (items_planned vs items_delivered vs items_carried), user story completion times, and which stories were reassigned or failed. Did we deliver the sprint goal? What slowed us down? Were estimates accurate? Did the planning game produce right-sized items?
 
 ### Sustainable Pace
 
@@ -463,7 +548,7 @@ Sprint 1 has no velocity history — estimate-free, measure what gets done. Spri
 
 ### `sprint`
 
-Marks sprint boundaries. Written by lead at sprint start and end.
+Marks sprint boundaries in the event log. Written by lead at sprint start and end. These are lightweight markers for retro analysis and compaction rules — the full sprint state lives in `sprint.md`.
 
 ```json
 {
@@ -480,67 +565,28 @@ Marks sprint boundaries. Written by lead at sprint start and end.
 ```json
 {
   "type": "sprint",
-  "content": "Sprint complete: 8/10 items delivered",
+  "content": "Sprint complete: 8/10 stories delivered",
   "metadata": {
     "sprint_id": "sprint-001",
     "action": "end",
-    "items_planned": 10,
-    "items_delivered": 8,
-    "items_carried": 2
+    "stories_planned": 10,
+    "stories_delivered": 8,
+    "stories_carried": 2
   }
 }
 ```
 
-### `backlog_item`
+Note: user stories are NOT event types — they live in `sprint.md`, not `events.jsonl`. The event log tracks sprint boundaries for retro analysis; the sprint file tracks the full backlog.
 
-A unit of work in the sprint backlog. Written by lead during planning game.
+### Goal Completion
 
-```json
-{
-  "type": "backlog_item",
-  "content": "Implement JWT authentication middleware",
-  "metadata": {
-    "sprint_id": "sprint-001",
-    "item_id": "item-001",
-    "acceptance_criteria": [
-      "JWT tokens validated on protected routes",
-      "Invalid tokens return 401",
-      "Token refresh endpoint works",
-      "Tests cover all three scenarios"
-    ],
-    "dependencies": [],
-    "size": "medium",
-    "status": "ready",
-    "file_domain": ["src/middleware/auth/", "tests/middleware/auth/"]
-  }
-}
-```
+In 1.0, goal completion flows through the user — housekeeping asks "are any of these done?" For Agent Teams, the lead manages story lifecycle directly:
 
-The `file_domain` field is new — it declares which files/directories a backlog item owns. Used by `/xp-spawn-team` to verify non-overlapping assignments and by `.coordination.json` to enforce domain boundaries.
+- **User stories** have acceptance criteria defined in `sprint.md`. During Accept, the lead verifies criteria are met (runs e2e tests, reviews PRs) and updates story status directly in `sprint.md`.
+- **Sprint goals** are complete when all stories in `sprint.md` are done or deferred. The lead writes the `sprint` end event and `/xp-sprint-review` updates `product_spec.md`.
+- **Session goals** are resolved by agents mid-session when the work ships. In sprint mode, story selection replaces per-session goal collection.
 
-### Agent-Driven Goal Completion
-
-In 1.0, goal completion flows through the user — housekeeping asks "are any of these done?" For Agent Teams, agents need to close goals and backlog items autonomously:
-
-- **Backlog items** have acceptance criteria from the planning game. When a teammate meets all criteria, it records a resolution event with `metadata.resolves` pointing to the backlog item. The `TaskCompleted` hook verifies criteria before allowing completion.
-- **Sprint goals** are resolved by the lead when all backlog items are done (or remaining items are deferred). The lead writes the `sprint` end event.
-- **Session goals** (from `/xp-goal-collection`) are resolved by agents mid-session when the work ships.
-
-Status lifecycle: `ready` → `in-progress` → `done` | `deferred`
-
-Status updates are new events with `metadata.resolves` pointing to the original:
-
-```json
-{
-  "type": "backlog_item",
-  "content": "Completed: JWT authentication middleware",
-  "metadata": {
-    "item_id": "item-001",
-    "status": "done",
-    "resolves": ["<original-event-id>"]
-  }
-}
-```
+Story status lifecycle in `sprint.md`: `ready` → `in-progress` → `done` | `deferred`
 
 ---
 
@@ -566,20 +612,20 @@ Empirical testing confirmed that teammates are independent claude processes that
 ### What This Means for xp-agents
 
 **Hooks that work for teammates unchanged:**
-- PreToolUse (Write/Edit/Bash) — conflict detection, TDD order, security triage gate
-- PostToolUse (Write/Edit/Bash) — status tracking, lint, commit parsing, simplify nudge
+- PreToolUse (Write/Edit/Bash) — conflict detection, TDD order, commit-gated review cycle (simplify → quality review → security triage)
+- PostToolUse (Write/Edit/Bash) — status tracking, lint, commit parsing
 - SubagentStart — SMM + behavioral guide injection (teammates appear here with their agent_type)
-- SubagentStop — completion recording
+- SubagentStop — review step completion tracking
 
 **Hooks that DON'T fire for teammates (lead-only):**
-- Stop — simplify gate, quality review gate, TDD stop gate don't apply to teammates
+- Stop — no longer used for review gates (moved to PreToolUse:Bash). TDD enforcement at stop time is lead-only.
 - SessionStart — no kickoff marker, no retro prep for teammates
 - SessionEnd — no session_end event for teammates
 - UserPromptSubmit — no customer_input logging, no kickoff gate, no prompt nuggets
 
 **New hooks needed for teammates:**
-- TeammateIdle — equivalent of Stop gates (TDD, simplify enforcement)
-- TaskCompleted — verify acceptance criteria before marking done
+- TeammateIdle — TDD enforcement (tests must pass before going idle)
+- TaskCompleted — TDD enforcement (tests must pass before task marked complete)
 
 ### Teammate Detection
 
@@ -628,18 +674,94 @@ def is_teammate_event(input_data: dict) -> bool:
 | `user_prompt_log.py` | UserPromptSubmit | Teammates don't trigger UserPromptSubmit — no false customer_input |
 | `prompt_nugget.py` | UserPromptSubmit | Teammates don't get nuggets (lead-only), but they DO get SMM via SubagentStart |
 
-### Stop Gate Equivalents for Teammates
+### Commit-Gated Review Cycle
 
-Stop doesn't fire for teammates. We need equivalent enforcement via TeammateIdle and TaskCompleted:
+Simplify, quality review, and security triage are enforced at **commit time via PreToolUse:Bash**, not at Stop/TeammateIdle. This ensures no commits are missed and works identically for solo agents and teammates.
 
-| Gate | Teammate behavior | Rationale |
+**Marker file: `.review-cycle-{agent_id}.json`**
+
+```json
+{
+  "last_review_commit": "abc123def",
+  "simplify_done": false,
+  "quality_review_done": false,
+  "security_review_done": false
+}
+```
+
+Stored in the SMM directory. Follows the existing `.simplify-{agent_id}.json` tracker pattern. One file per agent.
+
+**PreToolUse:Bash (git commit) — gate logic:**
+
+```python
+marker = load_review_marker(smm_dir, agent_id)
+
+# Use git to count code files since last review
+staged = git_diff("--cached", "--name-only")
+since_review = git_diff("--name-only", f"{marker['last_review_commit']}..HEAD")
+code_files = [f for f in set(staged + since_review) if is_code_file(f)]
+
+if len(code_files) >= threshold:
+    if not marker["simplify_done"]:
+        block("Run /simplify first")
+    elif not marker["quality_review_done"]:
+        block("Run /xp-quality-review first")
+    elif not marker["security_review_done"]:
+        block("Run /xp-security-triage first")
+    # All done → allow commit
+elif not marker["security_review_done"]:
+    block("Run /xp-security-triage first")
+# Otherwise → allow commit
+```
+
+The `elif` chain enforces strict ordering: simplify before quality review, quality review before security triage.
+
+**PostToolUse:Bash (git commit) — bookkeeping:**
+
+After the commit succeeds, update the marker with the new commit hash and reset all flags:
+
+```python
+new_hash = git_rev_parse("HEAD")
+update_marker(smm_dir, agent_id, {
+    "last_review_commit": new_hash,
+    "simplify_done": False,
+    "quality_review_done": False,
+    "security_review_done": False,
+})
+```
+
+**Who sets the flags:**
+
+| Step | Completion signal | Sets flag |
 |---|---|---|
-| TDD (tests pass) | **Enforce** via TeammateIdle + TaskCompleted | Non-negotiable — broken tests block everyone |
-| Simplify | **Enforce** via TeammateIdle | Teammates should clean up their own code |
-| Quality review | **Skip** — lead reviews instead | Lead has cross-cutting perspective. Teammate-level review doubles cost. |
-| Security triage | **Enforce** via existing PreToolUse:Bash | Already works — teammate must triage before committing |
+| Simplify | SubagentStop (simplify subagents complete) | `simplify_done: true` |
+| Quality review | SubagentStop (quality review subagent completes) | `quality_review_done: true` |
+| Security triage | Triage skill/hook completes | `security_review_done: true` |
 
-TeammateIdle and TaskCompleted use exit 2 + stderr to block (not `decision: "block"` JSON). They do NOT support matchers — handlers must do their own filtering.
+**Review cycle flow:**
+
+```
+Agent tries to commit (threshold met)
+  → BLOCKED: "Run /simplify"
+  → agent runs /simplify → implements recs → tries to commit
+  → BLOCKED: "Run /xp-quality-review"
+  → agent runs quality review → implements recs → tries to commit
+  → BLOCKED: "Run /xp-security-triage"
+  → agent runs security triage → tries to commit
+  → ALLOWED → PostToolUse:Bash updates marker (new hash, flags reset)
+```
+
+Each review step produces recommendations, the agent implements them, and tries to commit again — hitting the next gate in sequence. No cascade: the `elif` chain enforces strict ordering.
+
+**Same enforcement for solo and teammates:** PreToolUse:Bash fires for all agents. No separate Stop/TeammateIdle logic needed for these gates.
+
+### Remaining TeammateIdle/TaskCompleted Gates
+
+| Gate | Mechanism | Rationale |
+|---|---|---|
+| TDD (tests pass) | TeammateIdle + TaskCompleted | Can't merge broken tests — enforced when teammate signals done |
+
+TeammateIdle and TaskCompleted use exit 2 + stderr to block. They do NOT support matchers — handlers must do their own filtering.
 
 ### Output Mechanism Differences
 
@@ -672,11 +794,31 @@ Current `normalize_path()` uses absolute paths (`os.path.realpath()`). This work
 
 ## Integration Points
 
+### Gate Architecture
+
+All enforcement is deterministic and commit-gated. The full gate chain:
+
+| Hook Event | Gate | Enforcement |
+|---|---|---|
+| **UserPromptSubmit** | Kickoff gate | BLOCK until `/xp-kickoff` completes (product spec → sprint → retro → housekeeping → story selection) |
+| **PreToolUse:Write/Edit** | TDD order | NUDGE: test-first ordering |
+| **PreToolUse:Write/Edit** | Plan review gate | BLOCK until plan reviewed |
+| **PreToolUse:Write/Edit** | Conflict detection | BLOCK if file owned by another agent |
+| **PreToolUse:Bash** (commit) | Review cycle | BLOCK: sequential /simplify → /xp-quality-review → /xp-security-triage (when code file threshold met). Below threshold: security triage only. Reads `.review-cycle-{agent_id}.json` marker. |
+| **PostToolUse:Bash** (commit) | Marker update | Records new commit hash in marker file, resets review cycle flags |
+| **Stop** | Accept gate | BLOCK if stories in-progress in sprint.md and `/xp-accept` hasn't run |
+| **Stop** | TDD gate | BLOCK if tests failing |
+| **TeammateIdle** | TDD gate | BLOCK if tests failing |
+| **TaskCompleted** | TDD gate | BLOCK if tests failing |
+
+Every phase of the iteration is gated: kickoff (UserPromptSubmit) → plan review (PreToolUse:Write) → review cycle (PreToolUse:Bash) → accept + TDD (Stop). Story selection happens during kickoff; acceptance happens before stop.
+
 ### Existing Hooks (Work for Teammates)
 
-- **PreToolUse/PostToolUse** — conflict detection, TDD order, lint, security triage, commit parsing
+- **PreToolUse** (Write/Edit/Bash) — TDD nudge, conflict detection, plan review gate, commit-gated review cycle
+- **PostToolUse** (Write/Edit/Bash) — status tracking, lint, commit parsing
 - **SubagentStart** — injects curated SMM + behavioral guide at teammate spawn
-- **SubagentStop** — records teammate completion
+- **SubagentStop** — records review step completion (simplify done → quality review done → cycle complete)
 
 ### Existing Hooks (Lead-Only, No Changes Needed)
 
@@ -686,16 +828,18 @@ Current `normalize_path()` uses absolute paths (`os.path.realpath()`). This work
 
 | Hook Event | Script | Purpose |
 |---|---|---|
-| `TaskCompleted` | `task_completed.py` | TDD gate + update `backlog_item` status in SMM |
-| `TeammateIdle` | `teammate_idle.py` | TDD gate + simplify enforcement + check remaining work |
+| `TaskCompleted` | `task_completed.py` | TDD gate (tests must pass before task can complete) |
+| `TeammateIdle` | `teammate_idle.py` | TDD gate + check remaining work |
 
 ### Lead-Specific Skills
 
 | Skill | Purpose |
 |---|---|
-| `/xp-sprint-start` | Sprint goal, spec gathering, planning game, backlog creation |
+| `/xp-product-spec` | Create or refine `product_spec.md` — conversation with customer to build full requirements. Can ingest existing docs (PRDs, issues). |
+| `/xp-sprint-start` | Read `product_spec.md` → select features → decompose into stories → write `sprint.md` |
 | `/xp-spawn-team` | Read plan, analyze file domains, structure tasks, instruct lead to create team |
-| `/xp-sprint-review` | Compare delivered items against sprint goal, summarize |
+| `/xp-accept` | Verify acceptance criteria for in-progress stories, run e2e tests, update `sprint.md`. Gated at Stop. |
+| `/xp-sprint-review` | Compare delivered stories against sprint goal, update `product_spec.md` with delivered features |
 | `/xp-sprint-retro` | Cross-session retrospective for the sprint |
 
 ### Teammate Behavioral Guide
@@ -711,24 +855,47 @@ The SubagentStart detection approach is cleanest — it's already the injection 
 Teammate guide should include:
 - **DO:** Claim tasks, write tests first, commit frequently, record decisions/assumptions/concerns, stay within assigned file domain
 - **DON'T:** Run kickoff, do housekeeping, set goals, run retrospectives
-- **SKIP:** EnterPlanMode (built-in plan approval handles this), /xp-quality-review (lead reviews instead)
-- **KEEP:** /simplify after commits, /xp-security-triage before commits, TDD discipline, concern recording
+- **SKIP:** EnterPlanMode (built-in plan approval handles this)
+- **KEEP:** TDD discipline, concern recording. Commit-gated reviews (/simplify, /xp-quality-review, /xp-security-triage) are enforced automatically via PreToolUse:Bash — teammates cannot skip them.
 
 ---
 
 ## SMM Changes
 
+### Three-File Architecture
+
+Sprint and product state live in dedicated files, not the event log. This keeps the curated SMM lightweight — subagents that don't need sprint details (simplify, lint) aren't burdened with them.
+
+```
+smm/
+├── events.jsonl              ← organic signals (status, concerns, decisions, sprint boundary markers)
+├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view (lightweight summary)
+├── product_spec.md           ← full product requirements with delivery status
+└── sprint.md                 ← current sprint: goal, stories with acceptance criteria and status
+```
+
+### Context Injection by Role
+
+| Agent | Gets |
+|---|---|
+| Simplify/lint subagents | SMM only |
+| Plan reviewer | SMM + sprint.md (needs story context to validate plan) |
+| Teammates | SMM + their assigned stories from sprint.md |
+| Retrospective | SMM + sprint.md (for velocity analysis) |
+| Lead | Everything |
+
 ### Sprint-Aware Curated View
 
-The curated `SHARED_MENTAL_MODEL.md` gains a sprint section:
+The curated `SHARED_MENTAL_MODEL.md` gains a Sprint pillar with a **summary**, not the full backlog:
 
 ```markdown
 # Shared Mental Model
 
 ## Sprint
 - Goal: Build user management REST API with auth
-- Progress: 5/10 items done, 2 in-progress, 3 ready
+- Progress: 5/10 stories done, 2 in-progress, 3 ready
 - Blockers: Token refresh depends on auth middleware (in-progress)
+- Details: see sprint.md
 
 ## Intent
 ...
@@ -743,13 +910,115 @@ The curated `SHARED_MENTAL_MODEL.md` gains a sprint section:
 ...
 ```
 
-### Sprint State Persistence
+### Housekeeping Sprint Curation
 
-Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. This means:
-- Survives session boundaries (Agent Teams don't)
-- Visible to all agents via SubagentStart context injection
-- Curated by housekeeping like any other event type
-- Compacted carefully — active sprint events are never compacted
+Housekeeping curates the Sprint pillar by:
+- Reading `sprint.md` (not the event log)
+- Computing progress: N done, N in-progress, N ready, N blocked
+- Identifying blockers (stories with unmet dependencies)
+- Writing a summary to the Sprint section of curated SMM
+
+### Compaction Rules for Sprint Events
+
+Sprint boundary events in `events.jsonl`:
+- `sprint` with `action: "start"` — retain while sprint is active
+- `sprint` with `action: "end"` — retain for 1 sprint (velocity data for next planning)
+
+User stories are no longer in the event log — no compaction rules needed for them.
+
+### File Lifecycle
+
+| File | Created by | Updated by | Lifecycle |
+|---|---|---|---|
+| `product_spec.md` | `/xp-product-spec` | `/xp-product-spec` (new features), `/xp-sprint-review` (marks delivered) | Persists across sprints, grows over project lifetime |
+| `sprint.md` | `/xp-sprint-start` | Lead (story status during Accept) | Rewritten at each sprint start, deferred stories carry forward |
+
+### `product_spec.md` Format
+
+```markdown
+# Product Spec: User Management System
+
+## Overview
+A REST API for user management with authentication, authorization,
+and admin capabilities.
+
+## Features
+
+### User Registration [delivered: sprint-001]
+- Users can register with email and password
+- Passwords stored securely (bcrypt)
+- Duplicate emails rejected
+- Email validation on registration
+
+### JWT Authentication [delivered: sprint-001]
+- Login returns JWT access + refresh tokens
+- Protected routes validate tokens
+- Token refresh endpoint
+- Logout invalidates tokens
+
+### Role-Based Access Control [planned]
+- Admin and user roles
+- Role assignment by admins
+- Route-level role enforcement
+- Default role on registration
+
+### SSO Integration [planned]
+- Support Google OAuth
+- Support GitHub OAuth
+- Link SSO accounts to existing users
+- Auto-provisioning for new SSO users
+
+## Technical Constraints
+- Python 3.10+, FastAPI
+- PostgreSQL for storage
+
+## Non-Functional Requirements
+- < 100ms response time for auth endpoints
+- Rate limiting on login (5 attempts/minute)
+```
+
+Feature status markers: `[planned]`, `[delivered: sprint-XXX]`. `/xp-sprint-start` filters on `[planned]` to know what's left to build. New features added via `/xp-product-spec` always enter as `[planned]`.
+
+### `sprint.md` Format
+
+```markdown
+# Sprint: Build user management REST API with auth
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-26
+
+## Stories
+
+### story-001: As a user I can register with email/password
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+- **Acceptance Criteria:**
+  - POST /register creates user with hashed password
+  - Duplicate email returns 409
+  - E2E: register → verify user exists in DB
+
+### story-002: As a user I can authenticate with JWT tokens
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** story-001
+- **Acceptance Criteria:**
+  - JWT tokens validated on protected routes
+  - Invalid tokens return 401
+  - Token refresh endpoint works
+  - E2E: register → login → access protected route → verify token
+
+### story-003: As an admin I can list all users
+- **Size:** S
+- **Status:** ready
+- **Dependencies:** story-001
+- **Acceptance Criteria:**
+  - GET /admin/users returns paginated list
+  - Requires admin role
+  - E2E: create users → list → verify count
+```
+
+Priority is implicit by order — first story = highest priority. Story status: `ready` → `in-progress` → `done` | `deferred`. The lead updates status during Accept after verifying acceptance criteria.
 
 ---
 
@@ -791,177 +1060,6 @@ Sprint state lives in the SMM event log as `sprint` and `backlog_item` events. T
 
 ---
 
-## Open Questions
-
-### Resolved
-
-| # | Question | Answer |
-|---|---|---|
-| 1 | Stop event scope | Stop does NOT fire for teammates. Need TeammateIdle equivalents. |
-| 2 | SessionStart scope | Does NOT fire for teammates. No guards needed. |
-| 3 | UserPromptSubmit scope | Does NOT fire for teammates, even when messaging them directly. |
-| 4 | Plugin hooks on teammates | YES — PreToolUse and PostToolUse fire for teammates. |
-| 5 | Teammate agent_type | Custom teammate name (e.g., "agent-updater"). Appears in SubagentStart/SubagentStop. |
-| 6 | Teammate skill invocation | Skills load for teammates (docs confirmed). |
-| 7 | Team size heuristics | 3-5 teammates, 5-6 tasks each. Token cost scales linearly (~3-4x for 3 teammates). |
-| 10 | Integration order | Per-item merges. Lead reviews and merges. Worktrees produce PRs; shared checkout uses direct commits. |
-| 11 | Teammate specialization | Domain-based, not role-based. Frontend agent, backend agent, etc. Clean file domain separation. |
-| 16 | Worktree isolation | Available via prompt to lead, not via agent frontmatter. Prompt-driven, not enforced. |
-
-### Still Open (Resolve During Implementation)
-
-8. **Sprint length.** Explicit (customer sets it) or emergent (sprint ends when backlog is done)?
-
-9. **Failed items.** Deferred to next sprint? Reassigned? Lead takes over?
-
-12. **Sprint review format.** Run acceptance criteria? Show test results? Generate summary?
-
-13. **Lead context management.** Delegate PR reviews to subagent? (Recommendation: yes — preserves lead's context window for coordination.)
-
-14. **Worktree merge conflicts.** Lead resolves, or retry mechanism?
-
-15. **Customer availability.** Queue questions with assumptions, or block?
-
-17. **Simplify threshold on teammates.** Same as main agent (3+ code files) or lower for smaller work items?
-
-18. **Cross-teammate communication.** Prompt nuggets don't work for teammates. Direct messaging for urgent discoveries? Broadcast for breaking changes? Accept async delay for most cases?
-
----
-
-## Underspecified Areas (Needs Design)
-
-### PR and Merge Workflow
-
-The platform has no PR workflow. We need to design the full cycle for worktree mode:
-
-1. **Teammate completes work** — commits in worktree, creates PR via `gh pr create`
-2. **Lead discovers PR is ready** — how? Options:
-   - Teammate sends message to lead: "PR #N ready for review"
-   - `TaskCompleted` hook checks for new PRs
-   - Lead polls periodically
-3. **Lead reviews PR** — reads diff, checks against acceptance criteria and SMM constraints
-   - Could delegate to a review subagent to preserve lead's context
-   - Uses `gh pr review` to approve/request changes
-4. **Merge** — lead merges via `gh pr merge`
-5. **Other teammates rebase** — after merge, teammates in worktrees may need to pull. How?
-   - Lead broadcasts "main updated, rebase your worktree"
-   - Teammates auto-rebase after each task completion
-   - Accept that short-lived worktrees rarely conflict
-
-For shared-checkout mode (no worktrees), the flow is simpler: teammates commit directly, lead reviews commits post-hoc or via TaskCompleted hook.
-
-**Key question:** Should the lead do PR reviews inline (context cost) or delegate to a review subagent (coordination cost)?
-
-### Bootstrap Flow (First Session with Agent Teams)
-
-What happens the very first time someone uses xp-agents with Agent Teams?
-
-1. `/xp-kickoff` runs — seed SMM, first retro (nothing to analyze), goals
-2. User describes what they want to build
-3. Lead runs sprint start — goal setting, spec gathering, planning game
-4. Lead decomposes into backlog items
-5. Plan reviewer reviews plan, recommends team if parallelizable
-6. Lead runs `/xp-spawn-team`, creates team with tasks
-7. Teammates execute
-
-This is the same as the sprint start flow, but without any prior sprint history. The seed SMM provides default constraints and wisdom. The planning game produces the first backlog.
-
-**Key question:** Does the lead need a special "first sprint" skill, or does `/xp-sprint-start` handle this naturally?
-
-### Cross-Teammate Communication
-
-The SMM is the broadcast channel, but prompt nuggets don't fire for teammates (UserPromptSubmit is lead-only). For urgent cross-cutting discoveries:
-
-- **Scenario:** Teammate A discovers a breaking API change — other teammates need to know NOW
-- **Current mechanism:** A records a `concern` event → but no prompt nugget delivery to teammates
-- **Gap:** teammates only see SMM state from SubagentStart (spawn time), not mid-session updates
-
-Options:
-- **Direct messaging:** teammate sends message to affected teammates (platform supports this)
-- **Broadcast:** send to all teammates (platform supports, but expensive)
-- **Accept the async delay:** most discoveries aren't urgent enough to warrant interruption
-- **Hybrid:** concerns with `severity: high` trigger a broadcast via a PostToolUse hook that detects high-severity concern writes and instructs the lead to broadcast
-
-### Velocity and Estimation
-
-Sprint 1 has no velocity history. The planning game produces backlog items with size estimates (small/medium/large) but no data to calibrate against.
-
-- **Sprint 1:** estimate-free. Plan what feels right, measure what actually gets done.
-- **Sprint 2+:** sprint retro reports items_planned vs items_delivered. Lead uses this to size the next sprint.
-- **Long-term:** velocity stabilizes. Lead can predict "we deliver ~8 medium items per sprint."
-
-Mechanism: the `sprint` end event already captures `items_planned`, `items_delivered`, `items_carried`. The sprint retro skill reads these for trend analysis. No new infrastructure needed — just the skills to compute and present the data.
-
-### Lead Context Management
-
-The lead coordinates everything: spawning teammates, reviewing PRs, handling messages, unblocking dependencies. Its context window fills fast.
-
-Options:
-- **Delegate PR reviews to a subagent** — lead spawns a review subagent for each PR, gets back a summary. Keeps detailed diffs out of lead's context.
-- **Periodic compaction** — lead's context compacts naturally. PostCompact reinjects SMM + sprint status.
-- **Lean on the task list** — task states are on disk, not in context. Lead reads them when needed.
-- **Limit broadcast messages** — teammates message lead only for blockers, not status updates. Status is in the SMM.
-
-Recommendation: delegate PR reviews to a subagent. The lead should orchestrate, not deep-read code.
-
-### Backlog Item ↔ Task Mapping
-
-Two systems track work:
-- **SMM event log** — `backlog_item` events with acceptance criteria, dependencies, status. Persists across sessions.
-- **Platform task list** — `~/.claude/tasks/{team-name}/`. Ephemeral, per-team.
-
-The lead must translate: read backlog items from SMM, create platform tasks for the current team. When tasks complete, update backlog item status in SMM.
-
-**Key question:** Is this a skill (`/xp-spawn-team` reads backlog, creates tasks)? Or a hook (`TaskCompleted` updates backlog items)? Likely both — skill creates tasks at spawn, hook updates backlog at completion.
-
-### Compaction Rules for Sprint/Backlog Events
-
-Active sprint events must survive compaction. Rules needed:
-- `sprint` with `action: "start"` — retain while sprint is active
-- `sprint` with `action: "end"` — retain for 1 sprint (like session_end for aging)
-- `backlog_item` with `status: "ready"` or `status: "in-progress"` — retain (active work)
-- `backlog_item` with `status: "done"` or `status: "deferred"` — compact after sprint ends
-
-### Housekeeping Sprint Curation
-
-Housekeeping needs to curate the Sprint pillar:
-- Read active `sprint` and `backlog_item` events
-- Compute progress: N done, N in-progress, N ready, N blocked
-- Identify blockers (items with unmet dependencies)
-- Write Sprint section to curated SMM
-
-### Sprint Retro vs Session Retro
-
-Two retro levels:
-- **Session retro** (existing) — tactical, what happened since last session
-- **Sprint retro** (new) — strategic, patterns across all sessions in the sprint
-
-Sprint retro data:
-- All session retros from the sprint (trend analysis)
-- Sprint velocity: items_planned vs items_delivered vs items_carried
-- Backlog item completion times
-- Which items were reassigned or failed
-
-**Key question:** Is this a separate skill (`/xp-sprint-retro`) or an extension of the existing retro that detects sprint boundaries?
-
-### Lead Kickoff Flow Changes
-
-Current kickoff: retro → questions → goals → housekeeping
-
-For teams, kickoff needs to add sprint awareness:
-1. Session retro (existing)
-2. Question triage (existing)
-3. **Sprint status check** (new):
-   - If no active sprint → start new sprint (goal → specs → planning game → backlog)
-   - If mid-sprint → show remaining backlog, progress summary
-4. Goal collection (existing, but may be replaced by sprint goals)
-5. Housekeeping with Sprint pillar (modified)
-6. **Plan review → execution mode recommendation** (new) — plan reviewer recommends solo/subagent/team
-
-**Key question:** Modify existing `/xp-kickoff` to be sprint-aware, or create a separate `/xp-sprint-kickoff`?
-
----
-
 ## Prerequisites
 
 This design builds on:
@@ -978,12 +1076,12 @@ The 2.0 vision in ARCHITECTURE.md outlines M9 (Backlog & Planning Game), M10 (Re
 
 | ARCHITECTURE.md Vision | This Design |
 |---|---|
-| `backlog_item` event type | Defined with full schema, lifecycle, acceptance criteria, and `file_domain` |
-| Planning game at SessionStart | Sprint-scoped planning game with spec gathering phase |
+| `user_story` event type | Stories live in `sprint.md`, not event log. Richer format with acceptance criteria, sizes, dependencies. |
+| Planning game at SessionStart | Sprint-scoped planning game driven by `product_spec.md` |
 | Plan reviewer validates against backlog | Unchanged — plan reviewer checks items are right-sized, TDD-ordered. Also recommends execution mode (solo/subagent/team). |
-| Burn down rendering | Sprint section in curated SMM with progress summary |
-| Requirements decomposition subagent | Lead-driven spec gathering, can delegate to subagent |
-| Customer confirms priorities once | Sprint goal set once, lead handles tactical decisions |
+| Burn down rendering | Sprint section in curated SMM with progress summary (reads `sprint.md`) |
+| Requirements decomposition subagent | `/xp-product-spec` skill — conversation-driven spec gathering, produces `product_spec.md` |
+| Customer confirms priorities once | Product spec captures full vision; sprint planning selects the next slice |
 
 The key addition: **the sprint as a first-class lifecycle** that wraps the existing session lifecycle, with the team lead as the persistent orchestrator across ephemeral Agent Team instances.
 
@@ -994,11 +1092,11 @@ The key addition: **the sprint as a first-class lifecycle** that wraps the exist
 | Limitation | Impact on Teams | Required Change |
 |---|---|---|
 | **Prompt nuggets don't work for teammates** | Teammates can't see mid-session signals from other agents | Direct messaging or broadcast for urgent items; accept async for rest |
-| **Stop gates don't fire for teammates** | No simplify, quality review, or TDD enforcement at stop time | TeammateIdle and TaskCompleted handlers |
+| **Stop gates don't fire for teammates** | No simplify, quality review, or TDD enforcement at stop time | Simplify/quality/security: commit-gated via PreToolUse:Bash (fires for all agents). TDD: TeammateIdle + TaskCompleted. |
 | **Behavioral guide is solo-focused** | Process section tells teammates to run kickoff, plan mode, etc. | Detect teammate in SubagentStart, inject trimmed guide |
-| **No sprint/backlog event types** | Can't persist sprint state across sessions | Add `sprint` and `backlog_item` to event schema |
-| **Compaction doesn't know about sprint events** | Active sprint events might get compacted | Add retention rules for active sprint/backlog_item events |
-| **Housekeeping doesn't curate Sprint pillar** | No sprint progress in curated SMM | Add Sprint section to housekeeping |
+| **No sprint persistence** | Can't persist sprint state across sessions | Add `sprint.md`, `product_spec.md`, and `sprint` boundary events |
+| **Compaction doesn't know about sprint events** | Sprint boundary events might get compacted | Add retention rules for active `sprint` events |
+| **Housekeeping doesn't curate Sprint pillar** | No sprint progress in curated SMM | Add Sprint section to housekeeping (reads `sprint.md`) |
 | **Kickoff doesn't check sprint status** | Lead needs to know if mid-sprint or starting new | Add sprint status check to kickoff |
 | **Path normalization uses absolute paths** | `.coordination.json` fails across worktrees | Normalize to repo-relative paths |
 | **context:fork doesn't reliably delegate** | Plan reviewer and retro subagents sometimes run inline | v1 issue, still present — fallback instructions mitigate |

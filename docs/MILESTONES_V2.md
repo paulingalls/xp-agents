@@ -1,0 +1,432 @@
+# Milestones: v1.5 → v2.0
+
+## Overview
+
+v1.5 tightens solo enforcement — commit-gated review cycle replaces Stop gates. v2.0 adds sprint lifecycle and Agent Teams support. All work happens on a branch.
+
+The sprint model applies to all work (solo and teams). A solo session may plan a sprint that runs solo, or planning may reveal parallelizable work that warrants a team. The product spec ensures agents have what they need to run autonomously regardless of execution mode.
+
+Migration is additive — no data migration needed. First kickoff with new code moves things forward.
+
+---
+
+## v1.5 — Tighten Solo Enforcement
+
+### M1: Marker Infrastructure + Review Cycle Marker
+
+> **Design ref:** [Commit-Gated Review Cycle](AGENT_TEAMS_DESIGN.md#commit-gated-review-cycle) — marker file format, gate logic, flag lifecycle
+
+Create `markers.py` module consolidating all marker file operations, then add the review cycle marker.
+
+**Consolidate surviving markers:**
+
+| Marker | Currently in | Pattern |
+|---|---|---|
+| `.tdd-{agent_id}.json` | `pre_tool_write.py` | agent-scoped JSON tracker |
+| `.security-triaged` | `security.py` | JSON with timestamp |
+| `.needs-kickoff` | `session_start.py` / `kickoff_gate.py` / `kickoff_done.py` | presence + content gate |
+| `.plan-awaiting-review` | `post_tool_exit_plan.py` / `pre_tool_write.py` / `subagent_stop.py` | presence + content gate |
+
+Note: `.simplify-{agent_id}.json` and `.quality-review-{agent_id}.json` are NOT consolidated — their owning scripts (`simplify_gate.py`, `quality_review_gate.py`) are removed in M3.
+
+Common operations: `path()`, `read()`, `write()` (atomic), `exists()`, `consume()` (read + delete). Currently duplicated across 6+ files.
+
+**Add review cycle marker:**
+
+```json
+{
+  "last_review_commit": "abc123def",
+  "simplify_done": false,
+  "quality_review_done": false,
+  "security_review_done": false
+}
+```
+
+**Not consolidated** (different concerns):
+- `.coordination.json` — real-time multi-agent coordination, different cadence, stays in `coordination.py`
+- `.retro-input.json` — temp data file, not a gate marker
+- `.lint-warned` — one-shot O_EXCL flag, unique pattern
+
+**Depends on:** nothing
+**Changes:** new `scripts/markers.py`, update `pre_tool_write.py`, `security.py`, `session_start.py`, `kickoff_gate.py`, `kickoff_done.py`, `post_tool_exit_plan.py`, `subagent_stop.py` to use `markers.py`, tests. Note: `simplify_gate.py` and `quality_review_gate.py` are NOT consolidated — they're removed in M3.
+
+### M2: Commit-Gated Review Cycle
+
+> **Design ref:** [Commit-Gated Review Cycle](AGENT_TEAMS_DESIGN.md#commit-gated-review-cycle) — PreToolUse:Bash gate logic, PostToolUse:Bash bookkeeping, SubagentStop flag updates; [Gate Architecture](AGENT_TEAMS_DESIGN.md#gate-architecture) — full gate chain; [Key Design Points](AGENT_TEAMS_DESIGN.md#key-design-points) — why commit-gated, not stop-gated
+
+Move simplify, quality review, and security triage enforcement from Stop to commit time.
+
+**Refactor first:**
+- Extract commit detection/parsing from `bash_post_tool.py` into a shared utility (currently duplicates logic with `pre_tool_bash.py` — both call `is_git_commit()` but bash_post_tool also parses commit message, gets committed files). A `CommitInfo` helper or shared `commits.py` module would serve both Pre and Post hooks cleanly.
+- Split `bash_post_tool.py` `run()` (100+ lines, handles commits AND test results AND lint). Extract commit handling into its own function so the review cycle bookkeeping has a clean place to live.
+
+**PreToolUse:Bash (gate):**
+- Detect `git commit` commands (existing `is_git_commit()`)
+- Read review cycle marker
+- Use `git diff --cached --name-only` + `git diff --name-only {last_review_commit}..HEAD` to count code files (existing `is_code_file()`)
+- If threshold met: enforce simplify → quality review → security triage (sequential `elif` chain)
+- If below threshold: enforce security triage only
+
+**PostToolUse:Bash (bookkeeping):**
+- After commit detected: `git rev-parse HEAD` for new hash
+- Update marker: new `last_review_commit`, all flags reset to false
+
+**SubagentStop (flag updates):**
+- Detect simplify subagent completion → set `simplify_done: true`
+- Detect quality review subagent completion → set `quality_review_done: true`
+
+**Security triage completion:**
+- Set `security_review_done: true` in marker
+
+**Depends on:** M1
+**Changes:** new `scripts/commits.py` (or similar), `pre_tool_bash.py`, `bash_post_tool.py`, `subagent_stop.py`, `security_review_done.py`, hooks.json, tests
+
+### M3: Remove Stop Gates for Simplify/Quality Review
+
+> **Design ref:** [Remaining TeammateIdle/TaskCompleted Gates](AGENT_TEAMS_DESIGN.md#remaining-teammateidletaskcompleted-gates) — TDD stays at Stop, simplify/quality/security move to commit-gated
+
+**Refactor (cleanup):**
+- Remove `simplify_gate.py` and `quality_review_gate.py` entirely (dead code now)
+- Remove old `.simplify-{agent_id}.json` and `.quality-review-{agent_id}.json` tracker logic
+- Remove simplify nudge from `bash_post_tool.py` (replaced by commit-gated enforcement)
+- Clean up any imports or references to removed modules
+
+**Updates:**
+- Remove simplify/quality review hooks from Stop in hooks.json
+- Keep `tdd_stop_gate.py` at Stop (solo TDD enforcement)
+- Update BEHAVIORAL_GUIDE.md — remove "stop hooks saying run /simplify are requirements" language, add commit-gated language
+
+**Depends on:** M2
+**Changes:** hooks.json, remove `simplify_gate.py`, remove `quality_review_gate.py`, `bash_post_tool.py`, BEHAVIORAL_GUIDE.md, tests
+
+### M4: Update v1 Documentation
+
+- Update ARCHITECTURE.md: hook map, session flows, enforcement section, SMM storage (new marker file)
+- Update SMM_DESIGN.md: mention review cycle marker in storage model
+- Update CLAUDE.md: any references to Stop-based review enforcement
+
+**Depends on:** M3
+**Changes:** docs only
+
+---
+
+## v2.0 — Sprint-Driven XP
+
+### M5: Sprint Event Type
+
+> **Design ref:** [New Event Types — `sprint`](AGENT_TEAMS_DESIGN.md#sprint) — event format, start/end metadata; [Compaction Rules for Sprint Events](AGENT_TEAMS_DESIGN.md#compaction-rules-for-sprint-events) — retention policy
+
+Add `sprint` event type to the event schema for boundary markers.
+
+**Refactor first:**
+- `compact.py` `compact_after_curation()` is 130+ lines with complex retention logic. Extract retention rule evaluation into a separate function (e.g., `should_retain(event, session_ends, smm_ids) -> bool`) so adding sprint rules doesn't further bloat the main function.
+
+**Add sprint type:**
+
+```json
+{"type": "sprint", "content": "...", "metadata": {"sprint_id": "...", "action": "start|end", ...}}
+```
+
+- Add to `event_schema.py` / `schema.json` with validation (requires `sprint_id`, `action`)
+- Add compaction rules: retain `start` while active, retain `end` for 1 sprint
+- Tests for schema validation, compaction retention
+
+**Depends on:** nothing (can parallel with M1-M4)
+**Changes:** `event_schema.py`, `schema.json`, `compact.py`, tests
+
+### M6: Product Spec Skill (`/xp-product-spec`)
+
+> **Design ref:** [`product_spec.md` Format](AGENT_TEAMS_DESIGN.md#product_specmd-format) — file format with `[planned]`/`[delivered]` markers; [File Lifecycle](AGENT_TEAMS_DESIGN.md#file-lifecycle) — created by this skill, updated by sprint review
+
+Design and implement the skill that creates/refines `product_spec.md`.
+
+- Conversation-driven: guides the lead through requirements gathering
+- Can ingest existing docs (PRDs, GitHub issues, design docs)
+- Outputs structured `product_spec.md` with `[planned]` feature markers
+- Supports updates: add new features, refine existing ones
+- File lives in SMM directory
+
+**Depends on:** nothing
+**Changes:** new skill (`skills/xp-product-spec/SKILL.md`), tests
+
+### M7: Sprint Start Skill (`/xp-sprint-start`)
+
+> **Design ref:** [`sprint.md` Format](AGENT_TEAMS_DESIGN.md#sprintmd-format) — file format with stories, status, acceptance criteria; [Sprint Start](AGENT_TEAMS_DESIGN.md#sprint-start-first-iteration) — planning flow; [Planning Hierarchy](AGENT_TEAMS_DESIGN.md#planning-hierarchy) — three levels of persistence; [Failed Stories](AGENT_TEAMS_DESIGN.md#failed-stories) — deferred story handling
+
+Design and implement the skill that creates `sprint.md` from `product_spec.md`.
+
+- Reads `[planned]` features from product_spec.md
+- Selects features for this sprint by priority
+- Decomposes into user stories with acceptance criteria, T-shirt sizes, dependencies
+- XL stories must be split
+- Customer confirms sprint scope
+- Writes `sprint.md` + sprint start event to events.jsonl
+- Handles deferred stories carried from previous sprint
+
+**Depends on:** M5, M6
+**Changes:** new skill (`skills/xp-sprint-start/SKILL.md`), tests
+
+### M8: Sprint-Aware Kickoff
+
+> **Design ref:** [Mid-Sprint Iterations](AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [Solo Iteration](AGENT_TEAMS_DESIGN.md#solo-iteration) — gated lifecycle; [On-Site Customer](AGENT_TEAMS_DESIGN.md#on-site-customer) — customer availability / assumption handling
+
+Update `/xp-kickoff` and its supporting hooks.
+
+**Refactor first:**
+- Review current kickoff skill structure. It orchestrates retro → goals → questions → housekeeping. Adding sprint awareness means more steps. Ensure the skill's flow is cleanly extensible — each step should be a distinct section, not deeply nested conditionals.
+
+**Deterministic checks in hooks (not the skill):**
+
+`session_start.py` (SessionStart) — add sprint state detection:
+- Check `product_spec.md` exists → if not, write `.needs-product-spec` marker
+- Check `sprint.md` exists with active stories → if not, write `.needs-sprint` marker
+- Clear accept marker (new iteration starting)
+- Markers read by `kickoff_gate.py` to inform the block message, and by the skill to know what to orchestrate
+
+`kickoff_done.py` (PostToolUse:Skill) — add sprint validation:
+- After kickoff completes, verify sprint.md has in-progress stories (story selection happened)
+- If not, nudge: "No stories selected for this iteration"
+
+**Skill orchestration (judgment):**
+
+`/xp-kickoff` reads markers and orchestrates:
+1. Session retro (reflect before planning — surfaces unanswered questions, Try items)
+2. `.needs-product-spec` set? → run `/xp-product-spec`
+3. `.needs-sprint` set? → run `/xp-sprint-start`
+4. Housekeeping with Sprint pillar (curates SMM, surfaces unverified assumptions in Risks)
+5. Story selection: show ready stories, lead picks, questions resolved in context, mark in-progress
+
+No standalone question triage — questions handled in the phase where they naturally arise. Story selection replaces per-session goal collection — sprint stories ARE the goals.
+
+**Depends on:** M6, M7
+**Changes:** `session_start.py`, `kickoff_gate.py`, `kickoff_done.py`, `skills/xp-kickoff/SKILL.md`, `markers.py`, tests
+
+### M8b: Accept Skill + Gate
+
+> **Design ref:** [Solo Iteration — Accept](AGENT_TEAMS_DESIGN.md#solo-iteration) — accept flow + Stop gate; [Team Iteration — Accept](AGENT_TEAMS_DESIGN.md#team-iteration) — PR review → merge → e2e; [Goal Completion](AGENT_TEAMS_DESIGN.md#goal-completion) — story status lifecycle; [Gate Architecture](AGENT_TEAMS_DESIGN.md#gate-architecture) — accept gate in the full chain
+
+Design and implement `/xp-accept` skill and the deterministic hooks that enforce and track it.
+
+**Deterministic hooks:**
+
+`accept_gate.py` (Stop) — gate enforcement:
+- Read sprint.md — any stories `in-progress`?
+- YES and accept marker not set → BLOCK: "Run /xp-accept to verify acceptance criteria before stopping"
+- NO in-progress stories → allow stop
+
+`accept_done.py` (PostToolUse:Skill) — completion bookkeeping:
+- Fires when `/xp-accept` completes
+- Set accept marker (via `markers.py`)
+- Check sprint.md: all stories done or deferred? → nudge `/xp-sprint-review` (sprint complete)
+
+Accept marker lifecycle:
+- **Cleared** by `session_start.py` (new iteration)
+- **Set** by `accept_done.py` (accept completed)
+- **Read** by `accept_gate.py` (Stop enforcement)
+
+**Skill (judgment):**
+
+`/xp-accept`:
+1. Read sprint.md — find stories marked `in-progress`
+2. For each story: present acceptance criteria, lead verifies
+3. Run e2e tests defined in criteria
+4. Lead marks each story `done` or `deferred`
+5. Update sprint.md
+6. In team mode: includes PR review → merge → integrated e2e
+
+The skill does the judgment work (verifying criteria, running tests, updating stories). The hooks handle the mechanical bookkeeping (marker, gate, sprint completion detection).
+
+**Depends on:** M7, M8
+**Changes:** new `accept_gate.py` (Stop), new `accept_done.py` (PostToolUse:Skill), new skill (`skills/xp-accept/SKILL.md`), `session_start.py` (clear marker), `markers.py`, hooks.json, tests
+
+### M9: Sprint Pillar in Housekeeping
+
+> **Design ref:** [Sprint-Aware Curated View](AGENT_TEAMS_DESIGN.md#sprint-aware-curated-view) — Sprint pillar format; [Housekeeping Sprint Curation](AGENT_TEAMS_DESIGN.md#housekeeping-sprint-curation) — what it computes
+
+Add Sprint section to the curated SMM.
+
+**Refactor first:**
+- `materialize.py` `prepare_curation_data()` builds the preload JSON for housekeeping. Before adding sprint data, review its structure — ensure the output format is cleanly extensible (adding a `sprint` key alongside existing `current_smm`, `new_since_last_curation`, etc.).
+
+**Deterministic data prep (preload script):**
+- Parse `sprint.md` and compute structured sprint data: goal, story counts by status, blockers (unmet dependencies)
+- Add to curation preload JSON as a `sprint` section — same pattern as `retrospective.py` preparing `.retro-input.json`
+- Housekeeping skill receives pre-computed sprint data, applies judgment for what to include in the Sprint pillar summary
+
+**Skill (judgment):**
+- Housekeeping decides how to summarize sprint progress in the curated SMM
+- Sprint pillar is a summary pointing to sprint.md for details
+
+**Depends on:** M7
+**Changes:** `materialize.py` (add sprint data to curation preload), `skills/xp-housekeeping/SKILL.md`, tests
+
+### M10: Tiered Sprint Context Injection
+
+> **Design ref:** [Context Injection by Role](AGENT_TEAMS_DESIGN.md#context-injection-by-role) — who gets what; [Collective Code Ownership](AGENT_TEAMS_DESIGN.md#collective-code-ownership) — cross-teammate communication via native messaging
+
+Update SubagentStart to inject sprint context by role.
+
+**Refactor first:**
+- `subagent_start.py` tiering is currently a simple if/else on agent_type. Adding sprint tiers (plan reviewer gets sprint.md, teammates get assigned stories, retro gets sprint.md) adds more branches. Extract the tiering logic into a clear dispatch — a dict mapping agent types to injection functions, or a series of named functions. This keeps the `run()` function from becoming a long conditional chain.
+
+**Add sprint tiers:**
+
+| Agent | Gets |
+|---|---|
+| Simplify/lint subagents | SMM only (no change) |
+| Plan reviewer | SMM + sprint.md |
+| Teammates | SMM + assigned stories from sprint.md |
+| Retrospective | SMM + sprint.md |
+
+**Depends on:** M7, M9
+**Changes:** `subagent_start.py`, tests
+
+### M11: Sprint Review Skill (`/xp-sprint-review`)
+
+> **Design ref:** [Sprint End](AGENT_TEAMS_DESIGN.md#sprint-end-all-stories-done-or-deferred) — review flow, velocity stats; [File Lifecycle](AGENT_TEAMS_DESIGN.md#file-lifecycle) — sprint review updates product_spec.md
+
+Design and implement the forked skill that runs at sprint end.
+
+**Deterministic data prep (preload script):**
+- Parse sprint.md: count stories by status (done, deferred, added mid-sprint)
+- Parse product_spec.md: identify features that map to completed stories
+- Compute velocity stats: stories_planned, stories_delivered, stories_carried
+- Prepare structured review data for the subagent
+
+**Forked skill + subagent (judgment + writes):**
+- Subagent analyzes what shipped vs what was planned
+- Maps completed stories to product spec features (judgment — hook can't do this)
+- Updates product_spec.md directly: mark features `[delivered: sprint-XXX]`
+
+**Deterministic bookkeeping (PostToolUse:Skill hook):**
+- `sprint_review_done.py` fires when `/xp-sprint-review` completes
+- Writes sprint end event to events.jsonl (velocity stats from preload — no judgment needed)
+- Nudges `/xp-sprint-retro` if appropriate
+
+Subagent writes when judgment is needed (mapping stories → features). Hook handles mechanical bookkeeping (events, markers, nudges).
+
+**Depends on:** M6, M7
+**Changes:** new skill (`skills/xp-sprint-review/SKILL.md`), new agent (`agents/xp-sprint-reviewer.md`), new `sprint_review_done.py` hook, preload script, tests
+
+### M12: Sprint Retro Skill (`/xp-sprint-retro`)
+
+> **Design ref:** [Retrospective](AGENT_TEAMS_DESIGN.md#retrospective) — two retro levels, sprint retro data sources; [Sustainable Pace](AGENT_TEAMS_DESIGN.md#sustainable-pace) — velocity tracking, carry-over signals
+
+Design and implement the forked cross-iteration retrospective (same pattern as existing session retro).
+
+**Deterministic data prep (preload script):**
+- Collect all session retros from the sprint (from `retrospectives/` directory)
+- Compute velocity from sprint events: stories_planned vs stories_delivered vs stories_carried
+- Parse sprint.md for story completion data, sizing accuracy
+- Prepare structured retro data for the subagent
+
+**Forked skill + subagent (judgment + writes):**
+- Subagent analyzes patterns across all iterations in the sprint
+- Assesses T-shirt sizing accuracy
+- Identifies process improvements for next sprint
+- Produces and saves Keep/Fix/Try at the sprint level (same Write pattern as session retro subagent)
+
+**Depends on:** M7
+**Changes:** new skill (`skills/xp-sprint-retro/SKILL.md`), new agent (`agents/xp-sprint-retro.md`), preload script, tests
+
+### M13: Teammate Hooks
+
+> **Design ref:** [Hook Compatibility — Empirical Results](AGENT_TEAMS_DESIGN.md#hook-compatibility--empirical-results-2026-03-23) — what fires for teammates; [Remaining TeammateIdle/TaskCompleted Gates](AGENT_TEAMS_DESIGN.md#remaining-teammateidletaskcompleted-gates) — TDD enforcement; [Teammate Detection](AGENT_TEAMS_DESIGN.md#teammate-detection) — detection patterns; [Output Mechanism Differences](AGENT_TEAMS_DESIGN.md#output-mechanism-differences) — exit 2 + stderr
+
+Implement TeammateIdle and TaskCompleted hooks.
+
+**Refactor first:**
+- Extract the SMM dir validation boilerplate that appears in every hook (`resolve_smm_dir()` → `try_validate_smm_dir()` → return None) into a `_common.get_validated_smm_dir()` helper. Currently duplicated across 6+ scripts. Clean this up before adding two more scripts that would copy the same pattern.
+- Review TDD gate logic in `tdd_stop_gate.py` — the test-passing check will be reused by both new hooks. Extract the core TDD check into a shared function so all three hooks use the same logic.
+
+**New hooks:**
+- **TeammateIdle:** TDD enforcement (tests must pass before going idle)
+- **TaskCompleted:** TDD enforcement (tests must pass before task marked complete)
+- Both use exit 2 + stderr to block
+- Detect teammate events via `teammate_name` field
+
+**Depends on:** Agent Teams platform stabilization
+**Changes:** `_common.py`, `tdd_stop_gate.py` (extract shared logic), new `task_completed.py`, new `teammate_idle.py`, hooks.json, tests
+
+### M14: Teammate Behavioral Guide
+
+> **Design ref:** [Teammate Behavioral Guide](AGENT_TEAMS_DESIGN.md#teammate-behavioral-guide) — DO/DON'T/SKIP/KEEP rules; [Teammates vs Subagents](AGENT_TEAMS_DESIGN.md#teammates-vs-subagents) — key differences; [Collective Code Ownership](AGENT_TEAMS_DESIGN.md#collective-code-ownership) — "message the lead immediately" for urgent discoveries
+
+Update SubagentStart to detect teammates and inject appropriate guide.
+
+**Note:** M10 already refactored `subagent_start.py` tiering into a clean dispatch. Adding teammate detection builds on that clean base — no additional refactoring needed.
+
+**Add teammate injection:**
+- Detect via `is_teammate_by_agent_type()` (existing pattern)
+- **DO:** Claim tasks, write tests first, commit frequently, stay in file domain, message lead for urgent discoveries
+- **DON'T:** Run kickoff, housekeeping, goals, retrospectives
+- **SKIP:** EnterPlanMode (built-in plan approval handles this)
+- Commit-gated reviews enforced automatically via PreToolUse:Bash
+
+**Depends on:** M10, M13
+**Changes:** `subagent_start.py`, BEHAVIORAL_GUIDE.md (add teammate section or separate guide), tests
+
+### M15: Spawn Team Skill (`/xp-spawn-team`)
+
+> **Design ref:** [Team Launch Mechanism](AGENT_TEAMS_DESIGN.md#team-launch-mechanism) — skill flow, spawn prompt content; [Team Iteration](AGENT_TEAMS_DESIGN.md#team-iteration) — full team lifecycle; [When to Use Agent Teams](AGENT_TEAMS_DESIGN.md#when-to-use-agent-teams) — decision criteria; [Worktree Strategy](AGENT_TEAMS_DESIGN.md#worktree-strategy) — tradeoffs, decision criteria; [Best Practices](AGENT_TEAMS_DESIGN.md#best-practices) — team size, domain separation, context feeding
+
+Design and implement the forked skill that structures an Agent Team from the sprint plan.
+
+**Forked skill + subagent** (same pattern as plan reviewer):
+- Preloads dump sprint.md + current plan for the subagent
+- Subagent analyzes file domains, parallelization, task structuring
+- Returns structured instructions to the lead (keeps analysis out of lead context)
+
+**Subagent output:**
+- How many teammates to spawn (based on parallel group count)
+- Task descriptions with acceptance criteria, file domains, context
+- Worktree decision (based on overlap analysis)
+- Spawn prompt content (XP rules, domain boundaries)
+
+Does NOT spawn the team directly — instructs the lead on exactly what to do.
+
+**Depends on:** M7, M13, M14, Agent Teams platform
+**Changes:** new skill (`skills/xp-spawn-team/SKILL.md`), new agent (`agents/xp-spawn-team.md`), tests
+
+### M16: Update v2 Documentation
+
+> **Design ref:** [Three-File Architecture](AGENT_TEAMS_DESIGN.md#three-file-architecture) — SMM storage model; [Platform Findings](AGENT_TEAMS_DESIGN.md#platform-findings-from-docs-and-empirical-testing-2026-03-23) — confirmed behaviors + limitations; [v1 Limitations That Affect v2](AGENT_TEAMS_DESIGN.md#v1-limitations-that-affect-v2) — full change list
+
+- Update ARCHITECTURE.md with full v2 design (sprint lifecycle, three-file architecture, new hooks, new skills, updated enforcement)
+- Update SMM_DESIGN.md (Sprint pillar, tiered injection, product_spec.md/sprint.md)
+- Update CLAUDE.md as needed
+
+**Depends on:** M5-M15
+**Changes:** docs only
+
+---
+
+## Dependency Graph
+
+```
+v1.5 (solo enforcement):
+  M1 → M2 → M3 → M4
+
+v2.0 (sprint/teams):
+  M5 (sprint events)     ─┐
+  M6 (product spec skill) ─┼→ M7 (sprint start) → M8 (sprint-aware kickoff) → M8b (accept)
+                           │                    → M9 (sprint pillar) → M10 (tiered injection)
+                           │                    → M11 (sprint review)
+                           │                    → M12 (sprint retro)
+                           │
+  M13 (teammate hooks)     → M14 (teammate guide) → M15 (spawn team)
+
+  M16 (docs) depends on all above
+```
+
+M1-M4 can ship independently. Within v2.0, M5/M6 can start in parallel with M1-M4. M13-M15 depend on the Agent Teams platform stabilizing.
+
+---
+
+## What's NOT in Scope
+
+- Agent Teams platform changes (we design around platform constraints)
+- Per-teammate model selection (platform limitation — accept until added)
+- Nested teams (platform limitation — keep teams flat)
+- Worktree path normalization (documented, implement when worktrees are used)
+- Automated story → task mapping (lead manages manually for now)
