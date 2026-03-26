@@ -124,3 +124,50 @@ def marker_consume(
     with contextlib.suppress(OSError):
         path.unlink()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Review cycle convenience functions (API surface for M2)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_REVIEW_CYCLE: dict = {
+    "last_review_commit": "",
+    "simplify_done": False,
+    "quality_review_done": False,
+    "security_review_done": False,
+}
+
+_REVIEW_FLAGS = frozenset(
+    {"simplify_done", "quality_review_done", "security_review_done"}
+)
+
+
+def read_review_cycle(smm_dir: Path, agent_id: str) -> dict:
+    """Read review cycle marker, returning defaults if missing."""
+    data = marker_read(smm_dir, REVIEW_CYCLE, agent_id)
+    if not isinstance(data, dict):
+        return dict(_DEFAULT_REVIEW_CYCLE)
+    return data
+
+
+def write_review_cycle(smm_dir: Path, agent_id: str, data: dict) -> None:
+    """Write review cycle marker."""
+    marker_write(smm_dir, REVIEW_CYCLE, data, agent_id)
+
+
+def reset_review_cycle(smm_dir: Path, agent_id: str, commit_hash: str) -> None:
+    """Reset review cycle: new commit hash, all flags cleared."""
+    data = dict(_DEFAULT_REVIEW_CYCLE)
+    data["last_review_commit"] = commit_hash
+    write_review_cycle(smm_dir, agent_id, data)
+
+
+def set_review_flag(
+    smm_dir: Path, agent_id: str, flag: str, value: bool = True
+) -> None:
+    """Set a single review flag (read-modify-write)."""
+    if flag not in _REVIEW_FLAGS:
+        raise ValueError(f"Invalid review cycle flag: {flag!r}")
+    data = read_review_cycle(smm_dir, agent_id)
+    data[flag] = value
+    write_review_cycle(smm_dir, agent_id, data)
