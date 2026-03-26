@@ -19,6 +19,7 @@ import _common
 import bash_failure
 import bash_post_tool
 import commits
+import markers
 from conftest import _HookTestCase, _make_bash_input, make_event
 
 
@@ -193,6 +194,64 @@ class TestBashPostTool(_HookTestCase):
     def test_git_commit_parse_message(self):
         response = "[main abc123] Fix login bug\n 1 file changed"
         self.assertEqual(commits.parse_commit_message(response), "Fix login bug")
+
+
+# ===========================================================================
+# Review cycle reset on commit
+# ===========================================================================
+
+
+class TestBashPostToolReviewCycle(_HookTestCase):
+    """Tests for review cycle marker reset after commit."""
+
+    def test_commit_resets_review_cycle(self):
+        """After commit, review cycle marker has new hash and cleared flags."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_head_commit_hash", return_value="newcommit123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'test'",
+                    stdout="[main abc123] test\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertEqual(cycle["last_review_commit"], "newcommit123")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertFalse(cycle["security_review_done"])
+
+    def test_commit_no_hash_skips_reset(self):
+        """If git rev-parse fails, no marker written (no crash)."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_head_commit_hash", return_value=None),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'test'",
+                    stdout="[main abc123] test\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        # Flag should still be set — no reset happened
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_non_commit_no_reset(self):
+        """Non-commit bash commands don't touch review cycle marker."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        bash_post_tool.run(
+            _make_bash_input(command="echo hello", stdout="hello"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
 
 
 # ===========================================================================

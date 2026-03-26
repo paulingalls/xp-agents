@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import commits
 import concerns
+import markers
 import security
 from test_parsing import is_test_run, parse_test_results
 
@@ -116,6 +117,11 @@ def _handle_commit(
 
     # Consume security triage marker after successful commit
     security.consume_security_triaged(smm_dir)
+
+    # Reset review cycle marker with new commit hash
+    commit_hash = commits.get_head_commit_hash(cwd)
+    if commit_hash:
+        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
     # Nudge /simplify if commit has 3+ code files (including tests —
     # test code benefits from simplify too, unlike security triage)
