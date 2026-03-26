@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
+import markers
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
@@ -243,15 +244,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Plan review gate — block writes until plan is reviewed.
     # Plan files (.claude/plans/) are exempt — writing the plan is not implementation.
     is_plan_file = target_file and "/.claude/plans/" in target_file
-    if smm_dir and not is_plan_file:
-        marker = smm_dir / ".plan-awaiting-review"
-        if marker.exists() and not marker.is_symlink():
-            raise _common.BlockedError(
-                "Run /xp-review-plan before writing any code. "
-                "The plan review extracts assumptions, decisions, and risks "
-                "that feed the Shared Mental Model.",
-                "Plan review required before implementation.",
-            )
+    plan_marker = (
+        smm_dir
+        and not is_plan_file
+        and markers.marker_exists(smm_dir, markers.PLAN_AWAITING_REVIEW)
+    )
+    if plan_marker:
+        raise _common.BlockedError(
+            "Run /xp-review-plan before writing any code. "
+            "The plan review extracts assumptions, decisions, and risks "
+            "that feed the Shared Mental Model.",
+            "Plan review required before implementation.",
+        )
 
     # TDD order check
     if target_file and smm_dir:

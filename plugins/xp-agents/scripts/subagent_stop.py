@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import concerns
+import markers
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -51,8 +52,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # this handles the SubagentStop flow for Plan-type subagents.
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
-        marker = smm_dir / ".plan-awaiting-review"
-        marker.write_text(agent_id)
+        markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, agent_id)
 
         gate_event = _common.make_event(
             _common.STATUS,
