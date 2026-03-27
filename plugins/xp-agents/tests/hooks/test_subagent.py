@@ -542,5 +542,66 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestSubagentStopReviewFlags(_HookTestCase):
+    """SubagentStop backup: detect review-related subagent completions."""
+
+    def _stop_input(self, agent_id: str, agent_type: str = "", **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+            "last_assistant_message": "Done",
+        }
+        data.update(overrides)
+        return data
+
+    def test_simplify_agent_type_sets_flag(self):
+        """SubagentStop with agent_type containing 'simplify' sets flag."""
+        subagent_stop.run(
+            self._stop_input("task-1", agent_type="simplify"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_quality_review_agent_type_sets_flag(self):
+        """SubagentStop with agent_type 'xp-quality-review' sets flag."""
+        subagent_stop.run(
+            self._stop_input("task-2", agent_type="xp-quality-review"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["quality_review_done"])
+
+    def test_simplify_agent_id_sets_flag(self):
+        """SubagentStop with agent_id containing 'simplify' sets flag."""
+        subagent_stop.run(
+            self._stop_input("simplify-reuse-1", agent_type=""),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_regular_subagent_no_flag(self):
+        """Regular subagent does not set any review flags."""
+        subagent_stop.run(
+            self._stop_input("task-3", agent_type="task"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+
+    def test_plan_subagent_no_review_flag(self):
+        """Plan subagent writes plan marker but not review flags."""
+        subagent_stop.run(
+            self._stop_input("plan-1", agent_type="Plan"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+
+
 if __name__ == "__main__":
     unittest.main()
