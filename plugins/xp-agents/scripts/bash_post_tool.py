@@ -123,15 +123,6 @@ def _handle_commit(
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
-    # Nudge /simplify if commit has 3+ code files (including tests —
-    # test code benefits from simplify too, unlike security triage)
-    code_files = [f for f in committed_files if security.is_code_file(f)]
-    if len(code_files) >= 3:
-        return (
-            f"You just committed {len(code_files)} code files. "
-            "Run /simplify NOW before starting the next task."
-        )
-
     return None
 
 

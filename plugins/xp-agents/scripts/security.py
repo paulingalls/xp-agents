@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import markers
 
-# Non-code suffixes shared with simplify_gate.py for consistent classification
+# Non-code suffixes used by is_code_file() for consistent classification
 _NON_CODE_SUFFIXES = frozenset(
     {
         ".md",
