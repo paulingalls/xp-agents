@@ -114,7 +114,7 @@ Behavioral rules learned from experience. The institutional memory.
 - Write tests before implementation — the TDD gate blocks otherwise
 - Split large changes into separate commits
 - Always record decisions when making architectural choices
-- Run /simplify FIRST after every commit with 3+ code files
+- Complete the review cycle (simplify → quality review → security triage) before committing code changes
 - Don't amend pushed commits — creates divergent history
 ```
 
@@ -216,7 +216,7 @@ The SMM.md file is written by housekeeping (with judgment), not by the materiali
 | UserPromptSubmit | Nugget: new signal events since last prompt (watermark-based) | ~50-100 tokens |
 | SubagentStart | Tiered: Explore gets Intent+Constraints only, others get full SMM + behavioral guide | ~200-1000 tokens |
 
-**No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, tracker files for TDD. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
+**No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, `.review-cycle-{agent_id}.json` for commit-gated review cycle, TDD tracker for test enforcement. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
 
 ---
 

@@ -12,10 +12,12 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
-├── .needs-kickoff     ← gate marker, cleared by /xp-kickoff
-├── .plan-awaiting-review     ← plan review gate marker, cleared by plan reviewer preload
-├── events.lock               ← flock for atomic appends
-└── retrospectives/           ← Keep/Fix/Try session artifacts (.json)
+├── .needs-kickoff                    ← gate marker, cleared by /xp-kickoff
+├── .plan-awaiting-review             ← plan review gate marker, cleared by plan reviewer preload
+├── .review-cycle-{agent_id}.json     ← commit-gated review cycle state (per-agent)
+├── .security-triaged                 ← security triage completion marker
+├── events.lock                       ← flock for atomic appends
+└── retrospectives/                   ← Keep/Fix/Try session artifacts (.json)
 ```
 
 `CLAUDE_PLUGIN_DATA` is the plugin ecosystem's persistent data directory (defaults to `~/.claude/plugins/data/xp-agents-xp-agents/`). Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and Agent Team teammates.
@@ -77,19 +79,17 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
-| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit security triage gate, file-modification conflict heuristic (advisory) |
+| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit-gated review cycle (simplify → quality review → security triage), file-modification conflict heuristic (advisory) |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
-| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit size check, test result parsing. `async: true` |
+| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset, security marker consume), test result parsing. `async: true` |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
-| **PostToolUse** | `Skill` | `security_review_done.py` | Write triage marker when `/security-review` completes. `async: true` |
+| **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done, security_review_done) when review skills complete. `async: true` |
 | **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker, compact event log |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
-| **Stop** | | `simplify_gate.py` | Block until `/simplify` runs (if ≥3 code files changed) |
-| **Stop** | | `quality_review_gate.py` | Block if subagent reviews still pending |
-| **Stop** | | `tdd_stop_gate.py` | Block if tests failing (command hook, replaced prompt hook) |
+| **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
 | **PostCompact** | | `compact.py` | Compact event log (watermark-based, retains recent + session_end + referenced events) |
 | **SessionEnd** | | `session_end.py` | Append session_end event. `async: true` |
 | **SessionEnd** | | `compact.py` | Compact event log at session end. `async: true` |
@@ -133,7 +133,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | After housekeeping | Behavioral guide via PostToolUse:Skill hook (`kickoff_done.py`) |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
-| Before Bash | Commit security triage gate (blocks), file-modification conflict heuristic (advisory) |
+| Before Bash | Commit-gated review cycle (blocks until simplify/quality-review/security-triage done), file-modification conflict heuristic (advisory) |
 | Subagent spawn | Tiered context: Explore gets Intent+Constraints only, others get full curated SMM + behavioral guide |
 | After compaction | Full SMM re-injection |
 
@@ -192,15 +192,15 @@ Tool executes
 PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
              → lint_check.py: linter (Write/Edit)
              → bash_post_tool.py: commit/test analysis (Bash)
-             → security_review_done.py: write triage marker when /security-review completes (Skill)
+             → review_cycle_done.py: set review cycle flags when review skills complete (Skill)
 ```
 
 ### Stop
 ```
-Stop         → simplify_gate.py: block if ≥3 code files changed and /simplify not run
-             → quality_review_gate.py: block until /xp-quality-review runs (after simplify agents complete)
-             → tdd_stop_gate.py: block if tests failing
+Stop         → tdd_stop_gate.py: block if tests failing
 ```
+
+Note: Review cycle enforcement (simplify, quality review, security triage) moved to commit time via `pre_tool_bash.py` + review cycle marker. See PreToolUse:Bash in Hook Map.
 
 ### Subagent Lifecycle
 ```
@@ -237,6 +237,8 @@ plugins/xp-agents/
 │   ├── coordination.py           ← .coordination.json read/write/clear
 │   ├── security.py               ← security review tracker, code file detection
 │   ├── concerns.py               ← conflict detection, concern resolution, debt lookup
+│   ├── markers.py               ← consolidated marker file operations (read/write/consume)
+│   ├── commits.py               ← shared commit detection and parsing utilities
 │   ├── session_start.py
 │   ├── session_end.py
 │   ├── pre_tool_write.py         ← PreToolUse for Write/Edit/MultiEdit
@@ -252,10 +254,8 @@ plugins/xp-agents/
 │   ├── pre_compact.py
 │   ├── retrospective.py
 │   ├── save_retrospective.py
-│   ├── simplify_gate.py
-│   ├── quality_review_gate.py
 │   ├── tdd_stop_gate.py
-│   ├── security_review_done.py
+│   ├── review_cycle_done.py      ← PostToolUse:Skill — set review cycle flags
 │   ├── kickoff_gate.py
 │   ├── kickoff_done.py
 │   ├── post_tool_exit_plan.py       ← PostToolUse:ExitPlanMode nudge + marker
@@ -343,7 +343,7 @@ SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees 
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit security triage gate + marker (`security_review_done.py`), simplify gate (≥3 code files), quality review gate (`quality_review_gate.py`), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — simplify, quality review, security triage enforced at commit time), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
 **Agent compliance needed (mitigated by behavioral guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-kickoff` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 
@@ -409,7 +409,7 @@ Single gate: `kickoff_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-kic
 
 ### Blocks as Maturity Signal
 
-In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, security triage, simplify gate. These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0.
+In 1.0, blocks fire for: TDD failure, working_on conflicts, plan review, commit review cycle (simplify, quality review, security triage). These blocks aren't friction — they're the system reporting that agents aren't yet coordinated enough for autonomy. When blocks stop firing because the system genuinely doesn't need them, that's the readiness signal for 2.0.
 
 ### Open Questions (resolve during 1.0 dogfooding)
 

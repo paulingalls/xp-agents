@@ -255,8 +255,8 @@ tests/
 │   ├── test_bash.py         ← bash_post_tool hook tests, bash_failure
 │   ├── test_bash_parsing.py ← is_test_run, parse_test_results, is_git_commit
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
-│   ├── test_gates.py        ← simplify_gate, security triage markers
-│   ├── test_stop_gates.py   ← quality_review_gate, tdd_stop_gate
+│   ├── test_gates.py        ← security triage markers
+│   ├── test_stop_gates.py   ← tdd_stop_gate
 │   ├── test_validation.py   ← hooks.json structure and registration
 │   ├── test_plugin_integrity.py ← plugin file structure, agent files, milestone files
 │   └── test_features.py     ← auto-resolve, retro digest, coordination, prompt nuggets
