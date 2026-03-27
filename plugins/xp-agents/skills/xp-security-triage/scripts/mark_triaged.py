@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 import _common
+import markers
 import security
 
 parser = argparse.ArgumentParser(description="Write security triage marker")
@@ -28,6 +29,8 @@ if security.security_triaged_exists(smm_dir):
     print("Security triage marker already exists.")
 else:
     security.write_security_triaged(smm_dir)
+    # Set review cycle flag for commit gate
+    markers.set_review_flag(smm_dir, "main", "security_review_done")
     # Record triage in the event log so the retro can see it happened
     event = _common.make_event(
         _common.STATUS,

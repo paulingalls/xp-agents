@@ -474,39 +474,69 @@ class TestSubagentStopNoReviewerNudge(_HookTestCase):
         self.assertIsNone(result)
 
 
+import markers  # noqa: E402
+import review_cycle_done  # noqa: E402
 import security  # noqa: E402
-import security_review_done  # noqa: E402
 
 
-class TestSecurityReviewDone(_HookTestCase):
-    """PostToolUse:Skill hook writes triage marker after /security-review."""
+class TestReviewCycleDone(_HookTestCase):
+    """PostToolUse:Skill hook sets review cycle flags after review skills."""
 
     def _skill_input(self, skill: str = "security-review", **overrides) -> dict:
         data = {
             "session_id": "t",
             "tool_name": "Skill",
             "tool_input": {"skill": skill},
+            "agent_id": "main",
         }
         data.update(overrides)
         return data
 
-    def test_writes_marker_on_security_review(self):
-        security_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
+    def test_security_review_sets_flag_and_marker(self):
+        review_cycle_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["security_review_done"])
         self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
-    def test_ignores_other_skills(self):
-        security_review_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
+    def test_simplify_sets_flag(self):
+        review_cycle_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+        # Simplify should NOT write security marker
         self.assertFalse(security.security_triaged_exists(self.smm_dir))
 
-    def test_ignores_triage_skill(self):
-        """xp-security-triage writes its own marker, hook should not double-write."""
-        security_review_done.run(
+    def test_quality_review_sets_flag(self):
+        review_cycle_done.run(
+            self._skill_input("xp-quality-review"), smm_dir=self.smm_dir
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["quality_review_done"])
+
+    def test_security_triage_sets_flag(self):
+        review_cycle_done.run(
             self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
         )
-        self.assertFalse(security.security_triaged_exists(self.smm_dir))
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["security_review_done"])
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+
+    def test_qualified_simplify_name(self):
+        """Plugin-qualified skill names also match."""
+        review_cycle_done.run(
+            self._skill_input("xp-agents:simplify"), smm_dir=self.smm_dir
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_ignores_other_skills(self):
+        review_cycle_done.run(self._skill_input("xp-kickoff"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertFalse(cycle["security_review_done"])
 
     def test_xp_agent_skips(self):
-        result = security_review_done.run(
+        result = review_cycle_done.run(
             self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
         )
         self.assertIsNone(result)

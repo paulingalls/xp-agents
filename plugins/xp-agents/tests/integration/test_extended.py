@@ -487,7 +487,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
     def test_security_review_skill_writes_marker(self):
         """PostToolUse:Skill for /security-review writes triage marker."""
         result = self._run_script(
-            "security_review_done.py",
+            "review_cycle_done.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Skill",
@@ -517,7 +517,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
 
         # Step 2: security review skill writes marker
         self._run_script(
-            "security_review_done.py",
+            "review_cycle_done.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Skill",
