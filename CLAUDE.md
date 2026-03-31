@@ -248,33 +248,51 @@ tests/
 ├── hooks/                   ← unit tests for command hooks (from scripts/)
 │   ├── test_common.py       ← _common.py core utilities
 │   ├── test_common_smm.py   ← _common.py SMM data operations (events, watermarks, conflicts)
-│   ├── test_session.py      ← session_start, session_end, retrospective, review gate
+│   ├── test_session_start.py ← session_start, retrospective
+│   ├── test_session_lifecycle.py ← session_end, pre_compact
+│   ├── test_kickoff.py      ← kickoff_gate, kickoff_done
 │   ├── test_pre_tool_write.py ← conflicts, TDD order, plan review gate
 │   ├── test_pre_tool_bash.py  ← commit security triage gate, file-modification heuristic
 │   ├── test_post_tool.py    ← post_tool_use, lint_check, post_tool_exit_plan
 │   ├── test_bash.py         ← bash_post_tool hook tests, bash_failure
 │   ├── test_bash_parsing.py ← is_test_run, parse_test_results, is_git_commit
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
+│   ├── test_review_cycle.py ← review_cycle_done, subagent review flags
 │   ├── test_gates.py        ← security triage markers
 │   ├── test_stop_gates.py   ← tdd_stop_gate
 │   ├── test_validation.py   ← hooks.json structure and registration
-│   ├── test_plugin_integrity.py ← plugin file structure, agent files, milestone files
-│   └── test_features.py     ← auto-resolve, retro digest, coordination, prompt nuggets
+│   ├── test_plugin_integrity.py ← plugin file structure, agent files
+│   ├── test_auto_resolve.py ← auto-resolve logic
+│   ├── test_retrospective.py ← retrospective data preparation
+│   ├── test_retro_save.py   ← save_retrospective
+│   ├── test_markers.py      ← review cycle markers
+│   ├── test_lint.py         ← lint detection and execution
+│   ├── test_commits.py      ← commit helpers
+│   ├── test_coordination.py ← coordination logic
+│   └── test_prompt_nugget.py ← prompt nugget delivery
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
-│   ├── test_scenarios.py    ← round trips, retro, plan review, multi-session
+│   ├── test_scenarios.py    ← round trips, retro, new event types
+│   ├── test_scenarios_lifecycle.py ← full lifecycle, plan review, multi-session
 │   ├── test_extended.py     ← simplify gate, security review, commit gate
-│   └── test_advanced.py     ← compaction, concurrency, worktrees, repair, migration
+│   ├── test_maintenance.py  ← repair, migration
+│   └── test_scaling.py      ← concurrency, worktrees, benchmarks
 ├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
-│   ├── test_parse.py        ← JSONL parsing, index building, resolutions
+│   ├── test_parse.py        ← JSONL parsing, index building
+│   ├── test_resolutions.py  ← metadata.resolves, read_events_from
 │   ├── test_delta.py        ← watermarks, read_delta, symlink protection
-│   ├── test_compact.py      ← event log compaction
-│   ├── test_maintenance.py  ← repair, migration, benchmarks
-│   └── test_curation.py     ← bulk append, prepare_curation_data, retro history, atomic writes
+│   ├── test_compact.py      ← compact legacy entry point
+│   ├── test_compact_curation.py ← curation-watermark-based compaction
+│   ├── test_curation.py     ← prepare_curation_data, retro history
+│   ├── test_append_helpers.py ← bulk append, atomic writes, build_event
+│   └── test_maintenance.py  ← repair, migration, benchmarks
 └── smm/                     ← SMM foundation tests (init.sh, append.sh)
-    ├── test_init.py          ← initialization, schema validation, seed SMM
-    └── test_append.py        ← append operations, concurrency, safety
+    ├── test_init.py          ← initialization, schema validation
+    ├── test_seed.py          ← seed SMM
+    ├── test_append.py        ← append integration operations
+    ├── test_append_safety.py ← concurrency, validation, symlink protection
+    └── test_append_schema.py ← schema.json validation, notifications
 ```
 
 ### Writing new tests
