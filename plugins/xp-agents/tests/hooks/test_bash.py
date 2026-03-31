@@ -420,6 +420,26 @@ class TestBashPostToolGreenNudge(_HookTestCase):
             )
         self.assertIsNone(result)
 
+    def test_green_after_failure_confirms_resolution(self):
+        """Tests pass after prior failure → context confirms resolution."""
+        # Seed a test failure concern
+        concern = make_event(
+            "concern", content="Test failures detected: 3 failed", severity="high"
+        )
+        _common.append_safe(self.smm_dir, concern)
+
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNotNone(result)
+        self.assertIn("prior test failures resolved", result.lower())
+        self.assertIn("commit", result.lower())
+
     def test_red_no_nudge(self):
         """Failing tests → no nudge (even with uncommitted code)."""
         with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):

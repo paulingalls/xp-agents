@@ -67,9 +67,12 @@ def load_commit_threshold() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> None:
-    """Auto-resolve unresolved test-failure concerns when tests pass."""
-    concerns.resolve_concerns(
+def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
+    """Auto-resolve unresolved test-failure concerns when tests pass.
+
+    Returns True if any concerns were resolved.
+    """
+    return concerns.resolve_concerns(
         smm_dir,
         concerns.TEST_CONCERN_RE.search,
         agent_id,
@@ -187,17 +190,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             )
             _common.append_safe(smm_dir, concern)
         elif failed == 0:
-            _resolve_test_concerns(smm_dir, agent_id)
+            had_failures = _resolve_test_concerns(smm_dir, agent_id)
 
             # Nudge: commit after green if there are uncommitted code files
             if passed > 0:
+                parts: list[str] = []
+                if had_failures:
+                    parts.append("All prior test failures resolved — tests are green.")
                 uncommitted = commits.get_uncommitted_code_files(cwd)
                 if uncommitted:
-                    return (
-                        "Tests are green and there are uncommitted code changes. "
+                    parts.append(
                         "Commit now to trigger the review cycle "
                         "(/simplify, /xp-quality-review, /xp-security-triage)."
                     )
+                if parts:
+                    return " ".join(parts)
 
         return None
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.5.6
+
+### Fixed
+- **Post-green context confirms prior failure resolution** — when tests pass after a prior failure, `additionalContext` now says "All prior test failures resolved — tests are green." Prevents the agent from reacting to stale failure context in its conversation history.
+- **`resolve_concerns()` returns bool** — callers can now check whether any concerns were actually resolved.
+
+### Stats
+- 1040 tests (all passing)
+
 ## v1.5.5
 
 ### Added
