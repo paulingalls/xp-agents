@@ -55,16 +55,32 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 If no Constraints pillar exists in the SMM, skip this step.
 
-## Step 3: Debt Awareness — Address Existing Technical Debt
+## Step 3: Resolve Addressed Plan Review Concerns
+
+The preload above lists open concerns from the plan reviewer. For each concern:
+- **If the code changes address it** — resolve it:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" \
+  --agent "xp-quality-review" \
+  --content "Resolved: [brief description of what was addressed]" \
+  --working-on '[]' \
+  --metadata '{"resolves": ["<concern-event-id>"]}'
+```
+
+- **If the concern is still open** — leave it. Don't resolve concerns that haven't been addressed in the code.
+
+## Step 4: Debt Awareness — Address Existing Technical Debt
 
 The preload above lists any existing debt events for the changed files. For each debt item:
 - **If the changes touch the file and the debt is addressable now** — fix it. This is the best time.
 - **If the changes make the debt worse** — fix it now.
 - **If the changes are unrelated to the debt** — note it but don't block.
 
-## Step 4: Take Action
+## Step 5: Take Action
 
-For each finding from Steps 1-3:
+For each finding from Steps 1-4:
 
 ### Fix it directly (preferred — courage)
 Edit the files to address the issue. Run tests afterward to verify.
@@ -80,7 +96,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --files '["path/to/file.py"]'
 ```
 
-## Step 5: Record Summary
+## Step 6: Record Summary
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \

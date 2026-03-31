@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.5
+
+### Added
+- **Quality review resolves addressed plan review concerns** — new Step 3 in `/xp-quality-review` checks open plan reviewer concerns against code changes and resolves ones that were addressed. Preload now includes `open_plan_concerns.py` output alongside debt. Prevents plan review concerns from accumulating as noise when the underlying issues were fixed.
+
+### Stats
+- 1039 tests (all passing)
+
 ## v1.5.4
 
 ### Fixed
