@@ -50,8 +50,10 @@ _SIGNAL_TYPES = frozenset(
 
 # Status classification patterns
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed)", re.IGNORECASE)
-_SECURITY_TRIAGE_RE = re.compile(r"Security triage complete", re.IGNORECASE)
+_TEST_RUN_RE = re.compile(
+    r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE
+)
+_SECURITY_TRIAGE_RE = re.compile(r"Security triage (?:complete|started)", re.IGNORECASE)
 _COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
 _QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
