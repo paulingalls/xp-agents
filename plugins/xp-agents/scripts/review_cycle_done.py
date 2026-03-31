@@ -66,7 +66,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if "security-review" in skill_name and "triage" not in skill_name:
             event = _common.make_event(
                 _common.STATUS,
-                "xp-security-review",
+                "security-review",
                 "Security review complete — full review performed",
                 working_on=[],
             )

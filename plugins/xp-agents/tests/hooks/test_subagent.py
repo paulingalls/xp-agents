@@ -541,7 +541,7 @@ class TestReviewCycleDone(_HookTestCase):
             e for e in events if "Security review complete" in e.get("content", "")
         ]
         self.assertEqual(len(review_events), 1)
-        self.assertEqual(review_events[0]["agent_id"], "xp-security-review")
+        self.assertEqual(review_events[0]["agent_id"], "security-review")
 
     def test_qualified_simplify_name(self):
         """Plugin-qualified skill names also match."""
