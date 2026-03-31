@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.5.7
+
+### Changed
+- **Task creation nudge after plan review** — `review_cycle_done.py` now detects `/xp-review-plan` completion and injects `additionalContext` telling the agent to use `TaskCreate` to break the plan into tasks before implementing. Each task should be one red-green-commit cycle.
+- **Removed task decomposition from plan reviewer** — section 7 (task decomposition) removed from `xp-plan-reviewer.md`. Plans already have steps; the plan reviewer's job is catching strategic issues, not re-deriving tasks. Task creation is now nudged at the right moment (after review) rather than embedded in review prose.
+
+### Stats
+- 1043 tests (all passing)
+
 ## v1.5.6
 
 ### Fixed

@@ -129,6 +129,30 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("commit", result.lower())
 
+    def test_plan_review_nudges_task_creation(self):
+        """After /xp-review-plan, nudge to create tasks."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-review-plan"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("TaskCreate", result)
+
+    def test_plan_review_does_not_set_review_flags(self):
+        """Plan review is not part of the commit review cycle."""
+        review_cycle_done.run(self._skill_input("xp-review-plan"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertFalse(cycle["security_review_done"])
+
+    def test_qualified_plan_review_name(self):
+        """Plugin-qualified /xp-review-plan also triggers nudge."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-agents:xp-review-plan"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("TaskCreate", result)
+
 
 class TestSubagentStopReviewFlags(_HookTestCase):
     """SubagentStop backup: detect review-related subagent completions."""

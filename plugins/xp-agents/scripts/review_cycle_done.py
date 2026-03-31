@@ -29,11 +29,22 @@ def _detect_review_flag(skill_name: str) -> str | None:
     return None
 
 
+def _is_plan_review(skill_name: str) -> bool:
+    """Check if this is the plan review skill."""
+    return "review-plan" in skill_name
+
+
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
     "quality_review_done": "Run /xp-security-triage next.",
     "security_review_done": "Review cycle complete — commit your changes now.",
 }
+
+_TASK_CREATION_NUDGE = (
+    "Use TaskCreate to break your plan into tasks before implementing. "
+    "Each task should be one red-green-commit cycle. "
+    "Mark tasks in_progress when you start them and completed when done."
+)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -44,6 +55,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
     agent_id = input_data.get("agent_id", "main")
+
+    # Plan review: nudge task creation (not part of commit review cycle)
+    if _is_plan_review(skill_name):
+        return _TASK_CREATION_NUDGE
 
     flag = _detect_review_flag(skill_name)
     if flag is None:
