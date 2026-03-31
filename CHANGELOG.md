@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.2
+
+### Changed
+- **Plan reviewer recommends task decomposition** — new checklist item 7 outputs a structured task list with dependencies and parallel groups. Each task identifies files touched, depends-on relationships, and parallelization opportunities. The main agent uses this to create its task list immediately after review. Foundational for v2 Agent Teams spawn-team analysis.
+- **Linter detection walks from file directory** — `detect_linter_config()` starts from the file's parent directory instead of `cwd`, finding configs in subdirectories (e.g., `pyproject.toml` with `[tool.ruff]` in `apps/agent/`). Previously only found configs at or above the working directory.
+- **Linter detection filters by file extension** — skips linters that can't handle the file type. A `.py` file in a project with both eslint and ruff now gets ruff, not eslint.
+
+### Stats
+- 1037 tests (all passing)
+
 ## v1.5.1
 
 ### Fixed
