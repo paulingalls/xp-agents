@@ -57,17 +57,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     markers.set_review_flag(smm_dir, agent_id, flag)
 
-    # Backward compat: security review also writes old-style marker
-    # and records event (used by below-threshold path + retro visibility)
+    # Backward compat: security path also writes old-style marker
     if flag == "security_review_done":
         security.write_security_triaged(smm_dir)
-        event = _common.make_event(
-            _common.STATUS,
-            "xp-security-review",
-            "Security review complete — full review performed",
-            working_on=[],
-        )
-        _common.append_safe(smm_dir, event)
+        # Only record "review complete" when /security-review actually ran,
+        # not when /xp-security-triage completed without running it.
+        # mark_triaged.py already records the triage start event.
+        if "security-review" in skill_name and "triage" not in skill_name:
+            event = _common.make_event(
+                _common.STATUS,
+                "xp-security-review",
+                "Security review complete — full review performed",
+                working_on=[],
+            )
+            _common.append_safe(smm_dir, event)
 
     return _NEXT_STEP.get(flag)
 

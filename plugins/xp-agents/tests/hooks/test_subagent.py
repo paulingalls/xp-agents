@@ -520,6 +520,29 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertTrue(cycle["security_review_done"])
         self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
+    def test_triage_does_not_record_review_complete(self):
+        """Triage-only should not claim a full review happened."""
+        review_cycle_done.run(
+            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        review_events = [
+            e for e in events if "Security review complete" in e.get("content", "")
+        ]
+        self.assertEqual(len(review_events), 0)
+
+    def test_security_review_records_review_complete(self):
+        """/security-review should record the review complete event."""
+        review_cycle_done.run(
+            self._skill_input("security-review"), smm_dir=self.smm_dir
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        review_events = [
+            e for e in events if "Security review complete" in e.get("content", "")
+        ]
+        self.assertEqual(len(review_events), 1)
+        self.assertEqual(review_events[0]["agent_id"], "xp-security-review")
+
     def test_qualified_simplify_name(self):
         """Plugin-qualified skill names also match."""
         review_cycle_done.run(
