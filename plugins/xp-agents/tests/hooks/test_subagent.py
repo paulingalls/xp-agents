@@ -541,6 +541,30 @@ class TestReviewCycleDone(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_simplify_nudges_quality_review(self):
+        """After /simplify, nudge to run /xp-quality-review."""
+        result = review_cycle_done.run(
+            self._skill_input("simplify"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_quality_review_nudges_security_triage(self):
+        """After /xp-quality-review, nudge to run /xp-security-triage."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-quality-review"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-security-triage", result)
+
+    def test_security_triage_nudges_commit(self):
+        """After /xp-security-triage, nudge to commit."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("commit", result.lower())
+
 
 class TestSubagentStopReviewFlags(_HookTestCase):
     """SubagentStop backup: detect review-related subagent completions."""

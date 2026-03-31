@@ -102,3 +102,45 @@ def get_code_files_for_review(
         return []
 
     return [f for f in sorted(all_files) if security.is_code_file(f)]
+
+
+def get_uncommitted_code_files(cwd: str) -> list[str]:
+    """Get non-test code files with uncommitted changes (staged + unstaged).
+
+    Used by the post-green-tests nudge to determine if a commit is warranted.
+    Returns empty list on any git failure.
+    """
+    try:
+        staged = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=cwd,
+        )
+        unstaged = subprocess.run(
+            ["git", "diff", "--name-only"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=cwd,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return []
+
+    all_files: set[str] = set()
+    for result in (staged, unstaged):
+        if result.returncode == 0:
+            for f in result.stdout.strip().splitlines():
+                f = f.strip()
+                if f:
+                    all_files.add(f)
+
+    if not all_files:
+        return []
+
+    from pre_tool_write import is_test_file
+
+    return [
+        f for f in sorted(all_files) if security.is_code_file(f) and not is_test_file(f)
+    ]

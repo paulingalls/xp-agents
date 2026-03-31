@@ -230,6 +230,72 @@ class TestLintCheck(_HookTestCase):
 
             sh.rmtree(tmpdir)
 
+    def test_run_linter_passes_cwd(self):
+        """run_linter should pass cwd to subprocess so relative paths resolve."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type(
+                "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+            )()
+            lint_check.run_linter("ruff", "src/app.py", cwd="/projects/myapp")
+        _, kwargs = mock_run.call_args
+        self.assertEqual(kwargs.get("cwd"), "/projects/myapp")
+
+    def test_detect_skips_linter_for_wrong_extension(self):
+        """detect_linter_config should skip eslint for .py files."""
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "eslint.config.js").touch()
+        (tmpdir / "ruff.toml").touch()
+        try:
+            result = lint_check.detect_linter_config(
+                str(tmpdir), str(tmpdir), file_path="src/app.py"
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(result[0], "ruff")
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_detect_returns_eslint_for_js_files(self):
+        """detect_linter_config should return eslint for .js files."""
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "eslint.config.js").touch()
+        (tmpdir / "ruff.toml").touch()
+        try:
+            result = lint_check.detect_linter_config(
+                str(tmpdir), str(tmpdir), file_path="src/app.js"
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(result[0], "eslint")
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_detect_walks_from_file_directory(self):
+        """detect_linter_config should start from the file's dir, not cwd."""
+        tmpdir = Path(tempfile.mkdtemp())
+        # eslint at root, ruff in subdirectory
+        (tmpdir / "eslint.config.js").touch()
+        subdir = tmpdir / "apps" / "agent"
+        subdir.mkdir(parents=True)
+        pyproject = subdir / "pyproject.toml"
+        pyproject.write_text("[tool.ruff]\ntarget-version = 'py311'\n")
+        try:
+            # File is in apps/agent/ — should find ruff there, not eslint at root
+            result = lint_check.detect_linter_config(
+                str(tmpdir), str(tmpdir), file_path="apps/agent/foo.py"
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(result[0], "ruff")
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
     def test_lint_errors_return_context(self):
         """Lint errors should return additionalContext string."""
         (self.smm_dir / ".lint-warned").touch()  # suppress no-config warning

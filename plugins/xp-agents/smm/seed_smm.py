@@ -187,7 +187,7 @@ def generate_smm(root: Path) -> str:
 
     # Constraints — XP defaults
     constraints = [
-        "Write tests before implementation (TDD) — red, green, refactor",
+        "Write tests before implementation (TDD) — red, green, commit, refactor",
         "Plan before building new features — use plan mode for design",
         "Small commits — one logical change per commit",
         "Use strict linting — enforce coding standards automatically",
@@ -238,6 +238,11 @@ def generate_smm(root: Path) -> str:
     lines.append(
         "- Run /xp-kickoff at every session start — "
         "it handles retrospective, goals, and housekeeping"
+    )
+    lines.append(
+        "- Commit after every green test run — "
+        "commits trigger /simplify and review gates, "
+        "so skipping them skips quality checks"
     )
     lines.append(
         "- Run /simplify after each commit that touches 3+ code files — "

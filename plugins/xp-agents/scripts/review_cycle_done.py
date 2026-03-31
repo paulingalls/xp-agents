@@ -29,6 +29,13 @@ def _detect_review_flag(skill_name: str) -> str | None:
     return None
 
 
+_NEXT_STEP: dict[str, str] = {
+    "simplify_done": "Run /xp-quality-review next.",
+    "quality_review_done": "Run /xp-security-triage next.",
+    "security_review_done": "Review cycle complete — commit your changes now.",
+}
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Set review cycle flags when review skills complete."""
     if _common.is_xp_agent(input_data):
@@ -62,10 +69,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         )
         _common.append_safe(smm_dir, event)
 
-    return None
+    return _NEXT_STEP.get(flag)
 
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    run(input_data)
+    result = run(input_data)
+    if result:
+        _common.hook_output("PostToolUse", result)
     sys.exit(0)

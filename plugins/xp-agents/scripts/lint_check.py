@@ -138,17 +138,38 @@ _LINTER_BINARIES = {
 }
 
 
-def detect_linter_config(cwd: str, git_root: str) -> tuple[str, str] | None:
-    """Walk from cwd to git_root looking for linter config.
+def detect_linter_config(
+    cwd: str, git_root: str, file_path: str | None = None
+) -> tuple[str, str] | None:
+    """Walk from file's directory (or cwd) up to git_root looking for linter config.
+
+    When file_path is provided, starts from the file's parent directory
+    and only returns a linter that handles the file's extension. This
+    finds e.g. pyproject.toml with [tool.ruff] in a subdirectory, and
+    prevents eslint being selected for .py files.
 
     Returns (linter_name, config_path) or None.
     """
-    cwd_path = Path(cwd).resolve()
+    file_suffix = Path(file_path).suffix if file_path else None
+
+    # Start from the file's directory if available, otherwise cwd.
+    # This finds linter configs in subdirectories (e.g., apps/agent/pyproject.toml).
+    if file_path is not None:
+        file_abs = Path(cwd, file_path).resolve()
+        start_path = file_abs.parent
+    else:
+        start_path = Path(cwd).resolve()
     root_path = Path(git_root).resolve()
 
-    current = cwd_path
+    current = start_path
     while True:
         for config_name, linter, content_check in _LINTER_CONFIGS:
+            # Skip linters that can't handle this file type
+            if file_suffix is not None:
+                allowed = _LINTER_EXTENSIONS.get(linter)
+                if allowed is not None and file_suffix not in allowed:
+                    continue
+
             config_path = current / config_name
             if config_path.exists():
                 if content_check is not None:
@@ -172,8 +193,11 @@ def detect_linter_config(cwd: str, git_root: str) -> tuple[str, str] | None:
 # ---------------------------------------------------------------------------
 
 
-def run_linter(linter_name: str, file_path: str) -> str | None:
-    """Run linter on file. Returns error output or None if clean/unavailable."""
+def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
+    """Run linter on file. Returns error output or None if clean/unavailable.
+
+    cwd is passed to subprocess.run so relative file paths resolve correctly.
+    """
     binary = _LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
@@ -195,6 +219,7 @@ def run_linter(linter_name: str, file_path: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=cwd,
         )
         if result.returncode != 0:
             output = result.stdout or result.stderr
@@ -236,7 +261,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     git_root = _common.resolve_git_root(cwd) or cwd
 
-    config = detect_linter_config(cwd, git_root)
+    config = detect_linter_config(cwd, git_root, file_path=normalized)
 
     if config is None:
         # Ask once per project — atomic create, no symlink follow
@@ -266,7 +291,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     # Run linter
-    lint_output = run_linter(linter_name, normalized)
+    lint_output = run_linter(linter_name, normalized, cwd=git_root)
     if lint_output:
         # Append concern event (record for SMM / retrospective)
         concern = _common.make_event(

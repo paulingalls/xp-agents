@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.5.1
+
+### Fixed
+- **Linter detection walks from file directory** — `detect_linter_config()` now starts from the file's parent directory and walks up, not from `cwd`. Finds `pyproject.toml` with `[tool.ruff]` in subdirectories (e.g., `apps/agent/`). Previously only found configs at or above the working directory.
+- **Linter detection filters by file extension** — skips linters that can't handle the file type. A `.py` file in a project with both eslint and ruff now gets ruff, not eslint.
+- **Linter runs from correct cwd** — `run_linter()` passes `cwd` (git root) to `subprocess.run()`. Eliminates phantom `E902 No such file or directory` lint concerns that drowned real signals (~40 per session).
+- **TDD stop gate recognizes fallback pass format** — `_TEST_PASS_RE` now matches `"Tests passed (framework)"` in addition to `"Tests: N passed, 0 failed"`. Prevents stale test concerns from blocking stop.
+- **TDD stop gate skips resolved concerns** — `_find_last_test_signal()` now checks `compute_resolutions()` and ignores resolved test failure concerns.
+- **Ambiguous test results no longer claim success** — when parser extracts 0 passed / 0 failed (truncated output, wrong directory), records `"Tests ran (framework) — counts not extracted"` instead of false `"Tests passed"`.
+
+### Stats
+- 1037 tests (all passing)
+
+## v1.5.0
+
+### Changed
+- **Commit-after-green nudge** — `bash_post_tool.py` returns `additionalContext` after green tests when uncommitted code files exist: "Commit now to trigger the review cycle." Reinforces the red → green → commit → simplify rhythm.
+- **Review cycle continuation nudges** — `review_cycle_done.py` returns next-step guidance after each review skill: `/simplify` → "Run /xp-quality-review", `/xp-quality-review` → "Run /xp-security-triage", `/xp-security-triage` → "Commit your changes now."
+- **Seed SMM updated** — TDD constraint now reads "red, green, commit, refactor". New wisdom item: "Commit after every green test run — commits trigger /simplify and review gates."
+- **Plan reviewer checks commit cadence** — section 2 split into 2a (tests before implementation) and 2b (commit cadence). Flags plans with multiple red/green cycles and no commits between them.
+
+### Added
+- **`get_uncommitted_code_files()`** in `commits.py` — checks staged + unstaged changes, filters to non-test code files. Used by the post-green nudge.
+
+### Stats
+- 1033 tests (all passing)
+
 ## v1.0.14
 
 ### Changed

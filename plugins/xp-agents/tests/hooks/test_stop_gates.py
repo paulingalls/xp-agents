@@ -137,6 +137,57 @@ class TestTddStopGate(_HookTestCase):
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_fallback_pass_format_allows_stop(self):
+        """'Tests passed (framework)' fallback format should be recognized as pass."""
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 1 failed (pytest)",
+                    severity="high",
+                ),
+                make_event(
+                    "status",
+                    content="Tests passed (pytest)",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_resolved_concern_allows_stop(self):
+        """A resolved test failure concern should not block stop."""
+        fail = make_event(
+            "concern",
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        resolution = make_event(
+            "status",
+            content="Test concern resolved: Test failures detected: 2 failed",
+            working_on=[],
+            metadata={"resolves": [fail["id"]]},
+        )
+        self._write_events([fail, resolution])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_ambiguous_test_result_allows_stop(self):
+        """Neutral test status (counts not extracted) should not block stop."""
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="Tests ran (pytest) — counts not extracted",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -172,5 +172,50 @@ class TestReviewCycleThreshold(unittest.TestCase):
         self.assertEqual(commits.REVIEW_CYCLE_THRESHOLD, 3)
 
 
+# ---------------------------------------------------------------------------
+# get_uncommitted_code_files
+# ---------------------------------------------------------------------------
+
+
+class TestGetUncommittedCodeFiles(unittest.TestCase):
+    """Tests for commits.get_uncommitted_code_files()."""
+
+    @patch(_SUBPROCESS)
+    def test_returns_code_files_only(self, mock_run):
+        """Filters out non-code files and test files."""
+        staged = type(
+            "R",
+            (),
+            {"returncode": 0, "stdout": "src/app.py\nREADME.md\ntests/test_app.py\n"},
+        )()
+        unstaged = type("R", (), {"returncode": 0, "stdout": "src/utils.py\n"})()
+        mock_run.side_effect = [staged, unstaged]
+        result = commits.get_uncommitted_code_files("/tmp")
+        self.assertEqual(result, ["src/app.py", "src/utils.py"])
+
+    @patch(_SUBPROCESS)
+    def test_empty_on_no_changes(self, mock_run):
+        """No changed files → empty list."""
+        empty = type("R", (), {"returncode": 0, "stdout": ""})()
+        mock_run.side_effect = [empty, empty]
+        result = commits.get_uncommitted_code_files("/tmp")
+        self.assertEqual(result, [])
+
+    @patch(_SUBPROCESS)
+    def test_deduplicates_staged_and_unstaged(self, mock_run):
+        """Same file in both staged and unstaged → appears once."""
+        staged = type("R", (), {"returncode": 0, "stdout": "src/app.py\n"})()
+        unstaged = type("R", (), {"returncode": 0, "stdout": "src/app.py\n"})()
+        mock_run.side_effect = [staged, unstaged]
+        result = commits.get_uncommitted_code_files("/tmp")
+        self.assertEqual(result, ["src/app.py"])
+
+    @patch(_SUBPROCESS, side_effect=OSError("no git"))
+    def test_exception_returns_empty(self, _mock):
+        """Subprocess failure → empty list (graceful degradation)."""
+        result = commits.get_uncommitted_code_files("/tmp")
+        self.assertEqual(result, [])
+
+
 if __name__ == "__main__":
     unittest.main()

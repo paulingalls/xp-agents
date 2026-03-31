@@ -35,15 +35,13 @@ def _resolve_lint_on_commit(
 
     git_root = _common.resolve_git_root(cwd) or cwd
 
-    config = lint_check.detect_linter_config(cwd, git_root)
-    if config is None:
-        return
-
-    linter_name, _ = config
-
     for file_path in files:
         normalized = _common.normalize_path(file_path, cwd)
-        lint_output = lint_check.run_linter(linter_name, normalized)
+        config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
+        if config is None:
+            continue
+        linter_name, _ = config
+        lint_output = lint_check.run_linter(linter_name, normalized, cwd=git_root)
         if lint_output is None:
             # File passes lint (or linter doesn't apply) — resolve concern
             concerns.resolve_concerns(
@@ -131,8 +129,8 @@ def _handle_commit(
 # ---------------------------------------------------------------------------
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Core bash_post_tool logic. Appends events, no stdout."""
+def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+    """Core bash_post_tool logic. Appends events, returns nudge or None."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -165,10 +163,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         passed = results["passed"]
         failed = results["failed"]
 
-        # If parser couldn't extract numbers (truncated output),
-        # still record that tests passed — just without counts
+        # If parser couldn't extract numbers (truncated output, wrong dir, etc.),
+        # record a neutral status — we don't know if tests passed or failed
         if passed == 0 and failed == 0:
-            content = f"Tests passed ({framework})"
+            content = f"Tests ran ({framework}) — counts not extracted"
         else:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
 
@@ -191,6 +189,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         elif failed == 0:
             _resolve_test_concerns(smm_dir, agent_id)
 
+            # Nudge: commit after green if there are uncommitted code files
+            if passed > 0:
+                uncommitted = commits.get_uncommitted_code_files(cwd)
+                if uncommitted:
+                    return (
+                        "Tests are green and there are uncommitted code changes. "
+                        "Commit now to trigger the review cycle "
+                        "(/simplify, /xp-quality-review, /xp-security-triage)."
+                    )
+
         return None
 
     # Other commands — ignore
@@ -204,5 +212,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    run(input_data)
+    result = run(input_data)
+    if result:
+        _common.hook_output("PostToolUse", result)
     sys.exit(0)

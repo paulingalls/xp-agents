@@ -392,5 +392,70 @@ class TestResolveTestConcerns(_HookTestCase):
         self.assertEqual(len(events), 0)
 
 
+class TestBashPostToolGreenNudge(_HookTestCase):
+    """Tests for commit-after-green nudge in bash_post_tool."""
+
+    def test_green_with_uncommitted_code_returns_nudge(self):
+        """All tests pass + uncommitted code files → nudge string returned."""
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNotNone(result)
+        self.assertIn("commit", result.lower())
+
+    def test_green_no_uncommitted_code_no_nudge(self):
+        """All tests pass but no uncommitted code files → no nudge."""
+        with patch("commits.get_uncommitted_code_files", return_value=[]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+    def test_red_no_nudge(self):
+        """Failing tests → no nudge (even with uncommitted code)."""
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 3 passed, 2 failed in 1.2s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+    def test_xp_agent_no_nudge(self):
+        """xp- agents never get the nudge (recursion guard)."""
+        result = bash_post_tool.run(
+            _make_bash_input(
+                command="python3 -m pytest tests/",
+                stdout="===== 5 passed in 0.3s =====",
+                agent_type="xp-simplify",
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_zero_passed_zero_failed_no_nudge(self):
+        """Ambiguous output (0 passed, 0 failed) → no nudge."""
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="no tests ran",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
