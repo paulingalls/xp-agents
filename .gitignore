@@ -3,3 +3,4 @@ __pycache__/
 .idea/
 .claude/settings.local.json
 .DS_Store
+docs/handoffs/

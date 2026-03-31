@@ -18,7 +18,7 @@ Make the implicit explicit. Decisions in your head don't exist for the team — 
 
 ## Simplicity
 
-Solve today's problem. Three similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular. If you can remove something, remove it.
+Solve today's problem. Two similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular. If you can remove something, remove it.
 
 ## Feedback
 
