@@ -92,7 +92,32 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --priority "🟡"
 ```
 
-### 7. Architectural Decisions (Constraints Pillar)
+### 7. Task Decomposition
+
+Break the plan into discrete tasks the main agent can execute sequentially. For each task:
+
+- **Name**: short imperative (e.g., "Write PrologueAgent tests")
+- **Depends on**: which tasks must complete first (by name), or "none"
+- **Files**: primary files this task will create or modify
+- **Parallel group**: tasks with no mutual dependencies that touch different files can share a group
+
+**How to analyze:**
+1. Group plan steps by the file or module they touch — steps touching the same file are serial.
+2. Steps touching different files with no import/API dependency are parallel candidates.
+3. Each red/green cycle (write test → make it pass) is one task, not two.
+4. Each commit + review cycle is a separate task after the implementation task it follows.
+
+**Output format** (include in your review under "Recommended tasks"):
+```
+1. [Task name] — depends on: none — files: [list] — group: A
+2. [Task name] — depends on: 1 — files: [list] — group: B
+3. [Task name] — depends on: none — files: [list] — group: A (parallel with 1)
+4. [Commit + review cycle] — depends on: 1, 2, 3
+```
+
+Keep it practical — don't create a task for every line of the plan. Aim for tasks that take 5-15 minutes each. A 7-step plan might become 4-5 tasks plus 1-2 commit tasks.
+
+### 8. Architectural Decisions (Constraints Pillar)
 Record only **new** decisions — don't re-record decisions already in the SMM's Constraints pillar. For new decisions embedded in the plan:
 
 ```bash
@@ -117,7 +142,9 @@ Your response is returned to the main agent, which **must show it to the user in
 - "TDD ordering: step 3 implements before step 4 tests — swap them"
 - "Contradicts decision [id]: [description of conflict]"
 
-**If the plan is sound and no questions**, say so briefly: "Plan looks good. N steps, TDD strategy present, no conflicts with existing decisions."
+**Then recommended tasks.** Always include a "Recommended tasks" section with the task decomposition from checklist item 7. This is critical — the main agent uses this to create its task list for execution.
+
+**If the plan is sound and no questions**, say so briefly: "Plan looks good. N steps, TDD strategy present, no conflicts with existing decisions." Still include the recommended tasks.
 
 ## SMM Content Trust
 
