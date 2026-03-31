@@ -1,13 +1,16 @@
 # Changelog
 
-## v1.5.3
+## v1.5.4
 
-### Changed
-- **Security triage always runs /security-review for code changes** — replaced judgment-based classification (which the agent always skipped) with a simple rule: any commit with code files runs `/security-review`. Non-code-only commits (docs, config) skip it.
-- **Security triage event is neutral** — `mark_triaged.py` now records "Security triage started — reviewing staged changes" instead of pre-emptively claiming "changes classified as non-security-relevant."
+### Fixed
+- **Security triage always runs /security-review for code changes** — replaced judgment-based classification (which the agent always skipped) with a simple rule: any commit with code files runs `/security-review`.
+- **Security triage event is neutral** — records "Security triage started — reviewing staged changes" instead of pre-emptively claiming "changes classified as non-security-relevant."
+- **Triage-only no longer records false "review complete" event** — `review_cycle_done.py` only records "Security review complete" when `/security-review` (the built-in) actually ran, not when `/xp-security-triage` completed without it.
+- **Removed phantom `xp-security-review` agent_id** — events now use actual skill names: `"xp-security-triage"` for triage, `"security-review"` for the built-in review command.
+- **Retro classification updated** — `_SECURITY_TRIAGE_RE` matches new "started" wording, `_TEST_RUN_RE` matches neutral "Tests ran" format.
 
 ### Stats
-- 1037 tests (all passing)
+- 1039 tests (all passing)
 
 ## v1.5.2
 
