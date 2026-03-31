@@ -393,7 +393,7 @@ Only events before the curation watermark are eligible for compaction.
 
 ## Project Status
 
-1017 tests. All passing.
+1040 tests. All passing.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
 See [SMM_DESIGN.md](docs/SMM_DESIGN.md) for the four-pillar Shared Mental Model design.
