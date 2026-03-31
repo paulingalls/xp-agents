@@ -31,11 +31,12 @@ else:
     security.write_security_triaged(smm_dir)
     # Set review cycle flag for commit gate
     markers.set_review_flag(smm_dir, "main", "security_review_done")
-    # Record triage in the event log so the retro can see it happened
+    # Record triage in the event log so the retro can see it happened.
+    # Content is neutral — the agent decides next steps after seeing the diff.
     event = _common.make_event(
         _common.STATUS,
         "xp-security-triage",
-        "Security triage complete — changes classified as non-security-relevant",
+        "Security triage started — reviewing staged changes",
         working_on=[],
     )
     _common.append_safe(smm_dir, event)

@@ -1,11 +1,9 @@
 ---
 name: xp-security-triage
 description: >-
-  Triage staged changes for security relevance before committing. Reads
-  git diff --cached, classifies changes as trivial (docs, tests, renames,
-  config) or security-relevant (auth, crypto, input handling, permissions,
-  network, secrets). Trivial changes get auto-cleared; security-relevant
-  changes require /security-review first.
+  Triage staged changes before committing. Shows the diff and clears
+  the commit gate. If any code files changed, runs /security-review.
+  Non-code-only changes (docs, config, CI) need no further action.
 effort: high
 allowed-tools:
   - Bash(*/skills/*/scripts/*)
@@ -14,8 +12,8 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload_diff.sh`
 
-The triage marker has been written and the commit gate is cleared. Classify the staged changes above:
+The triage marker has been written and the commit gate is cleared. Check the staged changes above:
 
-**Trivial:** renames, documentation, tests, config formatting, comments, imports, type annotations, CI/CD metadata — changes that cannot introduce security vulnerabilities. No further action needed.
+**If any code files changed** (not just docs, config, or CI metadata), run `/security-review`. This is a **built-in Claude Code command** — invoke it as `/security-review`, NOT as `xp-agents:security-review`. Security review is fast and catches issues that are easy to miss during implementation.
 
-**Security-relevant:** any change touching authentication, authorization, cryptography, input validation/sanitization, file I/O with user-controlled paths, network requests, secret/credential handling, permission checks, SQL/command construction, cookie/session management, CORS/CSP headers, or dependency version changes. Run `/security-review` for a full review. This is a **built-in Claude Code command** — invoke it as `/security-review`, NOT as `xp-agents:security-review`.
+**If only non-code files changed** (documentation, CI/CD metadata, config formatting, .gitignore, etc.), no further action needed.
