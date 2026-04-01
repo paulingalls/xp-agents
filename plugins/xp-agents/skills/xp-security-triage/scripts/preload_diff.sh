@@ -5,12 +5,8 @@ set -euo pipefail
 # if /security-review is also needed. The marker is written unconditionally
 # because the skill loading means triage happened.
 
-# Resolve SMM_DIR for marker write and event logging
-PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
-    echo "## Security Triage: SMM unavailable"
-    exit 0
-}
+# shellcheck source=../../_preload_base.sh
+source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
