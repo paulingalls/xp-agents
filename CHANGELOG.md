@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.5.10
+
+### Fixed
+- **Review cycle nudges now delivered to agent** — `review_cycle_done.py` was registered with `async: true`, which meant its `additionalContext` output (TaskCreate nudge after plan review, review cycle continuation nudges) was never seen by the agent. Removed `async: true` so nudges are delivered synchronously.
+
+### Stats
+- 1062 tests (all passing)
+
 ## v1.5.9
 
 ### Changed

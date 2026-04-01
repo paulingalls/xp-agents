@@ -86,7 +86,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
 | **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
-| **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done, security_review_done) when review skills complete. `async: true` |
+| **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done, security_review_done) when review skills complete. Nudges next step via `additionalContext` |
 | **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker, compact event log |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
