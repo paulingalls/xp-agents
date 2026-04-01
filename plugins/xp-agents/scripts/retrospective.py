@@ -106,15 +106,22 @@ def _classify_status_events(
     return counts
 
 
-def _group_concerns(events: list[dict]) -> list[dict]:
-    """Deduplicate concerns by normalized content.
+def _group_concerns(
+    events: list[dict], resolved_ids: set[str] | None = None
+) -> list[dict]:
+    """Deduplicate unresolved concerns by normalized content.
 
-    Returns {key, count, ids} — ids are short (8 chars) for housekeeping
-    reference without bloating retro-input with full event objects.
+    Resolved concerns are excluded — they're rolled up to a count
+    in the digest instead. Returns {key, count, ids} — ids are short
+    (8 chars) for housekeeping reference.
     """
+    if resolved_ids is None:
+        resolved_ids = set()
     groups: dict[str, dict] = {}
     for e in events:
         if e.get("type") != _common.CONCERN:
+            continue
+        if e.get("id", "") in resolved_ids:
             continue
         key = _normalize_concern_content(e.get("content", ""))
         if key not in groups:
@@ -199,13 +206,26 @@ def _build_honesty_signals(events: list[dict]) -> dict:
     return signals
 
 
-def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
-    """Build structured digest from unanalyzed events."""
+def _build_retro_digest(
+    events: list[dict], start_idx: int, resolved_concern_ids: set[str]
+) -> dict:
+    """Build structured digest from unanalyzed events.
+
+    Resolved concerns are excluded from signal_events and concern_groups
+    and rolled up to a count — the retro doesn't need their full text.
+    """
     unanalyzed = events[start_idx:]
 
-    signal_events = [e for e in unanalyzed if e.get("type") in _SIGNAL_TYPES]
+    signal_events = [
+        e
+        for e in unanalyzed
+        if e.get("type") in _SIGNAL_TYPES
+        and not (
+            e.get("type") == _common.CONCERN and e.get("id", "") in resolved_concern_ids
+        )
+    ]
     status_summary = _classify_status_events(unanalyzed)
-    concern_groups = _group_concerns(unanalyzed)
+    concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = _build_honesty_signals(unanalyzed)
 
     return {
@@ -213,6 +233,7 @@ def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
         "status_summary": status_summary,
         "concern_groups": concern_groups,
         "honesty_signals": honesty_signals,
+        "resolved_concern_count": len(resolved_concern_ids),
     }
 
 
@@ -305,10 +326,14 @@ def _build_retro_input(
 
     Caps events_since_last_retro to MAX_EVENTS_IN_RETRO (most recent).
     """
+    import resolution
+
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
-    digest = _build_retro_digest(events, start_idx)
+    resolutions = resolution.compute_resolutions(unanalyzed)
+    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
+    digest = _build_retro_digest(events, start_idx, resolved_concern_ids)
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id

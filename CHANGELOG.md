@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.8
+
+### Changed
+- **Resolved concerns excluded from retro input** — resolved concerns are rolled up to a count (`resolved_concern_count`) instead of including full text in signal_events and concern_groups. On a real session with 60 concerns (48 resolved), retro-input.json dropped from 155KB to 21KB (86% reduction).
+- **Lint concerns are concise** — concern events now record `"Lint errors in app.py: 3 errors (F401, I001)"` instead of dumping full linter output. Supports ruff, pylint, flake8, and eslint (including scoped plugin rules like `@typescript-eslint/no-explicit-any`). The agent already sees full output via additionalContext.
+- **Test failure concerns are concise** — concern events now record `"Test command failed (pytest): Exit code 1"` instead of full traceback. Works for all six supported test frameworks.
+
+### Stats
+- 1055 tests (all passing)
+
 ## v1.5.7
 
 ### Changed

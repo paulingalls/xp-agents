@@ -6,6 +6,7 @@ events for lint errors. Warns once if no linter is configured.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -232,6 +233,41 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
     return None
 
 
+def _summarize_lint_output(lint_output: str) -> str:
+    """Extract error codes from lint output for a concise concern summary.
+
+    Returns e.g. "3 errors (F401, I001)" instead of full ruff/eslint output.
+    The agent already sees the full output via additionalContext.
+
+    Supports:
+    - ruff/pylint/flake8: uppercase letter + digits (F401, C0114, E302)
+    - eslint: kebab-case rules at end of line (no-unused-vars, no-console)
+    - eslint plugins: scoped rules (@typescript-eslint/no-explicit-any)
+    """
+    # ruff/pylint/flake8 codes: F401, I001, C0114, W0611, RUF059
+    codes = re.findall(r"\b([A-Z]{1,3}\d{3,4})\b", lint_output)
+    # eslint rules: "  error  'x' is unused  no-unused-vars" or "(no-unused-vars)"
+    eslint_rules = re.findall(
+        r"[\s(]((?:@[\w-]+/)?[a-z][\w-]*(?:/[a-z][\w-]*)*)[)\s]*$",
+        lint_output,
+        re.MULTILINE,
+    )
+    # Filter eslint noise (common non-rule words that match the pattern)
+    _ESLINT_NOISE = frozenset({"error", "warning", "info", "help", "fixable"})
+    eslint_rules = [r for r in eslint_rules if r not in _ESLINT_NOISE and "-" in r]
+    all_codes = codes + eslint_rules
+    unique_codes = list(dict.fromkeys(all_codes))  # dedupe, preserve order
+    n = len(all_codes) or 1
+    code_str = ", ".join(unique_codes[:5])
+    if len(unique_codes) > 5:
+        code_str += f", +{len(unique_codes) - 5} more"
+    return (
+        f"{n} error{'s' if n != 1 else ''} ({code_str})"
+        if unique_codes
+        else "errors found"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
@@ -293,11 +329,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Run linter
     lint_output = run_linter(linter_name, normalized, cwd=git_root)
     if lint_output:
-        # Append concern event (record for SMM / retrospective)
+        # Concise concern — agent has full output via additionalContext
+        summary = _summarize_lint_output(lint_output)
         concern = _common.make_event(
             _common.CONCERN,
             agent_id,
-            f"{concerns.LINT_CONCERN_PREFIX}{normalized}:\n{lint_output}",
+            f"{concerns.LINT_CONCERN_PREFIX}{normalized}: {summary}",
             severity="medium",
         )
         _common.append_safe(smm_dir, concern)
