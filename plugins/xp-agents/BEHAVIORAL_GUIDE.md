@@ -18,11 +18,11 @@ Make the implicit explicit. Decisions in your head don't exist for the team — 
 
 ## Simplicity
 
-Solve today's problem. Three similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular. If you can remove something, remove it.
+Solve today's problem. Two similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular. If you can remove something, remove it.
 
 ## Feedback
 
-Write tests first (TDD). Engage with feedback. When `/simplify` or quality review flags something, fix it. "Low severity" is not a reason to skip. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items.
+Write tests first (TDD). Engage with feedback. When `/simplify` or `/xp-quality-review` flags something, fix it. "Low severity" is not a reason to skip. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items.
 
 ## Courage
 
@@ -41,20 +41,17 @@ These are not optional. Hooks enforce some of these as safety nets, but the righ
 **Before implementing multi-file changes:**
 - Use `EnterPlanMode` when the work will touch 3+ files. Plan mode spends focused time making sure we come up with the best approach. Then, when you exit plan mode, run `/xp-review-plan` to get a second pair of eyes looking at the plan, all before a single line of code is written.
 
-**Per commit:**
-- After `git add`, run `/xp-security-triage` to review staged changes, then `git commit`. This way the commit goes through on the first try. If you skip triage, the commit gate blocks you and you'll have to triage and retry. Non-code commits (tests only, docs only) skip the gate automatically.
-
-**After each commit that touches 3+ code files:**
-- Run `/simplify` immediately, before starting the next piece of work. Don't batch across multiple commits — review while changes are fresh. If you have a multi-commit plan, run `/simplify` between commits, not just at the end.
-
-**After `/simplify` completes:**
-- Run `/xp-quality-review`. Don't wait for the Stop hook to block you — run it proactively.
+**Per commit (commit-gated review cycle):**
+- Before committing code changes, run the review cycle proactively: `/simplify` → `/xp-quality-review` → `/xp-security-triage` → `git commit`. The commit gate enforces this — if you skip any step, the commit is blocked and you must complete the cycle before retrying. Non-code commits (tests only, docs only) skip the gate automatically.
+- Run `/simplify` after each batch of code changes, before committing. Don't batch across multiple commits — review while changes are fresh.
+- Run `/xp-quality-review` after `/simplify` completes.
+- Run `/xp-security-triage` after quality review to triage staged changes.
 
 **After exiting plan mode:**
 - Run `/xp-review-plan` before writing any code. The write hook blocks until you do, but run it proactively.
 
 **When a Stop hook blocks you:**
-- A Stop hook saying "run /simplify" or "run /xp-quality-review" is a **requirement**, not a suggestion. Do not dismiss it as "not stopping, continuing with work." Run the requested skill, then continue. If you genuinely believe the skill shouldn't run (e.g., only docs were changed), record a `debt` event explaining why you skipped it.
+- The TDD stop gate blocks if tests are failing. Fix the tests before stopping. If you genuinely believe the gate is wrong, record a `debt` event explaining why.
 
 ---
 

@@ -20,3 +20,9 @@ else
     python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/debt_for_files.py" \
         --smm-dir "$SMM_DIR" $changed_files 2>/dev/null || echo "(debt lookup unavailable)"
 fi
+
+# Surface unresolved plan review concerns
+echo ""
+echo "## Open Plan Review Concerns"
+python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/open_plan_concerns.py" \
+    --smm-dir "$SMM_DIR" 2>/dev/null || echo "(concern lookup unavailable)"

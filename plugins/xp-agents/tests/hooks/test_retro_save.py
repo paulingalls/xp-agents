@@ -33,7 +33,7 @@ class TestRetroDigest(_HookTestCase):
             make_event("customer_input", content="Please fix"),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0)
+        digest = retrospective._build_retro_digest(events, 0, set())
         signal_types = {e["type"] for e in digest["signal_events"]}
         self.assertIn("decision", signal_types)
         self.assertIn("concern", signal_types)
@@ -67,7 +67,7 @@ class TestRetroDigest(_HookTestCase):
             ),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0)
+        digest = retrospective._build_retro_digest(events, 0, set())
         ss = digest["status_summary"]
         self.assertEqual(ss["total"], 4)
         self.assertEqual(ss["file_writes"], 2)
@@ -87,7 +87,7 @@ class TestRetroDigest(_HookTestCase):
             for _ in range(3)
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0)
+        digest = retrospective._build_retro_digest(events, 0, set())
         groups = digest["concern_groups"]
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups[0]["count"], 3)
@@ -106,7 +106,7 @@ class TestRetroDigest(_HookTestCase):
             ),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0)
+        digest = retrospective._build_retro_digest(events, 0, set())
         groups = digest["concern_groups"]
         self.assertEqual(len(groups), 3)
         for g in groups:
@@ -121,7 +121,7 @@ class TestRetroDigest(_HookTestCase):
             make_event("concern", content="Slow", severity="low"),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0)
+        digest = retrospective._build_retro_digest(events, 0, set())
         signal_ids = {e["id"] for e in digest["signal_events"]}
         for e in events:
             self.assertIn(e["id"], signal_ids)

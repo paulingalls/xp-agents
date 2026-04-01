@@ -56,10 +56,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     )
     _common.append_safe(smm_dir, status)
 
+    # Concise concern — the agent already saw the full error in the tool response
+    first_line = error.split("\n", 1)[0].strip() if error else "exit non-zero"
     concern = _common.make_event(
         _common.CONCERN,
         agent_id,
-        f"Test command failed: `{command}` — {error}",
+        f"Test command failed ({framework}): {first_line}",
         severity="high",
     )
     _common.append_safe(smm_dir, concern)

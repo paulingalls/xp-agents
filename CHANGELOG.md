@@ -1,5 +1,110 @@
 # Changelog
 
+## v1.5.10
+
+### Fixed
+- **Review cycle nudges now delivered to agent** — `review_cycle_done.py` was registered with `async: true`, which meant its `additionalContext` output (TaskCreate nudge after plan review, review cycle continuation nudges) was never seen by the agent. Removed `async: true` so nudges are delivered synchronously.
+
+### Stats
+- 1062 tests (all passing)
+
+## v1.5.9
+
+### Changed
+- **TDD metric counts unique files, not raw writes** — `max_writes_without_test` replaced with `max_unique_files_without_test`. Multiple writes to the same file (normal iteration) no longer inflate the metric. On a real session: 6 → 4.
+- **Seed SMM updated for commit-gated review cycle** — removed stale wisdom items that referenced old Stop-hook gates and pre-commit triage flow. Added correct review cycle sequence. Moved "small files" from wisdom to constraints.
+- **Small files constraint** — "Small files — single responsibility, one concern per file" added to seed constraints alongside small commits and TDD.
+
+- **Resolved concerns excluded from curation preload** — `prepare_curation_data()` now filters resolved concerns from `new_since_last_curation` and reports a count. Housekeeping preload dropped from 132KB to 61KB on a real session.
+
+### Stats
+- 1062 tests (all passing)
+
+## v1.5.8
+
+### Changed
+- **Resolved concerns excluded from retro input** — resolved concerns are rolled up to a count (`resolved_concern_count`) instead of including full text in signal_events and concern_groups. On a real session with 60 concerns (48 resolved), retro-input.json dropped from 155KB to 21KB (86% reduction).
+- **Lint concerns are concise** — concern events now record `"Lint errors in app.py: 3 errors (F401, I001)"` instead of dumping full linter output. Supports ruff, pylint, flake8, and eslint (including scoped plugin rules like `@typescript-eslint/no-explicit-any`). The agent already sees full output via additionalContext.
+- **Test failure concerns are concise** — concern events now record `"Test command failed (pytest): Exit code 1"` instead of full traceback. Works for all six supported test frameworks.
+
+### Stats
+- 1055 tests (all passing)
+
+## v1.5.7
+
+### Changed
+- **Task creation nudge after plan review** — `review_cycle_done.py` now detects `/xp-review-plan` completion and injects `additionalContext` telling the agent to use `TaskCreate` to break the plan into tasks before implementing. Each task should be one red-green-commit cycle.
+- **Removed task decomposition from plan reviewer** — section 7 (task decomposition) removed from `xp-plan-reviewer.md`. Plans already have steps; the plan reviewer's job is catching strategic issues, not re-deriving tasks. Task creation is now nudged at the right moment (after review) rather than embedded in review prose.
+
+### Stats
+- 1043 tests (all passing)
+
+## v1.5.6
+
+### Fixed
+- **Post-green context confirms prior failure resolution** — when tests pass after a prior failure, `additionalContext` now says "All prior test failures resolved — tests are green." Prevents the agent from reacting to stale failure context in its conversation history.
+- **`resolve_concerns()` returns bool** — callers can now check whether any concerns were actually resolved.
+
+### Stats
+- 1040 tests (all passing)
+
+## v1.5.5
+
+### Added
+- **Quality review resolves addressed plan review concerns** — new Step 3 in `/xp-quality-review` checks open plan reviewer concerns against code changes and resolves ones that were addressed. Preload now includes `open_plan_concerns.py` output alongside debt. Prevents plan review concerns from accumulating as noise when the underlying issues were fixed.
+
+### Stats
+- 1039 tests (all passing)
+
+## v1.5.4
+
+### Fixed
+- **Security triage always runs /security-review for code changes** — replaced judgment-based classification (which the agent always skipped) with a simple rule: any commit with code files runs `/security-review`.
+- **Security triage event is neutral** — records "Security triage started — reviewing staged changes" instead of pre-emptively claiming "changes classified as non-security-relevant."
+- **Triage-only no longer records false "review complete" event** — `review_cycle_done.py` only records "Security review complete" when `/security-review` (the built-in) actually ran, not when `/xp-security-triage` completed without it.
+- **Removed phantom `xp-security-review` agent_id** — events now use actual skill names: `"xp-security-triage"` for triage, `"security-review"` for the built-in review command.
+- **Retro classification updated** — `_SECURITY_TRIAGE_RE` matches new "started" wording, `_TEST_RUN_RE` matches neutral "Tests ran" format.
+
+### Stats
+- 1039 tests (all passing)
+
+## v1.5.2
+
+### Changed
+- **Plan reviewer recommends task decomposition** — new checklist item 7 outputs a structured task list with dependencies and parallel groups. Each task identifies files touched, depends-on relationships, and parallelization opportunities. The main agent uses this to create its task list immediately after review. Foundational for v2 Agent Teams spawn-team analysis.
+- **Linter detection walks from file directory** — `detect_linter_config()` starts from the file's parent directory instead of `cwd`, finding configs in subdirectories (e.g., `pyproject.toml` with `[tool.ruff]` in `apps/agent/`). Previously only found configs at or above the working directory.
+- **Linter detection filters by file extension** — skips linters that can't handle the file type. A `.py` file in a project with both eslint and ruff now gets ruff, not eslint.
+
+### Stats
+- 1037 tests (all passing)
+
+## v1.5.1
+
+### Fixed
+- **Linter detection walks from file directory** — `detect_linter_config()` now starts from the file's parent directory and walks up, not from `cwd`. Finds `pyproject.toml` with `[tool.ruff]` in subdirectories (e.g., `apps/agent/`). Previously only found configs at or above the working directory.
+- **Linter detection filters by file extension** — skips linters that can't handle the file type. A `.py` file in a project with both eslint and ruff now gets ruff, not eslint.
+- **Linter runs from correct cwd** — `run_linter()` passes `cwd` (git root) to `subprocess.run()`. Eliminates phantom `E902 No such file or directory` lint concerns that drowned real signals (~40 per session).
+- **TDD stop gate recognizes fallback pass format** — `_TEST_PASS_RE` now matches `"Tests passed (framework)"` in addition to `"Tests: N passed, 0 failed"`. Prevents stale test concerns from blocking stop.
+- **TDD stop gate skips resolved concerns** — `_find_last_test_signal()` now checks `compute_resolutions()` and ignores resolved test failure concerns.
+- **Ambiguous test results no longer claim success** — when parser extracts 0 passed / 0 failed (truncated output, wrong directory), records `"Tests ran (framework) — counts not extracted"` instead of false `"Tests passed"`.
+
+### Stats
+- 1037 tests (all passing)
+
+## v1.5.0
+
+### Changed
+- **Commit-after-green nudge** — `bash_post_tool.py` returns `additionalContext` after green tests when uncommitted code files exist: "Commit now to trigger the review cycle." Reinforces the red → green → commit → simplify rhythm.
+- **Review cycle continuation nudges** — `review_cycle_done.py` returns next-step guidance after each review skill: `/simplify` → "Run /xp-quality-review", `/xp-quality-review` → "Run /xp-security-triage", `/xp-security-triage` → "Commit your changes now."
+- **Seed SMM updated** — TDD constraint now reads "red, green, commit, refactor". New wisdom item: "Commit after every green test run — commits trigger /simplify and review gates."
+- **Plan reviewer checks commit cadence** — section 2 split into 2a (tests before implementation) and 2b (commit cadence). Flags plans with multiple red/green cycles and no commits between them.
+
+### Added
+- **`get_uncommitted_code_files()`** in `commits.py` — checks staged + unstaged changes, filters to non-test code files. Used by the post-green nudge.
+
+### Stats
+- 1033 tests (all passing)
+
 ## v1.0.14
 
 ### Changed

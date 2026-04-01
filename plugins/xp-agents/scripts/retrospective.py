@@ -50,8 +50,10 @@ _SIGNAL_TYPES = frozenset(
 
 # Status classification patterns
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed)", re.IGNORECASE)
-_SECURITY_TRIAGE_RE = re.compile(r"Security triage complete", re.IGNORECASE)
+_TEST_RUN_RE = re.compile(
+    r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE
+)
+_SECURITY_TRIAGE_RE = re.compile(r"Security triage (?:complete|started)", re.IGNORECASE)
 _COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
 _QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
@@ -104,15 +106,22 @@ def _classify_status_events(
     return counts
 
 
-def _group_concerns(events: list[dict]) -> list[dict]:
-    """Deduplicate concerns by normalized content.
+def _group_concerns(
+    events: list[dict], resolved_ids: set[str] | None = None
+) -> list[dict]:
+    """Deduplicate unresolved concerns by normalized content.
 
-    Returns {key, count, ids} — ids are short (8 chars) for housekeeping
-    reference without bloating retro-input with full event objects.
+    Resolved concerns are excluded — they're rolled up to a count
+    in the digest instead. Returns {key, count, ids} — ids are short
+    (8 chars) for housekeeping reference.
     """
+    if resolved_ids is None:
+        resolved_ids = set()
     groups: dict[str, dict] = {}
     for e in events:
         if e.get("type") != _common.CONCERN:
+            continue
+        if e.get("id", "") in resolved_ids:
             continue
         key = _normalize_concern_content(e.get("content", ""))
         if key not in groups:
@@ -131,14 +140,16 @@ def _build_honesty_signals(events: list[dict]) -> dict:
     signals: dict = {}
 
     # Track sequence for gap analysis
-    writes_since_last_test = 0
-    max_writes_without_test = 0
+    unique_files_since_test: set[str] = set()
+    max_unique_files_without_test = 0
     commits_without_triage = 0
     total_commits = 0
     last_triage_seen = False
     concern_count = 0
     assumption_count = 0
     file_write_count = 0
+
+    from pre_tool_write import is_test_file
 
     for e in events:
         etype = e.get("type", "")
@@ -149,17 +160,16 @@ def _build_honesty_signals(events: list[dict]) -> dict:
                 path = content.replace("Wrote to ", "").strip()
                 if security.is_code_file(path):
                     file_write_count += 1
-                    # TDD streak: only production code writes count
-                    # (writing test files isn't a testing gap)
-                    from pre_tool_write import is_test_file
-
+                    # TDD streak: count unique production files between tests
+                    # (writing test files isn't a testing gap, and multiple
+                    # writes to the same file is normal iteration)
                     if not is_test_file(path):
-                        writes_since_last_test += 1
+                        unique_files_since_test.add(path)
             elif _TEST_RUN_RE.search(content):
-                max_writes_without_test = max(
-                    max_writes_without_test, writes_since_last_test
+                max_unique_files_without_test = max(
+                    max_unique_files_without_test, len(unique_files_since_test)
                 )
-                writes_since_last_test = 0
+                unique_files_since_test = set()
             elif _SECURITY_TRIAGE_RE.search(content):
                 last_triage_seen = True
             elif _COMMIT_RE.search(content):
@@ -172,10 +182,12 @@ def _build_honesty_signals(events: list[dict]) -> dict:
         elif etype == _common.ASSUMPTION:
             assumption_count += 1
 
-    # Final streak (writes after last test)
-    max_writes_without_test = max(max_writes_without_test, writes_since_last_test)
+    # Final streak (files written after last test)
+    max_unique_files_without_test = max(
+        max_unique_files_without_test, len(unique_files_since_test)
+    )
 
-    signals["max_writes_without_test"] = max_writes_without_test
+    signals["max_unique_files_without_test"] = max_unique_files_without_test
     signals["commits_without_triage"] = commits_without_triage
     signals["total_commits"] = total_commits
 
@@ -197,13 +209,26 @@ def _build_honesty_signals(events: list[dict]) -> dict:
     return signals
 
 
-def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
-    """Build structured digest from unanalyzed events."""
+def _build_retro_digest(
+    events: list[dict], start_idx: int, resolved_concern_ids: set[str]
+) -> dict:
+    """Build structured digest from unanalyzed events.
+
+    Resolved concerns are excluded from signal_events and concern_groups
+    and rolled up to a count — the retro doesn't need their full text.
+    """
     unanalyzed = events[start_idx:]
 
-    signal_events = [e for e in unanalyzed if e.get("type") in _SIGNAL_TYPES]
+    signal_events = [
+        e
+        for e in unanalyzed
+        if e.get("type") in _SIGNAL_TYPES
+        and not (
+            e.get("type") == _common.CONCERN and e.get("id", "") in resolved_concern_ids
+        )
+    ]
     status_summary = _classify_status_events(unanalyzed)
-    concern_groups = _group_concerns(unanalyzed)
+    concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = _build_honesty_signals(unanalyzed)
 
     return {
@@ -211,6 +236,7 @@ def _build_retro_digest(events: list[dict], start_idx: int) -> dict:
         "status_summary": status_summary,
         "concern_groups": concern_groups,
         "honesty_signals": honesty_signals,
+        "resolved_concern_count": len(resolved_concern_ids),
     }
 
 
@@ -303,10 +329,14 @@ def _build_retro_input(
 
     Caps events_since_last_retro to MAX_EVENTS_IN_RETRO (most recent).
     """
+    import resolution
+
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
-    digest = _build_retro_digest(events, start_idx)
+    resolutions = resolution.compute_resolutions(unanalyzed)
+    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
+    digest = _build_retro_digest(events, start_idx, resolved_concern_ids)
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id

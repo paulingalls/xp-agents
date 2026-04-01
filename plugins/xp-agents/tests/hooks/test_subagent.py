@@ -2,6 +2,7 @@
 """Tests for subagent hooks and user prompt logging.
 
 Split from the monolithic test_hooks.py.
+Review cycle tests in test_review_cycle.py.
 """
 
 import sys
@@ -470,44 +471,6 @@ class TestSubagentStopNoReviewerNudge(_HookTestCase):
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-
-import security  # noqa: E402
-import security_review_done  # noqa: E402
-
-
-class TestSecurityReviewDone(_HookTestCase):
-    """PostToolUse:Skill hook writes triage marker after /security-review."""
-
-    def _skill_input(self, skill: str = "security-review", **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "tool_name": "Skill",
-            "tool_input": {"skill": skill},
-        }
-        data.update(overrides)
-        return data
-
-    def test_writes_marker_on_security_review(self):
-        security_review_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
-
-    def test_ignores_other_skills(self):
-        security_review_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
-        self.assertFalse(security.security_triaged_exists(self.smm_dir))
-
-    def test_ignores_triage_skill(self):
-        """xp-security-triage writes its own marker, hook should not double-write."""
-        security_review_done.run(
-            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
-        )
-        self.assertFalse(security.security_triaged_exists(self.smm_dir))
-
-    def test_xp_agent_skips(self):
-        result = security_review_done.run(
-            self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
         )
         self.assertIsNone(result)
 

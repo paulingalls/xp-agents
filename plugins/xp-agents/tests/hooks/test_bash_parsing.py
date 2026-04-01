@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import bash_post_tool
+import commits
 import security
 import test_parsing
 
@@ -78,11 +78,11 @@ class TestIsTestRun(unittest.TestCase):
 class TestParseCommitMessage(unittest.TestCase):
     def test_standard_output(self):
         response = "[main abc123] Add auth module\n 3 files changed, 45 insertions(+)"
-        result = bash_post_tool.parse_commit_message(response)
+        result = commits.parse_commit_message(response)
         self.assertEqual(result, "Add auth module")
 
     def test_no_match(self):
-        result = bash_post_tool.parse_commit_message("error: something went wrong")
+        result = commits.parse_commit_message("error: something went wrong")
         self.assertIsNone(result)
 
 

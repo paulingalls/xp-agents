@@ -278,17 +278,6 @@ class TestHooksJsonM5(_HooksJsonTestCase):
 class TestHooksJsonM54(_HooksJsonTestCase):
     """Verify hooks.json has M5.4 hook registrations."""
 
-    def test_stop_has_simplify_gate_command(self):
-        entries = self.data["hooks"]["Stop"]
-        all_hooks = []
-        for entry in entries:
-            all_hooks.extend(entry.get("hooks", []))
-        commands = [h for h in all_hooks if h.get("type") == "command"]
-        self.assertTrue(
-            any("simplify_gate.py" in h["command"] for h in commands),
-            "simplify_gate.py command hook missing from Stop",
-        )
-
     def test_stop_has_tdd_gate_command(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
@@ -300,13 +289,13 @@ class TestHooksJsonM54(_HooksJsonTestCase):
             "tdd_stop_gate.py command hook missing from Stop",
         )
 
-    def test_stop_has_four_hooks(self):
+    def test_stop_has_one_hook(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
         self.assertEqual(
-            len(all_hooks), 3, f"Expected 3 Stop hooks, got {len(all_hooks)}"
+            len(all_hooks), 1, f"Expected 1 Stop hook (TDD only), got {len(all_hooks)}"
         )
 
 

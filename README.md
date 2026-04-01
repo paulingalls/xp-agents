@@ -102,10 +102,10 @@ $ claude
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
 - **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate blocks writes until `/xp-review-plan` runs
-- **Before every commit** — security triage gate blocks until `/xp-security-triage` classifies changes
+- **Before every commit** — review cycle gate blocks until `/simplify`, `/xp-quality-review`, and `/xp-security-triage` complete (for commits with code changes)
 - **After every write** — status auto-updated, linter runs
 - **After plan mode exits** — `PostToolUse:ExitPlanMode` nudges `/xp-review-plan` to extract assumptions, decisions, and risks
-- **At stop** — `/simplify` required for significant changes (≥3 code files), then `/xp-quality-review` checks courage + drift + debt, TDD gate blocks if tests failing
+- **At stop** — TDD gate blocks if tests failing
 - **Technical debt** — tracked, aged across sessions, surfaced during quality review when touching affected files
 
 **Second session:**
@@ -158,11 +158,11 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate blocks writes until `/xp-review-plan` clears marker | TDD, Planning Game |
-| **PreToolUse** (Bash) | Commit security triage gate, file-modification conflict heuristic (advisory) | Coding Standards |
+| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review → security triage), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
-| **PostToolUse** (Skill) | Security triage completion, kickoff completion (behavioral guide injection + compaction) | Coding Standards, Communication |
+| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review, security triage), kickoff completion (behavioral guide injection + compaction) | Coding Standards, Refactoring, Communication |
 | **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
 | **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
@@ -170,7 +170,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 | **PostCompact** | Compact event log (age decisions, cap retros, prune resolved items) | Sustainable Pace |
-| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if quality review pending (`quality_review_gate.py`), block if ≥3 code files changed and `/simplify` not run | TDD, Refactoring |
+| **Stop** | Block if tests failing (`tdd_stop_gate.py`) | TDD |
 
 ### Plan Review — Two Entry Points
 
@@ -336,8 +336,8 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
 | **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security triage before commit. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
-| **Refactoring** | Skill + gate: `/simplify` runs at loop end (≥3 code files), quality review checks skipped recommendations. | `/xp-quality-review`, `simplify_gate.py` |
-| **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` checks efficiency. | `xp-plan-reviewer`, `simplify_gate.py` |
+| **Refactoring** | Commit gate: `/simplify` required before commit if code files changed, quality review checks skipped recommendations. Enforced by `pre_tool_bash.py` + `markers.py`. | `/xp-quality-review`, `pre_tool_bash.py` |
+| **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` required at commit for code changes. | `xp-plan-reviewer`, `pre_tool_bash.py` |
 | **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + behavioral guide). Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
 | **On-Site Customer** | Deterministic: prompts logged. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
 | **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
@@ -349,8 +349,8 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | Prompt nugget (UserPromptSubmit) | 50-100 tokens | Every user prompt | Watermark-based, only new signal events |
 | SessionStart + kickoff | 2,000-5,000 tokens | Once per session | One-time cost (retro + goals + housekeeping) |
 | Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
-| `/simplify` at Stop | 30,000-60,000 tokens | Once per loop with ≥3 code files | Threshold skips small changes |
-| `/xp-quality-review` at Stop | 5,000-10,000 tokens | Once per loop after simplify | Focused: courage + drift + debt only |
+| `/simplify` at commit | 30,000-60,000 tokens | Once per commit with ≥3 code files | Threshold skips small changes |
+| `/xp-quality-review` at commit | 5,000-10,000 tokens | Once per commit after simplify | Focused: courage + drift + debt only |
 
 ### Debt Aging
 
@@ -393,7 +393,7 @@ Only events before the curation watermark are eligible for compaction.
 
 ## Project Status
 
-965 tests. All passing.
+1040 tests. All passing.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
 See [SMM_DESIGN.md](docs/SMM_DESIGN.md) for the four-pillar Shared Mental Model design.

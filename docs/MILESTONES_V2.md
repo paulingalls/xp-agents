@@ -108,6 +108,61 @@ Move simplify, quality review, and security triage enforcement from Stop to comm
 **Depends on:** M3
 **Changes:** docs only
 
+### M4b: Security Triage as Forked Subagent
+
+Convert `/xp-security-triage` from inline skill to `context: fork` with a dedicated agent. The diff and security review results stay in the subagent's context — the main agent gets a summary only.
+
+**New agent: `agents/xp-security-triage.md`**
+- `effort: low` — classify-and-dispatch is lightweight work
+- Tools: Read, Grep, Glob, Bash, Skill (needs Skill for `/security-review`)
+- System prompt: see the diff (from preload), determine if code files changed, run `/security-review` if yes, return findings
+
+**Update skill: `skills/xp-security-triage/SKILL.md`**
+- Add `context: fork`, `agent: xp-agents:xp-security-triage`
+- Preload script unchanged — diff + marker write still happen at preload time
+- Skill body becomes the task prompt for the subagent
+
+**Verify empirically:** Can a forked subagent invoke `/security-review` (a built-in skill) via the Skill tool? The current inline skill already uses `Skill(security-review)` successfully. If it doesn't work from a subagent, fallback: subagent does the triage, main agent runs `/security-review`.
+
+**Token savings:** Diff stays in subagent context, not main conversation. On a typical 200-line diff, ~1-2K tokens saved. If `/security-review` also runs in the subagent, its output stays contained too.
+
+**Hook compatibility:** `review_cycle_done.py` (PostToolUse:Skill) sets the security review flag when the skill completes — this still fires because the Skill tool completes in the main conversation regardless of fork. Verify SubagentStop also fires for the forked agent (it should, matching the retro/plan-reviewer pattern).
+
+**Depends on:** nothing
+**Changes:** new `agents/xp-security-triage.md`, update `skills/xp-security-triage/SKILL.md`, tests
+
+### M4c: TaskCreated Signal Events
+
+Add a `TaskCreated` hook to record task creation in the event log as signal events for retrospective analysis.
+
+**New hook: `task_created.py`**
+- Listen on `TaskCreated` event
+- Record a `status` event: "Task created: {task_subject}"
+- Include task metadata (task_id, description) for retro signal analysis
+- Skip xp-agent tasks (recursion guard)
+
+**Retrospective integration:**
+- Add task-creation events to `_classify_status_events` in `retrospective.py` — new counter alongside file_writes, test_runs, commits
+- Retro can report: "12 tasks created" as a session stat, helping assess whether planning produced right-sized task breakdowns
+
+**Hooks.json:** Register `task_created.py` on the `TaskCreated` event. Light hook — no blocking, async is fine since it's just recording.
+
+**Depends on:** nothing
+**Changes:** new `scripts/task_created.py`, hooks.json, `retrospective.py` (classification), tests
+
+### M4d: disallowedTools on Subagents
+
+Replace explicit `tools` allowlists with `disallowedTools` denylists on existing subagents where it improves future-proofing.
+
+**xp-retrospective and xp-plan-reviewer:** Currently `tools: Read, Grep, Glob, Bash`. Change to `disallowedTools: Write, Edit, MultiEdit, Agent` — inherits all tools, explicitly denies mutation. More future-proof if the platform adds new read-only tools.
+
+**xp-security-triage (from M4b):** Already needs Skill tool — use `disallowedTools: Write, Edit, MultiEdit, Agent` to inherit everything except mutation tools.
+
+**Verify:** Test that `disallowedTools` works correctly on plugin subagents (not in the restricted fields list per docs, but worth confirming).
+
+**Depends on:** M4b (for security triage agent)
+**Changes:** `agents/xp-retrospective.md`, `agents/xp-plan-reviewer.md`, `agents/xp-security-triage.md`, tests
+
 ---
 
 ## v2.0 — Sprint-Driven XP
@@ -405,7 +460,10 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 
 ```
 v1.5 (solo enforcement):
-  M1 → M2 → M3 → M4
+  M1 → M2 → M3 → M4  [SHIPPED]
+  M4b (security triage subagent) — independent
+  M4c (TaskCreated events)       — independent
+  M4d (disallowedTools)          → M4b
 
 v2.0 (sprint/teams):
   M5 (sprint events)     ─┐
@@ -419,7 +477,7 @@ v2.0 (sprint/teams):
   M16 (docs) depends on all above
 ```
 
-M1-M4 can ship independently. Within v2.0, M5/M6 can start in parallel with M1-M4. M13-M15 depend on the Agent Teams platform stabilizing.
+M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4c/M4d can ship independently. Within v2.0, M5/M6 can start in parallel. M13-M15 depend on the Agent Teams platform stabilizing.
 
 ---
 

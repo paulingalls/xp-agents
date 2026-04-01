@@ -12,16 +12,41 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import concerns
+import markers
+
+
+def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
+    """Set review cycle flags for review-related subagent completions.
+
+    Runs even for xp- agents because we need to detect when
+    xp-quality-review and simplify subagents complete.
+    """
+    agent_type = input_data.get("agent_type", "").lower()
+    agent_id_val = input_data.get("agent_id", "").lower()
+
+    flag: str | None = None
+    if "simplify" in agent_type or "simplify" in agent_id_val:
+        flag = "simplify_done"
+    elif "quality-review" in agent_type or "quality-review" in agent_id_val:
+        flag = "quality_review_done"
+
+    if flag is not None:
+        markers.set_review_flag(smm_dir, "main", flag)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core SubagentStop logic. Returns context or raises BlockedError."""
-    if _common.is_xp_agent(input_data):
-        return None
-
+    # Review cycle flags must run before is_xp_agent skip because
+    # xp-quality-review starts with "xp-" but still needs flag set.
     if smm_dir is None:
         smm_dir = _common.resolve_smm_dir()
     smm_dir = _common.try_validate_smm_dir(smm_dir)
+    if smm_dir is not None:
+        _update_review_cycle_flags(smm_dir, input_data)
+
+    if _common.is_xp_agent(input_data):
+        return None
+
     if smm_dir is None:
         return None
 
@@ -51,8 +76,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # this handles the SubagentStop flow for Plan-type subagents.
     agent_type = input_data.get("agent_type", "")
     if agent_type == "Plan":
-        marker = smm_dir / ".plan-awaiting-review"
-        marker.write_text(agent_id)
+        markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, agent_id)
 
         gate_event = _common.make_event(
             _common.STATUS,

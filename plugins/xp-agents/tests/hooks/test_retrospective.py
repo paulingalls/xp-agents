@@ -299,6 +299,168 @@ class TestRetrospective(_HookTestCase):
 # ===========================================================================
 
 
+class TestHonestySignals(unittest.TestCase):
+    """Tests for _build_honesty_signals unique file counting."""
+
+    def _make_write_status(self, path: str) -> dict:
+        return make_event("status", content=f"Wrote to {path}", working_on=[path])
+
+    def _make_test_status(self) -> dict:
+        return make_event("status", content="Tests: 5 passed, 0 failed", working_on=[])
+
+    def test_counts_unique_files_not_raw_writes(self):
+        """4 writes to same file between tests should count as 1."""
+        import retrospective
+
+        events = [
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+    def test_counts_different_files(self):
+        """3 different files between tests should count as 3."""
+        import retrospective
+
+        events = [
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/db.py"),
+            self._make_write_status("src/api.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 3)
+
+    def test_resets_on_test_run(self):
+        """Unique file set resets after each test run."""
+        import retrospective
+
+        events = [
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/db.py"),
+            self._make_test_status(),
+            self._make_write_status("src/api.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 2)
+
+    def test_excludes_test_files(self):
+        """Test file writes should not count."""
+        import retrospective
+
+        events = [
+            self._make_write_status("tests/test_app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+    def test_excludes_non_code_files(self):
+        """Non-code files (md, json, etc) should not count."""
+        import retrospective
+
+        events = [
+            self._make_write_status("README.md"),
+            self._make_write_status("config.json"),
+            self._make_write_status("src/app.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+
+class TestRetrospectiveResolvedConcerns(_HookTestCase):
+    """Resolved concerns should be rolled up to counts, not included in full."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def test_resolved_concerns_excluded_from_signal_events(self):
+        import retrospective
+
+        c1 = make_event("concern", content="Lint error in foo.py: F401")
+        c2 = make_event("concern", content="Unresolved real concern")
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=["foo.py"],
+            metadata={"resolves": [c1["id"]]},
+        )
+        events = [c1, c2, resolver, make_event(content="f1"), make_event(content="f2")]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        signal_ids = {e["id"] for e in data["digest"]["signal_events"]}
+        # Resolved concern excluded
+        self.assertNotIn(c1["id"][:8], signal_ids)
+        # Unresolved concern included
+        self.assertIn(c2["id"][:8], signal_ids)
+
+    def test_resolved_concerns_counted_in_digest(self):
+        import retrospective
+
+        c1 = make_event("concern", content="Lint error")
+        c2 = make_event("concern", content="Test failure")
+        resolver = make_event(
+            "status",
+            content="Fixed both",
+            working_on=[],
+            metadata={"resolves": [c1["id"], c2["id"]]},
+        )
+        events = [c1, c2, resolver, make_event(content="f1"), make_event(content="f2")]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["digest"]["resolved_concern_count"], 2)
+
+    def test_resolved_concerns_excluded_from_concern_groups(self):
+        import retrospective
+
+        c1 = make_event("concern", content="Lint error in foo.py")
+        c2 = make_event("concern", content="Lint error in bar.py")
+        c3 = make_event("concern", content="Real design concern")
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [c1["id"], c2["id"]]},
+        )
+        events = [
+            c1,
+            c2,
+            c3,
+            resolver,
+            make_event(content="f1"),
+            make_event(content="f2"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        group_keys = [g["key"] for g in data["digest"]["concern_groups"]]
+        self.assertIn("Real design concern", group_keys)
+        # Resolved lint concerns should not appear in groups
+        self.assertNotIn("Lint error in foo.py", group_keys)
+
+
 class TestRetrospectiveNudge(_HookTestCase):
     """M6.5: retrospective.py should nudge invoking xp-retrospective."""
 

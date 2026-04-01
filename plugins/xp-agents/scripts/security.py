@@ -4,16 +4,15 @@
 Extracted from _common.py to keep security concerns in a dedicated module.
 """
 
-import contextlib
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-from _append_impl import write_json_atomic
+import markers
 
-# Non-code suffixes shared with simplify_gate.py for consistent classification
+# Non-code suffixes used by is_code_file() for consistent classification
 _NON_CODE_SUFFIXES = frozenset(
     {
         ".md",
@@ -125,34 +124,25 @@ def is_git_commit(command: str) -> bool:
 
 def security_triaged_path(smm_dir: Path) -> Path:
     """Return path to the .security-triaged marker file."""
-    return smm_dir / ".security-triaged"
+    return markers.marker_path(smm_dir, markers.SECURITY_TRIAGED)
 
 
 def security_triaged_exists(smm_dir: Path) -> bool:
-    """Check if triage marker exists with valid JSON content."""
-    import json as _json
-
-    path = security_triaged_path(smm_dir)
-    if not path.exists() or path.is_symlink():
+    """Check if triage marker exists with valid JSON content and 'ts' key."""
+    if not markers.marker_exists(smm_dir, markers.SECURITY_TRIAGED):
         return False
-    try:
-        data = _json.loads(path.read_text(encoding="utf-8"))
-        return isinstance(data, dict) and "ts" in data
-    except (OSError, _json.JSONDecodeError, ValueError):
-        return False
+    data = markers.marker_read(smm_dir, markers.SECURITY_TRIAGED)
+    return isinstance(data, dict) and "ts" in data
 
 
 def write_security_triaged(smm_dir: Path) -> None:
     """Atomic write of the triage marker with timestamp."""
     from datetime import datetime, timezone
 
-    path = security_triaged_path(smm_dir)
     data = {"ts": datetime.now(timezone.utc).isoformat()}
-    write_json_atomic(path, data)
+    markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data)
 
 
 def consume_security_triaged(smm_dir: Path) -> None:
     """Delete the triage marker if it exists."""
-    path = security_triaged_path(smm_dir)
-    with contextlib.suppress(OSError):
-        path.unlink()
+    markers.marker_consume(smm_dir, markers.SECURITY_TRIAGED)

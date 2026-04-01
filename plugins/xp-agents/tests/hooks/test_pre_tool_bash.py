@@ -10,7 +10,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from unittest.mock import patch
+
 import _common
+import markers
 import pre_tool_bash
 import security
 from conftest import (
@@ -171,6 +174,103 @@ class TestCommitGateCodeFilesOnly(_HookTestCase):
         self.assertFalse(security.is_code_file("README.md"))
         self.assertFalse(security.is_code_file("package.json"))
         self.assertFalse(security.is_code_file("logo.png"))
+
+
+class TestPreToolBashReviewCycle(_HookTestCase):
+    """Tests for commit-gated review cycle in pre_tool_bash.py."""
+
+    _CODE_FILES_PATCH = "commits.get_code_files_for_review"
+
+    def _commit_input(self, **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m 'test'"},
+            "cwd": "/tmp",
+            "agent_id": "main",
+        }
+        data.update(overrides)
+        return data
+
+    def test_above_threshold_blocks_no_simplify(self):
+        """3+ code files, no flags set -> blocks for /simplify."""
+        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+            self.assertIn("/simplify", str(ctx.exception))
+
+    def test_above_threshold_blocks_no_quality_review(self):
+        """simplify_done=True -> blocks for /xp-quality-review."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+            self.assertIn("/xp-quality-review", str(ctx.exception))
+
+    def test_above_threshold_blocks_no_security(self):
+        """simplify + quality done -> blocks for /xp-security-triage."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+            self.assertIn("/xp-security-triage", str(ctx.exception))
+
+    def test_above_threshold_passes_all_done(self):
+        """All 3 flags True -> commit allowed."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
+        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    def test_below_threshold_blocks_without_security(self):
+        """2 code files, staged code present, no security marker -> blocks."""
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py"]),
+            patch("security.has_staged_code_files", return_value=True),
+        ):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+            self.assertIn("/xp-security-triage", str(ctx.exception))
+
+    def test_below_threshold_passes_with_security(self):
+        """2 code files, security marker exists -> commit allowed."""
+        security.write_security_triaged(self.smm_dir)
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py"]),
+            patch("security.has_staged_code_files", return_value=True),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    def test_zero_code_files_passes(self):
+        """No code files changed and no staged code -> commit allowed."""
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch("security.has_staged_code_files", return_value=False),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    def test_xp_agent_skips(self):
+        """xp- agents bypass the review cycle gate."""
+        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
+            pre_tool_bash.run(
+                self._commit_input(agent_type="xp-housekeeping"),
+                smm_dir=self.smm_dir,
+            )
+
+    def test_uses_last_review_commit(self):
+        """Gate reads last_review_commit from marker."""
+        markers.reset_review_cycle(self.smm_dir, "main", "abc123")
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
+        with patch(
+            self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]
+        ) as mock:
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+            # Verify the commit hash was passed to get_code_files_for_review
+            self.assertEqual(mock.call_args[0][1], "abc123")
 
 
 if __name__ == "__main__":

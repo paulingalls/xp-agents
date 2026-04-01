@@ -187,9 +187,10 @@ def generate_smm(root: Path) -> str:
 
     # Constraints — XP defaults
     constraints = [
-        "Write tests before implementation (TDD) — red, green, refactor",
+        "Write tests before implementation (TDD) — red, green, commit, refactor",
         "Plan before building new features — use plan mode for design",
         "Small commits — one logical change per commit",
+        "Small files — single responsibility, one concern per file",
         "Use strict linting — enforce coding standards automatically",
         "Use git commit hooks — run lint and tests before every commit",
     ]
@@ -240,20 +241,18 @@ def generate_smm(root: Path) -> str:
         "it handles retrospective, goals, and housekeeping"
     )
     lines.append(
-        "- Run /simplify after each commit that touches 3+ code files — "
-        "don't batch across commits, review while changes are fresh"
+        "- Commit after every green test run — "
+        "the commit gate enforces the review cycle "
+        "(/simplify, /xp-quality-review, /xp-security-triage) "
+        "so frequent commits keep reviews small and fast"
     )
     lines.append(
-        "- After git add, run /xp-security-triage, then git commit — "
-        "commit goes through first try instead of block-triage-retry"
+        "- Complete the review cycle before committing code changes — "
+        "/simplify → /xp-quality-review → /xp-security-triage → commit"
     )
     lines.append(
         "- After exiting plan mode, run /xp-review-plan before writing code — "
         "it extracts assumptions, decisions, and risks into the SMM"
-    )
-    lines.append(
-        "- When a Stop hook blocks, run the requested skill — "
-        "it's a requirement, not a suggestion"
     )
     lines.append("")
 

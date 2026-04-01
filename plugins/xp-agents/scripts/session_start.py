@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import markers
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -81,8 +82,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # reset (nudge only — work may be in progress).
     # "resume" and "compact" fire mid-session — no marker needed.
     if source in ("startup", "clear"):
-        marker = smm_dir / ".needs-kickoff"
-        marker.write_text(source)
+        markers.marker_write(smm_dir, markers.KICKOFF, source)
 
     # Build context: GUPP (source-dependent) + skills.
     gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Integration tests: extended and commit gate tests.
 
-Tests for simplify gate, bash failure, lint check extended, bash post tool
-extended, and commit security triage gate.
+Tests for bash failure, lint check extended, bash post tool extended,
+and commit security triage gate.
 """
 
 import json
@@ -15,59 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase, make_event
-
-
-class TestSimplifyGateIntegration(_IntegrationTestCase):
-    def test_file_changes_blocks_stop(self):
-        """customer_input + status with working_on → decision block with /simplify."""
-        self._seed_events(
-            [
-                make_event("customer_input", content="build feature"),
-                make_event(
-                    "status",
-                    content="wrote",
-                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
-                ),
-            ]
-        )
-        result = self._run_script(
-            "simplify_gate.py",
-            {"session_id": "int-test", "agent_id": "main"},
-        )
-        self.assertEqual(result.returncode, 0)
-        data = json.loads(result.stdout)
-        self.assertEqual(data["decision"], "block")
-        self.assertIn("/simplify", data["reason"])
-
-    def test_no_changes_allows_stop(self):
-        """customer_input only, no file changes → exit 0, no output."""
-        self._seed_events([make_event("customer_input", content="just chatting")])
-        result = self._run_script(
-            "simplify_gate.py",
-            {"session_id": "int-test", "agent_id": "main"},
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-
-    def test_xp_agent_allows_stop(self):
-        """xp- agent_type → exit 0 even with file changes."""
-        self._seed_events(
-            [
-                make_event("customer_input", content="build"),
-                make_event("status", content="wrote", working_on=["src/x.ts"]),
-            ]
-        )
-        result = self._run_script(
-            "simplify_gate.py",
-            {
-                "session_id": "int-test",
-                "agent_id": "main",
-                "agent_type": "xp-nav",
-            },
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
+from conftest import _IntegrationTestCase
 
 
 class TestBashFailureIntegration(_IntegrationTestCase):
@@ -300,105 +248,6 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         self.assertTrue(len(statuses) >= 1)
 
 
-class TestSimplifyGateIntegrationExtended(_IntegrationTestCase):
-    def test_tracker_prevents_retrigger(self):
-        """First stop blocks, second stop (same loop) passes through."""
-        self._seed_events(
-            [
-                make_event("customer_input", content="build feature"),
-                make_event(
-                    "status",
-                    content="wrote",
-                    working_on=["src/app.ts", "src/util.ts", "src/index.ts"],
-                ),
-            ]
-        )
-        # First stop — should block via decision JSON
-        r1 = self._run_script(
-            "simplify_gate.py",
-            {"session_id": "int-test", "agent_id": "main"},
-        )
-        self.assertEqual(r1.returncode, 0)
-        d1 = json.loads(r1.stdout)
-        self.assertEqual(d1["decision"], "block")
-        self.assertIn("/simplify", d1["reason"])
-
-        # Second stop — same events, tracker should prevent re-trigger
-        r2 = self._run_script(
-            "simplify_gate.py",
-            {"session_id": "int-test", "agent_id": "main"},
-        )
-        self.assertEqual(r2.returncode, 0)
-        self.assertEqual(r2.stdout.strip(), "")
-
-    def test_new_loop_retriggers_after_tracker(self):
-        """New customer_input resets tracker — blocks again."""
-        ci1 = make_event("customer_input", content="task 1")
-        self._seed_events(
-            [
-                ci1,
-                make_event(
-                    "status",
-                    content="wrote",
-                    working_on=["src/a.ts", "src/b.ts", "src/c.ts"],
-                ),
-            ]
-        )
-        # First loop blocks
-        r1 = self._run_script(
-            "simplify_gate.py",
-            {"session_id": "int-test", "agent_id": "main"},
-        )
-        self.assertEqual(r1.returncode, 0)
-        self.assertEqual(json.loads(r1.stdout)["decision"], "block")
-
-        # New loop with new customer_input
-        ci2 = make_event("customer_input", content="task 2")
-        self._seed_events(
-            [
-                ci1,
-                make_event(
-                    "status",
-                    content="wrote",
-                    working_on=["src/a.ts", "src/b.ts", "src/c.ts"],
-                ),
-                ci2,
-                make_event(
-                    "status",
-                    content="wrote2",
-                    working_on=["src/d.ts", "src/e.ts", "src/f.ts"],
-                ),
-            ]
-        )
-        r2 = self._run_script(
-            "simplify_gate.py",
-            {"session_id": "int-test", "agent_id": "main"},
-        )
-        self.assertEqual(r2.returncode, 0)
-        d2 = json.loads(r2.stdout)
-        self.assertEqual(d2["decision"], "block")
-        self.assertIn("/simplify", d2["reason"])
-
-    def test_stop_hook_active_passes_through(self):
-        """stop_hook_active=True → exit 0 even with file changes."""
-        self._seed_events(
-            [
-                make_event("customer_input", content="build"),
-                make_event("status", content="wrote", working_on=["src/x.ts"]),
-            ]
-        )
-        result = self._run_script(
-            "simplify_gate.py",
-            {
-                "session_id": "int-test",
-                "agent_id": "main",
-                "stop_hook_active": True,
-            },
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-
-
 class TestCommitGateIntegration(_IntegrationTestCase):
     """Integration tests for commit security triage gate."""
 
@@ -487,7 +336,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
     def test_security_review_skill_writes_marker(self):
         """PostToolUse:Skill for /security-review writes triage marker."""
         result = self._run_script(
-            "security_review_done.py",
+            "review_cycle_done.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Skill",
@@ -517,7 +366,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
 
         # Step 2: security review skill writes marker
         self._run_script(
-            "security_review_done.py",
+            "review_cycle_done.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Skill",

@@ -5,7 +5,6 @@ All checks are file-based (coordination.json, marker files, tracker files).
 No event log reads.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -14,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
+import markers
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
@@ -155,13 +155,12 @@ def check_tdd_order(
         _common._validate_agent_id(agent_id)
     except ValueError:
         return None
-    tracker_file = smm_dir / f".tdd-{agent_id}.json"
 
     # Load existing tracker
-    try:
-        tracker = json.loads(tracker_file.read_text())
-    except (FileNotFoundError, json.JSONDecodeError, ValueError):
-        tracker = {"writes": [], "test_written": False}
+    tracker = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id) or {
+        "writes": [],
+        "test_written": False,
+    }
 
     changed = False
 
@@ -170,7 +169,7 @@ def check_tdd_order(
             tracker["test_written"] = True
             changed = True
         if changed:
-            _write_tracker(tracker_file, tracker)
+            markers.marker_write(smm_dir, markers.TDD_TRACKER, tracker, agent_id)
         return None
 
     # Implementation file
@@ -179,7 +178,7 @@ def check_tdd_order(
         changed = True
 
     if changed:
-        _write_tracker(tracker_file, tracker)
+        markers.marker_write(smm_dir, markers.TDD_TRACKER, tracker, agent_id)
 
     # Grace period: first impl write doesn't trigger nudge
     if len(tracker["writes"]) < 2:
@@ -193,11 +192,6 @@ def check_tdd_order(
         )
 
     return None
-
-
-def _write_tracker(tracker_file: Path, tracker: dict) -> None:
-    """Atomic write of TDD tracker file."""
-    _common.write_json_atomic(tracker_file, tracker)
 
 
 # ---------------------------------------------------------------------------
@@ -243,15 +237,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Plan review gate — block writes until plan is reviewed.
     # Plan files (.claude/plans/) are exempt — writing the plan is not implementation.
     is_plan_file = target_file and "/.claude/plans/" in target_file
-    if smm_dir and not is_plan_file:
-        marker = smm_dir / ".plan-awaiting-review"
-        if marker.exists() and not marker.is_symlink():
-            raise _common.BlockedError(
-                "Run /xp-review-plan before writing any code. "
-                "The plan review extracts assumptions, decisions, and risks "
-                "that feed the Shared Mental Model.",
-                "Plan review required before implementation.",
-            )
+    plan_marker = (
+        smm_dir
+        and not is_plan_file
+        and markers.marker_exists(smm_dir, markers.PLAN_AWAITING_REVIEW)
+    )
+    if plan_marker:
+        raise _common.BlockedError(
+            "Run /xp-review-plan before writing any code. "
+            "The plan review extracts assumptions, decisions, and risks "
+            "that feed the Shared Mental Model.",
+            "Plan review required before implementation.",
+        )
 
     # TDD order check
     if target_file and smm_dir:

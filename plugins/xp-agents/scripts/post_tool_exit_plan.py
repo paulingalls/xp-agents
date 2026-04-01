@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import markers
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -36,8 +37,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         plan_path = tool_response.get("planFilePath", "")
 
     # Write marker with plan path so the review preload can include the plan
-    marker = smm_dir / ".plan-awaiting-review"
-    marker.write_text(plan_path or agent_id)
+    markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, plan_path or agent_id)
 
     # Record event for SMM history
     gate_event = _common.make_event(

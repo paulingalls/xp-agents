@@ -132,6 +132,7 @@ class TestGenerateSMM(unittest.TestCase):
     def test_has_xp_constraints(self):
         smm = seed_smm.generate_smm(self.tmpdir)
         self.assertIn("TDD", smm)
+        self.assertIn("red, green, commit", smm)
         self.assertIn("plan", smm.lower())
         self.assertIn("Small commits", smm)
         self.assertIn("strict linting", smm)
@@ -140,6 +141,10 @@ class TestGenerateSMM(unittest.TestCase):
     def test_has_wisdom(self):
         smm = seed_smm.generate_smm(self.tmpdir)
         self.assertIn("xp-kickoff", smm)
+
+    def test_has_commit_after_green_wisdom(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        self.assertIn("Commit after every green", smm)
 
     def test_has_four_pillars(self):
         smm = seed_smm.generate_smm(self.tmpdir)

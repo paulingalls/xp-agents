@@ -60,18 +60,20 @@ def resolve_concerns(
     matcher: Callable[[str], object],
     agent_id: str,
     label: str,
-) -> None:
+) -> bool:
     """Auto-resolve unresolved concerns whose content matches *matcher*.
 
     *matcher* receives the event's ``content`` string; any truthy return
     means it matches (works with both ``re.search`` and ``str.startswith``).
+
+    Returns True if any concerns were resolved.
     """
     events = read_events_raw(smm_dir)
 
     if not any(
         e.get("type") == CONCERN and matcher(e.get("content", "")) for e in events
     ):
-        return
+        return False
 
     resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
 
@@ -83,7 +85,7 @@ def resolve_concerns(
         and matcher(e.get("content", ""))
     ]
     if not unresolved:
-        return
+        return False
 
     bulk_append_safe(
         smm_dir,
@@ -98,6 +100,7 @@ def resolve_concerns(
             for c in unresolved
         ],
     )
+    return True
 
 
 # ---------------------------------------------------------------------------

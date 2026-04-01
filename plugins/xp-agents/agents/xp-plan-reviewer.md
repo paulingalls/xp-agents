@@ -35,8 +35,15 @@ The preloaded data above includes:
 - If no test-related keywords (test, tdd, spec, assert, verify) appear anywhere in the plan, flag it: "No TDD strategy detected."
 
 ### 2. TDD Ordering
+
+#### 2a. Tests Before Implementation
 - Verify that test files appear **before** implementation files in the plan ordering.
 - If the plan says "implement X, then write tests for X" — flag it. Tests come first.
+
+#### 2b. Commit Cadence
+- Check that the plan includes a commit step after each green phase (tests passing).
+- If multiple red/green cycles occur without a commit between them, flag it: commits trigger the review cycle (/simplify, /xp-quality-review, /xp-security-triage), so skipping commits skips quality checks.
+- Example flag: "Steps 3-7 implement 3 features without any commit step — add commits after each green phase."
 
 ### 3. Milestone Boundaries
 - Check if the plan pulls work from future milestones. Each milestone should be completed before moving to the next.

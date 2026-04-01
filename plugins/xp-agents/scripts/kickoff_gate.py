@@ -11,7 +11,6 @@ Behavior depends on marker content:
 Task-notifications from background agents are always skipped.
 """
 
-import contextlib
 import json
 import sys
 from pathlib import Path
@@ -20,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import markers
 
 _NUDGE = "nudge"
 
@@ -43,8 +43,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if smm_dir is None:
         return None
 
-    marker = smm_dir / ".needs-kickoff"
-    if not marker.exists():
+    if not markers.marker_exists(smm_dir, markers.KICKOFF):
         return None
 
     prompt = input_data.get("prompt", "")
@@ -56,15 +55,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if "/xp-kickoff" in prompt:
         # Clear marker now — kickoff is running, so sub-skills (goal collection,
         # question triage) can use AskUserQuestion without hitting this gate.
-        marker.unlink(missing_ok=True)
+        markers.marker_consume(smm_dir, markers.KICKOFF)
         return None
 
     # Read marker content to determine block vs nudge.
     # "clear" = mid-session reset, nudge only.
     # "startup" or empty = new session, hard block.
-    source = ""
-    with contextlib.suppress(OSError):
-        source = marker.read_text().strip()
+    source = markers.marker_read(smm_dir, markers.KICKOFF) or ""
 
     if source == "clear":
         return _NUDGE

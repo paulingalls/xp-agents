@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 import _common
+import markers
 import security
 
 parser = argparse.ArgumentParser(description="Write security triage marker")
@@ -28,11 +29,14 @@ if security.security_triaged_exists(smm_dir):
     print("Security triage marker already exists.")
 else:
     security.write_security_triaged(smm_dir)
-    # Record triage in the event log so the retro can see it happened
+    # Set review cycle flag for commit gate
+    markers.set_review_flag(smm_dir, "main", "security_review_done")
+    # Record triage in the event log so the retro can see it happened.
+    # Content is neutral — the agent decides next steps after seeing the diff.
     event = _common.make_event(
         _common.STATUS,
         "xp-security-triage",
-        "Security triage complete — changes classified as non-security-relevant",
+        "Security triage started — reviewing staged changes",
         working_on=[],
     )
     _common.append_safe(smm_dir, event)

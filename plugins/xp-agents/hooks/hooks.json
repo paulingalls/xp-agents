@@ -163,10 +163,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/security_review_done.py",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_cycle_done.py",
             "timeout": 5000,
-            "statusMessage": "Checking security review...",
-            "async": true
+            "statusMessage": "Updating review cycle..."
           },
           {
             "type": "command",
@@ -203,16 +202,6 @@
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/simplify_gate.py",
-            "statusMessage": "Checking code review status..."
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/quality_review_gate.py",
-            "statusMessage": "Checking quality review status..."
-          },
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py",

@@ -9,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import commits
 import coordination
+import markers
 import security
 
 # ---------------------------------------------------------------------------
@@ -57,20 +59,42 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     parts: list[str] = []
 
-    # Commit gate: block git commit until security triage has been run
-    # Only require triage for commits that include production code files
-    # (skip for test-only, docs-only, or config-only commits)
+    # Commit gate: review cycle enforcement
+    # Above threshold (3+ code files): simplify → quality review → security triage
+    # Below threshold: security triage only for production code commits
     if smm_dir is not None and security.is_git_commit(command):
-        has_code = security.has_staged_code_files(cwd, command)
-        if has_code and not security.security_triaged_exists(smm_dir):
-            raise _common.BlockedError(
-                "Run /xp-security-triage before committing.",
-                "Security triage required before committing.",
-            )
-        if not has_code:
-            # Non-code commit — consume any stale marker so it doesn't
-            # carry over and let a future code commit skip triage
-            security.consume_security_triaged(smm_dir)
+        cycle = markers.read_review_cycle(smm_dir, agent_id)
+        code_files = commits.get_code_files_for_review(
+            cwd, cycle.get("last_review_commit", ""), command
+        )
+
+        if len(code_files) >= commits.REVIEW_CYCLE_THRESHOLD:
+            if not cycle.get("simplify_done"):
+                raise _common.BlockedError(
+                    f"Run /simplify before committing — "
+                    f"{len(code_files)} code files changed since last review.",
+                    "Simplify required before committing.",
+                )
+            elif not cycle.get("quality_review_done"):
+                raise _common.BlockedError(
+                    "Run /xp-quality-review before committing.",
+                    "Quality review required before committing.",
+                )
+            elif not cycle.get("security_review_done"):
+                raise _common.BlockedError(
+                    "Run /xp-security-triage before committing.",
+                    "Security triage required before committing.",
+                )
+        else:
+            # Below threshold: security triage only for production code
+            has_code = security.has_staged_code_files(cwd, command)
+            if has_code and not security.security_triaged_exists(smm_dir):
+                raise _common.BlockedError(
+                    "Run /xp-security-triage before committing.",
+                    "Security triage required before committing.",
+                )
+            if not has_code:
+                security.consume_security_triaged(smm_dir)
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:

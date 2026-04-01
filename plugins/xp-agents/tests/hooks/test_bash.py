@@ -18,12 +18,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_failure
 import bash_post_tool
+import commits
+import markers
 from conftest import _HookTestCase, _make_bash_input, make_event
 
 
 class TestBashPostTool(_HookTestCase):
     def test_git_commit_records_status(self):
-        with patch("bash_post_tool.get_committed_files", return_value=["a", "b", "c"]):
+        with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add auth'",
@@ -37,7 +39,7 @@ class TestBashPostTool(_HookTestCase):
         self.assertIn("Add auth", statuses[0]["content"])
 
     def test_git_commit_small_no_concern(self):
-        with patch("bash_post_tool.get_committed_files", return_value=["a", "b", "c"]):
+        with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix bug'",
@@ -51,7 +53,7 @@ class TestBashPostTool(_HookTestCase):
 
     def test_git_commit_large_appends_concern(self):
         with patch(
-            "bash_post_tool.get_committed_files",
+            "commits.get_committed_files",
             return_value=[f"f{i}" for i in range(12)],
         ):
             bash_post_tool.run(
@@ -72,7 +74,7 @@ class TestBashPostTool(_HookTestCase):
         try:
             settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
             with patch(
-                "bash_post_tool.get_committed_files",
+                "commits.get_committed_files",
                 return_value=[f"f{i}" for i in range(6)],
             ):
                 bash_post_tool.run(
@@ -191,7 +193,65 @@ class TestBashPostTool(_HookTestCase):
 
     def test_git_commit_parse_message(self):
         response = "[main abc123] Fix login bug\n 1 file changed"
-        self.assertEqual(bash_post_tool.parse_commit_message(response), "Fix login bug")
+        self.assertEqual(commits.parse_commit_message(response), "Fix login bug")
+
+
+# ===========================================================================
+# Review cycle reset on commit
+# ===========================================================================
+
+
+class TestBashPostToolReviewCycle(_HookTestCase):
+    """Tests for review cycle marker reset after commit."""
+
+    def test_commit_resets_review_cycle(self):
+        """After commit, review cycle marker has new hash and cleared flags."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_head_commit_hash", return_value="newcommit123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'test'",
+                    stdout="[main abc123] test\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertEqual(cycle["last_review_commit"], "newcommit123")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertFalse(cycle["security_review_done"])
+
+    def test_commit_no_hash_skips_reset(self):
+        """If git rev-parse fails, no marker written (no crash)."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_head_commit_hash", return_value=None),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'test'",
+                    stdout="[main abc123] test\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        # Flag should still be set — no reset happened
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_non_commit_no_reset(self):
+        """Non-commit bash commands don't touch review cycle marker."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        bash_post_tool.run(
+            _make_bash_input(command="echo hello", stdout="hello"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
 
 
 # ===========================================================================
@@ -330,6 +390,91 @@ class TestResolveTestConcerns(_HookTestCase):
         bash_post_tool._resolve_test_concerns(self.smm_dir, "main")
         events = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(events), 0)
+
+
+class TestBashPostToolGreenNudge(_HookTestCase):
+    """Tests for commit-after-green nudge in bash_post_tool."""
+
+    def test_green_with_uncommitted_code_returns_nudge(self):
+        """All tests pass + uncommitted code files → nudge string returned."""
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNotNone(result)
+        self.assertIn("commit", result.lower())
+
+    def test_green_no_uncommitted_code_no_nudge(self):
+        """All tests pass but no uncommitted code files → no nudge."""
+        with patch("commits.get_uncommitted_code_files", return_value=[]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+    def test_green_after_failure_confirms_resolution(self):
+        """Tests pass after prior failure → context confirms resolution."""
+        # Seed a test failure concern
+        concern = make_event(
+            "concern", content="Test failures detected: 3 failed", severity="high"
+        )
+        _common.append_safe(self.smm_dir, concern)
+
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNotNone(result)
+        self.assertIn("prior test failures resolved", result.lower())
+        self.assertIn("commit", result.lower())
+
+    def test_red_no_nudge(self):
+        """Failing tests → no nudge (even with uncommitted code)."""
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 3 passed, 2 failed in 1.2s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+    def test_xp_agent_no_nudge(self):
+        """xp- agents never get the nudge (recursion guard)."""
+        result = bash_post_tool.run(
+            _make_bash_input(
+                command="python3 -m pytest tests/",
+                stdout="===== 5 passed in 0.3s =====",
+                agent_type="xp-simplify",
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_zero_passed_zero_failed_no_nudge(self):
+        """Ambiguous output (0 passed, 0 failed) → no nudge."""
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="no tests ran",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":
