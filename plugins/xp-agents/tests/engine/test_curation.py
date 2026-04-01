@@ -196,6 +196,37 @@ class TestPrepareCurationData(_SMMTestCase):
 
     # -- Step 4: retro_history + team --
 
+    def test_resolved_concerns_excluded_from_new_since(self):
+        """Resolved concerns should not appear in new_since_last_curation."""
+        c1 = make_event("concern", content="Lint error in foo.py")
+        c2 = make_event("concern", content="Real design concern")
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [c1["id"]]},
+        )
+        self._write_events([c1, c2, resolver])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        new = result["new_since_last_curation"]
+        concern_ids = {c["id"] for c in new["concerns"]}
+        self.assertNotIn(c1["id"], concern_ids)
+        self.assertIn(c2["id"], concern_ids)
+
+    def test_resolved_concern_count_in_new_since(self):
+        """Resolved concerns should be counted in new_since_last_curation."""
+        c1 = make_event("concern", content="Lint error")
+        c2 = make_event("concern", content="Test failure")
+        resolver = make_event(
+            "status",
+            content="Fixed both",
+            working_on=[],
+            metadata={"resolves": [c1["id"], c2["id"]]},
+        )
+        self._write_events([c1, c2, resolver])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        self.assertEqual(result["new_since_last_curation"]["resolved_concern_count"], 2)
+
     def test_retro_history_latest_tries(self):
         """latest_tries from most recent retrospective."""
         r1 = make_event(

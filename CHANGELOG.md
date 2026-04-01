@@ -7,8 +7,10 @@
 - **Seed SMM updated for commit-gated review cycle** — removed stale wisdom items that referenced old Stop-hook gates and pre-commit triage flow. Added correct review cycle sequence. Moved "small files" from wisdom to constraints.
 - **Small files constraint** — "Small files — single responsibility, one concern per file" added to seed constraints alongside small commits and TDD.
 
+- **Resolved concerns excluded from curation preload** — `prepare_curation_data()` now filters resolved concerns from `new_since_last_curation` and reports a count. Housekeeping preload dropped from 132KB to 61KB on a real session.
+
 ### Stats
-- 1060 tests (all passing)
+- 1062 tests (all passing)
 
 ## v1.5.8
 

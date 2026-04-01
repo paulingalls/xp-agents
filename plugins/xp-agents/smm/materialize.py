@@ -395,6 +395,13 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     # --- new_since_last_curation (events after watermark) ---
 
     new_events = events[wm_count:]
+
+    # Compute resolutions for new events to filter resolved concerns
+    from resolution import compute_resolutions as _compute_resolutions
+
+    new_resolutions = _compute_resolutions(new_events)
+    resolved_concern_ids = new_resolutions.get("resolved_concern_ids", set())
+
     new_since: dict = {
         "customer_inputs": [],
         "decisions": [],
@@ -403,6 +410,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         "debt": [],
         "questions": [],
         "resolutions": {},
+        "resolved_concern_count": len(resolved_concern_ids),
     }
     for e in new_events:
         etype = e.get("type", "")
@@ -419,7 +427,8 @@ def prepare_curation_data(smm_dir: Path) -> dict:
                 summary["topic"] = e.get("topic", "")
                 new_since["decisions"].append(summary)
             case "concern":
-                new_since["concerns"].append(summary)
+                if e.get("id", "") not in resolved_concern_ids:
+                    new_since["concerns"].append(summary)
             case "assumption":
                 new_since["assumptions"].append(summary)
             case "debt":
