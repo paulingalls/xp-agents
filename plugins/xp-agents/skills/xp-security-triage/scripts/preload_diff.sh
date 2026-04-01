@@ -32,9 +32,17 @@ if [ -n "$UNSTAGED_STAT" ]; then
     git diff 2>/dev/null || true
 fi
 
-if [ -z "$STAGED_STAT" ] && [ -z "$UNSTAGED_STAT" ]; then
+# Show untracked (new) files — git diff misses these entirely
+UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null || true)
+if [ -n "$UNTRACKED" ]; then
+    echo ""
+    echo "## New Files (untracked)"
+    echo "$UNTRACKED"
+fi
+
+if [ -z "$STAGED_STAT" ] && [ -z "$UNSTAGED_STAT" ] && [ -z "$UNTRACKED" ]; then
     echo "## No Changes"
-    echo "(no staged or unstaged changes detected)"
+    echo "(no staged, unstaged, or untracked changes detected)"
 fi
 
 # Write triage marker + log event (merged from mark_triaged.py)

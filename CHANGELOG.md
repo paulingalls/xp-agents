@@ -1,9 +1,9 @@
 # Changelog
 
-## v1.5.11
+## v1.5.12
 
 ### Added
-- **Security triage as forked subagent** — converted `/xp-security-triage` from inline skill to `context: fork` with a dedicated `xp-security-triage` agent. The subagent gets its own execution context with a single mission: classify the diff and invoke `/security-review` when code files are present. Marker/flag flow unchanged — commit gate clears during preload as before. Preload refactored to use `_preload_base.sh` for consistency with other forked skills.
+- **Security triage as forked subagent** — converted `/xp-security-triage` from inline skill to `context: fork` with a dedicated `xp-security-reviewer` agent. The subagent's sole job is to invoke `/security-review` — no classification needed since the commit gate already confirmed code files changed. Preload shows staged diffs, unstaged diffs, and new untracked files. Marker/flag flow unchanged — commit gate clears during preload as before.
 
 ### Stats
 - 1062 tests (all passing)

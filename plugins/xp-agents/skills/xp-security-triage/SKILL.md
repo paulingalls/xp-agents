@@ -6,7 +6,7 @@ description: >-
   Non-code-only changes (docs, config, CI) need no further action.
 effort: high
 context: fork
-agent: xp-agents:xp-security-triage
+agent: xp-agents:xp-security-reviewer
 allowed-tools:
   - Read
   - Bash(*/append.sh *)
@@ -17,4 +17,4 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload_diff.sh`
 
-Examine the staged changes above. Classify whether code files changed. If yes, run `/security-review`. If only non-code files changed, no further action.
+Run `/security-review` on the changes above (staged, unstaged, and new files).
