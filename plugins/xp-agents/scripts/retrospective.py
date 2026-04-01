@@ -140,14 +140,16 @@ def _build_honesty_signals(events: list[dict]) -> dict:
     signals: dict = {}
 
     # Track sequence for gap analysis
-    writes_since_last_test = 0
-    max_writes_without_test = 0
+    unique_files_since_test: set[str] = set()
+    max_unique_files_without_test = 0
     commits_without_triage = 0
     total_commits = 0
     last_triage_seen = False
     concern_count = 0
     assumption_count = 0
     file_write_count = 0
+
+    from pre_tool_write import is_test_file
 
     for e in events:
         etype = e.get("type", "")
@@ -158,17 +160,16 @@ def _build_honesty_signals(events: list[dict]) -> dict:
                 path = content.replace("Wrote to ", "").strip()
                 if security.is_code_file(path):
                     file_write_count += 1
-                    # TDD streak: only production code writes count
-                    # (writing test files isn't a testing gap)
-                    from pre_tool_write import is_test_file
-
+                    # TDD streak: count unique production files between tests
+                    # (writing test files isn't a testing gap, and multiple
+                    # writes to the same file is normal iteration)
                     if not is_test_file(path):
-                        writes_since_last_test += 1
+                        unique_files_since_test.add(path)
             elif _TEST_RUN_RE.search(content):
-                max_writes_without_test = max(
-                    max_writes_without_test, writes_since_last_test
+                max_unique_files_without_test = max(
+                    max_unique_files_without_test, len(unique_files_since_test)
                 )
-                writes_since_last_test = 0
+                unique_files_since_test = set()
             elif _SECURITY_TRIAGE_RE.search(content):
                 last_triage_seen = True
             elif _COMMIT_RE.search(content):
@@ -181,10 +182,12 @@ def _build_honesty_signals(events: list[dict]) -> dict:
         elif etype == _common.ASSUMPTION:
             assumption_count += 1
 
-    # Final streak (writes after last test)
-    max_writes_without_test = max(max_writes_without_test, writes_since_last_test)
+    # Final streak (files written after last test)
+    max_unique_files_without_test = max(
+        max_unique_files_without_test, len(unique_files_since_test)
+    )
 
-    signals["max_writes_without_test"] = max_writes_without_test
+    signals["max_unique_files_without_test"] = max_unique_files_without_test
     signals["commits_without_triage"] = commits_without_triage
     signals["total_commits"] = total_commits
 

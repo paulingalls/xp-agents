@@ -299,6 +299,82 @@ class TestRetrospective(_HookTestCase):
 # ===========================================================================
 
 
+class TestHonestySignals(unittest.TestCase):
+    """Tests for _build_honesty_signals unique file counting."""
+
+    def _make_write_status(self, path: str) -> dict:
+        return make_event("status", content=f"Wrote to {path}", working_on=[path])
+
+    def _make_test_status(self) -> dict:
+        return make_event("status", content="Tests: 5 passed, 0 failed", working_on=[])
+
+    def test_counts_unique_files_not_raw_writes(self):
+        """4 writes to same file between tests should count as 1."""
+        import retrospective
+
+        events = [
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+    def test_counts_different_files(self):
+        """3 different files between tests should count as 3."""
+        import retrospective
+
+        events = [
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/db.py"),
+            self._make_write_status("src/api.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 3)
+
+    def test_resets_on_test_run(self):
+        """Unique file set resets after each test run."""
+        import retrospective
+
+        events = [
+            self._make_write_status("src/app.py"),
+            self._make_write_status("src/db.py"),
+            self._make_test_status(),
+            self._make_write_status("src/api.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 2)
+
+    def test_excludes_test_files(self):
+        """Test file writes should not count."""
+        import retrospective
+
+        events = [
+            self._make_write_status("tests/test_app.py"),
+            self._make_write_status("src/app.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+    def test_excludes_non_code_files(self):
+        """Non-code files (md, json, etc) should not count."""
+        import retrospective
+
+        events = [
+            self._make_write_status("README.md"),
+            self._make_write_status("config.json"),
+            self._make_write_status("src/app.py"),
+            self._make_test_status(),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+
 class TestRetrospectiveResolvedConcerns(_HookTestCase):
     """Resolved concerns should be rolled up to counts, not included in full."""
 

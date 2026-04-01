@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.9
+
+### Changed
+- **TDD metric counts unique files, not raw writes** — `max_writes_without_test` replaced with `max_unique_files_without_test`. Multiple writes to the same file (normal iteration) no longer inflate the metric. On a real session: 6 → 4.
+- **Seed SMM updated for commit-gated review cycle** — removed stale wisdom items that referenced old Stop-hook gates and pre-commit triage flow. Added correct review cycle sequence. Moved "small files" from wisdom to constraints.
+- **Small files constraint** — "Small files — single responsibility, one concern per file" added to seed constraints alongside small commits and TDD.
+
+### Stats
+- 1060 tests (all passing)
+
 ## v1.5.8
 
 ### Changed
