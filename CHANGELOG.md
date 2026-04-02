@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.12.0 — M8c: Accept Skill + Gate
+
+### Added
+- **M8c: `/xp-accept` skill** — Guides lead through acceptance criteria verification for in-progress stories. Presents criteria, supports e2e test execution, marks stories done or deferred, updates sprint.md.
+- **M8c: `accept_gate.py`** — Stop hook that blocks when sprint.md has in-progress stories and accept marker not set. Graceful degradation for missing/corrupt sprint.md.
+- **M8c: `accept_done.py`** — PostToolUse:Skill hook that sets accept marker when /xp-accept completes. Detects sprint completion (all done/deferred) and nudges /xp-sprint-review.
+- **M8c: `is_sprint_complete()` + `has_ready_stories()`** — Pure helpers in sprint_state.py for accept gate and done hooks.
+- **M8c: Accept marker lifecycle** — Cleared by session_start (M8a), set by accept_done, read by accept_gate.
+
+### Stats
+- 1187 tests (all passing)
+- M8c shipped — Sprint iteration loop complete (M8a detection → M8b kickoff → M8c accept)
+
 ## v1.11.0 — M8b: Sprint-Aware Kickoff Skill
 
 ### Added

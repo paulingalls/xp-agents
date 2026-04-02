@@ -382,16 +382,16 @@ Accept marker lifecycle:
 The skill does the judgment work (verifying criteria, running tests, updating stories). The hooks handle the mechanical bookkeeping (marker, gate, sprint completion detection).
 
 **Acceptance criteria:**
-- [ ] `accept_gate.py` (Stop) blocks when `sprint.md` has `in-progress` stories and accept marker not set
-- [ ] `accept_gate.py` allows stop when no `in-progress` stories (all `done`/`deferred`/`ready`) or no `sprint.md`
-- [ ] `accept_gate.py` skips for xp-agents (recursion guard)
-- [ ] `accept_done.py` (PostToolUse:Skill) sets accept marker when `/xp-accept` completes
-- [ ] `accept_done.py` detects sprint completion (all stories done/deferred) and nudges `/xp-sprint-review`
-- [ ] Accept marker cleared by `session_start.py` on new session, set by `accept_done.py`, read by `accept_gate.py`
-- [ ] `/xp-accept` skill reads `sprint.md`, presents in-progress story acceptance criteria, guides e2e test execution, lead marks each story `done` or `deferred`, updates `sprint.md`
-- [ ] Corrupt/missing `sprint.md` handled gracefully: gate allows stop, skill shows error, hooks log concern
-- [ ] Marker write failures logged as concern, not fatal
-- [ ] Tests cover: gate blocking/allowing, marker lifecycle, skill flow, sprint completion detection, error cases
+- [x] `accept_gate.py` (Stop) blocks when `sprint.md` has `in-progress` stories and accept marker not set
+- [x] `accept_gate.py` allows stop when no `in-progress` stories (all `done`/`deferred`/`ready`) or no `sprint.md`
+- [x] `accept_gate.py` skips for xp-agents (recursion guard)
+- [x] `accept_done.py` (PostToolUse:Skill) sets accept marker when `/xp-accept` completes
+- [x] `accept_done.py` detects sprint completion (all stories done/deferred) and nudges `/xp-sprint-review`
+- [x] Accept marker cleared by `session_start.py` on new session, set by `accept_done.py`, read by `accept_gate.py`
+- [x] `/xp-accept` skill reads `sprint.md`, presents in-progress story acceptance criteria, guides e2e test execution, lead marks each story `done` or `deferred`, updates `sprint.md`
+- [x] Corrupt/missing `sprint.md` handled gracefully: gate allows stop, skill shows error, hooks log concern
+- [x] Marker write failures logged as concern, not fatal
+- [x] Tests cover: gate blocking/allowing, marker lifecycle, skill flow, sprint completion detection, error cases
 
 **Depends on:** M7, M8a, M8b
 **Changes:** new `accept_gate.py` (Stop), new `accept_done.py` (PostToolUse:Skill), new skill (`skills/xp-accept/SKILL.md`), `session_start.py` (clear marker), `markers.py`, hooks.json, tests
