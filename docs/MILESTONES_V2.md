@@ -331,15 +331,15 @@ Update `/xp-kickoff` skill for sprint-aware orchestration.
 No standalone question triage — questions handled in the phase where they naturally arise. Story selection replaces per-session goal collection — sprint stories ARE the goals.
 
 **Acceptance criteria:**
-- [ ] Kickoff reads `.needs-product-spec` marker → runs `/xp-product-spec` if set
-- [ ] Kickoff reads `.needs-sprint` marker → runs `/xp-sprint-start` if set
-- [ ] Full orchestration order: retro → product spec check → sprint check → housekeeping → story selection
-- [ ] When neither marker set (mid-sprint steady state): skips product spec and sprint start, proceeds to housekeeping and story selection
-- [ ] Story selection displays `ready` stories from `sprint.md`, lead picks stories to mark `in-progress`
-- [ ] Sprint stories replace goal collection — `/xp-goal-collection` not called when sprint active
-- [ ] Questions handled inline during story selection, not as standalone triage step
-- [ ] Backward compatible: kickoff still works without markers or sprint files (first-time project)
-- [ ] Tests cover: full flow with both markers, partial markers, no markers, story selection
+- [x] Kickoff reads `.needs-product-spec` marker → runs `/xp-product-spec` if set
+- [x] Kickoff reads `.needs-sprint` marker → runs `/xp-sprint-start` if set
+- [x] Full orchestration order: retro → product spec check → sprint check → housekeeping → story selection
+- [x] When neither marker set (mid-sprint steady state): skips product spec and sprint start, proceeds to housekeeping and story selection
+- [x] Story selection displays `ready` stories from `sprint.md`, lead picks stories to mark `in-progress`
+- [x] Sprint stories replace goal collection — `/xp-goal-collection` not called when sprint active
+- [x] Questions handled inline during story selection, not as standalone triage step
+- [x] Backward compatible: kickoff still works without markers or sprint files (first-time project)
+- [x] Tests cover: full flow with both markers, partial markers, no markers, story selection
 
 **Depends on:** M6, M7, M8a
 **Changes:** `skills/xp-kickoff/SKILL.md`, tests

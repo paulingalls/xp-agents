@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.11.0 — M8b: Sprint-Aware Kickoff Skill
+
+### Added
+- **M8b: Sprint-aware kickoff** — `/xp-kickoff` SKILL.md rewritten with 6-step flow: retro → product spec check → sprint check → housekeeping → story selection. Reads M8a markers to orchestrate sprint setup.
+- **M8b: Sprint-aware preload** — `check_session_needs.sh` outputs `NEEDS_PRODUCT_SPEC`, `NEEDS_SPRINT`, and `SPRINT_ACTIVE` sections based on markers and sprint.md state.
+- **M8b: Story selection** — When sprint is active, kickoff displays ready stories and lets the lead pick stories to mark `in-progress`, replacing goal collection.
+- **M8b: Backward compatibility** — First-time projects without sprint files fall back to question triage + goal collection (existing behavior).
+
+### Stats
+- 1158 tests (all passing)
+- M8b shipped — M8c (Accept Skill + Gate) is next
+
 ## v1.10.0 — M7/M8a: Sprint Start Skill & Sprint State Detection
 
 ### Added
