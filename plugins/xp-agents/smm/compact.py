@@ -32,6 +32,7 @@ from _append_impl import (
     write_json_atomic,
     write_watermark,
 )
+from event_schema import SPRINT_ACTION_END, SPRINT_ACTION_START
 from materialize import read_curation_watermark, write_curation_watermark
 from resolution import compute_resolutions
 
@@ -73,7 +74,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     for event in events:
         if event.get("type") == "sprint":
             meta = event.get("metadata", {})
-            if meta.get("action") == "end":
+            if meta.get("action") == SPRINT_ACTION_END:
                 sid = meta.get("sprint_id", "")
                 if sid:
                     ended_sprint_ids.add(sid)
@@ -136,7 +137,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 sprint_id = meta.get("sprint_id", "")
                 # Active sprint starts retained; ended ones archivable.
                 # Sprint ends handled by index-based retention below.
-                if action == "start" and sprint_id not in ended_sprint_ids:
+                if action == SPRINT_ACTION_START and sprint_id not in ended_sprint_ids:
                     referenced.add(eid)
             case "retrospective":
                 # Keep last 2 for trend detection. _find_unanalyzed_start
@@ -221,7 +222,8 @@ def _classify_pre_watermark(
     # Post-watermark sprint ends count toward the cap.
     def _is_sprint_end(e: dict) -> bool:
         return (
-            e.get("type") == "sprint" and e.get("metadata", {}).get("action") == "end"
+            e.get("type") == "sprint"
+            and e.get("metadata", {}).get("action") == SPRINT_ACTION_END
         )
 
     all_sprint_end_ids = [e.get("id", "") for e in all_events if _is_sprint_end(e)]

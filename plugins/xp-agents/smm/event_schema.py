@@ -36,7 +36,9 @@ PRIORITY_ASSUMED = "\U0001f7e1"  # 🟡
 PRIORITY_INFO = "\U0001f7e2"  # 🟢
 VALID_PRIORITIES = frozenset({PRIORITY_BLOCKING, PRIORITY_ASSUMED, PRIORITY_INFO})
 VALID_SEVERITIES = frozenset({"high", "medium", "low"})
-VALID_SPRINT_ACTIONS = frozenset({"start", "end"})
+SPRINT_ACTION_START = "start"
+SPRINT_ACTION_END = "end"
+VALID_SPRINT_ACTIONS = frozenset({SPRINT_ACTION_START, SPRINT_ACTION_END})
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
 
