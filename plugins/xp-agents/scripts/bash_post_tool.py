@@ -12,6 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import re
+
 import _common
 import commits
 import concerns
@@ -83,6 +85,33 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Commit handling
 # ---------------------------------------------------------------------------
+
+
+_GIT_PUSH_RE = re.compile(r"\bgit\s+push\b")
+
+
+def _is_git_push(command: str) -> bool:
+    """Detect git push commands."""
+    return bool(_GIT_PUSH_RE.search(command))
+
+
+def _session_end_checklist(smm_dir: Path) -> str | None:
+    """Return session-end checklist nudge if issues found."""
+    events = _common.read_events_raw(smm_dir)
+    if not events:
+        return None
+
+    parts: list[str] = []
+    unresolved = _common.count_unresolved_concerns(events)
+    if unresolved:
+        parts.append(
+            f"{unresolved} unresolved concern(s) — review before ending session."
+        )
+    if not _common.has_final_status(events):
+        parts.append("Record a session-end status summarizing what was accomplished.")
+    if not parts:
+        return None
+    return "Session-end checklist: " + " ".join(parts)
 
 
 def _handle_commit(
@@ -160,6 +189,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Git commit detection
     if security.is_git_commit(command):
         return _handle_commit(smm_dir, agent_id, cwd, response_text)
+
+    # Git push detection — nudge session-end checklist
+    if _is_git_push(command):
+        return _session_end_checklist(smm_dir)
 
     # Test run detection
     framework = is_test_run(command)

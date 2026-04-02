@@ -515,5 +515,56 @@ class TestBashPostToolGreenNudge(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestBashPostToolPushWarning(_HookTestCase):
+    """Tests for git push session-end checklist nudge."""
+
+    def test_push_with_unresolved_concerns_warns(self):
+        """git push with unresolved concerns returns session-end checklist."""
+        self._write_events(
+            [make_event("concern", content="Open issue", severity="medium")]
+        )
+        result = bash_post_tool.run(
+            _make_bash_input(command="git push origin main", stdout=""),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("concern", result.lower())
+
+    def test_push_with_missing_status_warns(self):
+        """git push without recent status nudges session-end summary."""
+        self._write_events([make_event("customer_input", content="Build something")])
+        result = bash_post_tool.run(
+            _make_bash_input(command="git push origin v2", stdout=""),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("session-end status", result.lower())
+
+    def test_push_all_clean_no_warning(self):
+        """git push with no issues returns None."""
+        self._write_events(
+            [
+                make_event("status", content="All done", agent_id="main"),
+            ]
+        )
+        result = bash_post_tool.run(
+            _make_bash_input(command="git push origin main", stdout=""),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_push_xp_agent_skips(self):
+        """xp- agents skip push warning."""
+        result = bash_post_tool.run(
+            _make_bash_input(
+                command="git push origin main",
+                stdout="",
+                agent_type="xp-nav",
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
