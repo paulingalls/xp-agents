@@ -53,6 +53,7 @@ class TestMilestone6Files(unittest.TestCase):
             "xp-product-spec",
             "xp-sprint-start",
             "xp-kickoff",
+            "xp-accept",
         ):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
@@ -64,6 +65,7 @@ class TestMilestone6Files(unittest.TestCase):
             "xp-product-spec",
             "xp-sprint-start",
             "xp-kickoff",
+            "xp-accept",
         ):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
@@ -271,6 +273,7 @@ class TestPluginIntegrity(unittest.TestCase):
             "xp-product-spec",
             "xp-sprint-start",
             "xp-kickoff",
+            "xp-accept",
         ):
             path = skills_dir / name / "SKILL.md"
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
@@ -310,6 +313,26 @@ class TestPluginIntegrity(unittest.TestCase):
             fallback = after_sprint.find("no SPRINT_ACTIVE")
             sprint_path = after_sprint[:fallback] if fallback > 0 else after_sprint
             self.assertNotIn("xp-question-triage", sprint_path)
+
+    def test_accept_skill_has_story_flow(self):
+        """M8c: accept SKILL.md must have acceptance criteria verification."""
+        skill_file = self.plugin_root / "skills" / "xp-accept" / "SKILL.md"
+        content = skill_file.read_text()
+        self.assertIn("acceptance criteria", content.lower())
+        self.assertIn("done", content.lower())
+        self.assertIn("deferred", content.lower())
+
+    def test_hooks_json_has_accept_gate(self):
+        """M8c: hooks.json Stop array must include accept_gate.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("accept_gate.py", content)
+
+    def test_hooks_json_has_accept_done(self):
+        """M8c: hooks.json PostToolUse Skill must include accept_done.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("accept_done.py", content)
 
     def test_no_requirements_or_pyproject(self):
         """No requirements.txt or pyproject.toml with dependencies."""
