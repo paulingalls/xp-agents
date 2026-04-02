@@ -317,7 +317,6 @@ tests/
 
 - Hooks-first — all XP agents are hook handlers
 - SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` (shared across worktrees)
-- Install at user scope (`--scope user`)
 - Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
 - Quality reviewer is post-simplify skill (courage + drift + debt)
 - Retrospective runs at session start, not session end

@@ -108,7 +108,7 @@ Move simplify, quality review, and security triage enforcement from Stop to comm
 **Depends on:** M3
 **Changes:** docs only
 
-### M4b: Security Triage as Forked Subagent
+### M4b: Security Triage as Forked Subagent [SHIPPED]
 
 Convert `/xp-security-triage` from inline skill to `context: fork` with a dedicated agent. The diff and security review results stay in the subagent's context — the main agent gets a summary only.
 
@@ -128,8 +128,18 @@ Convert `/xp-security-triage` from inline skill to `context: fork` with a dedica
 
 **Hook compatibility:** `review_cycle_done.py` (PostToolUse:Skill) sets the security review flag when the skill completes — this still fires because the Skill tool completes in the main conversation regardless of fork. Verify SubagentStop also fires for the forked agent (it should, matching the retro/plan-reviewer pattern).
 
+**Acceptance criteria:**
+- [x] `agents/xp-security-reviewer.md` exists with `tools: Read, Grep, Glob, Bash, Skill`, `model: inherit`, `skills: [xp-smm-protocol]`, and instructs subagent to run `Skill(security-review)` and record result via `append.sh`
+- [x] `skills/xp-security-triage/SKILL.md` has `context: fork` and `agent: xp-agents:xp-security-reviewer` in frontmatter
+- [x] Preload scripts (`preload_diff.sh`, `mark_triaged.py`) unchanged — preload runs in main agent before fork
+- [x] `review_cycle_done.py` (PostToolUse:Skill) sets `security_review_done` flag for both `"security-review"` and `"xp-security-triage"` skill names
+- [x] Backward compat: `review_cycle_done.py` writes old `.security-triaged` marker alongside review cycle flag
+- [x] Triage vs review distinction: `/xp-security-triage` completion sets flag but does NOT record "review complete" event; only `/security-review` records the completion event
+- [x] `test_plugin_integrity.py` includes `xp-security-reviewer` in `_SUBAGENT_NAMES`
+- [x] Agent prompt includes SMM content trust warning
+
 **Depends on:** nothing
-**Changes:** new `agents/xp-security-triage.md`, update `skills/xp-security-triage/SKILL.md`, tests
+**Changes:** new `agents/xp-security-reviewer.md`, update `skills/xp-security-triage/SKILL.md`, tests
 
 ### M4c: TaskCreated Signal Events
 
@@ -147,6 +157,15 @@ Add a `TaskCreated` hook to record task creation in the event log as signal even
 
 **Hooks.json:** Register `task_created.py` on the `TaskCreated` event. Light hook — no blocking, async is fine since it's just recording.
 
+**Acceptance criteria:**
+- [ ] `scripts/task_created.py` exists with `run(input_data, smm_dir=None)` and `__main__` entry point
+- [ ] Records `status` event: "Task created: {task_subject}" with task_id and description in event metadata
+- [ ] Recursion guard: skips xp-agent tasks via `_common.is_xp_agent()`
+- [ ] Registered in `hooks.json` under `TaskCreated`, async, appropriate timeout
+- [ ] `retrospective.py` `_classify_status_events()` counts "Task created:" events as `task_creations`
+- [ ] Handles malformed input and missing SMM gracefully (exit 0, no crash)
+- [ ] Tests cover: event recording, metadata, recursion guard, retro classification, malformed input
+
 **Depends on:** nothing
 **Changes:** new `scripts/task_created.py`, hooks.json, `retrospective.py` (classification), tests
 
@@ -160,16 +179,34 @@ Replace explicit `tools` allowlists with `disallowedTools` denylists on existing
 
 **Verify:** Test that `disallowedTools` works correctly on plugin subagents (not in the restricted fields list per docs, but worth confirming).
 
-**Depends on:** M4b (for security triage agent)
-**Changes:** `agents/xp-retrospective.md`, `agents/xp-plan-reviewer.md`, `agents/xp-security-triage.md`, tests
+**Acceptance criteria:**
+- [ ] `agents/xp-retrospective.md` replaces `tools: Read, Grep, Glob, Bash` with `disallowedTools: Write, Edit, MultiEdit, Agent`
+- [ ] `agents/xp-plan-reviewer.md` replaces `tools: Read, Grep, Glob, Bash` with `disallowedTools: Write, Edit, MultiEdit, Agent`
+- [ ] `agents/xp-security-reviewer.md` uses `disallowedTools: Write, Edit, MultiEdit, Agent` (retains Skill access for `/security-review`)
+- [ ] All three agents retain functional access to Read, Grep, Glob, Bash (verified empirically)
+- [ ] Mutation tools (Write, Edit, MultiEdit, Agent) are blocked for all three agents
+- [ ] Plugin loads without validation errors when `disallowedTools` is present
+- [ ] Tests verify frontmatter uses `disallowedTools` instead of `tools`
 
-### M4e: Worktree Path Normalization
+**Depends on:** M4b (for security triage agent)
+**Changes:** `agents/xp-retrospective.md`, `agents/xp-plan-reviewer.md`, `agents/xp-security-reviewer.md`, tests
+
+### M4e: Worktree Path Normalization [SHIPPED]
 
 Fix `normalize_path()` so `.coordination.json` conflict detection works across worktrees.
 
 **Problem:** `normalize_path()` in `_common.py` already returns repo-relative paths by stripping `git rev-parse --show-toplevel`. But when a file doesn't exist (e.g., Agent A created it in the main checkout but it doesn't exist in Agent B's worktree), the fallback to `os.path.normpath()` doesn't resolve symlinks, while the git root prefix uses `os.path.realpath()` which does. On macOS (`/var` → `/private/var`), the prefix strip fails → falls back to absolute → cross-worktree conflict missed.
 
 **Fix:** When the normpath-based prefix strip fails for a non-existent file, walk up to the nearest existing ancestor, resolve its symlinks, rejoin the tail, and retry the prefix strip. Targeted fallback — only activates when inside a git repo and the initial strip fails.
+
+**Acceptance criteria:**
+- [x] Non-existent file paths normalize to repo-relative when an existing ancestor can be resolved
+- [x] Cross-worktree paths normalize identically — Agent A in main checkout and Agent B in worktree produce the same repo-relative path, enabling `.coordination.json` conflict detection
+- [x] macOS symlink mismatch handled: ancestor-walk resolves symlinks before retrying prefix strip
+- [x] Ancestor walk stops gracefully at filesystem root without crash or infinite loop
+- [x] Existing files still use `os.path.realpath()` directly (no behavior change)
+- [x] Paths outside the git repo still fall back to absolute (no behavior change)
+- [x] Tests in `test_common.py` and `test_coordination.py` cover all scenarios
 
 **Depends on:** nothing
 **Changes:** `scripts/_common.py` (`normalize_path()`), tests in `test_common.py`, `test_coordination.py`, `test_scaling.py`
@@ -230,6 +267,17 @@ Design and implement the skill that creates `sprint.md` from `product_spec.md`.
 - Writes `sprint.md` + sprint start event to events.jsonl
 - Handles deferred stories carried from previous sprint
 
+**Acceptance criteria:**
+- [ ] Skill reads `product_spec.md` and extracts all `[planned]` features (ignores `[delivered: ...]`)
+- [ ] Decomposes features into user stories with unique IDs (`story-NNN`), acceptance criteria (including E2E test definitions), T-shirt sizes (S/M/L), and dependencies
+- [ ] XL stories are split during planning — no XL stories in final `sprint.md`
+- [ ] Customer confirms sprint scope via `AskUserQuestion` before files are written; rejection cancels without writing
+- [ ] Writes `sprint.md` to SMM directory with stories in priority order, all marked `ready`
+- [ ] Records `sprint` event (type: `sprint`, metadata: `sprint_id`, `action: "start"`) to events.jsonl
+- [ ] Carries forward `deferred` stories from previous sprint, presenting them separately in confirmation
+- [ ] Rejects missing `product_spec.md` or no `[planned]` features with clear error messages
+- [ ] Tests cover: file output format, event recording, customer confirmation flow, deferred story carryover, error cases
+
 **Depends on:** M5, M6
 **Changes:** new skill (`skills/xp-sprint-start/SKILL.md`), tests
 
@@ -248,6 +296,16 @@ Add sprint state detection to the deterministic hooks that run before and after 
 `kickoff_done.py` (PostToolUse:Skill) — add sprint validation:
 - After kickoff completes, verify sprint.md has in-progress stories (story selection happened)
 - If not, nudge: "No stories selected for this iteration"
+
+**Acceptance criteria:**
+- [ ] `session_start.py` writes `.needs-product-spec` marker when `product_spec.md` missing from SMM dir
+- [ ] `session_start.py` writes `.needs-sprint` marker when `sprint.md` missing or has no `ready`/`in-progress` stories
+- [ ] `session_start.py` does NOT create markers when both files exist with active stories
+- [ ] `session_start.py` clears `.accept` marker on session start (new iteration)
+- [ ] `kickoff_done.py` reads `sprint.md` after kickoff and nudges "No stories selected" when no `in-progress` stories
+- [ ] `kickoff_gate.py` reads markers and includes missing resource info in block message
+- [ ] Markers use atomic writes via `markers.py`, symlink-safe
+- [ ] Tests cover: marker creation/clearing for each file state, nudge messages, no-marker steady state
 
 **Depends on:** M7
 **Changes:** `session_start.py`, `kickoff_gate.py`, `kickoff_done.py`, `markers.py`, tests
@@ -271,6 +329,17 @@ Update `/xp-kickoff` skill for sprint-aware orchestration.
 5. Story selection: show ready stories, lead picks, questions resolved in context, mark in-progress
 
 No standalone question triage — questions handled in the phase where they naturally arise. Story selection replaces per-session goal collection — sprint stories ARE the goals.
+
+**Acceptance criteria:**
+- [ ] Kickoff reads `.needs-product-spec` marker → runs `/xp-product-spec` if set
+- [ ] Kickoff reads `.needs-sprint` marker → runs `/xp-sprint-start` if set
+- [ ] Full orchestration order: retro → product spec check → sprint check → housekeeping → story selection
+- [ ] When neither marker set (mid-sprint steady state): skips product spec and sprint start, proceeds to housekeeping and story selection
+- [ ] Story selection displays `ready` stories from `sprint.md`, lead picks stories to mark `in-progress`
+- [ ] Sprint stories replace goal collection — `/xp-goal-collection` not called when sprint active
+- [ ] Questions handled inline during story selection, not as standalone triage step
+- [ ] Backward compatible: kickoff still works without markers or sprint files (first-time project)
+- [ ] Tests cover: full flow with both markers, partial markers, no markers, story selection
 
 **Depends on:** M6, M7, M8a
 **Changes:** `skills/xp-kickoff/SKILL.md`, tests
@@ -312,6 +381,18 @@ Accept marker lifecycle:
 
 The skill does the judgment work (verifying criteria, running tests, updating stories). The hooks handle the mechanical bookkeeping (marker, gate, sprint completion detection).
 
+**Acceptance criteria:**
+- [ ] `accept_gate.py` (Stop) blocks when `sprint.md` has `in-progress` stories and accept marker not set
+- [ ] `accept_gate.py` allows stop when no `in-progress` stories (all `done`/`deferred`/`ready`) or no `sprint.md`
+- [ ] `accept_gate.py` skips for xp-agents (recursion guard)
+- [ ] `accept_done.py` (PostToolUse:Skill) sets accept marker when `/xp-accept` completes
+- [ ] `accept_done.py` detects sprint completion (all stories done/deferred) and nudges `/xp-sprint-review`
+- [ ] Accept marker cleared by `session_start.py` on new session, set by `accept_done.py`, read by `accept_gate.py`
+- [ ] `/xp-accept` skill reads `sprint.md`, presents in-progress story acceptance criteria, guides e2e test execution, lead marks each story `done` or `deferred`, updates `sprint.md`
+- [ ] Corrupt/missing `sprint.md` handled gracefully: gate allows stop, skill shows error, hooks log concern
+- [ ] Marker write failures logged as concern, not fatal
+- [ ] Tests cover: gate blocking/allowing, marker lifecycle, skill flow, sprint completion detection, error cases
+
 **Depends on:** M7, M8a, M8b
 **Changes:** new `accept_gate.py` (Stop), new `accept_done.py` (PostToolUse:Skill), new skill (`skills/xp-accept/SKILL.md`), `session_start.py` (clear marker), `markers.py`, hooks.json, tests
 
@@ -332,6 +413,15 @@ Add Sprint section to the curated SMM.
 **Skill (judgment):**
 - Housekeeping decides how to summarize sprint progress in the curated SMM
 - Sprint pillar is a summary pointing to sprint.md for details
+
+**Acceptance criteria:**
+- [ ] `prepare_curation_data()` returns `sprint` key alongside existing keys (`current_smm`, `new_since_last_curation`, `retro_history`, `aging`, `health`)
+- [ ] Sprint data includes: `sprint_id`, `goal`, `started` date, `stories_by_status` (ready/in-progress/done/deferred counts), `blockers` list
+- [ ] Missing/malformed `sprint.md` returns empty sprint data (all counts 0, no crash)
+- [ ] Housekeeping SKILL.md includes "Curate Sprint" section with format: `- <sprint_id>: <goal> [N stories: R ready, I in-progress, D done, F deferred]`
+- [ ] Sprint pillar appears in curated SMM as new section (Intent, Constraints, Risks, Wisdom, Sprint)
+- [ ] No `sprint.md` → Sprint section shows "No active sprint"
+- [ ] Tests cover: sprint parsing, blocker detection, empty/missing sprint, curation preload format
 
 **Depends on:** M7
 **Changes:** `materialize.py` (add sprint data to curation preload), `skills/xp-housekeeping/SKILL.md`, tests
@@ -364,6 +454,17 @@ Update SubagentStart to inject sprint context by role. Also update the plan revi
 - After compaction, the lead's context loses sprint state — reinjection ensures story selection and accept gates still work
 - Same tiering logic applies: lead gets full sprint.md, lightweight agents get nothing
 
+**Acceptance criteria:**
+- [ ] `subagent_start.py` tiering refactored into clean dispatch (dict or named functions), `run()` ≤80 lines
+- [ ] Simplify/lint subagents receive SMM only (unchanged)
+- [ ] Plan reviewer receives SMM + `sprint.md` (when it exists)
+- [ ] Teammates receive SMM + their assigned stories only (filtered from `sprint.md`)
+- [ ] Retrospective receives SMM + `sprint.md`
+- [ ] Missing `sprint.md` degrades gracefully — inject SMM only, no error
+- [ ] Plan reviewer instructions updated to recommend execution mode (solo/subagent/Agent Team) based on parallelization analysis
+- [ ] PostCompact hook reinjects `sprint.md` alongside curated SMM
+- [ ] Tests cover: each tier (4+ agent types), missing sprint.md, plan reviewer execution mode output
+
 **Depends on:** M7
 **Changes:** `subagent_start.py`, `agents/xp-plan-reviewer.md`, PostCompact hook, tests
 
@@ -392,6 +493,16 @@ Design and implement the forked skill that runs at sprint end.
 
 Subagent writes when judgment is needed (mapping stories → features). Hook handles mechanical bookkeeping (events, markers, nudges).
 
+**Acceptance criteria:**
+- [ ] Preload parses `sprint.md` (stories by status) and `product_spec.md` (features → stories mapping), computes velocity stats
+- [ ] Subagent maps completed stories to product spec features and updates `product_spec.md` with `[delivered: sprint-XXX]` markers
+- [ ] Already-delivered features (`[delivered: sprint-YYY]`) are not modified
+- [ ] `sprint_review_done.py` (PostToolUse:Skill) recomputes velocity from `sprint.md` and writes sprint end event (type: `sprint`, `action: "end"`, velocity metadata)
+- [ ] Sprint end event uses `EVENT_TYPE_SPRINT` constant and passes `validate_event()`
+- [ ] Hook nudges `/xp-sprint-retro` after sprint review completes
+- [ ] Missing `sprint.md` or `product_spec.md` handled gracefully in preload
+- [ ] Tests cover: preload parsing, product_spec updates, velocity computation, event recording, nudge
+
 **Depends on:** M6, M7
 **Changes:** new skill (`skills/xp-sprint-review/SKILL.md`), new agent (`agents/xp-sprint-reviewer.md`), new `sprint_review_done.py` hook, preload script, tests
 
@@ -413,6 +524,16 @@ Design and implement the forked cross-iteration retrospective (same pattern as e
 - Identifies process improvements for next sprint
 - Produces and saves Keep/Fix/Try at the sprint level (same Write pattern as session retro subagent)
 
+**Acceptance criteria:**
+- [ ] Preload collects all session retros from `retrospectives/` directory for the current sprint
+- [ ] Preload computes velocity from sprint events (stories planned/delivered/carried) and parses `sprint.md` for story completion and sizing data
+- [ ] Preload output is deterministic (no judgment) — structured JSON with `session_retros`, `velocity_stats`, `story_data`, `sprint_metadata`
+- [ ] Subagent analyzes cross-iteration patterns, T-shirt sizing accuracy, and process improvements
+- [ ] Subagent produces sprint-level Keep/Fix/Try (not session-level detail)
+- [ ] Output saved via `save_retrospective.py` pattern — timestamped JSON in `retrospectives/`, event in `events.jsonl`
+- [ ] Handles missing/incomplete data gracefully (no retros, no sprint events, missing sprint.md)
+- [ ] Tests cover: preload data collection, velocity computation, sizing analysis, saved output format
+
 **Depends on:** M7
 **Changes:** new skill (`skills/xp-sprint-retro/SKILL.md`), new agent (`agents/xp-sprint-retro.md`), preload script, tests
 
@@ -432,6 +553,16 @@ Implement TeammateIdle and TaskCompleted hooks.
 - Both use exit 2 + stderr to block
 - Detect teammate events via `teammate_name` field
 
+**Acceptance criteria:**
+- [ ] `_common.get_validated_smm_dir()` helper extracts SMM dir validation boilerplate, used by 6+ existing scripts
+- [ ] Shared TDD check function extracted from `tdd_stop_gate.py`, used by all three hooks (Stop, TeammateIdle, TaskCompleted)
+- [ ] `teammate_idle.py` blocks (exit 2 + stderr) when tests failing, allows (exit 0) when passing
+- [ ] `task_completed.py` blocks (exit 2 + stderr) when tests failing, allows (exit 0) when passing
+- [ ] Both hooks detect teammates via `teammate_name` field; skip gracefully if absent
+- [ ] Both registered in `hooks.json` under `TeammateIdle` and `TaskCompleted` events
+- [ ] Missing `events.jsonl` or SMM handled gracefully (exit 0, no crash)
+- [ ] Tests cover: TDD check logic, teammate detection, exit codes, stderr messages, edge cases
+
 **Depends on:** Agent Teams platform stabilization
 **Changes:** `_common.py`, `tdd_stop_gate.py` (extract shared logic), new `task_completed.py`, new `teammate_idle.py`, hooks.json, tests
 
@@ -449,6 +580,16 @@ Update SubagentStart to detect teammates and inject appropriate guide.
 - **DON'T:** Run kickoff, housekeeping, goals, retrospectives
 - **SKIP:** EnterPlanMode (built-in plan approval handles this)
 - Commit-gated reviews enforced automatically via PreToolUse:Bash
+
+**Acceptance criteria:**
+- [ ] `subagent_start.py` detects teammates via `is_teammate_by_agent_type()` and injects teammate-specific guide
+- [ ] Teammate guide includes DO (claim tasks, TDD, commit frequently, stay in file domain, message lead for urgent discoveries)
+- [ ] Teammate guide includes DON'T (no kickoff, housekeeping, goals, retrospectives)
+- [ ] Teammate guide includes SKIP (EnterPlanMode — built-in plan approval handles it)
+- [ ] Existing non-teammate agent tiers unchanged (Explore, Plan, xp-* agents)
+- [ ] Guide content does not reference lead-only ceremonies or skills
+- [ ] Guide references commit-gated review cycle as automatic enforcement
+- [ ] Tests cover: teammate detection, guide content verification, non-teammate agents unaffected
 
 **Depends on:** M10, M13
 **Changes:** `subagent_start.py`, BEHAVIORAL_GUIDE.md (add teammate section or separate guide), tests
@@ -474,6 +615,16 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 
 **Worktree support:** If the subagent recommends worktrees, `.coordination.json` cross-worktree conflict detection requires M4e (worktree path normalization). Without M4e, worktree mode should not be recommended — the subagent should note this constraint.
 
+**Acceptance criteria:**
+- [ ] Preload dumps SMM + `sprint.md` + current plan for subagent
+- [ ] Subagent identifies distinct file domains and detects parallel task groups
+- [ ] Subagent recommends team size (1-5 teammates) with rationale
+- [ ] Each task description includes: title, file domain, acceptance criteria, relevant context, TDD expectation
+- [ ] Worktree decision: recommends worktrees for large teams with non-overlapping domains; notes M4e constraint if applicable
+- [ ] Output is structured instructions for the lead — does NOT spawn team directly
+- [ ] Handles edge cases: no parallel work → recommend solo, single task → solo more efficient, missing sprint/plan → clear error
+- [ ] Tests cover: domain analysis, team sizing, task descriptions, worktree decision logic, error cases
+
 **Depends on:** M4e, M7, M13, M14, Agent Teams platform
 **Changes:** new skill (`skills/xp-spawn-team/SKILL.md`), new agent (`agents/xp-spawn-team.md`), tests
 
@@ -485,6 +636,16 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 - Update SMM_DESIGN.md (Sprint pillar, tiered injection, product_spec.md/sprint.md)
 - Update CLAUDE.md as needed
 
+**Acceptance criteria:**
+- [ ] ARCHITECTURE.md updated: sprint lifecycle section, three-file architecture, new hooks in hook map, new skills list, tiered injection table
+- [ ] ARCHITECTURE.md covers all v2 milestones M5-M15 (sprint events, product spec, sprint start, detection hooks, kickoff, accept, sprint review, sprint retro, teammate hooks, teammate guide, spawn team)
+- [ ] SMM_DESIGN.md updated: Sprint pillar, product_spec.md/sprint.md in storage model, file lifecycle
+- [ ] CLAUDE.md updated: teammate constraints, new hook patterns, any changed conventions
+- [ ] All hook names, skill names, and agent names match actual implementation filenames
+- [ ] Event types table matches `event_schema.py` constants and `schema.json`
+- [ ] No stale v1-only references (e.g., "stop-gated review" replaced with "commit-gated")
+- [ ] Internal consistency across all three docs (no contradictions)
+
 **Depends on:** M5-M15
 **Changes:** docs only
 
@@ -495,10 +656,10 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 ```
 v1.5 (solo enforcement):
   M1 → M2 → M3 → M4  [SHIPPED]
-  M4b (security triage subagent)      — independent
+  M4b (security triage subagent)      [SHIPPED]
   M4c (TaskCreated events)            — independent
-  M4d (disallowedTools)               → M4b
-  M4e (worktree path normalization)   — independent
+  M4d (disallowedTools)               → M4b [SHIPPED]
+  M4e (worktree path normalization)   [SHIPPED]
 
 v2.0 (sprint/teams):
   M5 (sprint events)     ─┐  [SHIPPED]
@@ -516,7 +677,7 @@ v2.0 (sprint/teams):
   M16 (docs) depends on all above
 ```
 
-M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4e can ship independently. M5/M6 shipped — M7 (Sprint Start) is next on the critical path. M7 is the critical path bottleneck — nearly everything depends on it. M9 and M10 can run in parallel after M7 (M10 no longer depends on M9). M13-M15 depend on the Agent Teams platform stabilizing.
+M1-M4 shipped in v1.5.0-v1.5.10. M4b, M4e shipped independently. M5, M6 shipped. M4c and M4d remain as independent items. M7 (Sprint Start) is next on the critical path — nearly everything depends on it. M9 and M10 can run in parallel after M7 (M10 no longer depends on M9). M13-M15 depend on the Agent Teams platform stabilizing.
 
 ---
 
