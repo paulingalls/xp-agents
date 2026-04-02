@@ -56,6 +56,10 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
             event["files"] = kwargs.pop("files", ["src/legacy.py"])
         case "customer_intent":
             event["intent_status"] = kwargs.pop("intent_status", "open")
+        case "sprint":
+            event["metadata"] = kwargs.pop(
+                "metadata", {"sprint_id": "sprint-001", "action": "start"}
+            )
     event.update(kwargs)
     return event
 

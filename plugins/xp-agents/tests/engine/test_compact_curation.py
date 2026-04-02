@@ -416,6 +416,149 @@ class TestCompactAfterCuration(_SMMTestCase):
         # Plus any SMM-referenced or session_ends from pre-watermark
         self.assertGreaterEqual(len(retained), len(all_events) - 4)
 
+    # --- Sprint event compaction ---
+
+    def test_retains_active_sprint_start(self):
+        """Sprint start with no matching end is retained (active sprint)."""
+        import compact
+
+        sprint_start = make_event(
+            "sprint",
+            content="Build user API",
+            ts="2026-01-01T00:00:00+00:00",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": "start",
+                "goal": "Build user API",
+            },
+        )
+        session_end = make_event(
+            "session_end",
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        self._write_events([sprint_start, session_end, new_event])
+        self._set_curation_watermark(2)
+
+        compact.compact_after_curation(self.smm_dir)
+        retained = self._read_events()
+        retained_ids = {e["id"] for e in retained}
+        self.assertIn(sprint_start["id"], retained_ids)
+
+    def test_archives_ended_sprint_start(self):
+        """Sprint start is archived when a matching end event exists."""
+        import compact
+
+        sprint_start = make_event(
+            "sprint",
+            content="Build user API",
+            ts="2026-01-01T00:00:00+00:00",
+            metadata={"sprint_id": "sprint-001", "action": "start"},
+        )
+        sprint_end = make_event(
+            "sprint",
+            content="Sprint complete",
+            ts="2026-01-05T00:00:00+00:00",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": "end",
+                "stories_planned": 5,
+                "stories_delivered": 4,
+                "stories_carried": 1,
+            },
+        )
+        session_end = make_event(
+            "session_end",
+            content="end",
+            ts="2026-01-06T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        self._write_events([sprint_start, sprint_end, session_end, new_event])
+        self._set_curation_watermark(3)
+
+        compact.compact_after_curation(self.smm_dir)
+        retained = self._read_events()
+        retained_ids = {e["id"] for e in retained}
+        self.assertNotIn(sprint_start["id"], retained_ids)
+
+    def test_retains_latest_sprint_end(self):
+        """Most recent sprint end retained for velocity data."""
+        import compact
+
+        sprint_end = make_event(
+            "sprint",
+            content="Sprint complete",
+            ts="2026-01-05T00:00:00+00:00",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": "end",
+                "stories_planned": 5,
+                "stories_delivered": 4,
+                "stories_carried": 1,
+            },
+        )
+        session_end = make_event(
+            "session_end",
+            content="end",
+            ts="2026-01-06T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        self._write_events([sprint_end, session_end, new_event])
+        self._set_curation_watermark(2)
+
+        compact.compact_after_curation(self.smm_dir)
+        retained = self._read_events()
+        retained_ids = {e["id"] for e in retained}
+        self.assertIn(sprint_end["id"], retained_ids)
+
+    def test_archives_old_sprint_ends(self):
+        """Only the most recent sprint end is retained; older ones archived."""
+        import compact
+
+        sprint_end_1 = make_event(
+            "sprint",
+            content="Sprint 1 complete",
+            ts="2026-01-05T00:00:00+00:00",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": "end",
+                "stories_planned": 5,
+                "stories_delivered": 4,
+                "stories_carried": 1,
+            },
+        )
+        sprint_end_2 = make_event(
+            "sprint",
+            content="Sprint 2 complete",
+            ts="2026-01-15T00:00:00+00:00",
+            metadata={
+                "sprint_id": "sprint-002",
+                "action": "end",
+                "stories_planned": 8,
+                "stories_delivered": 7,
+                "stories_carried": 1,
+            },
+        )
+        session_end = make_event(
+            "session_end",
+            content="end",
+            ts="2026-01-16T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        self._write_events([sprint_end_1, sprint_end_2, session_end, new_event])
+        self._set_curation_watermark(3)
+
+        compact.compact_after_curation(self.smm_dir)
+        retained = self._read_events()
+        retained_ids = {e["id"] for e in retained}
+        self.assertIn(sprint_end_2["id"], retained_ids)
+        self.assertNotIn(sprint_end_1["id"], retained_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

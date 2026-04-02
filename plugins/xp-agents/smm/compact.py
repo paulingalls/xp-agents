@@ -68,6 +68,16 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     # Build session_end timestamps for decision aging
     se_timestamps = [e.get("ts", "") for e in events if e.get("type") == "session_end"]
 
+    # Build set of ended sprint IDs for active sprint detection
+    ended_sprint_ids: set[str] = set()
+    for event in events:
+        if event.get("type") == "sprint":
+            meta = event.get("metadata", {})
+            if meta.get("action") == "end":
+                sid = meta.get("sprint_id", "")
+                if sid:
+                    ended_sprint_ids.add(sid)
+
     for event in events:
         eid = event.get("id", "")
         if not eid:
@@ -119,6 +129,14 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     se_timestamps, a_ts
                 )
                 if a_sessions < _ASSUMPTION_MAX_AGE:
+                    referenced.add(eid)
+            case "sprint":
+                meta = event.get("metadata", {})
+                action = meta.get("action", "")
+                sprint_id = meta.get("sprint_id", "")
+                # Active sprint starts retained; ended ones archivable.
+                # Sprint ends handled by index-based retention below.
+                if action == "start" and sprint_id not in ended_sprint_ids:
                     referenced.add(eid)
             case "retrospective":
                 # Keep last 2 for trend detection. _find_unanalyzed_start
@@ -175,8 +193,9 @@ def _classify_pre_watermark(
     Retention rules (checked in order):
     1. Last 3 session_end events (for aging calculations)
     2. Last 2 retrospective events (for trend detection)
-    3. SMM-referenced events (unresolved goals, active decisions, etc.)
-    4. Everything else → archived
+    3. Last 1 sprint end event (for velocity data)
+    4. SMM-referenced events (unresolved goals, active decisions, etc.)
+    5. Everything else → archived
 
     Returns (retained, archived, smm_ref_count).
     """
@@ -198,6 +217,21 @@ def _classify_pre_watermark(
         if e.get("type") == "retrospective" and e.get("id", "") in keep_retro_ids
     }
 
+    # Keep last 1 sprint end event across ALL events (velocity data).
+    # Post-watermark sprint ends count toward the cap.
+    def _is_sprint_end(e: dict) -> bool:
+        return (
+            e.get("type") == "sprint" and e.get("metadata", {}).get("action") == "end"
+        )
+
+    all_sprint_end_ids = [e.get("id", "") for e in all_events if _is_sprint_end(e)]
+    keep_sprint_end_ids = set(all_sprint_end_ids[-1:])
+    pre_sprint_end_indices = {
+        i
+        for i, e in enumerate(pre_watermark)
+        if _is_sprint_end(e) and e.get("id", "") in keep_sprint_end_ids
+    }
+
     retained: list[dict] = []
     archived: list[dict] = []
     smm_ref_count = 0
@@ -205,7 +239,11 @@ def _classify_pre_watermark(
     for i, event in enumerate(pre_watermark):
         eid = event.get("id", "")
 
-        if i in keep_session_end_indices or i in pre_retro_indices:
+        if (
+            i in keep_session_end_indices
+            or i in pre_retro_indices
+            or i in pre_sprint_end_indices
+        ):
             retained.append(event)
             continue
 
