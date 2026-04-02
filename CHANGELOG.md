@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.5.14
+
+### Fixed
+- **Subagent cleanup on stop** — `SubagentStop` now clears `.coordination.json` entry and agent-scoped markers (TDD tracker, review cycle) when a subagent completes. Previously these lingered until the 30-minute staleness timeout or forever (markers had no expiry).
+- **Session end marker cleanup** — `SessionEnd` now removes the main agent's TDD tracker, review cycle, and `.lint-warned` flag. Agent-scoped markers no longer accumulate across sessions.
+- **Lint nudge instead of question event** — no-linter warning is now delivered as `additionalContext` (immediate nudge) instead of a question event in the SMM. Re-fires each session since `.lint-warned` is cleaned up at session end.
+- **Lint nudge skips non-code files** — edits to `.md`, `.txt`, `.yml`, `.gitignore`, etc. no longer trigger the "no linter configured" nudge. Only files with lintable code extensions trigger it.
+
+### Stats
+- 1078 tests (all passing)
+
 ## v1.5.13
 
 ### Fixed

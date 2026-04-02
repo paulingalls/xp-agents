@@ -338,5 +338,50 @@ class TestReviewCycle(_HookTestCase):
         self.assertFalse(data["simplify_done"])
 
 
+# ---------------------------------------------------------------------------
+# cleanup_agent_markers
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupAgentMarkers(_HookTestCase):
+    """Test cleanup_agent_markers removes agent-scoped markers."""
+
+    def test_removes_tdd_and_review_cycle(self):
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "task-1")
+        markers.marker_write(
+            self.smm_dir, markers.REVIEW_CYCLE, {"last_review_commit": ""}, "task-1"
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "task-1")
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "task-1")
+        )
+
+        markers.cleanup_agent_markers(self.smm_dir, "task-1")
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "task-1")
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "task-1")
+        )
+
+    def test_does_not_affect_other_agents(self):
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "task-1")
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "task-2")
+        markers.cleanup_agent_markers(self.smm_dir, "task-1")
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "task-1")
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "task-2")
+        )
+
+    def test_no_error_when_markers_missing(self):
+        markers.cleanup_agent_markers(self.smm_dir, "nonexistent")
+
+
 if __name__ == "__main__":
     unittest.main()

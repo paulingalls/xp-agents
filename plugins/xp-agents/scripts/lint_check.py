@@ -118,6 +118,15 @@ _LINTER_EXTENSIONS: dict[str, set[str]] = {
     "swiftlint": {".swift"},
 }
 
+# Extensions that warrant a "set up a linter" nudge — excludes non-code
+# formats (md, json, yaml, css, etc.) that only formatters like prettier handle.
+_CODE_EXTENSIONS: frozenset[str] = frozenset(
+    ext
+    for linter, exts in _LINTER_EXTENSIONS.items()
+    if linter != "prettier"
+    for ext in exts
+)
+
 _LINTER_BINARIES = {
     "ruff": "ruff",
     "flake8": "flake8",
@@ -300,23 +309,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     config = detect_linter_config(cwd, git_root, file_path=normalized)
 
     if config is None:
-        # Ask once per project — atomic create, no symlink follow
+        # Only nudge for code files — non-code (md, txt, yml) doesn't need a linter
+        if Path(normalized).suffix not in _CODE_EXTENSIONS:
+            return None
+        # Nudge once per session — atomic create, no symlink follow
         flag = smm_dir / ".lint-warned"
         try:
             fd = os.open(
                 str(flag), os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600
             )
             os.close(fd)
-            question = _common.make_event(
-                _common.QUESTION,
-                agent_id,
-                "No linter configured. Want me to set one up? "
-                "(e.g., ruff for Python, eslint for JS/TS)",
-                priority=_common.PRIORITY_BLOCKING,
+            return (
+                "No linter configured. Consider setting one up "
+                "(e.g., ruff for Python, eslint for JS/TS)."
             )
-            _common.append_safe(smm_dir, question)
         except (FileExistsError, OSError):
-            pass  # Already asked or symlink — skip
+            pass  # Already nudged this session or symlink — skip
         return None
 
     linter_name, _config_path = config

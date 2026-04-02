@@ -392,6 +392,49 @@ class TestSubagentStop(_HookTestCase):
         concerns = [e for e in events if e.get("type") == "concern"]
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
+    def test_clears_coordination_entry(self):
+        """SubagentStop should remove the agent's .coordination.json entry."""
+        import coordination
+
+        coordination.update_coordination(self.smm_dir, "task-1", ["src/app.py"])
+        data = coordination.read_coordination(self.smm_dir)
+        self.assertIn("task-1", data)
+
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        data = coordination.read_coordination(self.smm_dir)
+        self.assertNotIn("task-1", data)
+
+    def test_clears_agent_scoped_markers(self):
+        """SubagentStop should remove TDD tracker and review cycle markers."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "task-1")
+        markers.marker_write(
+            self.smm_dir, markers.REVIEW_CYCLE, {"last_review_commit": ""}, "task-1"
+        )
+
+        subagent_stop.run(
+            {
+                "session_id": "t",
+                "agent_id": "task-1",
+                "last_assistant_message": "Done",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "task-1")
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "task-1")
+        )
+
     def test_no_false_positive_conflicts(self):
         # Clean log with no conflicts
         self._write_events(

@@ -126,22 +126,30 @@ class TestLintCheckIntegrationExtended(_IntegrationTestCase):
         events = self._read_events()
         self.assertEqual(len(events), 0)
 
-    def test_no_linter_question_only_once(self):
-        """Second run without linter config → no duplicate question."""
-        for _ in range(2):
-            self._run_script(
-                "lint_check.py",
-                {
-                    "session_id": "int-test",
-                    "tool_name": "Write",
-                    "tool_input": {"file_path": "src/app.py", "content": "x"},
-                    "cwd": str(self.tmpdir),
-                    "agent_id": "main",
-                },
-            )
-        events = self._read_events()
-        questions = [e for e in events if e.get("type") == "question"]
-        self.assertEqual(len(questions), 1, "Should ask exactly once")
+    def test_no_linter_nudge_only_once(self):
+        """Second run without linter config → no duplicate nudge."""
+        r1 = self._run_script(
+            "lint_check.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.py", "content": "x"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertIn("linter", r1.stdout.lower())
+        r2 = self._run_script(
+            "lint_check.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Write",
+                "tool_input": {"file_path": "src/app.py", "content": "x"},
+                "cwd": str(self.tmpdir),
+                "agent_id": "main",
+            },
+        )
+        self.assertEqual(r2.stdout, "", "Should nudge exactly once per session")
 
 
 class TestBashPostToolIntegrationExtended(_IntegrationTestCase):

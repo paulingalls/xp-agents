@@ -228,6 +228,40 @@ class TestSessionEnd(_HookTestCase):
         se = next(e for e in events if e.get("type") == "session_end")
         self.assertIn("user_logout", se["content"])
 
+    def test_clears_lint_warned(self):
+        """SessionEnd should remove .lint-warned so nudge re-fires next session."""
+        import session_end
+
+        (self.smm_dir / ".lint-warned").touch()
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".lint-warned").exists())
+
+    def test_clears_agent_scoped_markers(self):
+        """SessionEnd should remove TDD tracker and review cycle markers."""
+        import markers
+        import session_end
+
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, "main")
+        markers.marker_write(
+            self.smm_dir, markers.REVIEW_CYCLE, {"last_review_commit": ""}, "main"
+        )
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "main")
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "main")
+        )
+
 
 # ===========================================================================
 # pre_compact.py tests
