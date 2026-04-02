@@ -93,8 +93,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Run /xp-security-triage before committing.",
                     "Security triage required before committing.",
                 )
-            if not has_code:
-                security.consume_security_triaged(smm_dir)
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:

@@ -251,6 +251,17 @@ class TestPreToolBashReviewCycle(_HookTestCase):
         ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
 
+    def test_no_code_files_preserves_security_marker(self):
+        """No-code commit should NOT consume the security marker pre-commit."""
+        security.write_security_triaged(self.smm_dir)
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch("security.has_staged_code_files", return_value=False),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        # Marker should still exist — consumption belongs in bash_post_tool
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+
     def test_xp_agent_skips(self):
         """xp- agents bypass the review cycle gate."""
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
