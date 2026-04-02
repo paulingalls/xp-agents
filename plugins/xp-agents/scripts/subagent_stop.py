@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import concerns
+import coordination
 import markers
 
 
@@ -64,6 +65,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         working_on=[],
     )
     _common.append_safe(smm_dir, event)
+
+    # Clear coordination entry and agent-scoped markers
+    coordination.clear_coordination_agent(smm_dir, agent_id)
+    markers.cleanup_agent_markers(smm_dir, agent_id)
 
     # Conflict detection — patterns 2-5 only (no file_path)
     events = _common.read_events_raw(smm_dir)

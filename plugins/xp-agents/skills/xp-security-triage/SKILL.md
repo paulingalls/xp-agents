@@ -5,15 +5,16 @@ description: >-
   the commit gate. If any code files changed, runs /security-review.
   Non-code-only changes (docs, config, CI) need no further action.
 effort: high
+context: fork
+agent: xp-agents:xp-security-reviewer
 allowed-tools:
+  - Read
+  - Bash(*/append.sh *)
+  - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Skill(security-review)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload_diff.sh`
 
-The triage marker has been written and the commit gate is cleared. Check the staged changes above:
-
-**If any code files changed** (not just docs, config, or CI metadata), run `/security-review`. This is a **built-in Claude Code command** — invoke it as `/security-review`, NOT as `xp-agents:security-review`. Security review is fast and catches issues that are easy to miss during implementation.
-
-**If only non-code files changed** (documentation, CI/CD metadata, config formatting, .gitignore, etc.), no further action needed.
+Run `/security-review` on the changes above (staged, unstaged, and new files).

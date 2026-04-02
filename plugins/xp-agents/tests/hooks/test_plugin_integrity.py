@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 _SUBAGENT_NAMES = (
     "xp-retrospective",
     "xp-plan-reviewer",
+    "xp-security-reviewer",
 )
 
 

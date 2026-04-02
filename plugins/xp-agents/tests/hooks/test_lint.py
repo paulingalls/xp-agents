@@ -56,25 +56,57 @@ class TestDetectLinterConfig(unittest.TestCase):
 
 
 class TestLintCheck(_HookTestCase):
-    def test_no_config_asks_once(self):
-        lint_check.run(
+    def test_no_config_skips_non_code_files(self):
+        """Non-code files (md, txt, yml, etc.) should not trigger linter nudge."""
+        for filename in ("README.md", "notes.txt", "config.yml", ".gitignore"):
+            # Reset flag each iteration
+            (self.smm_dir / ".lint-warned").unlink(missing_ok=True)
+            result = lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": filename, "content": "x"},
+                ),
+                smm_dir=self.smm_dir,
+            )
+            self.assertIsNone(result, f"Should not nudge for {filename}")
+            self.assertFalse(
+                (self.smm_dir / ".lint-warned").exists(),
+                f"Should not create .lint-warned for {filename}",
+            )
+
+    def test_no_config_nudges_for_code_files(self):
+        """Code files should trigger linter nudge."""
+        for filename in ("app.py", "index.js", "main.go", "lib.rs"):
+            (self.smm_dir / ".lint-warned").unlink(missing_ok=True)
+            result = lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": filename, "content": "x"},
+                ),
+                smm_dir=self.smm_dir,
+            )
+            self.assertIsNotNone(result, f"Should nudge for {filename}")
+
+    def test_no_config_nudges_once(self):
+        result = lint_check.run(
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
+        # Should return a nudge string, not write a question event
+        self.assertIsNotNone(result)
+        self.assertIn("linter", result.lower())
+        # No question events written
         events = _common.read_events_raw(self.smm_dir)
         questions = [e for e in events if e.get("type") == "question"]
-        self.assertEqual(len(questions), 1)
-        self.assertIn("linter", questions[0]["content"].lower())
-        self.assertEqual(questions[0]["priority"], _common.PRIORITY_BLOCKING)
+        self.assertEqual(len(questions), 0)
         # Flag file should exist
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
 
     def test_no_config_second_time_silent(self):
         (self.smm_dir / ".lint-warned").touch()
-        lint_check.run(
+        result = lint_check.run(
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
+        self.assertIsNone(result)
         events = _common.read_events_raw(self.smm_dir)
         questions = [e for e in events if e.get("type") == "question"]
         self.assertEqual(len(questions), 0)

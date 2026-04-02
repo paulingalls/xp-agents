@@ -5,6 +5,7 @@ Computes duration, event count, unresolved items, active working_on,
 and final status — then appends a session_end event.
 """
 
+import contextlib
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _append_impl
 import _common
 import coordination
+import markers
 import resolution
 
 # ---------------------------------------------------------------------------
@@ -132,9 +134,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     except _append_impl.LockTimeoutError as e:
         print(f"session_end lock error: {e}", file=sys.stderr)
 
-    # Clear agent's coordination entry
+    # Clear agent's coordination entry and agent-scoped markers
     agent_id = input_data.get("agent_id", "main")
     coordination.clear_coordination_agent(smm_dir, agent_id)
+    markers.cleanup_agent_markers(smm_dir, agent_id)
+
+    # Clear session-scoped flags so they re-fire next session
+    with contextlib.suppress(OSError):
+        (smm_dir / ".lint-warned").unlink()
 
     return None
 

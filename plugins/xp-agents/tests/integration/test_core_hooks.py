@@ -185,7 +185,7 @@ class TestPostToolUseIntegration(_IntegrationTestCase):
 
 
 class TestLintCheckIntegration(_IntegrationTestCase):
-    def test_no_linter_config_asks_once(self):
+    def test_no_linter_config_nudges_once(self):
         result = self._run_script(
             "lint_check.py",
             {
@@ -197,15 +197,15 @@ class TestLintCheckIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
-
+        # Should return nudge via additionalContext (JSON stdout)
+        self.assertIn("linter", result.stdout.lower())
+        # No question events — nudge only
         events = self._read_events()
         questions = [e for e in events if e.get("type") == "question"]
-        self.assertEqual(len(questions), 1)
-        self.assertIn("linter", questions[0]["content"].lower())
+        self.assertEqual(len(questions), 0)
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
 
-        # Second run — no new question
+        # Second run — no nudge
         result2 = self._run_script(
             "lint_check.py",
             {
@@ -217,9 +217,7 @@ class TestLintCheckIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result2.returncode, 0)
-        events2 = self._read_events()
-        questions2 = [e for e in events2 if e.get("type") == "question"]
-        self.assertEqual(len(questions2), 1)
+        self.assertEqual(result2.stdout, "")
 
 
 class TestBashPostToolIntegration(_IntegrationTestCase):

@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.5.14
+
+### Fixed
+- **Subagent cleanup on stop** — `SubagentStop` now clears `.coordination.json` entry and agent-scoped markers (TDD tracker, review cycle) when a subagent completes. Previously these lingered until the 30-minute staleness timeout or forever (markers had no expiry).
+- **Session end marker cleanup** — `SessionEnd` now removes the main agent's TDD tracker, review cycle, and `.lint-warned` flag. Agent-scoped markers no longer accumulate across sessions.
+- **Lint nudge instead of question event** — no-linter warning is now delivered as `additionalContext` (immediate nudge) instead of a question event in the SMM. Re-fires each session since `.lint-warned` is cleaned up at session end.
+- **Lint nudge skips non-code files** — edits to `.md`, `.txt`, `.yml`, `.gitignore`, etc. no longer trigger the "no linter configured" nudge. Only files with lintable code extensions trigger it.
+
+### Stats
+- 1078 tests (all passing)
+
+## v1.5.13
+
+### Fixed
+- **Cross-worktree path normalization** — `normalize_path()` now resolves non-existent files correctly across git worktrees. On macOS, `normpath` doesn't resolve symlinks (`/var` vs `/private/var`), so prefix stripping against `realpath(git_root)` failed silently. Fix: walk up to the nearest existing ancestor, resolve its symlinks, and retry. This makes `.coordination.json` conflict detection work across worktrees.
+
+### Stats
+- 1069 tests (all passing)
+
+## v1.5.12
+
+### Added
+- **Security triage as forked subagent** — converted `/xp-security-triage` from inline skill to `context: fork` with a dedicated `xp-security-reviewer` agent. The subagent's sole job is to invoke `/security-review` — no classification needed since the commit gate already confirmed code files changed. Preload shows staged diffs, unstaged diffs, and new untracked files. Marker/flag flow unchanged — commit gate clears during preload as before.
+
+### Stats
+- 1062 tests (all passing)
+
+## v1.5.11
+
+### Added
+- **Security triage subagent conversion** — initial conversion of `/xp-security-triage` to forked subagent architecture (M4b). Renamed agent to `xp-security-reviewer` and simplified instructions in v1.5.12.
+
+### Stats
+- 1062 tests (all passing)
+
 ## v1.5.10
 
 ### Fixed

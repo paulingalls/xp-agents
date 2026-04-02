@@ -163,6 +163,17 @@ Replace explicit `tools` allowlists with `disallowedTools` denylists on existing
 **Depends on:** M4b (for security triage agent)
 **Changes:** `agents/xp-retrospective.md`, `agents/xp-plan-reviewer.md`, `agents/xp-security-triage.md`, tests
 
+### M4e: Worktree Path Normalization
+
+Fix `normalize_path()` so `.coordination.json` conflict detection works across worktrees.
+
+**Problem:** `normalize_path()` in `_common.py` already returns repo-relative paths by stripping `git rev-parse --show-toplevel`. But when a file doesn't exist (e.g., Agent A created it in the main checkout but it doesn't exist in Agent B's worktree), the fallback to `os.path.normpath()` doesn't resolve symlinks, while the git root prefix uses `os.path.realpath()` which does. On macOS (`/var` → `/private/var`), the prefix strip fails → falls back to absolute → cross-worktree conflict missed.
+
+**Fix:** When the normpath-based prefix strip fails for a non-existent file, walk up to the nearest existing ancestor, resolve its symlinks, rejoin the tail, and retry the prefix strip. Targeted fallback — only activates when inside a git repo and the initial strip fails.
+
+**Depends on:** nothing
+**Changes:** `scripts/_common.py` (`normalize_path()`), tests in `test_common.py`, `test_coordination.py`, `test_scaling.py`
+
 ---
 
 ## v2.0 — Sprint-Driven XP
@@ -221,16 +232,11 @@ Design and implement the skill that creates `sprint.md` from `product_spec.md`.
 **Depends on:** M5, M6
 **Changes:** new skill (`skills/xp-sprint-start/SKILL.md`), tests
 
-### M8: Sprint-Aware Kickoff
+### M8a: Sprint State Detection Hooks
 
-> **Design ref:** [Mid-Sprint Iterations](AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [Solo Iteration](AGENT_TEAMS_DESIGN.md#solo-iteration) — gated lifecycle; [On-Site Customer](AGENT_TEAMS_DESIGN.md#on-site-customer) — customer availability / assumption handling
+> **Design ref:** [Mid-Sprint Iterations](AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [Solo Iteration](AGENT_TEAMS_DESIGN.md#solo-iteration) — gated lifecycle
 
-Update `/xp-kickoff` and its supporting hooks.
-
-**Refactor first:**
-- Review current kickoff skill structure. It orchestrates retro → goals → questions → housekeeping. Adding sprint awareness means more steps. Ensure the skill's flow is cleanly extensible — each step should be a distinct section, not deeply nested conditionals.
-
-**Deterministic checks in hooks (not the skill):**
+Add sprint state detection to the deterministic hooks that run before and after kickoff. These are mechanical checks — no judgment.
 
 `session_start.py` (SessionStart) — add sprint state detection:
 - Check `product_spec.md` exists → if not, write `.needs-product-spec` marker
@@ -242,9 +248,21 @@ Update `/xp-kickoff` and its supporting hooks.
 - After kickoff completes, verify sprint.md has in-progress stories (story selection happened)
 - If not, nudge: "No stories selected for this iteration"
 
+**Depends on:** M7
+**Changes:** `session_start.py`, `kickoff_gate.py`, `kickoff_done.py`, `markers.py`, tests
+
+### M8b: Sprint-Aware Kickoff Skill
+
+> **Design ref:** [Mid-Sprint Iterations](AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [On-Site Customer](AGENT_TEAMS_DESIGN.md#on-site-customer) — customer availability / assumption handling
+
+Update `/xp-kickoff` skill for sprint-aware orchestration.
+
+**Refactor first:**
+- Review current kickoff skill structure. It orchestrates retro → goals → questions → housekeeping. Adding sprint awareness means more steps. Ensure the skill's flow is cleanly extensible — each step should be a distinct section, not deeply nested conditionals.
+
 **Skill orchestration (judgment):**
 
-`/xp-kickoff` reads markers and orchestrates:
+`/xp-kickoff` reads markers set by M8a and orchestrates:
 1. Session retro (reflect before planning — surfaces unanswered questions, Try items)
 2. `.needs-product-spec` set? → run `/xp-product-spec`
 3. `.needs-sprint` set? → run `/xp-sprint-start`
@@ -253,12 +271,14 @@ Update `/xp-kickoff` and its supporting hooks.
 
 No standalone question triage — questions handled in the phase where they naturally arise. Story selection replaces per-session goal collection — sprint stories ARE the goals.
 
-**Depends on:** M6, M7
-**Changes:** `session_start.py`, `kickoff_gate.py`, `kickoff_done.py`, `skills/xp-kickoff/SKILL.md`, `markers.py`, tests
+**Depends on:** M6, M7, M8a
+**Changes:** `skills/xp-kickoff/SKILL.md`, tests
 
-### M8b: Accept Skill + Gate
+### M8c: Accept Skill + Gate
 
 > **Design ref:** [Solo Iteration — Accept](AGENT_TEAMS_DESIGN.md#solo-iteration) — accept flow + Stop gate; [Team Iteration — Accept](AGENT_TEAMS_DESIGN.md#team-iteration) — PR review → merge → e2e; [Goal Completion](AGENT_TEAMS_DESIGN.md#goal-completion) — story status lifecycle; [Gate Architecture](AGENT_TEAMS_DESIGN.md#gate-architecture) — accept gate in the full chain
+
+(Previously M8b — renumbered after M8 split.)
 
 Design and implement `/xp-accept` skill and the deterministic hooks that enforce and track it.
 
@@ -291,7 +311,7 @@ Accept marker lifecycle:
 
 The skill does the judgment work (verifying criteria, running tests, updating stories). The hooks handle the mechanical bookkeeping (marker, gate, sprint completion detection).
 
-**Depends on:** M7, M8
+**Depends on:** M7, M8a, M8b
 **Changes:** new `accept_gate.py` (Stop), new `accept_done.py` (PostToolUse:Skill), new skill (`skills/xp-accept/SKILL.md`), `session_start.py` (clear marker), `markers.py`, hooks.json, tests
 
 ### M9: Sprint Pillar in Housekeeping
@@ -319,7 +339,7 @@ Add Sprint section to the curated SMM.
 
 > **Design ref:** [Context Injection by Role](AGENT_TEAMS_DESIGN.md#context-injection-by-role) — who gets what; [Collective Code Ownership](AGENT_TEAMS_DESIGN.md#collective-code-ownership) — cross-teammate communication via native messaging
 
-Update SubagentStart to inject sprint context by role.
+Update SubagentStart to inject sprint context by role. Also update the plan reviewer to recommend execution mode, and add PostCompact sprint reinjection.
 
 **Refactor first:**
 - `subagent_start.py` tiering is currently a simple if/else on agent_type. Adding sprint tiers (plan reviewer gets sprint.md, teammates get assigned stories, retro gets sprint.md) adds more branches. Extract the tiering logic into a clear dispatch — a dict mapping agent types to injection functions, or a series of named functions. This keeps the `run()` function from becoming a long conditional chain.
@@ -333,8 +353,18 @@ Update SubagentStart to inject sprint context by role.
 | Teammates | SMM + assigned stories from sprint.md |
 | Retrospective | SMM + sprint.md |
 
-**Depends on:** M7, M9
-**Changes:** `subagent_start.py`, tests
+**Update plan reviewer for execution mode:**
+- Update `agents/xp-plan-reviewer.md` instructions to analyze parallelization and recommend execution mode (solo / subagents / Agent Team)
+- Plan reviewer should assess: are tasks sequential or parallelizable? Do file domains overlap? Is the work large enough to justify team coordination overhead?
+- This is a prerequisite for M15 — the plan reviewer is supposed to tell the lead "run `/xp-spawn-team`" when appropriate
+
+**PostCompact sprint reinjection:**
+- Update the PostCompact flow to reinject sprint.md alongside the curated SMM
+- After compaction, the lead's context loses sprint state — reinjection ensures story selection and accept gates still work
+- Same tiering logic applies: lead gets full sprint.md, lightweight agents get nothing
+
+**Depends on:** M7
+**Changes:** `subagent_start.py`, `agents/xp-plan-reviewer.md`, PostCompact hook, tests
 
 ### M11: Sprint Review Skill (`/xp-sprint-review`)
 
@@ -355,7 +385,8 @@ Design and implement the forked skill that runs at sprint end.
 
 **Deterministic bookkeeping (PostToolUse:Skill hook):**
 - `sprint_review_done.py` fires when `/xp-sprint-review` completes
-- Writes sprint end event to events.jsonl (velocity stats from preload — no judgment needed)
+- Recomputes velocity stats from sprint.md (stories by status — the subagent just updated it with delivered features, so counts are current). This avoids coupling the hook to the subagent's output format or the preload's temp data.
+- Writes sprint end event to events.jsonl with velocity metadata (stories_planned, stories_delivered, stories_carried)
 - Nudges `/xp-sprint-retro` if appropriate
 
 Subagent writes when judgment is needed (mapping stories → features). Hook handles mechanical bookkeeping (events, markers, nudges).
@@ -440,7 +471,9 @@ Design and implement the forked skill that structures an Agent Team from the spr
 
 Does NOT spawn the team directly — instructs the lead on exactly what to do.
 
-**Depends on:** M7, M13, M14, Agent Teams platform
+**Worktree support:** If the subagent recommends worktrees, `.coordination.json` cross-worktree conflict detection requires M4e (worktree path normalization). Without M4e, worktree mode should not be recommended — the subagent should note this constraint.
+
+**Depends on:** M4e, M7, M13, M14, Agent Teams platform
 **Changes:** new skill (`skills/xp-spawn-team/SKILL.md`), new agent (`agents/xp-spawn-team.md`), tests
 
 ### M16: Update v2 Documentation
@@ -461,23 +494,27 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 ```
 v1.5 (solo enforcement):
   M1 → M2 → M3 → M4  [SHIPPED]
-  M4b (security triage subagent) — independent
-  M4c (TaskCreated events)       — independent
-  M4d (disallowedTools)          → M4b
+  M4b (security triage subagent)      — independent
+  M4c (TaskCreated events)            — independent
+  M4d (disallowedTools)               → M4b
+  M4e (worktree path normalization)   — independent
 
 v2.0 (sprint/teams):
   M5 (sprint events)     ─┐
-  M6 (product spec skill) ─┼→ M7 (sprint start) → M8 (sprint-aware kickoff) → M8b (accept)
-                           │                    → M9 (sprint pillar) → M10 (tiered injection)
+  M6 (product spec skill) ─┼→ M7 (sprint start) → M8a (sprint detection hooks) → M8b (kickoff skill) → M8c (accept)
+                           │                    → M9 (sprint pillar)
+                           │                    → M10 (tiered injection + plan reviewer + PostCompact)
+                           │                         → M14 (teammate guide)
                            │                    → M11 (sprint review)
                            │                    → M12 (sprint retro)
                            │
-  M13 (teammate hooks)     → M14 (teammate guide) → M15 (spawn team)
+  M13 (teammate hooks)     → M14 → M15 (spawn team)
+  M4e (worktree paths)     → M15
 
   M16 (docs) depends on all above
 ```
 
-M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4c/M4d can ship independently. Within v2.0, M5/M6 can start in parallel. M13-M15 depend on the Agent Teams platform stabilizing.
+M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4e can ship independently. Within v2.0, M5/M6 can start in parallel. M7 is the critical path bottleneck — nearly everything depends on it. M9 and M10 can run in parallel after M7 (M10 no longer depends on M9). M13-M15 depend on the Agent Teams platform stabilizing.
 
 ---
 
@@ -486,5 +523,4 @@ M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4c/M4d can ship independently. Within v2.0
 - Agent Teams platform changes (we design around platform constraints)
 - Per-teammate model selection (platform limitation — accept until added)
 - Nested teams (platform limitation — keep teams flat)
-- Worktree path normalization (documented, implement when worktrees are used)
 - Automated story → task mapping (lead manages manually for now)

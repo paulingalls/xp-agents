@@ -171,3 +171,18 @@ def set_review_flag(
     data = read_review_cycle(smm_dir, agent_id)
     data[flag] = value
     write_review_cycle(smm_dir, agent_id, data)
+
+
+# ---------------------------------------------------------------------------
+# Agent cleanup
+# ---------------------------------------------------------------------------
+
+_AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (TDD_TRACKER, REVIEW_CYCLE)
+
+
+def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
+    """Remove all agent-scoped marker files for the given agent."""
+    for marker in _AGENT_SCOPED_MARKERS:
+        path = marker_path(smm_dir, marker, agent_id)
+        with contextlib.suppress(OSError):
+            path.unlink()

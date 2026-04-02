@@ -223,6 +223,68 @@ class TestWorktreeSharing(_IntegrationTestCase):
         content = events_file.read_text()
         self.assertIn("from main repo", content)
 
+    def test_worktree_coordination_conflict_detected(self):
+        """M4e: Cross-worktree conflict detection via .coordination.json."""
+        # Create worktree
+        wt_dir = Path(tempfile.mkdtemp())
+        shutil.rmtree(wt_dir)
+        r = subprocess.run(
+            ["git", "worktree", "add", str(wt_dir)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            self.skipTest(f"git worktree add failed: {r.stderr}")
+        self.addCleanup(self._cleanup_worktree, wt_dir, str(self.tmpdir))
+
+        # Create file in main checkout (so post_tool_use can track it)
+        src_dir = self.tmpdir / "src"
+        src_dir.mkdir(exist_ok=True)
+        (src_dir / "feature.py").write_text("# new feature")
+
+        # Agent A: store file in coordination from main checkout
+        post_input = {
+            "session_id": "t",
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(src_dir / "feature.py"), "content": "x"},
+            "cwd": str(self.tmpdir),
+            "agent_id": "agent-a",
+        }
+        r_post = subprocess.run(
+            ["python3", str(self.scripts_dir / "post_tool_use.py")],
+            input=json.dumps(post_input),
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=self._test_env,
+        )
+        self.assertEqual(r_post.returncode, 0, r_post.stderr)
+
+        # Agent B: try to write same file from worktree (file doesn't exist there)
+        pre_input = {
+            "session_id": "t",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/feature.py", "content": "y"},
+            "cwd": str(wt_dir),
+            "agent_id": "agent-b",
+        }
+        r_pre = subprocess.run(
+            ["python3", str(self.scripts_dir / "pre_tool_write.py")],
+            input=json.dumps(pre_input),
+            capture_output=True,
+            text=True,
+            cwd=str(wt_dir),
+            env=self._test_env,
+        )
+        self.assertEqual(
+            r_pre.returncode,
+            2,
+            f"Cross-worktree conflict should block (exit 2). "
+            f"stdout={r_pre.stdout!r}, stderr={r_pre.stderr!r}",
+        )
+        self.assertIn("agent-a", r_pre.stderr)
+
 
 class TestEmptyProject(_IntegrationTestCase):
     """M7: Fresh git repo, no events — graceful degradation."""
