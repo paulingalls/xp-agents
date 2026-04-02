@@ -47,6 +47,9 @@ class MarkerDef:
 # ---------------------------------------------------------------------------
 
 KICKOFF = MarkerDef(".needs-kickoff", "text")
+NEEDS_PRODUCT_SPEC = MarkerDef(".needs-product-spec", "text")
+NEEDS_SPRINT = MarkerDef(".needs-sprint", "text")
+ACCEPT = MarkerDef(".accept", "text")
 SECURITY_TRIAGED = MarkerDef(".security-triaged", "json")
 PLAN_AWAITING_REVIEW = MarkerDef(".plan-awaiting-review", "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
