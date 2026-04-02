@@ -375,6 +375,66 @@ class TestHonestySignals(unittest.TestCase):
         self.assertEqual(signals["max_unique_files_without_test"], 1)
 
 
+class TestTriageCounting(unittest.TestCase):
+    """Tests for commits_without_triage counting in _build_honesty_signals."""
+
+    def test_code_commit_without_triage_counted(self):
+        """Code commit without preceding triage is counted as untriaged."""
+        import retrospective
+
+        events = [
+            make_event(
+                "status",
+                content="Committed: Add feature",
+                metadata={"code_commit": True},
+            ),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["commits_without_triage"], 1)
+
+    def test_code_commit_with_triage_not_counted(self):
+        """Code commit preceded by triage is not counted as untriaged."""
+        import retrospective
+
+        events = [
+            make_event(
+                "status",
+                content="Security triage started — reviewing staged changes",
+            ),
+            make_event(
+                "status",
+                content="Committed: Add feature",
+                metadata={"code_commit": True},
+            ),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["commits_without_triage"], 0)
+
+    def test_non_code_commit_without_triage_not_counted(self):
+        """Non-code commit (docs-only) without triage is NOT counted as untriaged."""
+        import retrospective
+
+        events = [
+            make_event(
+                "status",
+                content="Committed: Update docs",
+                metadata={"code_commit": False},
+            ),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["commits_without_triage"], 0)
+
+    def test_legacy_commit_without_metadata_counted(self):
+        """Legacy commit event without metadata is counted (backward compat)."""
+        import retrospective
+
+        events = [
+            make_event("status", content="Committed: Old commit"),
+        ]
+        signals = retrospective._build_honesty_signals(events)
+        self.assertEqual(signals["commits_without_triage"], 1)
+
+
 class TestRetrospectiveResolvedConcerns(_HookTestCase):
     """Resolved concerns should be rolled up to counts, not included in full."""
 

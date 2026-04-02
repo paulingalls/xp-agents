@@ -174,7 +174,10 @@ def _build_honesty_signals(events: list[dict]) -> dict:
                 last_triage_seen = True
             elif _COMMIT_RE.search(content):
                 total_commits += 1
-                if not last_triage_seen:
+                # Only count untriaged if this was a code commit
+                # (non-code commits like docs/config are gate-exempt)
+                is_code = e.get("metadata", {}).get("code_commit", True)
+                if not last_triage_seen and is_code:
                     commits_without_triage += 1
                 last_triage_seen = False  # consumed by this commit
         elif etype == _common.CONCERN:
