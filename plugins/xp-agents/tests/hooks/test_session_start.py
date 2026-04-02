@@ -394,5 +394,132 @@ class TestPluginConfig(unittest.TestCase):
         self.assertIsInstance(data, dict)
 
 
+# ===========================================================================
+# M8a: Sprint state detection tests
+# ===========================================================================
+
+SPRINT_ACTIVE = """\
+# Sprint: Build auth
+## Stories
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** ready
+"""
+
+SPRINT_DONE_ONLY = """\
+# Sprint: Build auth
+## Stories
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** done
+### story-002: As a user I can register
+- **Size:** S
+- **Status:** deferred
+"""
+
+
+class TestSessionStartSprintDetection(_HookTestCase):
+    """M8a: session_start writes sprint state markers on startup/clear."""
+
+    def test_writes_needs_product_spec_when_missing(self):
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".needs-product-spec").exists())
+
+    def test_no_product_spec_marker_when_exists(self):
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "product_spec.md").write_text("# Product Spec\n")
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
+
+    def test_writes_needs_sprint_when_missing(self):
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".needs-sprint").exists())
+
+    def test_writes_needs_sprint_when_no_active_stories(self):
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "sprint.md").write_text(SPRINT_DONE_ONLY)
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".needs-sprint").exists())
+
+    def test_no_sprint_marker_when_active_stories(self):
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "sprint.md").write_text(SPRINT_ACTIVE)
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".needs-sprint").exists())
+
+    def test_no_markers_when_both_exist_with_active(self):
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "product_spec.md").write_text("# Product Spec\n")
+        (self.smm_dir / "sprint.md").write_text(SPRINT_ACTIVE)
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
+        self.assertFalse((self.smm_dir / ".needs-sprint").exists())
+
+    def test_clears_accept_marker(self):
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / ".accept").write_text("done")
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_resume_does_not_write_sprint_markers(self):
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
+        self.assertFalse((self.smm_dir / ".needs-sprint").exists())
+
+    def test_compact_does_not_write_sprint_markers(self):
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
+        self.assertFalse((self.smm_dir / ".needs-sprint").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

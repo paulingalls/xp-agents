@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import markers
+import sprint_state
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -83,6 +84,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # "resume" and "compact" fire mid-session — no marker needed.
     if source in ("startup", "clear"):
         markers.marker_write(smm_dir, markers.KICKOFF, source)
+        markers.marker_consume(smm_dir, markers.ACCEPT)
+        if not sprint_state.product_spec_exists(smm_dir):
+            markers.marker_write(smm_dir, markers.NEEDS_PRODUCT_SPEC, source)
+        sprint_content = sprint_state.read_sprint_content(smm_dir)
+        needs_sprint = sprint_content is None or not sprint_state.has_active_stories(
+            sprint_content
+        )
+        if needs_sprint:
+            markers.marker_write(smm_dir, markers.NEEDS_SPRINT, source)
 
     # Build context: GUPP (source-dependent) + skills.
     gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME
