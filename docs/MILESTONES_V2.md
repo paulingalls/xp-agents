@@ -415,16 +415,16 @@ Add Sprint section to the curated SMM.
 - Sprint pillar is a summary pointing to sprint.md for details
 
 **Acceptance criteria:**
-- [ ] `prepare_curation_data()` returns `sprint` key alongside existing keys (`current_smm`, `new_since_last_curation`, `retro_history`, `aging`, `health`)
-- [ ] Sprint data includes: `sprint_id`, `goal`, `started` date, `stories_by_status` (ready/in-progress/done/deferred counts), `blockers` list
-- [ ] Missing/malformed `sprint.md` returns empty sprint data (all counts 0, no crash)
-- [ ] Housekeeping SKILL.md includes "Curate Sprint" section with format: `- <sprint_id>: <goal> [N stories: R ready, I in-progress, D done, F deferred]`
-- [ ] Sprint pillar appears in curated SMM as new section (Intent, Constraints, Risks, Wisdom, Sprint)
-- [ ] No `sprint.md` → Sprint section shows "No active sprint"
-- [ ] Tests cover: sprint parsing, blocker detection, empty/missing sprint, curation preload format
+- [x] `prepare_curation_data()` returns `sprint` key alongside existing keys (`current_smm`, `new_since_last_curation`, `retro_history`, `aging`, `health`) [7ba8768]
+- [x] Sprint data includes: `sprint_id`, `goal`, `started` date, `stories_by_status` (ready/in-progress/done/deferred counts), `blockers` list [2a1548f]
+- [x] Missing/malformed `sprint.md` returns empty sprint data (all counts 0, no crash) [2a1548f]
+- [x] Housekeeping SKILL.md includes "Curate Sprint" section with format: `- <sprint_id>: <goal> [N stories: R ready, I in-progress, D done, F deferred]` [42fc766]
+- [x] Sprint pillar appears in curated SMM as new section (Sprint, Intent, Constraints, Risks, Wisdom) [42fc766]
+- [x] No `sprint.md` → Sprint section shows "No active sprint" [42fc766]
+- [x] Tests cover: sprint parsing, blocker detection, empty/missing sprint, curation preload format [2a1548f, 7ba8768]
 
 **Depends on:** M7
-**Changes:** `materialize.py` (add sprint data to curation preload), `skills/xp-housekeeping/SKILL.md`, tests
+**Changes:** `smm/sprint_parser.py` (new), `smm/materialize.py` (add sprint data to curation preload), `skills/xp-housekeeping/SKILL.md`, tests
 
 ### M10: Tiered Sprint Context Injection
 
