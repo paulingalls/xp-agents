@@ -48,13 +48,23 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_directories_exist(self):
         """All skill dirs must exist with SKILL.md."""
-        for name in ("xp-smm-protocol", "xp-product-spec", "xp-sprint-start"):
+        for name in (
+            "xp-smm-protocol",
+            "xp-product-spec",
+            "xp-sprint-start",
+            "xp-kickoff",
+        ):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
 
     def test_skill_frontmatter_valid(self):
         """Each SKILL.md must have valid YAML frontmatter with name + description."""
-        for name in ("xp-smm-protocol", "xp-product-spec", "xp-sprint-start"):
+        for name in (
+            "xp-smm-protocol",
+            "xp-product-spec",
+            "xp-sprint-start",
+            "xp-kickoff",
+        ):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -78,8 +88,12 @@ class TestMilestone6Files(unittest.TestCase):
             self.assertEqual(name_match.group(1), name)
 
     def test_skill_token_budgets(self):
-        """Each SKILL.md should be within 1,000-2,000 token estimate."""
-        for name in ("xp-smm-protocol", "xp-product-spec", "xp-sprint-start"):
+        """Content skills should be within 800-2500 token estimate."""
+        for name in (
+            "xp-smm-protocol",
+            "xp-product-spec",
+            "xp-sprint-start",
+        ):
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -252,9 +266,50 @@ class TestPluginIntegrity(unittest.TestCase):
     def test_all_skill_files_exist(self):
         """All SKILL.md files exist in skills/ directory."""
         skills_dir = self.plugin_root / "skills"
-        for name in ("xp-smm-protocol", "xp-product-spec", "xp-sprint-start"):
+        for name in (
+            "xp-smm-protocol",
+            "xp-product-spec",
+            "xp-sprint-start",
+            "xp-kickoff",
+        ):
             path = skills_dir / name / "SKILL.md"
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
+
+    def test_kickoff_skill_has_sprint_steps(self):
+        """M8b: kickoff SKILL.md must have sprint-aware steps."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        self.assertIn("Product Spec Check", content)
+        self.assertIn("Sprint Check", content)
+        self.assertIn("Story Selection", content)
+
+    def test_kickoff_skill_backward_compat(self):
+        """M8b: kickoff SKILL.md must still support non-sprint projects."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        self.assertIn("xp-goal-collection", content)
+
+    def test_kickoff_skill_has_read_tool(self):
+        """M8b: kickoff SKILL.md must have Read in allowed-tools."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        # Extract frontmatter
+        match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        self.assertIsNotNone(match)
+        fm = match.group(1)
+        self.assertIn("Read", fm)
+
+    def test_kickoff_skill_no_question_triage_in_sprint_path(self):
+        """M8b: sprint-active path should not call /xp-question-triage."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        # The SPRINT_ACTIVE subsection (between "SPRINT_ACTIVE" and
+        # "no SPRINT_ACTIVE") should not mention question-triage
+        if "SPRINT_ACTIVE" in content:
+            after_sprint = content.split("SPRINT_ACTIVE")[1]
+            fallback = after_sprint.find("no SPRINT_ACTIVE")
+            sprint_path = after_sprint[:fallback] if fallback > 0 else after_sprint
+            self.assertNotIn("xp-question-triage", sprint_path)
 
     def test_no_requirements_or_pyproject(self):
         """No requirements.txt or pyproject.toml with dependencies."""
