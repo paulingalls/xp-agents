@@ -28,12 +28,17 @@ class TestPrepareCurationData(_SMMTestCase):
             "retro_history",
             "aging",
             "health",
+            "sprint",
         ):
             self.assertIn(key, result)
         for pillar in ("intent", "constraints", "risks", "wisdom"):
             self.assertEqual(result["current_smm"][pillar], [])
         for key in ("intent_count", "constraints_count", "risks_count", "wisdom_count"):
             self.assertEqual(result["health"][key], 0)
+        # Sprint key present with empty structure
+        sprint = result["sprint"]
+        self.assertEqual(sprint["sprint_id"], "")
+        self.assertEqual(sprint["stories_by_status"]["ready"], 0)
 
     def test_no_watermark_all_events_new(self):
         """Without watermark, all events appear in new_since_last_curation."""
@@ -313,6 +318,79 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertEqual(len(new["customer_inputs"]), 1)
         self.assertEqual(len(new["decisions"]), 1)
         self.assertEqual(len(new["concerns"]), 1)
+
+    # -- Sprint data --
+
+    _SPRINT_MD = """\
+# Sprint: Build user management API
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-26
+
+## Stories
+
+### story-001: As a user I can register
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+- **Acceptance Criteria:**
+  - E2E: register user
+
+### story-002: As a user I can login
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** story-001
+- **Acceptance Criteria:**
+  - E2E: login flow
+
+### story-003: As an admin I can list users
+- **Size:** S
+- **Status:** ready
+- **Dependencies:** story-002
+- **Acceptance Criteria:**
+  - E2E: list users
+"""
+
+    def test_sprint_key_in_curation_data(self):
+        """sprint.md present → sprint key has parsed data."""
+        (self.smm_dir / "sprint.md").write_text(self._SPRINT_MD)
+        events = [make_event("status", content="Work started")]
+        self._write_events(events)
+        result = materialize.prepare_curation_data(self.smm_dir)
+        sprint = result["sprint"]
+        self.assertEqual(sprint["sprint_id"], "sprint-001")
+        self.assertEqual(sprint["goal"], "Build user management API")
+        self.assertEqual(sprint["started"], "2026-03-26")
+        self.assertEqual(sprint["stories_by_status"]["done"], 1)
+        self.assertEqual(sprint["stories_by_status"]["in_progress"], 1)
+        self.assertEqual(sprint["stories_by_status"]["ready"], 1)
+
+    def test_sprint_key_missing_sprint_md(self):
+        """No sprint.md → sprint key has empty structure."""
+        events = [make_event("status", content="Work started")]
+        self._write_events(events)
+        result = materialize.prepare_curation_data(self.smm_dir)
+        sprint = result["sprint"]
+        self.assertEqual(sprint["sprint_id"], "")
+        self.assertEqual(sprint["stories_by_status"]["ready"], 0)
+
+    def test_sprint_key_empty_events(self):
+        """Empty events but sprint.md present → sprint data populated."""
+        (self.smm_dir / "sprint.md").write_text(self._SPRINT_MD)
+        result = materialize.prepare_curation_data(self.smm_dir)
+        sprint = result["sprint"]
+        self.assertEqual(sprint["sprint_id"], "sprint-001")
+
+    def test_sprint_blockers_in_curation_data(self):
+        """Blockers in sprint.md appear in curation data."""
+        (self.smm_dir / "sprint.md").write_text(self._SPRINT_MD)
+        events = [make_event("status", content="Work started")]
+        self._write_events(events)
+        result = materialize.prepare_curation_data(self.smm_dir)
+        blockers = result["sprint"]["blockers"]
+        # story-003 blocked by story-002 (in-progress)
+        matching = [b for b in blockers if "story-003" in b]
+        self.assertEqual(len(matching), 1)
 
 
 class TestExtractRetroHistory(_SMMTestCase):

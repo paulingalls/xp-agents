@@ -24,6 +24,7 @@ from event_schema import (
     sessions_since_event,
 )
 from resolution import compute_resolutions
+from sprint_parser import parse_sprint_data
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,18 @@ def _extract_retro_history(retro_events: list[dict]) -> dict:
     }
 
 
+def _read_sprint_data(smm_dir: Path) -> dict:
+    """Read sprint.md from SMM dir and parse into structured data."""
+    path = smm_dir / "sprint.md"
+    if path.is_symlink():
+        return parse_sprint_data(None)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return parse_sprint_data(None)
+    return parse_sprint_data(content)
+
+
 def prepare_curation_data(smm_dir: Path) -> dict:
     """Prepare structured data for housekeeping curation.
 
@@ -282,6 +295,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
                 "risks_count": 0,
                 "wisdom_count": 0,
             },
+            "sprint": _read_sprint_data(smm_dir),
         }
 
     indices = build_indices(events)
@@ -474,4 +488,5 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         "retro_history": retro_history,
         "aging": aging,
         "health": health,
+        "sprint": _read_sprint_data(smm_dir),
     }
