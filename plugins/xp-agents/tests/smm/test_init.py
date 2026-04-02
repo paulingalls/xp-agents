@@ -302,6 +302,59 @@ class TestValidateEvent(unittest.TestCase):
                 event = self._base_event(type="customer_intent", intent_status=status)
                 self.assertEqual(_append_impl.validate_event(event), [])
 
+    # --- Sprint event type ---
+
+    def test_valid_sprint_start(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={"sprint_id": "sprint-001", "action": "start", "goal": "Ship v1"},
+        )
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_valid_sprint_end(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": "end",
+                "stories_planned": 10,
+                "stories_delivered": 8,
+                "stories_carried": 2,
+            },
+        )
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_sprint_missing_metadata(self):
+        event = self._base_event(type="sprint")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("metadata" in e for e in errors))
+
+    def test_sprint_metadata_missing_sprint_id(self):
+        event = self._base_event(type="sprint", metadata={"action": "start"})
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("sprint_id" in e for e in errors))
+
+    def test_sprint_metadata_missing_action(self):
+        event = self._base_event(type="sprint", metadata={"sprint_id": "sprint-001"})
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("action" in e for e in errors))
+
+    def test_sprint_invalid_action(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={"sprint_id": "sprint-001", "action": "pause"},
+        )
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("action" in e for e in errors))
+
+    def test_sprint_empty_sprint_id(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={"sprint_id": "", "action": "start"},
+        )
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("sprint_id" in e for e in errors))
+
     # --- All three priority emojis ---
 
     def test_priority_red(self):

@@ -26,6 +26,7 @@ VALID_TYPES = sorted(
         "answer",
         "assumption",
         "session_end",
+        "sprint",
         "retrospective",
     ]
 )
@@ -35,6 +36,7 @@ PRIORITY_ASSUMED = "\U0001f7e1"  # 🟡
 PRIORITY_INFO = "\U0001f7e2"  # 🟢
 VALID_PRIORITIES = frozenset({PRIORITY_BLOCKING, PRIORITY_ASSUMED, PRIORITY_INFO})
 VALID_SEVERITIES = frozenset({"high", "medium", "low"})
+VALID_SPRINT_ACTIONS = frozenset({"start", "end"})
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
 
@@ -155,6 +157,23 @@ def validate_event(event: dict) -> list[str]:
             for _f, _t in _check.items():
                 if _f in event and not isinstance(event[_f], _t):
                     errors.append(f"Field '{_f}' must be {_labels[_t]}")
+
+        case "sprint":
+            meta = event.get("metadata")
+            if not isinstance(meta, dict):
+                errors.append("Field 'metadata' is required for type 'sprint'")
+            else:
+                sprint_id = meta.get("sprint_id")
+                if not sprint_id or not isinstance(sprint_id, str):
+                    errors.append(
+                        "Field 'metadata.sprint_id' is required and must be "
+                        "a non-empty string for type 'sprint'"
+                    )
+                action = meta.get("action")
+                if action not in VALID_SPRINT_ACTIONS:
+                    errors.append(
+                        f"Invalid metadata.action: {action} (must be start/end)"
+                    )
 
         case "retrospective":
             for field in ("keep", "fix", "try"):

@@ -28,9 +28,9 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
-    def test_schema_has_14_types(self):
+    def test_schema_has_15_types(self):
         types = self.schema["properties"]["type"]["enum"]
-        self.assertEqual(len(types), 14)
+        self.assertEqual(len(types), 15)
         expected = {
             "customer_input",
             "customer_intent",
@@ -45,6 +45,7 @@ class TestSchemaJson(unittest.TestCase):
             "answer",
             "assumption",
             "session_end",
+            "sprint",
             "retrospective",
         }
         self.assertEqual(set(types), expected)
@@ -103,6 +104,17 @@ class TestSchemaJson(unittest.TestCase):
         self.assertIn("priority", conditional_reqs.get("question", []))
         self.assertIn("files", conditional_reqs.get("debt", []))
         self.assertIn("intent_status", conditional_reqs.get("customer_intent", []))
+
+    def test_sprint_conditional_requires_metadata(self):
+        """Sprint type conditionally requires metadata field."""
+        all_of = self.schema["allOf"]
+        sprint_req = None
+        for entry in all_of:
+            if_clause = entry.get("if", {}).get("properties", {}).get("type", {})
+            if if_clause.get("const") == "sprint":
+                sprint_req = entry.get("then", {}).get("required", [])
+        self.assertIsNotNone(sprint_req, "No allOf entry for sprint type")
+        self.assertIn("metadata", sprint_req)
 
 
 class TestNotificationHelpers(unittest.TestCase):

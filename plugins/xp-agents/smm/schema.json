@@ -31,6 +31,7 @@
         "answer",
         "assumption",
         "session_end",
+        "sprint",
         "retrospective"
       ]
     },
@@ -194,6 +195,14 @@
       },
       "then": {
         "required": ["intent_status"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "sprint" } }
+      },
+      "then": {
+        "required": ["metadata"]
       }
     }
   ],
