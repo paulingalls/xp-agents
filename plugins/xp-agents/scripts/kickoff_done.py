@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import compact
 import markers
+import sprint_state
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -65,10 +66,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _common.append_safe(smm_dir, status)
 
+    markers.marker_consume(smm_dir, markers.NEEDS_PRODUCT_SPEC)
+    markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
+
     # Inject behavioral guide only — the agent already has the SMM
     # from housekeeping step 8 (Read the file it just wrote).
     guide = _common.load_behavioral_guide()
-    return guide if guide else None
+
+    # Nudge if sprint exists but no stories are in-progress
+    sprint_content = sprint_state.read_sprint_content(smm_dir)
+    nudge = ""
+    if sprint_content and not sprint_state.has_in_progress_stories(sprint_content):
+        nudge = (
+            "\n\n---\n**Sprint notice:** No stories marked "
+            "`in-progress`. Run story selection to pick "
+            "stories for this iteration."
+        )
+
+    result = (guide or "") + nudge
+    return result if result else None
 
 
 if __name__ == "__main__":
