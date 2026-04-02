@@ -161,6 +161,65 @@ def _read_all_curation_watermarks(smm_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Pre-watermark event classification
+# ---------------------------------------------------------------------------
+
+
+def _classify_pre_watermark(
+    pre_watermark: list[dict],
+    all_events: list[dict],
+    smm_ids: set[str],
+) -> tuple[list[dict], list[dict], int]:
+    """Classify pre-watermark events as retained or archived.
+
+    Retention rules (checked in order):
+    1. Last 3 session_end events (for aging calculations)
+    2. Last 2 retrospective events (for trend detection)
+    3. SMM-referenced events (unresolved goals, active decisions, etc.)
+    4. Everything else → archived
+
+    Returns (retained, archived, smm_ref_count).
+    """
+    # Find last 3 session_end events from pre-watermark
+    pre_session_ends = [
+        i for i, e in enumerate(pre_watermark) if e.get("type") == "session_end"
+    ]
+    keep_session_end_indices = set(pre_session_ends[-3:])
+
+    # Keep last 2 retro events across ALL events (not just pre-watermark).
+    # Post-watermark retros count toward the cap so we don't accumulate 3+.
+    all_retro_ids = [
+        e.get("id", "") for e in all_events if e.get("type") == "retrospective"
+    ]
+    keep_retro_ids = set(all_retro_ids[-2:])
+    pre_retro_indices = {
+        i
+        for i, e in enumerate(pre_watermark)
+        if e.get("type") == "retrospective" and e.get("id", "") in keep_retro_ids
+    }
+
+    retained: list[dict] = []
+    archived: list[dict] = []
+    smm_ref_count = 0
+
+    for i, event in enumerate(pre_watermark):
+        eid = event.get("id", "")
+
+        if i in keep_session_end_indices or i in pre_retro_indices:
+            retained.append(event)
+            continue
+
+        if eid in smm_ids:
+            retained.append(event)
+            smm_ref_count += 1
+            continue
+
+        archived.append(event)
+
+    return retained, archived, smm_ref_count
+
+
+# ---------------------------------------------------------------------------
 # Curation-based compaction
 # ---------------------------------------------------------------------------
 
@@ -209,42 +268,9 @@ def compact_after_curation(smm_dir: Path) -> dict:
     # Collect SMM-referenced IDs from ALL events (resolutions may span boundary)
     smm_ids = _collect_smm_referenced_ids(events)
 
-    # Find last 3 session_end events from pre-watermark
-    pre_session_ends = [
-        i for i, e in enumerate(pre_watermark) if e.get("type") == "session_end"
-    ]
-    keep_session_end_indices = set(pre_session_ends[-3:])
-
-    # Keep last 2 retro events across ALL events (not just pre-watermark).
-    # Post-watermark retros count toward the cap so we don't accumulate 3+.
-    all_retro_ids = [
-        e.get("id", "") for e in events if e.get("type") == "retrospective"
-    ]
-    keep_retro_ids = set(all_retro_ids[-2:])
-    pre_retro_indices = {
-        i
-        for i, e in enumerate(pre_watermark)
-        if e.get("type") == "retrospective" and e.get("id", "") in keep_retro_ids
-    }
-
-    # Classify pre-watermark events
-    retained: list[dict] = []
-    archived: list[dict] = []
-    smm_ref_count = 0
-
-    for i, event in enumerate(pre_watermark):
-        eid = event.get("id", "")
-
-        if i in keep_session_end_indices or i in pre_retro_indices:
-            retained.append(event)
-            continue
-
-        if eid in smm_ids:
-            retained.append(event)
-            smm_ref_count += 1
-            continue
-
-        archived.append(event)
+    retained, archived, smm_ref_count = _classify_pre_watermark(
+        pre_watermark, events, smm_ids
+    )
 
     # All post-watermark events are retained
     retained.extend(post_watermark)
