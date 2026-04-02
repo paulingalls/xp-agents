@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Tests for save_product_spec.py and product spec preload."""
 
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -8,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _IntegrationTestCase
 
 # ===========================================================================
 # save_product_spec.py — Atomic writer for product_spec.md
@@ -74,6 +76,74 @@ class TestSaveProductSpec(_HookTestCase):
         )
         self._run_save(content)
         self.assertEqual((self.smm_dir / "product_spec.md").read_text(), content)
+
+
+# ===========================================================================
+# preload.sh — Product spec preload script
+# ===========================================================================
+
+_PRELOAD_SCRIPT = (
+    Path(__file__).parent.parent.parent
+    / "skills"
+    / "xp-product-spec"
+    / "scripts"
+    / "preload.sh"
+)
+
+
+class TestProductSpecPreload(_IntegrationTestCase):
+    """Tests for the product spec preload script."""
+
+    def _run_preload(self) -> subprocess.CompletedProcess:
+        """Run preload.sh as a subprocess."""
+        if not _PRELOAD_SCRIPT.is_file():
+            self.skipTest("preload.sh not yet created")
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+        return subprocess.run(
+            ["bash", str(_PRELOAD_SCRIPT)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_preload_no_spec(self):
+        """Outputs create-mode message when no product_spec.md exists."""
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("No product spec", result.stdout)
+
+    def test_preload_with_spec(self):
+        """Outputs existing spec content when product_spec.md exists."""
+        spec_content = (
+            "# Product Spec: Test\n\n"
+            "## Features\n\n"
+            "### Auth [planned]\n"
+            "- Login with email\n"
+        )
+        (self.smm_dir / "product_spec.md").write_text(spec_content)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Auth [planned]", result.stdout)
+
+    def test_preload_feature_counts(self):
+        """Outputs correct planned/delivered feature counts."""
+        spec_content = (
+            "# Product Spec: Test\n\n"
+            "## Features\n\n"
+            "### Auth [delivered: sprint-001]\n"
+            "- Login\n\n"
+            "### Search [planned]\n"
+            "- Full-text search\n\n"
+            "### Billing [planned]\n"
+            "- Stripe integration\n"
+        )
+        (self.smm_dir / "product_spec.md").write_text(spec_content)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("2", result.stdout)  # 2 planned
+        self.assertIn("1", result.stdout)  # 1 delivered
 
 
 if __name__ == "__main__":
