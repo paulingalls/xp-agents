@@ -20,6 +20,30 @@ _SUBAGENT_NAMES = (
     "xp-security-reviewer",
 )
 
+_ALL_SKILL_NAMES = (
+    "xp-accept",
+    "xp-goal-collection",
+    "xp-housekeeping",
+    "xp-kickoff",
+    "xp-product-spec",
+    "xp-quality-review",
+    "xp-question-triage",
+    "xp-review-plan",
+    "xp-run-retrospective",
+    "xp-security-triage",
+    "xp-smm-protocol",
+    "xp-sprint-start",
+)
+
+# Inline skills with substantial instructional content (800-2500 token budget)
+_CONTENT_SKILL_NAMES = (
+    "xp-housekeeping",
+    "xp-product-spec",
+    "xp-quality-review",
+    "xp-smm-protocol",
+    "xp-sprint-start",
+)
+
 
 class TestMilestone6Files(unittest.TestCase):
     """Verify presence and content of M6 files."""
@@ -48,25 +72,13 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_directories_exist(self):
         """All skill dirs must exist with SKILL.md."""
-        for name in (
-            "xp-smm-protocol",
-            "xp-product-spec",
-            "xp-sprint-start",
-            "xp-kickoff",
-            "xp-accept",
-        ):
+        for name in _ALL_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
 
     def test_skill_frontmatter_valid(self):
         """Each SKILL.md must have valid YAML frontmatter with name + description."""
-        for name in (
-            "xp-smm-protocol",
-            "xp-product-spec",
-            "xp-sprint-start",
-            "xp-kickoff",
-            "xp-accept",
-        ):
+        for name in _ALL_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -91,11 +103,7 @@ class TestMilestone6Files(unittest.TestCase):
 
     def test_skill_token_budgets(self):
         """Content skills should be within 800-2500 token estimate."""
-        for name in (
-            "xp-smm-protocol",
-            "xp-product-spec",
-            "xp-sprint-start",
-        ):
+        for name in _CONTENT_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -268,13 +276,7 @@ class TestPluginIntegrity(unittest.TestCase):
     def test_all_skill_files_exist(self):
         """All SKILL.md files exist in skills/ directory."""
         skills_dir = self.plugin_root / "skills"
-        for name in (
-            "xp-smm-protocol",
-            "xp-product-spec",
-            "xp-sprint-start",
-            "xp-kickoff",
-            "xp-accept",
-        ):
+        for name in _ALL_SKILL_NAMES:
             path = skills_dir / name / "SKILL.md"
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
 
