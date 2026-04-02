@@ -66,9 +66,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if source == "clear":
         return _NUDGE
 
+    reason = _REVIEW_MESSAGE
+    extras: list[str] = []
+    if markers.marker_exists(smm_dir, markers.NEEDS_PRODUCT_SPEC):
+        extras.append("Run /xp-product-spec to define product requirements.")
+    if markers.marker_exists(smm_dir, markers.NEEDS_SPRINT):
+        extras.append("Run /xp-sprint-start to plan sprint stories.")
+    if extras:
+        reason = reason + " " + " ".join(extras)
+
     return {
         "decision": "block",
-        "reason": _REVIEW_MESSAGE,
+        "reason": reason,
     }
 
 

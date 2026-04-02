@@ -130,6 +130,76 @@ class TestKickoffGate(_HookTestCase):
 
 
 # ===========================================================================
+# M8a: kickoff_gate sprint marker info tests
+# ===========================================================================
+
+
+class TestKickoffGateSprintInfo(_HookTestCase):
+    """M8a: kickoff_gate includes sprint marker info in block message."""
+
+    def test_block_includes_product_spec_info(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        (self.smm_dir / ".needs-product-spec").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("product", result["reason"].lower())
+
+    def test_block_includes_sprint_info(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("sprint", result["reason"].lower())
+
+    def test_block_includes_both(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        (self.smm_dir / ".needs-product-spec").write_text("startup")
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("product", result["reason"].lower())
+        self.assertIn("sprint", result["reason"].lower())
+
+    def test_block_no_sprint_markers(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, dict)
+        self.assertNotIn("product", result["reason"].lower())
+
+    def test_nudge_still_works_with_sprint_markers(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("clear")
+        (self.smm_dir / ".needs-product-spec").write_text("clear")
+        (self.smm_dir / ".needs-sprint").write_text("clear")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result, "nudge")
+
+
+# ===========================================================================
 # PostToolUse:Skill — kickoff_done.py
 # ===========================================================================
 
