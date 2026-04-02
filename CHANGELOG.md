@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.9.0 — M5/M6: Sprint Events & Product Spec Skill
+
+### Added
+- **M5: Sprint event type** — New `sprint` event type in `event_schema.py` and `schema.json` with `sprint_id`, `action` (start/end), optional `goal` and `velocity` metadata. Compaction rules retain active sprint starts and recently ended sprints.
+- **M5: `EVENT_TYPE_*` constants** — All 15 event types now have named constants in `event_schema.py`. Production code uses constants; test fixtures keep string literals.
+- **M5: `_classify_pre_watermark()` extraction** — Refactored `compact.py` to extract retention classification into a focused helper, reducing `compact_after_curation()` complexity.
+- **M6: `/xp-product-spec` skill** — Conversation-driven requirements gathering skill that creates/refines `product_spec.md` with `[planned]`/`[delivered]` feature markers. Supports create mode, update mode, and document ingestion.
+- **M6: `save_product_spec.py`** — Atomic writer for `product_spec.md`, mirroring the `save_smm.py` pattern (stdin, symlink rejection, tempfile + rename).
+- **M6: Product spec preload** — `preload.sh` detects existing spec (with planned/delivered counts) or indicates create mode.
+
+### Fixed
+- **Session aging duplication** — Extracted `sessions_since_event()` utility to `event_schema.py`, replacing 4 identical `bisect.bisect_right` patterns across `compact.py` and `materialize.py`.
+- **Stale comments in compact.py** — Comments said "3 sessions" for thresholds that are actually `_ASSUMPTION_MAX_AGE` (5).
+
+### Stats
+- 1102 tests (all passing)
+- M5 and M6 shipped — M7 (Sprint Start) is next on the critical path
+
 ## v1.5.14
 
 ### Fixed

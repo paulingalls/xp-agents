@@ -178,14 +178,14 @@ Fix `normalize_path()` so `.coordination.json` conflict detection works across w
 
 ## v2.0 — Sprint-Driven XP
 
-### M5: Sprint Event Type
+### M5: Sprint Event Type [SHIPPED]
 
 > **Design ref:** [New Event Types — `sprint`](AGENT_TEAMS_DESIGN.md#sprint) — event format, start/end metadata; [Compaction Rules for Sprint Events](AGENT_TEAMS_DESIGN.md#compaction-rules-for-sprint-events) — retention policy
 
 Add `sprint` event type to the event schema for boundary markers.
 
 **Refactor first:**
-- `compact.py` `compact_after_curation()` is 130+ lines with complex retention logic. Extract retention rule evaluation into a separate function (e.g., `should_retain(event, session_ends, smm_ids) -> bool`) so adding sprint rules doesn't further bloat the main function.
+- ✅ `compact.py` `compact_after_curation()` is 130+ lines with complex retention logic. Extract retention rule evaluation into a separate function (e.g., `should_retain(event, session_ends, smm_ids) -> bool`) so adding sprint rules doesn't further bloat the main function.
 
 **Add sprint type:**
 
@@ -193,27 +193,28 @@ Add `sprint` event type to the event schema for boundary markers.
 {"type": "sprint", "content": "...", "metadata": {"sprint_id": "...", "action": "start|end", ...}}
 ```
 
-- Add to `event_schema.py` / `schema.json` with validation (requires `sprint_id`, `action`)
-- Add compaction rules: retain `start` while active, retain `end` for 1 sprint
-- Tests for schema validation, compaction retention
+- ✅ Add to `event_schema.py` / `schema.json` with validation (requires `sprint_id`, `action`)
+- ✅ Add compaction rules: retain `start` while active, retain `end` for 1 sprint
+- ✅ Tests for schema validation, compaction retention
+- ✅ Add `EVENT_TYPE_*` constants for all 15 event types in production code
 
 **Depends on:** nothing (can parallel with M1-M4)
 **Changes:** `event_schema.py`, `schema.json`, `compact.py`, tests
 
-### M6: Product Spec Skill (`/xp-product-spec`)
+### M6: Product Spec Skill (`/xp-product-spec`) [SHIPPED]
 
 > **Design ref:** [`product_spec.md` Format](AGENT_TEAMS_DESIGN.md#product_specmd-format) — file format with `[planned]`/`[delivered]` markers; [File Lifecycle](AGENT_TEAMS_DESIGN.md#file-lifecycle) — created by this skill, updated by sprint review
 
 Design and implement the skill that creates/refines `product_spec.md`.
 
-- Conversation-driven: guides the lead through requirements gathering
-- Can ingest existing docs (PRDs, GitHub issues, design docs)
-- Outputs structured `product_spec.md` with `[planned]` feature markers
-- Supports updates: add new features, refine existing ones
-- File lives in SMM directory
+- ✅ Conversation-driven: guides the lead through requirements gathering
+- ✅ Can ingest existing docs (PRDs, GitHub issues, design docs)
+- ✅ Outputs structured `product_spec.md` with `[planned]` feature markers
+- ✅ Supports updates: add new features, refine existing ones
+- ✅ File lives in SMM directory
 
 **Depends on:** nothing
-**Changes:** new skill (`skills/xp-product-spec/SKILL.md`), tests
+**Changes:** new skill (`skills/xp-product-spec/SKILL.md`), `save_product_spec.py`, `preload.sh`, tests
 
 ### M7: Sprint Start Skill (`/xp-sprint-start`)
 
@@ -500,8 +501,9 @@ v1.5 (solo enforcement):
   M4e (worktree path normalization)   — independent
 
 v2.0 (sprint/teams):
-  M5 (sprint events)     ─┐
+  M5 (sprint events)     ─┐  [SHIPPED]
   M6 (product spec skill) ─┼→ M7 (sprint start) → M8a (sprint detection hooks) → M8b (kickoff skill) → M8c (accept)
+                    [SHIPPED]
                            │                    → M9 (sprint pillar)
                            │                    → M10 (tiered injection + plan reviewer + PostCompact)
                            │                         → M14 (teammate guide)
@@ -514,7 +516,7 @@ v2.0 (sprint/teams):
   M16 (docs) depends on all above
 ```
 
-M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4e can ship independently. Within v2.0, M5/M6 can start in parallel. M7 is the critical path bottleneck — nearly everything depends on it. M9 and M10 can run in parallel after M7 (M10 no longer depends on M9). M13-M15 depend on the Agent Teams platform stabilizing.
+M1-M4 shipped in v1.5.0-v1.5.10. M4b/M4e can ship independently. M5/M6 shipped — M7 (Sprint Start) is next on the critical path. M7 is the critical path bottleneck — nearly everything depends on it. M9 and M10 can run in parallel after M7 (M10 no longer depends on M9). M13-M15 depend on the Agent Teams platform stabilizing.
 
 ---
 
