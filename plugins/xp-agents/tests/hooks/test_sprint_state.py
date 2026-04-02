@@ -177,5 +177,59 @@ class TestProductSpecExists(_HookTestCase):
         self.assertFalse(sprint_state.product_spec_exists(self.smm_dir))
 
 
+class TestHasReadyStories(unittest.TestCase):
+    """Test has_ready_stories — checks only for ready status."""
+
+    def test_ready_story(self):
+        import sprint_state
+
+        self.assertTrue(sprint_state.has_ready_stories(SPRINT_READY))
+
+    def test_in_progress_only(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.has_ready_stories(SPRINT_IN_PROGRESS))
+
+    def test_done_only(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.has_ready_stories(SPRINT_DONE_ONLY))
+
+    def test_mixed_no_ready(self):
+        import sprint_state
+
+        # SPRINT_MIXED has done + in-progress, no ready
+        self.assertFalse(sprint_state.has_ready_stories(SPRINT_MIXED))
+
+
+class TestIsSprintComplete(unittest.TestCase):
+    """Test is_sprint_complete — True when no ready or in-progress stories."""
+
+    def test_done_and_deferred_only(self):
+        import sprint_state
+
+        self.assertTrue(sprint_state.is_sprint_complete(SPRINT_DONE_ONLY))
+
+    def test_ready_not_complete(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_READY))
+
+    def test_in_progress_not_complete(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_IN_PROGRESS))
+
+    def test_mixed_not_complete(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_MIXED))
+
+    def test_empty_string_is_complete(self):
+        import sprint_state
+
+        self.assertTrue(sprint_state.is_sprint_complete(""))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,7 @@ from pathlib import Path
 
 _ACTIVE_RE = re.compile(r"\*\*Status:\*\*\s*(ready|in-progress)")
 _IN_PROGRESS_RE = re.compile(r"\*\*Status:\*\*\s*in-progress")
+_READY_RE = re.compile(r"\*\*Status:\*\*\s*ready")
 
 
 def has_active_stories(sprint_content: str) -> bool:
@@ -32,6 +33,16 @@ def read_sprint_content(smm_dir: Path) -> str | None:
         return path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
         return None
+
+
+def has_ready_stories(sprint_content: str) -> bool:
+    """Return True if sprint content contains ready stories."""
+    return bool(_READY_RE.search(sprint_content))
+
+
+def is_sprint_complete(sprint_content: str) -> bool:
+    """Return True when no ready or in-progress stories remain."""
+    return not _ACTIVE_RE.search(sprint_content)
 
 
 def product_spec_exists(smm_dir: Path) -> bool:
