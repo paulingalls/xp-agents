@@ -11,23 +11,39 @@ Extracted from _append_impl.py for module size management.
 # Event type and field constants
 # ---------------------------------------------------------------------------
 
+EVENT_TYPE_ANSWER = "answer"
+EVENT_TYPE_ASSUMPTION = "assumption"
+EVENT_TYPE_CONCERN = "concern"
+EVENT_TYPE_CONVENTION = "convention"
+EVENT_TYPE_CUSTOMER_INPUT = "customer_input"
+EVENT_TYPE_CUSTOMER_INTENT = "customer_intent"
+EVENT_TYPE_DEBT = "debt"
+EVENT_TYPE_DECISION = "decision"
+EVENT_TYPE_DISCOVERY = "discovery"
+EVENT_TYPE_GOAL = "goal"
+EVENT_TYPE_QUESTION = "question"
+EVENT_TYPE_RETROSPECTIVE = "retrospective"
+EVENT_TYPE_SESSION_END = "session_end"
+EVENT_TYPE_SPRINT = "sprint"
+EVENT_TYPE_STATUS = "status"
+
 VALID_TYPES = sorted(
     [
-        "customer_input",
-        "customer_intent",
-        "debt",
-        "goal",
-        "status",
-        "decision",
-        "convention",
-        "concern",
-        "discovery",
-        "question",
-        "answer",
-        "assumption",
-        "session_end",
-        "sprint",
-        "retrospective",
+        EVENT_TYPE_ANSWER,
+        EVENT_TYPE_ASSUMPTION,
+        EVENT_TYPE_CONCERN,
+        EVENT_TYPE_CONVENTION,
+        EVENT_TYPE_CUSTOMER_INPUT,
+        EVENT_TYPE_CUSTOMER_INTENT,
+        EVENT_TYPE_DEBT,
+        EVENT_TYPE_DECISION,
+        EVENT_TYPE_DISCOVERY,
+        EVENT_TYPE_GOAL,
+        EVENT_TYPE_QUESTION,
+        EVENT_TYPE_RETROSPECTIVE,
+        EVENT_TYPE_SESSION_END,
+        EVENT_TYPE_SPRINT,
+        EVENT_TYPE_STATUS,
     ]
 )
 

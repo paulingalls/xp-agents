@@ -32,7 +32,13 @@ from _append_impl import (
     write_json_atomic,
     write_watermark,
 )
-from event_schema import SPRINT_ACTION_END, SPRINT_ACTION_START
+from event_schema import (
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SPRINT,
+    SPRINT_ACTION_END,
+    SPRINT_ACTION_START,
+)
 from materialize import read_curation_watermark, write_curation_watermark
 from resolution import compute_resolutions
 
@@ -67,12 +73,14 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     referenced: set[str] = set()
 
     # Build session_end timestamps for decision aging
-    se_timestamps = [e.get("ts", "") for e in events if e.get("type") == "session_end"]
+    se_timestamps = [
+        e.get("ts", "") for e in events if e.get("type") == EVENT_TYPE_SESSION_END
+    ]
 
     # Build set of ended sprint IDs for active sprint detection
     ended_sprint_ids: set[str] = set()
     for event in events:
-        if event.get("type") == "sprint":
+        if event.get("type") == EVENT_TYPE_SPRINT:
             meta = event.get("metadata", {})
             if meta.get("action") == SPRINT_ACTION_END:
                 sid = meta.get("sprint_id", "")
@@ -202,27 +210,30 @@ def _classify_pre_watermark(
     """
     # Find last 3 session_end events from pre-watermark
     pre_session_ends = [
-        i for i, e in enumerate(pre_watermark) if e.get("type") == "session_end"
+        i
+        for i, e in enumerate(pre_watermark)
+        if e.get("type") == EVENT_TYPE_SESSION_END
     ]
     keep_session_end_indices = set(pre_session_ends[-3:])
 
     # Keep last 2 retro events across ALL events (not just pre-watermark).
     # Post-watermark retros count toward the cap so we don't accumulate 3+.
     all_retro_ids = [
-        e.get("id", "") for e in all_events if e.get("type") == "retrospective"
+        e.get("id", "") for e in all_events if e.get("type") == EVENT_TYPE_RETROSPECTIVE
     ]
     keep_retro_ids = set(all_retro_ids[-2:])
     pre_retro_indices = {
         i
         for i, e in enumerate(pre_watermark)
-        if e.get("type") == "retrospective" and e.get("id", "") in keep_retro_ids
+        if e.get("type") == EVENT_TYPE_RETROSPECTIVE
+        and e.get("id", "") in keep_retro_ids
     }
 
     # Keep last 1 sprint end event across ALL events (velocity data).
     # Post-watermark sprint ends count toward the cap.
     def _is_sprint_end(e: dict) -> bool:
         return (
-            e.get("type") == "sprint"
+            e.get("type") == EVENT_TYPE_SPRINT
             and e.get("metadata", {}).get("action") == SPRINT_ACTION_END
         )
 

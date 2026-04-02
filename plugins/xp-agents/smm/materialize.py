@@ -19,6 +19,7 @@ from _append_impl import (
 from _append_impl import (
     read_with_lock as _read_with_lock,
 )
+from event_schema import EVENT_TYPE_ASSUMPTION, EVENT_TYPE_QUESTION
 from resolution import compute_resolutions
 
 logger = logging.getLogger(__name__)
@@ -161,13 +162,13 @@ def build_indices(events: list[dict]) -> dict:
             case "assumption":
                 for ref_id in event.get("references", []):
                     ref_event = indices["by_id"].get(ref_id)
-                    if ref_event and ref_event.get("type") == "question":
+                    if ref_event and ref_event.get("type") == EVENT_TYPE_QUESTION:
                         indices["question_assumptions"][ref_id] = event
 
             case "discovery":
                 for ref_id in event.get("references", []):
                     ref_event = indices["by_id"].get(ref_id)
-                    if ref_event and ref_event.get("type") == "assumption":
+                    if ref_event and ref_event.get("type") == EVENT_TYPE_ASSUMPTION:
                         indices["assumption_contradictions"][ref_id] = event
 
     # Resolution tracking via shared utility

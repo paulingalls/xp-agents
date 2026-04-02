@@ -12,6 +12,8 @@ import re
 import subprocess
 import sys
 
+from event_schema import EVENT_TYPE_ANSWER, EVENT_TYPE_QUESTION
+
 # ---------------------------------------------------------------------------
 # Event resolution tracking (shared by materialize, retrospective, hooks)
 # ---------------------------------------------------------------------------
@@ -82,10 +84,10 @@ def compute_resolutions(events: list[dict]) -> dict:
             by_id[event_id] = event
 
         # Question-answer linking: answer events reference questions
-        if event.get("type") == "answer":
+        if event.get("type") == EVENT_TYPE_ANSWER:
             for ref_id in event.get("references", []):
                 ref_event = by_id.get(ref_id)
-                if ref_event and ref_event.get("type") == "question":
+                if ref_event and ref_event.get("type") == EVENT_TYPE_QUESTION:
                     question_answers[ref_id] = event
 
         # Explicit resolution via metadata.resolves
