@@ -291,6 +291,25 @@ def normalize_path(file_path: str, cwd: str) -> str:
         prefix = os.path.realpath(git_root).rstrip("/") + "/"
         if absolute.startswith(prefix):
             return absolute[len(prefix) :]
+        # normpath may not resolve symlinks consistently with realpath(git_root)
+        # (e.g., /var vs /private/var on macOS). For non-existent files, walk up
+        # to the nearest existing ancestor, resolve its symlinks, and retry.
+        # This fixes cross-worktree coordination where Agent A's files don't
+        # exist in Agent B's worktree.
+        if not os.path.exists(full):
+            cur = full
+            tail_parts: list[str] = []
+            while cur and not os.path.exists(cur):
+                cur, tail = os.path.split(cur)
+                if not tail:
+                    break
+                tail_parts.append(tail)
+            if cur and os.path.exists(cur):
+                resolved_ancestor = os.path.realpath(cur)
+                for part in reversed(tail_parts):
+                    resolved_ancestor = os.path.join(resolved_ancestor, part)
+                if resolved_ancestor.startswith(prefix):
+                    return resolved_ancestor[len(prefix) :]
     return absolute
 
 

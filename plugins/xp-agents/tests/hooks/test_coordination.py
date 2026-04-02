@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
 import coordination
 import pre_tool_write
 from conftest import _HookTestCase
@@ -163,6 +164,97 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNone(result)
+
+
+class TestCrossWorktreeOverlap(unittest.TestCase):
+    """M4e: Cross-worktree coordination conflict detection."""
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+
+        _common._clear_git_root_cache()
+        self.tmpdir = Path(tempfile.mkdtemp())
+        # Create a git repo with an initial commit (required for worktree)
+        subprocess.run(
+            ["git", "init", str(self.tmpdir)], capture_output=True, check=True
+        )
+        subprocess.run(
+            ["git", "-C", str(self.tmpdir), "commit", "--allow-empty", "-m", "init"],
+            capture_output=True,
+            check=True,
+        )
+        # Create worktree
+        self.wt_dir = Path(tempfile.mkdtemp())
+        import shutil
+
+        shutil.rmtree(self.wt_dir)  # git worktree add needs non-existent path
+        result = subprocess.run(
+            ["git", "-C", str(self.tmpdir), "worktree", "add", str(self.wt_dir)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            self.skipTest(f"git worktree add failed: {result.stderr}")
+
+        # Use a shared SMM dir (simulates shared SMM across worktrees)
+        self.smm_dir = self.tmpdir / ".smm"
+        self.smm_dir.mkdir()
+        (self.smm_dir / "events.jsonl").touch()
+        (self.smm_dir / "events.lock").touch()
+
+    def tearDown(self):
+        import shutil
+        import subprocess
+
+        _common._clear_git_root_cache()
+        if self.tmpdir.exists():
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.tmpdir),
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(self.wt_dir),
+                ],
+                capture_output=True,
+            )
+        if self.wt_dir.exists():
+            shutil.rmtree(self.wt_dir)
+        if self.tmpdir.exists():
+            shutil.rmtree(self.tmpdir)
+
+    def test_cross_worktree_overlap_detected(self):
+        """Agent A stores path from main cwd, Agent B detects from worktree."""
+        # Agent A (main checkout) stores a file in coordination
+        normalized_main = _common.normalize_path("src/app.py", str(self.tmpdir))
+        coordination.update_coordination(self.smm_dir, "agent-a", [normalized_main])
+
+        # Agent B (worktree) checks for overlap — file doesn't exist in worktree
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "agent-b", "src/app.py", str(self.wt_dir)
+        )
+        self.assertIsNotNone(result, "Cross-worktree conflict should be detected")
+        self.assertIn("agent-a", result)
+
+    def test_cross_worktree_no_false_conflict(self):
+        """Different files across worktrees should not conflict."""
+        normalized_main = _common.normalize_path("src/app.py", str(self.tmpdir))
+        coordination.update_coordination(self.smm_dir, "agent-a", [normalized_main])
+
+        result = pre_tool_write.check_working_on_overlap(
+            self.smm_dir, "agent-b", "src/other.py", str(self.wt_dir)
+        )
+        self.assertIsNone(result)
+
+    def test_renormalize_repo_relative_from_different_cwd(self):
+        """Same relative path normalizes identically from main and worktree."""
+        main_result = _common.normalize_path("src/app.py", str(self.tmpdir))
+        wt_result = _common.normalize_path("src/app.py", str(self.wt_dir))
+        self.assertEqual(main_result, wt_result)
+        self.assertEqual(main_result, "src/app.py")
 
 
 if __name__ == "__main__":

@@ -225,6 +225,45 @@ class TestNormalizePath(unittest.TestCase):
             self.assertEqual(abs_result, rel_result)
             self.assertEqual(abs_result, "src/app.ts")
 
+    def test_nonexistent_file_in_repo_returns_relative(self):
+        """Non-existent file in a git repo still normalizes to repo-relative."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            # Do NOT create src/app.py — it doesn't exist
+            result = _common.normalize_path("src/app.py", tmpdir)
+            self.assertEqual(result, "src/app.py")
+
+    def test_nonexistent_nested_file_in_repo_returns_relative(self):
+        """Deeply nested non-existent file normalizes to repo-relative."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            # No ancestors exist inside the repo either
+            result = _common.normalize_path("a/b/c/deep.py", tmpdir)
+            self.assertEqual(result, "a/b/c/deep.py")
+
+    def test_normalization_consistent_for_existing_and_nonexistent(self):
+        """Existing and non-existent files in same dir normalize consistently."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            src_dir = Path(tmpdir) / "src"
+            src_dir.mkdir()
+            (src_dir / "exists.py").touch()
+            # src/missing.py does NOT exist, but src/ does
+
+            exists_result = _common.normalize_path("src/exists.py", tmpdir)
+            missing_result = _common.normalize_path("src/missing.py", tmpdir)
+            self.assertEqual(exists_result, "src/exists.py")
+            self.assertEqual(missing_result, "src/missing.py")
+
 
 class TestStdlibOnly(unittest.TestCase):
     """AC (M1): Python stdlib only — no external packages."""
