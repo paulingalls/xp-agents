@@ -1,9 +1,9 @@
 ---
 name: xp-housekeeping
 description: >-
-  Four-pillar SMM curation. Reads structured curation data and existing SMM,
-  applies LLM judgment to curate Intent, Constraints, Risks, and Wisdom
-  pillars. Writes curated SMM and updates curation watermark.
+  Five-pillar SMM curation. Reads structured curation data and existing SMM,
+  applies LLM judgment to curate Sprint, Intent, Constraints, Risks, and
+  Wisdom pillars. Writes curated SMM and updates curation watermark.
 effort: high
 allowed-tools:
   - Bash(*/append.sh *)
@@ -13,16 +13,17 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/prepare_curation_preload.sh`
 
-# Housekeeping — Four-Pillar SMM Curation
+# Housekeeping — Five-Pillar SMM Curation
 
 The preload above provides two sections:
 1. **Existing SMM** — the current SHARED_MENTAL_MODEL.md (merge into this, don't replace)
-2. **Curation Data (JSON)** — structured data from `prepare_curation_data()` with five fields:
+2. **Curation Data (JSON)** — structured data from `prepare_curation_data()` with six fields:
    - `current_smm`: items mapped to four pillars (intent, constraints, risks, wisdom)
    - `new_since_last_curation`: new events since last curation (customer_inputs, decisions, concerns, assumptions, debt, questions, resolutions)
    - `retro_history`: latest_tries, recurring_fixes, adopted_tries
    - `aging`: risk ID → session count since creation
    - `health`: item counts per pillar
+   - `sprint`: parsed sprint.md data (sprint_id, goal, started, stories_by_status, blockers)
 
 The **SMM_DIR** path is printed at the end of the preload output. Use it for append.sh and save_smm.py calls.
 
@@ -96,7 +97,20 @@ Actions:
 
 Format: `- <behavioral rule — "do X because Y">`
 
-## 5. Health Check
+## 5. Curate Sprint
+
+Review the `sprint` field from curation data.
+
+If `sprint.sprint_id` is empty → write `- No active sprint` in the Sprint section.
+
+Otherwise, summarize sprint progress:
+- **Format:** `- <sprint_id>: <goal> [N stories: R ready, I in-progress, D done, F deferred]`
+- If `sprint.blockers` is non-empty, add one line per blocker: `- Blocker: <blocker text>`
+- Add `- Details: see sprint.md` as the last line
+
+The Sprint section is a summary — agents should read sprint.md for full story details.
+
+## 6. Health Check
 
 Count items per pillar and flag warnings:
 
@@ -109,7 +123,7 @@ Count items per pillar and flag warnings:
 
 If any pillar is unhealthy, note the warning in your output to the user.
 
-## 6. Record Resolutions
+## 7. Record Resolutions
 
 For any items resolved during curation (goals completed, concerns addressed, debt fixed, decisions rejected), record resolution events:
 ```bash
@@ -121,13 +135,16 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"resolves": ["<event-id>"]}'
 ```
 
-## 7. Write the Curated SMM
+## 8. Write the Curated SMM
 
-Assemble the four-pillar markdown and write it via save_smm.py:
+Assemble the five-pillar markdown and write it via save_smm.py:
 
 ```bash
 cat <<'SMMEOF' | python3 ${CLAUDE_SKILL_DIR}/scripts/save_smm.py --smm-dir <SMM_DIR>
 # Shared Mental Model
+
+## Sprint
+<sprint summary or "- No active sprint">
 
 ## Intent
 <intent items>
