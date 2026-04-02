@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _make_stop_input, make_event  # noqa: F401
+from conftest import _HookTestCase, _make_stop_input, make_event
 
 SPRINT_IN_PROGRESS = """\
 # Sprint: Build auth
@@ -123,6 +123,98 @@ class TestAcceptGate(_HookTestCase):
         (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
+
+
+# ===========================================================================
+# accept_done.py — PostToolUse:Skill hook
+# ===========================================================================
+
+
+def _make_skill_input(skill: str = "xp-accept", **overrides) -> dict:
+    """Build a canonical Skill tool hook input dict for accept tests."""
+    data = {
+        "session_id": "t",
+        "tool_name": "Skill",
+        "tool_input": {"skill": skill},
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
+class TestAcceptDone(_HookTestCase):
+    """M8c: accept_done sets marker and detects sprint completion."""
+
+    def test_xp_agent_skips(self):
+        import accept_done
+
+        result = accept_done.run(
+            _make_skill_input(agent_type="xp-nav"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_ignores_other_skills(self):
+        import accept_done
+
+        result = accept_done.run(
+            _make_skill_input("simplify"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_sets_accept_marker(self):
+        import accept_done
+
+        self._write_events([make_event()])
+        accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_qualified_skill_name(self):
+        import accept_done
+
+        self._write_events([make_event()])
+        accept_done.run(
+            _make_skill_input("xp-agents:xp-accept"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_sprint_complete_nudges_review(self):
+        import accept_done
+
+        self._write_events([make_event()])
+        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        result = accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("sprint-review", result.lower())
+
+    def test_sprint_not_complete_no_nudge(self):
+        import accept_done
+
+        self._write_events([make_event()])
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        result = accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        # Should return something (confirmation) but NOT mention sprint-review
+        if result:
+            self.assertNotIn("sprint-review", result.lower())
+
+    def test_no_sprint_file_no_nudge(self):
+        import accept_done
+
+        self._write_events([make_event()])
+        result = accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("sprint-review", result.lower())
+
+    def test_logs_status_event(self):
+        import accept_done
+
+        self._write_events([make_event()])
+        accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        events = self._read_events()
+        accept_events = [e for e in events if "accept" in e.get("content", "").lower()]
+        self.assertGreater(len(accept_events), 0)
 
 
 if __name__ == "__main__":
