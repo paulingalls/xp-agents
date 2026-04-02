@@ -217,6 +217,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/accept_gate.py",
             "statusMessage": "Checking acceptance status..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end_warning.py",
+            "statusMessage": "Checking session-end checklist..."
           }
         ]
       }
