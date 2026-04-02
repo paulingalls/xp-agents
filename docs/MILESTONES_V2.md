@@ -268,15 +268,15 @@ Design and implement the skill that creates `sprint.md` from `product_spec.md`.
 - Handles deferred stories carried from previous sprint
 
 **Acceptance criteria:**
-- [ ] Skill reads `product_spec.md` and extracts all `[planned]` features (ignores `[delivered: ...]`)
-- [ ] Decomposes features into user stories with unique IDs (`story-NNN`), acceptance criteria (including E2E test definitions), T-shirt sizes (S/M/L), and dependencies
-- [ ] XL stories are split during planning — no XL stories in final `sprint.md`
-- [ ] Customer confirms sprint scope via `AskUserQuestion` before files are written; rejection cancels without writing
-- [ ] Writes `sprint.md` to SMM directory with stories in priority order, all marked `ready`
-- [ ] Records `sprint` event (type: `sprint`, metadata: `sprint_id`, `action: "start"`) to events.jsonl
-- [ ] Carries forward `deferred` stories from previous sprint, presenting them separately in confirmation
-- [ ] Rejects missing `product_spec.md` or no `[planned]` features with clear error messages
-- [ ] Tests cover: file output format, event recording, customer confirmation flow, deferred story carryover, error cases
+- [x] Skill reads `product_spec.md` and extracts all `[planned]` features (ignores `[delivered: ...]`)
+- [x] Decomposes features into user stories with unique IDs (`story-NNN`), acceptance criteria (including E2E test definitions), T-shirt sizes (S/M/L), and dependencies
+- [x] XL stories are split during planning — no XL stories in final `sprint.md`
+- [x] Customer confirms sprint scope via `AskUserQuestion` before files are written; rejection cancels without writing
+- [x] Writes `sprint.md` to SMM directory with stories in priority order, all marked `ready`
+- [x] Records `sprint` event (type: `sprint`, metadata: `sprint_id`, `action: "start"`) to events.jsonl
+- [x] Carries forward `deferred` stories from previous sprint, presenting them separately in confirmation
+- [x] Rejects missing `product_spec.md` or no `[planned]` features with clear error messages
+- [x] Tests cover: file output format, event recording, customer confirmation flow, deferred story carryover, error cases
 
 **Depends on:** M5, M6
 **Changes:** new skill (`skills/xp-sprint-start/SKILL.md`), tests
