@@ -20,6 +20,31 @@ if [ -f "$RETRO_INPUT" ]; then
     echo ""
 fi
 
+if [ -f "${SMM_DIR}/.needs-product-spec" ]; then
+    echo "### NEEDS_PRODUCT_SPEC"
+    echo "No product_spec.md found. Run /xp-product-spec to create one."
+    echo ""
+fi
+
+if [ -f "${SMM_DIR}/.needs-sprint" ]; then
+    echo "### NEEDS_SPRINT"
+    echo "No active sprint. Run /xp-sprint-start to plan a sprint."
+    echo ""
+fi
+
+SPRINT_FILE="${SMM_DIR}/sprint.md"
+if [ -f "$SPRINT_FILE" ]; then
+    ready_count=$(grep -cF '**Status:** ready' "$SPRINT_FILE" 2>/dev/null || true)
+    ready_count=${ready_count:-0}
+    if [ "$ready_count" -gt 0 ]; then
+        echo "### SPRINT_ACTIVE"
+        echo "Sprint has ${ready_count} ready stories:"
+        echo ""
+        grep -B2 -F '**Status:** ready' "$SPRINT_FILE" | grep '###' || true
+        echo ""
+    fi
+fi
+
 # 2. Always show goals and offer to add more
 echo "### GOALS_REVIEW"
 if [ -f "$SMM_FILE" ] && smm_has_section "Intent"; then
@@ -31,7 +56,6 @@ fi
 echo ""
 
 # 3. Check for open questions or Try items needing triage
-# Check SMM Risks, raw events, and previous retro Try items.
 echo "### QUESTIONS_CHECK"
 QUESTIONS_FOUND=false
 if [ -f "$SMM_FILE" ] && smm_has_section "Risks"; then
