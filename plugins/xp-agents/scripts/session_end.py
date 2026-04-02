@@ -73,19 +73,12 @@ def _compute_summary(events: list[dict]) -> dict:
         files = latest_status[agent_id].get("working_on", [])
         all_working_on.extend(files)
 
-    # Final status: is the last event from "main" agent a status?
-    final_status_recorded = False
-    for e in reversed(events):
-        if e.get("agent_id") == "main":
-            final_status_recorded = e.get("type") == _common.STATUS
-            break
-
     return {
         "duration_seconds": duration_seconds,
         "event_count": event_count,
         "unresolved_items": unresolved,
         "working_on": all_working_on,
-        "final_status_recorded": final_status_recorded,
+        "final_status_recorded": _common.has_final_status(events),
     }
 
 

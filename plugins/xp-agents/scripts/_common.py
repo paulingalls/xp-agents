@@ -337,6 +337,25 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     return event
 
 
+def count_unresolved_concerns(events: list[dict]) -> int:
+    """Count concern events that have no resolution."""
+    from resolution import compute_resolutions
+
+    concern_ids = {e["id"] for e in events if e.get("type") == CONCERN and e.get("id")}
+    if not concern_ids:
+        return 0
+    resolved = compute_resolutions(events)["resolved_concern_ids"]
+    return len(concern_ids - resolved)
+
+
+def has_final_status(events: list[dict], agent_id: str = "main") -> bool:
+    """Check if the last event from the given agent is a status event."""
+    for e in reversed(events):
+        if e.get("agent_id") == agent_id:
+            return e.get("type") == STATUS
+    return True  # No events from this agent → nothing to warn about
+
+
 def write_json_atomic(file_path: Path, data: dict) -> None:
     """Atomic JSON write: tempfile + chmod 600 + rename.
 

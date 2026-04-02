@@ -189,5 +189,103 @@ class TestTddStopGate(_HookTestCase):
         self.assertIsNone(result)
 
 
+# ===========================================================================
+# Session End Warning (soft warning, not a block)
+# ===========================================================================
+
+
+class TestSessionEndWarning(_HookTestCase):
+    """Tests for session_end_warning.py Stop command hook."""
+
+    def setUp(self):
+        super().setUp()
+        import session_end_warning
+
+        self.mod = session_end_warning
+
+    def test_xp_agent_skips(self):
+        inp = _make_stop_input(agent_type="xp-retro")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_events_no_warning(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_smm_dir_degrades(self):
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
+        self.assertIsNone(result)
+
+    def test_unresolved_concerns_warns(self):
+        """Unresolved concerns produce a soft warning."""
+        self._write_events(
+            [
+                make_event("concern", content="Something is wrong", severity="medium"),
+                make_event("concern", content="Another issue", severity="low"),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("2", result)
+        self.assertIn("concern", result.lower())
+
+    def test_resolved_concerns_no_warning(self):
+        """Resolved concerns do not trigger a warning."""
+        concern = make_event("concern", content="Fixed issue", severity="medium")
+        resolve = make_event(
+            "status",
+            content="Resolved: Fixed issue",
+            metadata={"resolves": [concern["id"]]},
+        )
+        self._write_events([concern, resolve])
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_missing_final_status_warns(self):
+        """No recent status from main agent produces a reminder."""
+        self._write_events(
+            [
+                make_event("customer_input", content="Build something"),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("session-end status", result.lower())
+
+    def test_recent_status_no_reminder(self):
+        """Recent status from main agent suppresses the reminder."""
+        self._write_events(
+            [
+                make_event(
+                    "status",
+                    content="Completed M9 implementation",
+                    agent_id="main",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_both_issues_combined(self):
+        """Both unresolved concerns and missing status produce one warning."""
+        self._write_events(
+            [
+                make_event("concern", content="Open issue", severity="medium"),
+                make_event("customer_input", content="Last input"),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("concern", result.lower())
+        self.assertIn("session-end status", result.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
