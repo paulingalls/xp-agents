@@ -2,10 +2,27 @@
 """Event schema: type constants, validation rules, and field constraints.
 
 Single source of truth for what constitutes a valid event. No I/O, no
-file operations — pure validation logic.
+file operations — pure validation logic and shared constants.
 
 Extracted from _append_impl.py for module size management.
 """
+
+import bisect
+
+# ---------------------------------------------------------------------------
+# Session aging utility
+# ---------------------------------------------------------------------------
+
+
+def sessions_since_event(se_timestamps: list[str], event_ts: str) -> int:
+    """Count session_end events that occurred after *event_ts*.
+
+    *se_timestamps* must be sorted ascending (ISO-8601 strings).
+    Returns 0 when there are no session_end timestamps or the event
+    is newer than all of them.
+    """
+    return len(se_timestamps) - bisect.bisect_right(se_timestamps, event_ts)
+
 
 # ---------------------------------------------------------------------------
 # Event type and field constants

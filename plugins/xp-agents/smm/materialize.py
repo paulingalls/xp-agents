@@ -5,7 +5,6 @@ Parses the append-only event log, builds indices for lookups, and
 prepares structured curation data for the housekeeping skill.
 """
 
-import bisect
 import json
 import logging
 from collections import Counter, defaultdict
@@ -19,7 +18,11 @@ from _append_impl import (
 from _append_impl import (
     read_with_lock as _read_with_lock,
 )
-from event_schema import EVENT_TYPE_ASSUMPTION, EVENT_TYPE_QUESTION
+from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_QUESTION,
+    sessions_since_event,
+)
 from resolution import compute_resolutions
 
 logger = logging.getLogger(__name__)
@@ -453,9 +456,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         risk_event = indices["by_id"].get(risk_id)
         if risk_event:
             risk_ts = risk_event.get("ts", "")
-            sessions_after = len(se_timestamps) - bisect.bisect_right(
-                se_timestamps, risk_ts
-            )
+            sessions_after = sessions_since_event(se_timestamps, risk_ts)
             aging[risk_id] = sessions_after
 
     # --- health ---

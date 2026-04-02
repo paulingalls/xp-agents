@@ -13,7 +13,6 @@ Retention policy (compact_after_curation):
 """
 
 import argparse
-import bisect
 import contextlib
 import json
 import sys
@@ -38,6 +37,7 @@ from event_schema import (
     EVENT_TYPE_SPRINT,
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
+    sessions_since_event,
 )
 from materialize import read_curation_watermark, write_curation_watermark
 from resolution import compute_resolutions
@@ -102,9 +102,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     continue
                 # Age-based: keep for _DECISION_MAX_AGE sessions
                 decision_ts = event.get("ts", "")
-                sessions_after = len(se_timestamps) - bisect.bisect_right(
-                    se_timestamps, decision_ts
-                )
+                sessions_after = sessions_since_event(se_timestamps, decision_ts)
                 if sessions_after < _DECISION_MAX_AGE:
                     referenced.add(eid)
             case "convention":
@@ -118,11 +116,9 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
             case "question":
                 if eid in resolutions["answered_question_ids"]:
                     continue
-                # Age-based: unanswered questions compact after 3 sessions
+                # Age-based: compact unanswered questions
                 q_ts = event.get("ts", "")
-                q_sessions = len(se_timestamps) - bisect.bisect_right(
-                    se_timestamps, q_ts
-                )
+                q_sessions = sessions_since_event(se_timestamps, q_ts)
                 if q_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case "customer_intent":
@@ -132,11 +128,9 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
             case "assumption":
                 if eid in resolutions["resolved_assumption_ids"]:
                     continue
-                # Age-based: unresolved assumptions compact after 3 sessions
+                # Age-based: compact unresolved assumptions
                 a_ts = event.get("ts", "")
-                a_sessions = len(se_timestamps) - bisect.bisect_right(
-                    se_timestamps, a_ts
-                )
+                a_sessions = sessions_since_event(se_timestamps, a_ts)
                 if a_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case "sprint":

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 import materialize
 from conftest import _SMMTestCase, make_event
+from event_schema import sessions_since_event
 
 # ===========================================================================
 # parse_jsonl — Shared JSONL parsing
@@ -245,6 +246,65 @@ class TestBuildIndices(_SMMTestCase):
         indices = materialize.build_indices([i1, i2, i3])
         self.assertEqual(len(indices["intent_by_status"]["open"]), 2)
         self.assertEqual(len(indices["intent_by_status"]["delivered"]), 1)
+
+
+# ===========================================================================
+# sessions_since_event — Session aging utility
+# ===========================================================================
+
+
+class TestSessionsSinceEvent(unittest.TestCase):
+    """Tests for the shared sessions_since_event utility."""
+
+    def test_no_sessions(self):
+        """Zero session_end timestamps → 0 sessions since any event."""
+
+        self.assertEqual(sessions_since_event([], "2026-03-01T00:00:00+00:00"), 0)
+
+    def test_event_before_all_sessions(self):
+        """Event predates all session_ends → count equals number of sessions."""
+
+        se_timestamps = [
+            "2026-03-02T00:00:00+00:00",
+            "2026-03-03T00:00:00+00:00",
+            "2026-03-04T00:00:00+00:00",
+        ]
+        result = sessions_since_event(se_timestamps, "2026-03-01T00:00:00+00:00")
+        self.assertEqual(result, 3)
+
+    def test_event_after_all_sessions(self):
+        """Event is newer than all session_ends → 0."""
+
+        se_timestamps = [
+            "2026-03-02T00:00:00+00:00",
+            "2026-03-03T00:00:00+00:00",
+        ]
+        result = sessions_since_event(se_timestamps, "2026-03-05T00:00:00+00:00")
+        self.assertEqual(result, 0)
+
+    def test_event_between_sessions(self):
+        """Event falls between session_ends → only counts sessions after it."""
+
+        se_timestamps = [
+            "2026-03-01T00:00:00+00:00",
+            "2026-03-03T00:00:00+00:00",
+            "2026-03-05T00:00:00+00:00",
+        ]
+        # Event at 03-02 is after first session_end but before second
+        result = sessions_since_event(se_timestamps, "2026-03-02T00:00:00+00:00")
+        self.assertEqual(result, 2)
+
+    def test_event_at_exact_session_end(self):
+        """Event timestamp equals a session_end → that session not counted."""
+
+        se_timestamps = [
+            "2026-03-01T00:00:00+00:00",
+            "2026-03-03T00:00:00+00:00",
+            "2026-03-05T00:00:00+00:00",
+        ]
+        # bisect_right puts equal values to the left → session at 03-03 not counted
+        result = sessions_since_event(se_timestamps, "2026-03-03T00:00:00+00:00")
+        self.assertEqual(result, 1)
 
 
 if __name__ == "__main__":
