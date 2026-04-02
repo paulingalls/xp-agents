@@ -298,14 +298,14 @@ Add sprint state detection to the deterministic hooks that run before and after 
 - If not, nudge: "No stories selected for this iteration"
 
 **Acceptance criteria:**
-- [ ] `session_start.py` writes `.needs-product-spec` marker when `product_spec.md` missing from SMM dir
-- [ ] `session_start.py` writes `.needs-sprint` marker when `sprint.md` missing or has no `ready`/`in-progress` stories
-- [ ] `session_start.py` does NOT create markers when both files exist with active stories
-- [ ] `session_start.py` clears `.accept` marker on session start (new iteration)
-- [ ] `kickoff_done.py` reads `sprint.md` after kickoff and nudges "No stories selected" when no `in-progress` stories
-- [ ] `kickoff_gate.py` reads markers and includes missing resource info in block message
-- [ ] Markers use atomic writes via `markers.py`, symlink-safe
-- [ ] Tests cover: marker creation/clearing for each file state, nudge messages, no-marker steady state
+- [x] `session_start.py` writes `.needs-product-spec` marker when `product_spec.md` missing from SMM dir
+- [x] `session_start.py` writes `.needs-sprint` marker when `sprint.md` missing or has no `ready`/`in-progress` stories
+- [x] `session_start.py` does NOT create markers when both files exist with active stories
+- [x] `session_start.py` clears `.accept` marker on session start (new iteration)
+- [x] `kickoff_done.py` reads `sprint.md` after kickoff and nudges "No stories selected" when no `in-progress` stories
+- [x] `kickoff_gate.py` reads markers and includes missing resource info in block message
+- [x] Markers use atomic writes via `markers.py`, symlink-safe
+- [x] Tests cover: marker creation/clearing for each file state, nudge messages, no-marker steady state
 
 **Depends on:** M7
 **Changes:** `session_start.py`, `kickoff_gate.py`, `kickoff_done.py`, `markers.py`, tests

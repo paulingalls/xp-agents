@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.10.0 — M7/M8a: Sprint Start Skill & Sprint State Detection
+
+### Added
+- **M7: `/xp-sprint-start` skill** — Conversation-driven sprint planning skill that decomposes product_spec.md features into user stories with IDs, sizes, dependencies, and acceptance criteria. Customer confirms scope before writing sprint.md.
+- **M7: `save_sprint.py`** — Atomic writer for sprint.md (stdin, symlink rejection, tempfile + rename).
+- **M7: Sprint preload** — `preload.sh` detects existing sprint state, deferred stories, and calculates next sprint ID.
+- **M8a: Sprint state detection** — `session_start.py` writes `.needs-product-spec` and `.needs-sprint` markers on startup when resources are missing. `.accept` marker cleared for new iterations.
+- **M8a: `sprint_state.py`** — Pure helper module for sprint/product_spec state detection (has_active_stories, has_in_progress_stories, read_sprint_content, product_spec_exists).
+- **M8a: Enhanced kickoff gate** — `kickoff_gate.py` block message now includes resource-specific guidance (product spec or sprint needed).
+- **M8a: Sprint validation nudge** — `kickoff_done.py` nudges when sprint.md exists but no stories are in-progress after kickoff.
+- **M8a: New markers** — `NEEDS_PRODUCT_SPEC`, `NEEDS_SPRINT`, `ACCEPT` marker definitions in `markers.py`.
+
+### Stats
+- 1145 tests (all passing)
+- M7 and M8a shipped — M8b (Sprint-Aware Kickoff) is next
+
 ## v1.9.0 — M5/M6: Sprint Events & Product Spec Skill
 
 ### Added
