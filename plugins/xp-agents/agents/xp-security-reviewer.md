@@ -25,7 +25,7 @@ This is a **built-in Claude Code command**. Invoke it as `security-review`, NOT 
 
 ## After the Review
 
-Record the result to the event log:
+Record the result to the event log using the `SMM_DIR` value from the preload output above:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \

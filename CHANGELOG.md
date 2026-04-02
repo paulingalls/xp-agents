@@ -1,9 +1,25 @@
 # Changelog
 
+## v1.5.13
+
+### Fixed
+- **Cross-worktree path normalization** — `normalize_path()` now resolves non-existent files correctly across git worktrees. On macOS, `normpath` doesn't resolve symlinks (`/var` vs `/private/var`), so prefix stripping against `realpath(git_root)` failed silently. Fix: walk up to the nearest existing ancestor, resolve its symlinks, and retry. This makes `.coordination.json` conflict detection work across worktrees.
+
+### Stats
+- 1069 tests (all passing)
+
 ## v1.5.12
 
 ### Added
 - **Security triage as forked subagent** — converted `/xp-security-triage` from inline skill to `context: fork` with a dedicated `xp-security-reviewer` agent. The subagent's sole job is to invoke `/security-review` — no classification needed since the commit gate already confirmed code files changed. Preload shows staged diffs, unstaged diffs, and new untracked files. Marker/flag flow unchanged — commit gate clears during preload as before.
+
+### Stats
+- 1062 tests (all passing)
+
+## v1.5.11
+
+### Added
+- **Security triage subagent conversion** — initial conversion of `/xp-security-triage` to forked subagent architecture (M4b). Renamed agent to `xp-security-reviewer` and simplified instructions in v1.5.12.
 
 ### Stats
 - 1062 tests (all passing)

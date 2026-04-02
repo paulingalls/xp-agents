@@ -301,7 +301,7 @@ def normalize_path(file_path: str, cwd: str) -> str:
             tail_parts: list[str] = []
             while cur and not os.path.exists(cur):
                 cur, tail = os.path.split(cur)
-                if not tail:
+                if not tail:  # reached root ("/", "") — stop
                     break
                 tail_parts.append(tail)
             if cur and os.path.exists(cur):
