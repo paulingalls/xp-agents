@@ -180,6 +180,16 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
             ["git", "init", str(self.tmpdir)], capture_output=True, check=True
         )
         subprocess.run(
+            ["git", "-C", str(self.tmpdir), "config", "user.email", "test@test.com"],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.tmpdir), "config", "user.name", "Test"],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
             ["git", "-C", str(self.tmpdir), "commit", "--allow-empty", "-m", "init"],
             capture_output=True,
             check=True,
