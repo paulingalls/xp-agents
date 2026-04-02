@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.13.0 — M9: Sprint Pillar in Housekeeping
+
+### Added
+- **M9: Sprint pillar in curated SMM** — Housekeeping now curates a Sprint section showing sprint goal, story counts by status, and blockers. Sprint appears first in the SMM for immediate visibility.
+- **M9: `sprint_parser.py`** — New `smm/` module that parses sprint.md into structured data (sprint_id, goal, started, stories_by_status, blockers). Used by `prepare_curation_data()`.
+- **M9: Sprint in curation preload** — `prepare_curation_data()` returns a `sprint` key alongside existing pillars. Missing/malformed sprint.md returns empty data gracefully.
+- **Session-end soft warning** — New `session_end_warning.py` Stop hook surfaces unresolved concerns and missing final status as `additionalContext` before session ends. Soft warning, not a block.
+- **Shared utilities** — `count_unresolved_concerns()` and `has_final_status()` extracted to `_common.py`, deduplicating `session_end.py`.
+
+### Fixed
+- **Triage coverage measurement** — `bash_post_tool.py` now adds `metadata.code_commit` to Committed events. Retrospective skips non-code commits (docs, config) when counting untriaged commits, fixing the false ~43% coverage gap in high-commit sessions.
+- **Premature marker consumption** — Removed `pre_tool_bash.py` lines that consumed `.security-triaged` marker for non-code commits before the commit succeeded. Marker consumption now happens exclusively in `bash_post_tool.py` after commit success.
+- **Integrity test coverage** — `test_plugin_integrity.py` now covers all 12 shipped skills via `_ALL_SKILL_NAMES` and `_CONTENT_SKILL_NAMES` constants.
+
+### Stats
+- 1215 tests (all passing)
+- M9 shipped — All 7 acceptance criteria met
+- 3 retro Try items addressed (triage root cause, session-end warning, integrity debt)
+
 ## v1.12.0 — M8c: Accept Skill + Gate
 
 ### Added
