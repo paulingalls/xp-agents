@@ -90,6 +90,44 @@ class TestBashPostTool(_HookTestCase):
         finally:
             settings_path.write_text(original)
 
+    def test_commit_code_files_has_code_commit_metadata(self):
+        """Committed event has metadata.code_commit=True when code files present."""
+        with patch(
+            "commits.get_committed_files",
+            return_value=["src/app.py", "tests/test_app.py"],
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Add feature'",
+                    stdout="[main abc123] Add feature\n 2 files changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        committed = [s for s in statuses if "Committed:" in s.get("content", "")]
+        self.assertEqual(len(committed), 1)
+        self.assertTrue(committed[0].get("metadata", {}).get("code_commit"))
+
+    def test_commit_no_code_files_has_code_commit_false(self):
+        """Committed event has metadata.code_commit=False for docs-only commits."""
+        with patch(
+            "commits.get_committed_files",
+            return_value=["README.md", "docs/guide.md"],
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Update docs'",
+                    stdout="[main abc123] Update docs\n 2 files changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        committed = [s for s in statuses if "Committed:" in s.get("content", "")]
+        self.assertEqual(len(committed), 1)
+        self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
+
     def test_commit_threshold_default(self):
         self.assertEqual(bash_post_tool.load_commit_threshold(), 10)
 

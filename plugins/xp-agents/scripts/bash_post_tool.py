@@ -92,17 +92,19 @@ def _handle_commit(
     committed_files: list[str] = []
     msg = commits.parse_commit_message(response_text)
     if msg:
+        committed_files = commits.get_committed_files(cwd)
+        has_code = any(security.is_code_file(f) for f in committed_files)
         status = _common.make_event(
             _common.STATUS,
             agent_id,
             f"Committed: {msg}",
             working_on=[],
+            metadata={"code_commit": has_code},
         )
         _common.append_safe(smm_dir, status)
 
         # Commit size check
         threshold = load_commit_threshold()
-        committed_files = commits.get_committed_files(cwd)
         file_count = len(committed_files)
         if file_count >= threshold:
             concern = _common.make_event(
