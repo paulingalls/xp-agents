@@ -6,9 +6,12 @@ set -euo pipefail
 source "$(dirname "$0")/../../_preload_base.sh"
 
 # Run prep script to build review input
-python3 "$(dirname "$0")/prepare_review_data.py" --smm-dir "$SMM_DIR"
+PREP_OUTPUT=$(python3 "$(dirname "$0")/prepare_review_data.py" --smm-dir "$SMM_DIR" 2>&1)
 
 echo "SMM_DIR=${SMM_DIR}"
-echo "REVIEW_INPUT=${SMM_DIR}/.sprint-review-input.json"
+# Only output REVIEW_INPUT if prep script produced data
+if echo "$PREP_OUTPUT" | grep -q "REVIEW_INPUT="; then
+    echo "$PREP_OUTPUT"
+fi
 echo ""
 dump_guide

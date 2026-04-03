@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for prepare_review_data.py and sprint_review_done.py hooks."""
+"""Tests for prepare_review_data.py, sprint_review_done.py, and preload."""
 
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -15,7 +17,7 @@ sys.path.insert(
     ),
 )
 
-from conftest import _HookTestCase, _make_skill_input
+from conftest import _HookTestCase, _IntegrationTestCase, _make_skill_input
 
 # ---------------------------------------------------------------------------
 # Sprint fixtures
@@ -351,6 +353,71 @@ class TestSprintReviewDone(_HookTestCase):
             smm_dir=Path("/nonexistent/path"),
         )
         self.assertIsNone(result)
+
+
+# ===========================================================================
+# preload.sh — Integration tests
+# ===========================================================================
+
+_PRELOAD_SCRIPT = (
+    Path(__file__).parent.parent.parent
+    / "skills"
+    / "xp-sprint-review"
+    / "scripts"
+    / "preload.sh"
+)
+
+
+class TestSprintReviewPreload(_IntegrationTestCase):
+    """M11: preload.sh runs prepare_review_data and outputs paths."""
+
+    def _run_preload(self) -> subprocess.CompletedProcess:
+        """Run preload.sh as a subprocess."""
+        if not _PRELOAD_SCRIPT.is_file():
+            self.skipTest("preload.sh not yet created")
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+        return subprocess.run(
+            ["bash", str(_PRELOAD_SCRIPT)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_preload_outputs_smm_dir(self):
+        """Preload output includes SMM_DIR= line."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SMM_DIR=", result.stdout)
+
+    def test_preload_outputs_review_input(self):
+        """Preload output includes REVIEW_INPUT= line."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("REVIEW_INPUT=", result.stdout)
+
+    def test_preload_no_sprint_graceful(self):
+        """No sprint.md -> exits 0, no REVIEW_INPUT."""
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_INPUT=", result.stdout)
+
+    def test_preload_includes_behavioral_guide(self):
+        """Preload output includes behavioral guide section."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Behavioral Guide", result.stdout)
+
+    def test_preload_creates_review_input_file(self):
+        """Preload creates .sprint-review-input.json in SMM dir."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.smm_dir / ".sprint-review-input.json").exists())
 
 
 if __name__ == "__main__":
