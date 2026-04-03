@@ -379,5 +379,71 @@ class TestCompactLog(_HookTestCase):
         self.assertIn("retained", result.stdout)
 
 
+class TestSaveRetrospectiveParams(_HookTestCase):
+    """M12: parameterized agent, prefix, and cleanup file."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir(exist_ok=True)
+
+    def _valid_kft(self) -> dict:
+        return {
+            "keep": [{"content": "Good"}],
+            "fix": [],
+            "try": [],
+        }
+
+    def test_custom_agent_id(self):
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            agent_id="xp-sprint-retro",
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro["agent_id"], "xp-sprint-retro")
+
+    def test_custom_prefix(self):
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            prefix="Sprint retrospective",
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertIn("Sprint retrospective", retro["content"])
+
+    def test_custom_cleanup_file(self):
+        import save_retrospective
+
+        cleanup = self.smm_dir / ".sprint-retro-input.json"
+        cleanup.write_text("{}")
+        save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            cleanup_file=".sprint-retro-input.json",
+        )
+        self.assertFalse(cleanup.exists())
+
+    def test_defaults_unchanged(self):
+        """Default agent_id and prefix match existing session retro behavior."""
+        import save_retrospective
+
+        (self.smm_dir / ".retro-input.json").write_text("{}")
+        result = save_retrospective.run(self._valid_kft(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro["agent_id"], "xp-retrospective")
+        self.assertIn("Session retrospective", retro["content"])
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,8 @@
 """Tests for prepare_sprint_retro_data.py and preload."""
 
 import json
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -14,7 +16,7 @@ sys.path.insert(
     str(Path(__file__).parent.parent.parent / "skills" / "xp-sprint-retro" / "scripts"),
 )
 
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _IntegrationTestCase
 
 # ---------------------------------------------------------------------------
 # Sprint fixture
@@ -202,6 +204,59 @@ class TestPrepareSprintRetroData(_HookTestCase):
         result = prepare_sprint_retro_data.run(self.smm_dir)
         timestamps = [r["timestamp"] for r in result["session_retros"]]
         self.assertEqual(timestamps, sorted(timestamps))
+
+
+# ===========================================================================
+# preload.sh — Integration tests
+# ===========================================================================
+
+_PRELOAD_SCRIPT = (
+    Path(__file__).parent.parent.parent
+    / "skills"
+    / "xp-sprint-retro"
+    / "scripts"
+    / "preload.sh"
+)
+
+
+class TestSprintRetroPreload(_IntegrationTestCase):
+    """M12: preload.sh runs prepare_sprint_retro_data and outputs paths."""
+
+    def _run_preload(self) -> subprocess.CompletedProcess:
+        if not _PRELOAD_SCRIPT.is_file():
+            self.skipTest("preload.sh not yet created")
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+        return subprocess.run(
+            ["bash", str(_PRELOAD_SCRIPT)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_preload_outputs_smm_dir(self):
+        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SMM_DIR=", result.stdout)
+
+    def test_preload_outputs_retro_input(self):
+        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RETRO_INPUT=", result.stdout)
+
+    def test_preload_no_sprint_graceful(self):
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("RETRO_INPUT=", result.stdout)
+
+    def test_preload_includes_behavioral_guide(self):
+        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Behavioral Guide", result.stdout)
 
 
 if __name__ == "__main__":

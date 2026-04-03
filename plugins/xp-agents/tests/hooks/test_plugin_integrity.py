@@ -18,6 +18,7 @@ _SUBAGENT_NAMES = (
     "xp-plan-reviewer",
     "xp-retrospective",
     "xp-security-reviewer",
+    "xp-sprint-retro",
     "xp-sprint-reviewer",
 )
 
@@ -33,6 +34,7 @@ _ALL_SKILL_NAMES = (
     "xp-run-retrospective",
     "xp-security-triage",
     "xp-smm-protocol",
+    "xp-sprint-retro",
     "xp-sprint-review",
     "xp-sprint-start",
 )

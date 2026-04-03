@@ -19,12 +19,22 @@ import _append_impl
 import _common
 
 
-def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | None:
+def run(
+    kft_data: dict | None,
+    smm_dir: Path | None = None,
+    *,
+    agent_id: str = "xp-retrospective",
+    prefix: str = "Session retrospective",
+    cleanup_file: str = ".retro-input.json",
+) -> dict[str, str] | None:
     """Save retrospective analysis to event log and file.
 
     Args:
         kft_data: Keep/Fix/Try analysis dict with keep/fix/try arrays.
         smm_dir: SMM directory (auto-resolved if None).
+        agent_id: Agent ID for the event (default: session retro agent).
+        prefix: Content prefix (default: "Session retrospective").
+        cleanup_file: Input file to clean up after save.
 
     Returns:
         Dict with event_id and retro_file on success, None on failure.
@@ -52,13 +62,10 @@ def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | 
     keep_count = len(kft_data.get("keep", []))
     fix_count = len(kft_data.get("fix", []))
     try_count = len(kft_data.get("try", []))
-    content = (
-        f"Session retrospective: "
-        f"{keep_count} keeps, {fix_count} fixes, {try_count} tries"
-    )
+    content = f"{prefix}: {keep_count} keeps, {fix_count} fixes, {try_count} tries"
 
     # Build retrospective event
-    event = _common.make_event("retrospective", "xp-retrospective", content)
+    event = _common.make_event("retrospective", agent_id, content)
     if kft_data.get("keep"):
         event["keep"] = kft_data["keep"]
     if kft_data.get("fix"):
@@ -95,7 +102,7 @@ def run(kft_data: dict | None, smm_dir: Path | None = None) -> dict[str, str] | 
     _common.write_json_atomic(retro_file, file_data)
 
     # Clean up retro input — it's been consumed
-    (smm_dir / ".retro-input.json").unlink(missing_ok=True)
+    (smm_dir / cleanup_file).unlink(missing_ok=True)
 
     return {"event_id": event["id"], "retro_file": str(retro_file)}
 
@@ -110,6 +117,21 @@ def main() -> None:
         type=Path,
         help="SMM directory (auto-resolved from CLAUDE_PLUGIN_DATA if omitted)",
     )
+    parser.add_argument(
+        "--agent",
+        default="xp-retrospective",
+        help="Agent ID for the event (default: xp-retrospective)",
+    )
+    parser.add_argument(
+        "--prefix",
+        default="Session retrospective",
+        help="Content prefix (default: Session retrospective)",
+    )
+    parser.add_argument(
+        "--cleanup-file",
+        default=".retro-input.json",
+        help="Input file to clean up after save",
+    )
     args = parser.parse_args()
 
     try:
@@ -119,7 +141,13 @@ def main() -> None:
         sys.exit(1)
 
     smm_dir = args.smm_dir if args.smm_dir else None
-    result = run(kft_data, smm_dir=smm_dir)
+    result = run(
+        kft_data,
+        smm_dir=smm_dir,
+        agent_id=args.agent,
+        prefix=args.prefix,
+        cleanup_file=args.cleanup_file,
+    )
     if result is None:
         sys.exit(1)
 
