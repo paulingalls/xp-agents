@@ -15,9 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 _SUBAGENT_NAMES = (
-    "xp-retrospective",
     "xp-plan-reviewer",
+    "xp-retrospective",
     "xp-security-reviewer",
+    "xp-sprint-reviewer",
 )
 
 _ALL_SKILL_NAMES = (
@@ -32,6 +33,7 @@ _ALL_SKILL_NAMES = (
     "xp-run-retrospective",
     "xp-security-triage",
     "xp-smm-protocol",
+    "xp-sprint-review",
     "xp-sprint-start",
 )
 
@@ -335,6 +337,12 @@ class TestPluginIntegrity(unittest.TestCase):
         hooks_path = self.plugin_root / "hooks" / "hooks.json"
         content = hooks_path.read_text()
         self.assertIn("accept_done.py", content)
+
+    def test_hooks_json_has_sprint_review_done(self):
+        """M11: hooks.json PostToolUse Skill must include sprint_review_done.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("sprint_review_done.py", content)
 
     def test_no_requirements_or_pyproject(self):
         """No requirements.txt or pyproject.toml with dependencies."""
