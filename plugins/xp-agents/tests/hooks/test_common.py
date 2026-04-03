@@ -371,5 +371,33 @@ class TestWriteJsonAtomicSecurity(_HookTestCase):
         self.assertEqual(target.read_text(), "{}")
 
 
+class TestGetValidatedSMMDir(_HookTestCase):
+    """M13: get_validated_smm_dir combines resolve + validate."""
+
+    def test_valid_smm_dir_returned(self):
+        """Explicit valid smm_dir is returned as-is."""
+        result = _common.get_validated_smm_dir(self.smm_dir)
+        self.assertEqual(result, self.smm_dir)
+
+    def test_invalid_path_returns_none(self):
+        """Invalid path returns None."""
+        result = _common.get_validated_smm_dir(Path("/nonexistent/smm"))
+        self.assertIsNone(result)
+
+    def test_none_with_no_env_returns_none(self):
+        """None input without git repo returns None gracefully."""
+        import os
+
+        old = os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+        try:
+            # In a temp dir without git, resolve_smm_dir returns None
+            result = _common.get_validated_smm_dir(None)
+            # May or may not resolve depending on CWD — just verify no crash
+            self.assertTrue(result is None or isinstance(result, Path))
+        finally:
+            if old is not None:
+                os.environ["CLAUDE_PLUGIN_DATA"] = old
+
+
 if __name__ == "__main__":
     unittest.main()

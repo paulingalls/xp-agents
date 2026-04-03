@@ -244,6 +244,17 @@ def try_validate_smm_dir(smm_dir: Path | None) -> Path | None:
         return None
 
 
+def get_validated_smm_dir(smm_dir: Path | None = None) -> Path | None:
+    """Resolve and validate SMM directory in one call.
+
+    Combines resolve_smm_dir() + try_validate_smm_dir() to replace
+    the 3-line boilerplate pattern used in 24+ hook scripts.
+    """
+    if smm_dir is None:
+        smm_dir = resolve_smm_dir()
+    return try_validate_smm_dir(smm_dir)
+
+
 _git_root_cache: dict[str, str | None] = {}
 
 
