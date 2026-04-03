@@ -153,6 +153,32 @@ def _make_stop_input(**overrides) -> dict:
     return data
 
 
+def _make_teammate_idle_input(**overrides) -> dict:
+    """Build a canonical TeammateIdle hook input dict."""
+    data = {
+        "session_id": "t",
+        "teammate_name": "worker-1",
+        "team_name": "test-team",
+        "permission_mode": "bypassPermissions",
+    }
+    data.update(overrides)
+    return data
+
+
+def _make_task_completed_input(**overrides) -> dict:
+    """Build a canonical TaskCompleted hook input dict."""
+    data = {
+        "session_id": "t",
+        "task_id": "task-1",
+        "task_subject": "Implement feature",
+        "task_description": "Build the thing",
+        "teammate_name": "worker-1",
+        "team_name": "test-team",
+    }
+    data.update(overrides)
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Integration test base
 # ---------------------------------------------------------------------------

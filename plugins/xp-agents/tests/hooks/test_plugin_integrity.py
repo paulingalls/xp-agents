@@ -346,6 +346,20 @@ class TestPluginIntegrity(unittest.TestCase):
         content = hooks_path.read_text()
         self.assertIn("sprint_review_done.py", content)
 
+    def test_hooks_json_has_teammate_idle(self):
+        """M13: hooks.json TeammateIdle must include teammate_idle.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("teammate_idle.py", content)
+        self.assertIn("TeammateIdle", content)
+
+    def test_hooks_json_has_task_completed(self):
+        """M13: hooks.json TaskCompleted must include task_completed.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("task_completed.py", content)
+        self.assertIn("TaskCompleted", content)
+
     def test_no_requirements_or_pyproject(self):
         """No requirements.txt or pyproject.toml with dependencies."""
         for name in ("requirements.txt", "pyproject.toml"):
