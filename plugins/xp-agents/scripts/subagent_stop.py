@@ -39,9 +39,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core SubagentStop logic. Returns context or raises BlockedError."""
     # Review cycle flags must run before is_xp_agent skip because
     # xp-quality-review starts with "xp-" but still needs flag set.
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is not None:
         _update_review_cycle_flags(smm_dir, input_data)
 

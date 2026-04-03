@@ -34,9 +34,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if skill_name not in _ACCEPT_NAMES:
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
