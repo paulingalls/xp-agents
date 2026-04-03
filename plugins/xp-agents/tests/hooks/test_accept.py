@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _make_stop_input, make_event
+from conftest import _HookTestCase, _make_skill_input, _make_stop_input, make_event
 
 SPRINT_IN_PROGRESS = """\
 # Sprint: Build auth
@@ -130,18 +130,6 @@ class TestAcceptGate(_HookTestCase):
 # ===========================================================================
 
 
-def _make_skill_input(skill: str = "xp-accept", **overrides) -> dict:
-    """Build a canonical Skill tool hook input dict for accept tests."""
-    data = {
-        "session_id": "t",
-        "tool_name": "Skill",
-        "tool_input": {"skill": skill},
-        "agent_id": "main",
-    }
-    data.update(overrides)
-    return data
-
-
 class TestAcceptDone(_HookTestCase):
     """M8c: accept_done sets marker and detects sprint completion."""
 
@@ -167,7 +155,7 @@ class TestAcceptDone(_HookTestCase):
         import accept_done
 
         self._write_events([make_event()])
-        accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
         self.assertTrue((self.smm_dir / ".accept").exists())
 
     def test_qualified_skill_name(self):
@@ -185,7 +173,7 @@ class TestAcceptDone(_HookTestCase):
 
         self._write_events([make_event()])
         (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
-        result = accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("sprint-review", result.lower())
 
@@ -194,7 +182,7 @@ class TestAcceptDone(_HookTestCase):
 
         self._write_events([make_event()])
         (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        result = accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
         # Should return something (confirmation) but NOT mention sprint-review
         if result:
             self.assertNotIn("sprint-review", result.lower())
@@ -203,7 +191,7 @@ class TestAcceptDone(_HookTestCase):
         import accept_done
 
         self._write_events([make_event()])
-        result = accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
         if result:
             self.assertNotIn("sprint-review", result.lower())
 
@@ -211,7 +199,7 @@ class TestAcceptDone(_HookTestCase):
         import accept_done
 
         self._write_events([make_event()])
-        accept_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
         events = self._read_events()
         accept_events = [e for e in events if "accept" in e.get("content", "").lower()]
         self.assertGreater(len(accept_events), 0)

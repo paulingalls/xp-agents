@@ -106,6 +106,21 @@ def parse_sprint_data(content: str | None) -> dict[str, Any]:
     return result
 
 
+def compute_velocity(sprint_data: dict[str, Any]) -> dict[str, int]:
+    """Compute velocity metrics from parsed sprint data.
+
+    Returns dict with stories_planned, stories_delivered, stories_carried.
+    """
+    sbs = sprint_data["stories_by_status"]
+    return {
+        "stories_planned": (
+            sbs["ready"] + sbs["in_progress"] + sbs["done"] + sbs["deferred"]
+        ),
+        "stories_delivered": sbs["done"],
+        "stories_carried": sbs["deferred"],
+    }
+
+
 def extract_story_sections(content: str | None, story_ids: list[str]) -> str:
     """Extract specific story sections from sprint.md by story ID.
 

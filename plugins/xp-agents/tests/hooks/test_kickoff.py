@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, _make_skill_input, make_event
 
 # ===========================================================================
 # kickoff_gate.py tests
@@ -206,32 +206,26 @@ class TestKickoffGateSprintInfo(_HookTestCase):
 import kickoff_done  # noqa: E402
 
 
-def _make_skill_input(skill: str = "xp-housekeeping", **overrides) -> dict:
-    """Build a canonical Skill tool hook input dict."""
-    data = {
-        "session_id": "t",
-        "tool_name": "Skill",
-        "tool_input": {"skill": skill},
-        "agent_id": "main",
-    }
-    data.update(overrides)
-    return data
-
-
 class TestKickoffDone(_HookTestCase):
     """PostToolUse:Skill hook injects SMM + behavioral guide after kickoff."""
 
     def test_injects_smm_on_housekeeping(self):
         """Should inject materialized SMM after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
         self.assertIn("Shared Mental Model", result)
 
     def test_injects_behavioral_guide(self):
         """Should inject BEHAVIORAL_GUIDE.md after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
         self.assertIn("XP Agent Behavioral Guide", result)
 
@@ -253,7 +247,10 @@ class TestKickoffDone(_HookTestCase):
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
             "# Shared Mental Model\n## Intent\n- Ship v1\n"
         )
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
         self.assertIn("XP Agent Behavioral Guide", result)
         self.assertNotIn("<smm-context>", result)
@@ -263,7 +260,10 @@ class TestKickoffDone(_HookTestCase):
         marker = self.smm_dir / ".needs-kickoff"
         marker.touch()
         self._write_events([make_event("goal", content="Ship v1")])
-        kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertFalse(marker.exists())
 
 
@@ -294,20 +294,29 @@ class TestKickoffDoneSprintNudge(_HookTestCase):
     def test_nudges_when_no_in_progress_stories(self):
         self._write_events([make_event("goal", content="Ship v1")])
         (self.smm_dir / "sprint.md").write_text(_SPRINT_READY_ONLY)
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
         self.assertIn("No stories marked", result)
 
     def test_no_nudge_when_in_progress_exists(self):
         self._write_events([make_event("goal", content="Ship v1")])
         (self.smm_dir / "sprint.md").write_text(_SPRINT_IN_PROGRESS)
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
         self.assertNotIn("No stories marked", result)
 
     def test_no_nudge_when_no_sprint_file(self):
         self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNotNone(result)
         self.assertNotIn("No stories marked", result)
 
@@ -315,14 +324,20 @@ class TestKickoffDoneSprintNudge(_HookTestCase):
         self._write_events([make_event("goal", content="Ship v1")])
         (self.smm_dir / ".needs-product-spec").write_text("startup")
         (self.smm_dir / ".needs-sprint").write_text("startup")
-        kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
         self.assertFalse((self.smm_dir / ".needs-sprint").exists())
 
     def test_nudge_appended_to_guide(self):
         self._write_events([make_event("goal", content="Ship v1")])
         (self.smm_dir / "sprint.md").write_text(_SPRINT_READY_ONLY)
-        result = kickoff_done.run(_make_skill_input(), smm_dir=self.smm_dir)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
         self.assertIn("XP Agent Behavioral Guide", result)
         self.assertIn("No stories marked", result)
 
