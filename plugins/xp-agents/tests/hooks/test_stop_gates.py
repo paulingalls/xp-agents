@@ -287,5 +287,64 @@ class TestSessionEndWarning(_HookTestCase):
         self.assertIn("session-end status", result.lower())
 
 
+# ===========================================================================
+# Shared TDD check (tdd_check.py)
+# ===========================================================================
+
+
+class TestFindLastTestSignal(_HookTestCase):
+    """M13: shared find_last_test_signal extracted from tdd_stop_gate."""
+
+    def test_pass_event(self):
+        """Returns 'pass' for passing test status event."""
+        from tdd_check import find_last_test_signal
+
+        events = [make_event("status", content="Tests: 5 passed, 0 failed (pytest)")]
+        self.assertEqual(find_last_test_signal(events), "pass")
+
+    def test_fail_event(self):
+        """Returns 'fail' for unresolved test failure concern."""
+        from tdd_check import find_last_test_signal
+
+        events = [
+            make_event(
+                "concern",
+                content="Test failures detected: 2 failed (pytest)",
+                severity="high",
+            )
+        ]
+        self.assertEqual(find_last_test_signal(events), "fail")
+
+    def test_resolved_concern_skipped(self):
+        """Resolved test failure does not return 'fail'."""
+        from tdd_check import find_last_test_signal
+
+        fail = make_event(
+            "concern",
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        resolution = make_event(
+            "status",
+            content="Resolved",
+            working_on=[],
+            metadata={"resolves": [fail["id"]]},
+        )
+        self.assertIsNone(find_last_test_signal([fail, resolution]))
+
+    def test_no_events(self):
+        """Returns None for empty event list."""
+        from tdd_check import find_last_test_signal
+
+        self.assertIsNone(find_last_test_signal([]))
+
+    def test_fallback_pass_format(self):
+        """'Tests passed' fallback format recognized."""
+        from tdd_check import find_last_test_signal
+
+        events = [make_event("status", content="Tests passed (unittest)")]
+        self.assertEqual(find_last_test_signal(events), "pass")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -455,15 +455,15 @@ Update SubagentStart to inject sprint context by role. Also update the plan revi
 - Same tiering logic applies: lead gets full sprint.md, lightweight agents get nothing
 
 **Acceptance criteria:**
-- [ ] `subagent_start.py` tiering refactored into clean dispatch (dict or named functions), `run()` ≤80 lines
-- [ ] Simplify/lint subagents receive SMM only (unchanged)
-- [ ] Plan reviewer receives SMM + `sprint.md` (when it exists)
-- [ ] Teammates receive SMM + their assigned stories only (filtered from `sprint.md`)
-- [ ] Retrospective receives SMM + `sprint.md`
-- [ ] Missing `sprint.md` degrades gracefully — inject SMM only, no error
-- [ ] Plan reviewer instructions updated to recommend execution mode (solo/subagent/Agent Team) based on parallelization analysis
-- [ ] PostCompact hook reinjects `sprint.md` alongside curated SMM
-- [ ] Tests cover: each tier (4+ agent types), missing sprint.md, plan reviewer execution mode output
+- [x] `subagent_start.py` tiering refactored into clean dispatch (dict or named functions), `run()` ≤80 lines
+- [x] Simplify/lint subagents receive SMM only (unchanged)
+- [x] Plan reviewer receives SMM + `sprint.md` (when it exists)
+- [x] Teammates receive SMM + their assigned stories only (filtered from `sprint.md`)
+- [x] Retrospective receives SMM + `sprint.md`
+- [x] Missing `sprint.md` degrades gracefully — inject SMM only, no error
+- [x] Plan reviewer instructions updated to recommend execution mode (solo/subagent/Agent Team) based on parallelization analysis
+- [x] PostCompact hook reinjects `sprint.md` alongside curated SMM
+- [x] Tests cover: each tier (4+ agent types), missing sprint.md, plan reviewer execution mode output
 
 **Depends on:** M7
 **Changes:** `subagent_start.py`, `agents/xp-plan-reviewer.md`, PostCompact hook, tests
@@ -494,14 +494,14 @@ Design and implement the forked skill that runs at sprint end.
 Subagent writes when judgment is needed (mapping stories → features). Hook handles mechanical bookkeeping (events, markers, nudges).
 
 **Acceptance criteria:**
-- [ ] Preload parses `sprint.md` (stories by status) and `product_spec.md` (features → stories mapping), computes velocity stats
-- [ ] Subagent maps completed stories to product spec features and updates `product_spec.md` with `[delivered: sprint-XXX]` markers
-- [ ] Already-delivered features (`[delivered: sprint-YYY]`) are not modified
-- [ ] `sprint_review_done.py` (PostToolUse:Skill) recomputes velocity from `sprint.md` and writes sprint end event (type: `sprint`, `action: "end"`, velocity metadata)
-- [ ] Sprint end event uses `EVENT_TYPE_SPRINT` constant and passes `validate_event()`
-- [ ] Hook nudges `/xp-sprint-retro` after sprint review completes
-- [ ] Missing `sprint.md` or `product_spec.md` handled gracefully in preload
-- [ ] Tests cover: preload parsing, product_spec updates, velocity computation, event recording, nudge
+- [x] Preload parses `sprint.md` (stories by status) and `product_spec.md` (features → stories mapping), computes velocity stats
+- [x] Subagent maps completed stories to product spec features and updates `product_spec.md` with `[delivered: sprint-XXX]` markers
+- [x] Already-delivered features (`[delivered: sprint-YYY]`) are not modified
+- [x] `sprint_review_done.py` (PostToolUse:Skill) recomputes velocity from `sprint.md` and writes sprint end event (type: `sprint`, `action: "end"`, velocity metadata)
+- [x] Sprint end event uses `EVENT_TYPE_SPRINT` constant and passes `validate_event()`
+- [x] Hook nudges `/xp-sprint-retro` after sprint review completes
+- [x] Missing `sprint.md` or `product_spec.md` handled gracefully in preload
+- [x] Tests cover: preload parsing, product_spec updates, velocity computation, event recording, nudge
 
 **Depends on:** M6, M7
 **Changes:** new skill (`skills/xp-sprint-review/SKILL.md`), new agent (`agents/xp-sprint-reviewer.md`), new `sprint_review_done.py` hook, preload script, tests
@@ -525,14 +525,14 @@ Design and implement the forked cross-iteration retrospective (same pattern as e
 - Produces and saves Keep/Fix/Try at the sprint level (same Write pattern as session retro subagent)
 
 **Acceptance criteria:**
-- [ ] Preload collects all session retros from `retrospectives/` directory for the current sprint
-- [ ] Preload computes velocity from sprint events (stories planned/delivered/carried) and parses `sprint.md` for story completion and sizing data
-- [ ] Preload output is deterministic (no judgment) — structured JSON with `session_retros`, `velocity_stats`, `story_data`, `sprint_metadata`
-- [ ] Subagent analyzes cross-iteration patterns, T-shirt sizing accuracy, and process improvements
-- [ ] Subagent produces sprint-level Keep/Fix/Try (not session-level detail)
-- [ ] Output saved via `save_retrospective.py` pattern — timestamped JSON in `retrospectives/`, event in `events.jsonl`
-- [ ] Handles missing/incomplete data gracefully (no retros, no sprint events, missing sprint.md)
-- [ ] Tests cover: preload data collection, velocity computation, sizing analysis, saved output format
+- [x] Preload collects all session retros from `retrospectives/` directory for the current sprint
+- [x] Preload computes velocity from sprint events (stories planned/delivered/carried) and parses `sprint.md` for story completion and sizing data
+- [x] Preload output is deterministic (no judgment) — structured JSON with `session_retros`, `velocity_stats`, `story_data`, `sprint_metadata`
+- [x] Subagent analyzes cross-iteration patterns, T-shirt sizing accuracy, and process improvements
+- [x] Subagent produces sprint-level Keep/Fix/Try (not session-level detail)
+- [x] Output saved via `save_retrospective.py` pattern — timestamped JSON in `retrospectives/`, event in `events.jsonl`
+- [x] Handles missing/incomplete data gracefully (no retros, no sprint events, missing sprint.md)
+- [x] Tests cover: preload data collection, velocity computation, sizing analysis, saved output format
 
 **Depends on:** M7
 **Changes:** new skill (`skills/xp-sprint-retro/SKILL.md`), new agent (`agents/xp-sprint-retro.md`), preload script, tests
