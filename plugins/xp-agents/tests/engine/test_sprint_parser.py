@@ -76,6 +76,7 @@ _EMPTY_SPRINT = {
         "deferred": 0,
     },
     "blockers": [],
+    "stories": [],
 }
 
 
@@ -141,6 +142,68 @@ class TestParseSprintData(unittest.TestCase):
         # story-004 blocked by story-002 (in-progress)
         # story-005 blocked by story-003 (ready, not done)
         self.assertGreaterEqual(len(result["blockers"]), 2)
+
+
+class TestParseStoryData(unittest.TestCase):
+    """M12: per-story data with sizes."""
+
+    def test_stories_list_populated(self):
+        """parse result includes stories list with correct count."""
+        result = parse_sprint_data(_SAMPLE_SPRINT)
+        self.assertEqual(len(result["stories"]), 5)
+
+    def test_story_size_parsed(self):
+        """Each story has correct size."""
+        result = parse_sprint_data(_SAMPLE_SPRINT)
+        sizes = {s["id"]: s["size"] for s in result["stories"]}
+        self.assertEqual(sizes["story-001"], "M")
+        self.assertEqual(sizes["story-003"], "S")
+        self.assertEqual(sizes["story-005"], "S")
+
+    def test_story_status_in_list(self):
+        """Each story has correct status."""
+        result = parse_sprint_data(_SAMPLE_SPRINT)
+        statuses = {s["id"]: s["status"] for s in result["stories"]}
+        self.assertEqual(statuses["story-001"], "done")
+        self.assertEqual(statuses["story-002"], "in-progress")
+        self.assertEqual(statuses["story-003"], "ready")
+        self.assertEqual(statuses["story-005"], "deferred")
+
+    def test_story_title_parsed(self):
+        """Title extracted from header."""
+        result = parse_sprint_data(_SAMPLE_SPRINT)
+        titles = {s["id"]: s["title"] for s in result["stories"]}
+        self.assertEqual(
+            titles["story-001"],
+            "As a user I can register with email/password",
+        )
+        self.assertEqual(
+            titles["story-003"],
+            "As an admin I can list all users",
+        )
+
+    def test_empty_sprint_has_empty_stories(self):
+        """_empty_sprint() returns stories: []."""
+        result = parse_sprint_data(None)
+        self.assertEqual(result["stories"], [])
+
+    def test_missing_size_defaults_empty(self):
+        """Story without Size line gets size=''."""
+        content = """\
+# Sprint: Test
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-15
+
+## Stories
+
+### story-001: No size story
+- **Status:** ready
+- **Dependencies:** none
+"""
+        result = parse_sprint_data(content)
+        self.assertEqual(len(result["stories"]), 1)
+        self.assertEqual(result["stories"][0]["size"], "")
 
 
 class TestExtractStorySections(unittest.TestCase):

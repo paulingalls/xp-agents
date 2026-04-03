@@ -15,6 +15,8 @@ _STARTED_RE = re.compile(r"\*\*Started:\*\*\s*(\S+)")
 _STORY_HEADER_RE = re.compile(r"^### (story-\d+):", re.MULTILINE)
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(ready|in-progress|done|deferred)")
 _DEPS_RE = re.compile(r"\*\*Dependencies:\*\*\s*(.+)")
+_SIZE_RE = re.compile(r"\*\*Size:\*\*\s*(S|M|L)")
+_TITLE_RE = re.compile(r"^### story-\d+:\s*(.+)$", re.MULTILINE)
 
 _STATUS_KEY_MAP = {
     "ready": "ready",
@@ -37,6 +39,7 @@ def _empty_sprint() -> dict[str, Any]:
             "deferred": 0,
         },
         "blockers": [],
+        "stories": [],
     }
 
 
@@ -80,6 +83,7 @@ def parse_sprint_data(content: str | None) -> dict[str, Any]:
         end = story_starts[i + 1].start() if i + 1 < len(story_starts) else len(content)
         section = content[start:end]
 
+        raw_status = ""
         status_m = _STATUS_RE.search(section)
         if status_m:
             raw_status = status_m.group(1)
@@ -94,6 +98,18 @@ def parse_sprint_data(content: str | None) -> dict[str, Any]:
             if deps_text and deps_text.lower() != "none":
                 dep_ids = [d.strip() for d in deps_text.split(",")]
                 story_deps[story_id] = dep_ids
+
+        # Per-story data with size and title
+        size_m = _SIZE_RE.search(section)
+        title_m = _TITLE_RE.search(section)
+        result["stories"].append(
+            {
+                "id": story_id,
+                "title": title_m.group(1).strip() if title_m else "",
+                "status": raw_status,
+                "size": size_m.group(1) if size_m else "",
+            }
+        )
 
     for story_id, deps in story_deps.items():
         for dep_id in deps:
