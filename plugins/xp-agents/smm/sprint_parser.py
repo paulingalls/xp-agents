@@ -104,3 +104,30 @@ def parse_sprint_data(content: str | None) -> dict[str, Any]:
                 )
 
     return result
+
+
+def extract_story_sections(content: str | None, story_ids: list[str]) -> str:
+    """Extract specific story sections from sprint.md by story ID.
+
+    Returns the matching story sections as markdown text, or empty string
+    if no matches found. Used by teammate tier to inject only assigned stories.
+    """
+    if not content or not story_ids:
+        return ""
+
+    wanted = set(story_ids)
+    story_starts = list(_STORY_HEADER_RE.finditer(content))
+    if not story_starts:
+        return ""
+
+    parts: list[str] = []
+    for i, match in enumerate(story_starts):
+        if match.group(1) in wanted:
+            start = match.start()
+            if i + 1 < len(story_starts):
+                end = story_starts[i + 1].start()
+            else:
+                end = len(content)
+            parts.append(content[start:end].rstrip())
+
+    return "\n\n".join(parts)

@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection based on agent type:
+Tiered injection via dispatch table (M10):
 - Explore: Intent + Constraints pillars only (~200 tokens)
-- Plan/general-purpose/background: Full SMM + behavioral guide (~1000 tokens)
-- xp-* agents: skipped (use own preloads)
+- xp-plan-reviewer / xp-retrospective: Full SMM + sprint.md
+- Teammate (assigned_stories in metadata): Full SMM + filtered stories
+- Default (Plan/general-purpose/background): Full SMM + behavioral guide
+- Other xp-* agents: skipped (use own preloads)
+
+Note: The is_xp_agent() early return used in other hooks is replaced here
+by the dispatch table. xp-* agents not in _DISPATCH return None. Do NOT
+copy this pattern to other hooks — they still need the universal guard.
 """
 
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import sprint_state
+from sprint_parser import extract_story_sections
 
 # ---------------------------------------------------------------------------
 # SMM section extraction for Explore agents
@@ -42,15 +51,78 @@ def _extract_pillars(smm_content: str, pillars: set[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Injection functions (one per tier)
+# ---------------------------------------------------------------------------
+
+
+def _inject_explore(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+    """Explore: Intent + Constraints only, no guide."""
+    if not smm:
+        return []
+    extracted = _extract_pillars(smm, {"Intent", "Constraints"})
+    return [_common.wrap_smm_context(extracted)] if extracted else []
+
+
+def _inject_full(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+    """Default: full SMM + behavioral guide."""
+    parts: list[str] = []
+    if smm:
+        parts.append(_common.wrap_smm_context(smm))
+    guide = _common.load_behavioral_guide()
+    if guide:
+        parts.append(guide)
+    return parts
+
+
+def _inject_with_sprint(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+    """Plan reviewer / retrospective: full SMM + sprint.md."""
+    parts = _inject_full(smm, smm_dir, input_data)
+    sprint_content = sprint_state.read_sprint_content(smm_dir)
+    if sprint_content:
+        parts.append(sprint_content)
+    return parts
+
+
+def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+    """Teammate: full SMM + filtered stories from sprint.md."""
+    parts = _inject_full(smm, smm_dir, input_data)
+    story_ids = input_data.get("metadata", {}).get("assigned_stories", [])
+    if story_ids:
+        sprint_content = sprint_state.read_sprint_content(smm_dir)
+        filtered = extract_story_sections(sprint_content, story_ids)
+        if filtered:
+            parts.append(filtered)
+    return parts
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table
+# ---------------------------------------------------------------------------
+
+_DISPATCH: dict[str, Callable[..., list[str]]] = {
+    "Explore": _inject_explore,
+    "xp-plan-reviewer": _inject_with_sprint,
+    "xp-retrospective": _inject_with_sprint,
+}
+
+
+# ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Core subagent_start logic. Returns additionalContext string or None."""
-    # Recursion prevention
-    if _common.is_xp_agent(input_data):
-        return None
+    """Core subagent_start logic. Returns additionalContext or None."""
+    agent_type = input_data.get("agent_type", "")
+
+    # Dispatch: known types use their tier, unknown xp-* agents skip
+    injector = _DISPATCH.get(agent_type)
+    if injector is None:
+        if agent_type.startswith("xp-"):
+            return None
+        # Check for teammate metadata before defaulting
+        stories = input_data.get("metadata", {}).get("assigned_stories")
+        injector = _inject_teammate if stories else _inject_full
 
     # Resolve SMM dir
     if smm_dir is None:
@@ -60,16 +132,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     agent_id = input_data.get("agent_id", "subagent")
-    agent_type = input_data.get("agent_type", "")
 
-    # Read curated four-pillar SMM from disk (written by housekeeping)
+    # Read curated four-pillar SMM from disk
     smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
     try:
         smm_content = smm_file.read_text(encoding="utf-8")
     except FileNotFoundError:
         smm_content = ""
 
-    # Record start event (pairs with "completed" in SubagentStop)
+    # Record start event
     start_event = _common.make_event(
         _common.STATUS,
         agent_id,
@@ -78,22 +149,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _common.append_safe(smm_dir, start_event)
 
-    # Tiered injection based on agent type
-    parts: list[str] = []
-
-    if agent_type == "Explore":
-        # Explore is read-only — only needs Intent + Constraints for alignment
-        if smm_content:
-            extracted = _extract_pillars(smm_content, {"Intent", "Constraints"})
-            if extracted:
-                parts.append(_common.wrap_smm_context(extracted))
-    else:
-        # Plan, general-purpose, background — full SMM + behavioral guide
-        if smm_content:
-            parts.append(_common.wrap_smm_context(smm_content))
-        guide = _common.load_behavioral_guide()
-        if guide:
-            parts.append(guide)
+    # Run the selected injector
+    parts = injector(smm_content, smm_dir, input_data)
 
     if not parts:
         return None

@@ -521,5 +521,56 @@ class TestSessionStartSprintDetection(_HookTestCase):
         self.assertFalse((self.smm_dir / ".needs-sprint").exists())
 
 
+# ===========================================================================
+# M10: Compact-source sprint reinjection
+# ===========================================================================
+
+
+class TestSessionStartCompactSprint(_HookTestCase):
+    """M10: compact source reinjects SMM + sprint.md."""
+
+    def setUp(self):
+        super().setUp()
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
+        sprint_file = self.smm_dir / "sprint.md"
+        sprint_file.write_text("# Sprint: Build API\n\n- **Sprint ID:** sprint-001\n")
+
+    def test_compact_reinjects_smm_content(self):
+        """Compact source includes curated SMM content."""
+        import session_start
+
+        result = session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+
+    def test_compact_reinjects_sprint(self):
+        """Compact source includes sprint.md content."""
+        import session_start
+
+        result = session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("sprint-001", result)
+
+    def test_compact_no_sprint_still_works(self):
+        """Compact without sprint.md still returns SMM."""
+        import session_start
+
+        (self.smm_dir / "sprint.md").unlink()
+        result = session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertNotIn("sprint-001", result)
+
+
 if __name__ == "__main__":
     unittest.main()

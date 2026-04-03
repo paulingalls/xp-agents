@@ -143,5 +143,51 @@ class TestParseSprintData(unittest.TestCase):
         self.assertGreaterEqual(len(result["blockers"]), 2)
 
 
+class TestExtractStorySections(unittest.TestCase):
+    """Tests for extract_story_sections()."""
+
+    def setUp(self):
+        from sprint_parser import extract_story_sections
+
+        self.extract = extract_story_sections
+
+    def test_extract_single_story(self):
+        """Extracts one story section by ID."""
+        result = self.extract(_SAMPLE_SPRINT, ["story-002"])
+        self.assertIn("### story-002:", result)
+        self.assertIn("JWT tokens", result)
+        self.assertNotIn("### story-001:", result)
+        self.assertNotIn("### story-003:", result)
+
+    def test_extract_multiple_stories(self):
+        """Extracts multiple story sections."""
+        result = self.extract(_SAMPLE_SPRINT, ["story-001", "story-003"])
+        self.assertIn("story-001", result)
+        self.assertIn("story-003", result)
+        self.assertNotIn("story-002", result)
+
+    def test_extract_missing_story(self):
+        """Unknown story ID returns empty string."""
+        result = self.extract(_SAMPLE_SPRINT, ["story-999"])
+        self.assertEqual(result, "")
+
+    def test_extract_from_none(self):
+        """None content returns empty string."""
+        result = self.extract(None, ["story-001"])
+        self.assertEqual(result, "")
+
+    def test_extract_empty_ids(self):
+        """Empty story_ids list returns empty string."""
+        result = self.extract(_SAMPLE_SPRINT, [])
+        self.assertEqual(result, "")
+
+    def test_preserves_story_content(self):
+        """Extracted section includes full story content."""
+        result = self.extract(_SAMPLE_SPRINT, ["story-004"])
+        self.assertIn("story-004", result)
+        self.assertIn("POST /reset-password", result)
+        self.assertIn("Dependencies:", result)
+
+
 if __name__ == "__main__":
     unittest.main()

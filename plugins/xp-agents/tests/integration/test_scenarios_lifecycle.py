@@ -232,5 +232,65 @@ class TestThreeSessionAccumulation(_IntegrationTestCase):
         )
 
 
+# ===========================================================================
+# M10: Sprint-aware SubagentStart + compact reinjection
+# ===========================================================================
+
+
+class TestSprintTieredInjection(_IntegrationTestCase):
+    """M10: SubagentStart injects sprint context by agent type."""
+
+    _SPRINT_MD = (
+        "# Sprint: Build API\n\n"
+        "- **Sprint ID:** sprint-001\n\n"
+        "## Stories\n\n"
+        "### story-001: Registration\n"
+        "- **Status:** done\n"
+    )
+
+    def _write_sprint_and_smm(self):
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text(
+            "# Shared Mental Model\n\n"
+            "## Intent\n- Ship v1\n\n"
+            "## Constraints\n- TDD\n\n"
+            "## Risks\n- None\n\n"
+            "## Wisdom\n- Commit often\n"
+        )
+        sprint_file = self.smm_dir / "sprint.md"
+        sprint_file.write_text(self._SPRINT_MD)
+
+    def test_plan_reviewer_gets_sprint_subprocess(self):
+        """SubagentStart subprocess: plan reviewer gets sprint.md."""
+        self._write_sprint_and_smm()
+        result = self._run_script(
+            "subagent_start.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-rev-1",
+                "agent_type": "xp-plan-reviewer",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Ship v1", ctx)
+        self.assertIn("sprint-001", ctx)
+
+    def test_compact_reinjects_sprint_subprocess(self):
+        """SessionStart compact source reinjects SMM + sprint.md."""
+        self._write_sprint_and_smm()
+        self._seed_events([make_event()])
+        result = self._run_script(
+            "session_start.py",
+            {"session_id": "int-test", "source": "compact"},
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Ship v1", ctx)
+        self.assertIn("sprint-001", ctx)
+
+
 if __name__ == "__main__":
     unittest.main()

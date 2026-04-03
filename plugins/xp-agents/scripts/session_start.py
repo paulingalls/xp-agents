@@ -104,6 +104,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # (PostToolUse:Skill hook) after /xp-kickoff completes,
     # together with the fresh SMM.
 
+    # M10: Reinject SMM + sprint.md after compaction so the lead's
+    # context retains project state and story selection still works.
+    if source == "compact":
+        smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
+        try:
+            smm_content = smm_file.read_text(encoding="utf-8")
+            if smm_content.strip():
+                parts.append("\n\n" + smm_content)
+        except FileNotFoundError:
+            pass
+        sprint_content = sprint_state.read_sprint_content(smm_dir)
+        if sprint_content:
+            parts.append("\n\n" + sprint_content)
+
     return "".join(parts)
 
 
