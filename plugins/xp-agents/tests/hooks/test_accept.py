@@ -204,6 +204,20 @@ class TestAcceptDone(_HookTestCase):
         accept_events = [e for e in events if "accept" in e.get("content", "").lower()]
         self.assertGreater(len(accept_events), 0)
 
+    def test_iteration_complete_metadata(self):
+        """Accept event has action=iteration_complete for retro counting."""
+        import accept_done
+
+        self._write_events([make_event()])
+        accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
+        events = self._read_events()
+        iter_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "iteration_complete"
+        ]
+        self.assertEqual(len(iter_events), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

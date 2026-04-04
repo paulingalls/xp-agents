@@ -13,7 +13,7 @@ Agent Teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`), with know
 | Term | Definition |
 |---|---|
 | **Session** | A single Claude Code invocation. Has a start (SessionStart hook), work period, and end (SessionEnd hook). Ephemeral — context window, Agent Teams, and all runtime state die at session end. The atomic unit of compute. |
-| **Iteration** | One complete plan/work/accept cycle. Maps 1:1 to a session. Not split across sessions. |
+| **Iteration** | One complete plan/work/accept cycle. Cannot cross session boundaries, but multiple iterations can occur within a single session (e.g., accept story A, then plan and implement story B). Marked by an `iteration_complete` status event from `accept_done.py`. |
 | **Sprint** | A unit of deliverable work toward a goal. One or more iterations. Persists across sessions via SMM. Has a goal, user stories, and a definition of done. Ends when all stories are done or remaining stories are deferred. |
 | **User story** | A customer-meaningful unit of work within a sprint. Has acceptance criteria including e2e test definitions. Right-sized to fit within one iteration (XL stories are split during sprint planning). Persists in `sprint.md` across sessions. |
 | **Task** | An implementation step within a story. File-level, TDD-ordered. Ephemeral to the iteration — created during iteration planning, maps to Agent Teams platform tasks. |
@@ -25,7 +25,7 @@ Agent Teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`), with know
 
 ## Sprint Lifecycle (Cross-Session)
 
-A sprint spans one or more iterations (sessions). The sprint persists in the SMM; each session is ephemeral.
+A sprint spans one or more iterations. An iteration cannot cross session boundaries, but a session may contain multiple iterations (each a complete plan/work/accept cycle). The sprint persists in the SMM; each session is ephemeral.
 
 ### Sprint Start (First Iteration)
 
@@ -140,7 +140,7 @@ The `/xp-spawn-team` skill bridges sprint.md and the platform: it reads stories 
 
 ---
 
-## Iteration Lifecycle (Single Session)
+## Iteration Lifecycle (Plan/Work/Accept Cycle)
 
 An iteration is one complete cycle within a session. Every session follows this structure:
 

@@ -50,12 +50,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         )
         _common.append_safe(smm_dir, concern)
 
-    # Log completion
+    # Log iteration completion — countable by retrospective
     status = _common.make_event(
         _common.STATUS,
         "accept-done",
-        "Accept verification complete.",
+        "Iteration complete — accept verification done.",
         working_on=[],
+        metadata={"action": "iteration_complete"},
     )
     _common.append_safe(smm_dir, status)
 
