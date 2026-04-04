@@ -637,13 +637,13 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 - Update CLAUDE.md as needed
 
 **Acceptance criteria:**
-- [ ] ARCHITECTURE.md updated: sprint lifecycle section, three-file architecture, new hooks in hook map, new skills list, tiered injection table
-- [ ] ARCHITECTURE.md covers all v2 milestones M5-M15 (sprint events, product spec, sprint start, detection hooks, kickoff, accept, sprint review, sprint retro, teammate hooks, teammate guide, spawn team)
-- [ ] SMM_DESIGN.md updated: Sprint pillar, product_spec.md/sprint.md in storage model, file lifecycle
-- [ ] CLAUDE.md updated: teammate constraints, new hook patterns, any changed conventions
-- [ ] All hook names, skill names, and agent names match actual implementation filenames
-- [ ] Event types table matches `event_schema.py` constants and `schema.json`
-- [ ] No stale v1-only references (e.g., "stop-gated review" replaced with "commit-gated")
+- [x] ARCHITECTURE.md updated: sprint lifecycle section, three-file architecture, new hooks in hook map, new skills list, tiered injection table
+- [x] ARCHITECTURE.md covers all v2 milestones M5-M15 (sprint events, product spec, sprint start, detection hooks, kickoff, accept, sprint review, sprint retro, teammate hooks, teammate guide, spawn team)
+- [x] SMM_DESIGN.md updated: Sprint pillar, product_spec.md/sprint.md in storage model, file lifecycle
+- [x] CLAUDE.md updated: teammate constraints, new hook patterns, any changed conventions
+- [x] All hook names, skill names, and agent names match actual implementation filenames
+- [x] Event types table matches `event_schema.py` constants and `schema.json`
+- [x] No stale v1-only references (e.g., "stop-gated review" replaced with "commit-gated")
 - [ ] Internal consistency across all three docs (no contradictions)
 
 **Depends on:** M5-M15
