@@ -406,5 +406,36 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertNotIn("sprint-001", result)
 
 
+class TestTeammateDetection(unittest.TestCase):
+    """M14: is_teammate_by_agent_type detection logic."""
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+        import subagent_start
+
+        self.is_teammate = subagent_start.is_teammate_by_agent_type
+
+    def test_empty_agent_type_not_teammate(self):
+        """Empty or missing agent_type is not a teammate."""
+        self.assertFalse(self.is_teammate({}))
+        self.assertFalse(self.is_teammate({"agent_type": ""}))
+
+    def test_builtin_types_not_teammate(self):
+        """Built-in agent types are not teammates."""
+        for t in ("Explore", "Plan", "general-purpose", "Bash"):
+            with self.subTest(agent_type=t):
+                self.assertFalse(self.is_teammate({"agent_type": t}))
+
+    def test_xp_prefixed_not_teammate(self):
+        """Plugin xp-* agents are not teammates."""
+        self.assertFalse(self.is_teammate({"agent_type": "xp-nav"}))
+        self.assertFalse(self.is_teammate({"agent_type": "xp-retrospective"}))
+
+    def test_custom_type_is_teammate(self):
+        """Custom agent types are teammates."""
+        self.assertTrue(self.is_teammate({"agent_type": "backend-worker"}))
+        self.assertTrue(self.is_teammate({"agent_type": "frontend-dev"}))
+
+
 if __name__ == "__main__":
     unittest.main()

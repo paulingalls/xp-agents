@@ -96,6 +96,27 @@ def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Teammate detection
+# ---------------------------------------------------------------------------
+
+_BUILTIN_TYPES = frozenset({"Explore", "Plan", "general-purpose", "Bash"})
+
+
+def is_teammate_by_agent_type(input_data: dict) -> bool:
+    """Detect teammates by agent_type exclusion.
+
+    Teammates are custom agent types — not built-in types (Explore, Plan,
+    general-purpose, Bash) and not xp-* plugin agents.
+    """
+    agent_type = input_data.get("agent_type", "")
+    if not agent_type:
+        return False
+    if agent_type in _BUILTIN_TYPES:
+        return False
+    return not agent_type.startswith("xp-")
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
