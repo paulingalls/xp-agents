@@ -616,14 +616,14 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 **Worktree support:** If the subagent recommends worktrees, `.coordination.json` cross-worktree conflict detection requires M4e (worktree path normalization). Without M4e, worktree mode should not be recommended — the subagent should note this constraint.
 
 **Acceptance criteria:**
-- [ ] Preload dumps SMM + `sprint.md` + current plan for subagent
-- [ ] Subagent identifies distinct file domains and detects parallel task groups
-- [ ] Subagent recommends team size (1-5 teammates) with rationale
-- [ ] Each task description includes: title, file domain, acceptance criteria, relevant context, TDD expectation
-- [ ] Worktree decision: recommends worktrees for large teams with non-overlapping domains; notes M4e constraint if applicable
-- [ ] Output is structured instructions for the lead — does NOT spawn team directly
-- [ ] Handles edge cases: no parallel work → recommend solo, single task → solo more efficient, missing sprint/plan → clear error
-- [ ] Tests cover: domain analysis, team sizing, task descriptions, worktree decision logic, error cases
+- [x] Preload dumps SMM + `sprint.md` + current plan for subagent
+- [x] Subagent identifies distinct file domains and detects parallel task groups
+- [x] Subagent recommends team size (1-5 teammates) with rationale
+- [x] Each task description includes: title, file domain, acceptance criteria, relevant context, TDD expectation
+- [x] Worktree decision: recommends worktrees for large teams with non-overlapping domains; notes M4e constraint if applicable
+- [x] Output is structured instructions for the lead — does NOT spawn team directly
+- [x] Handles edge cases: no parallel work → recommend solo, single task → solo more efficient, missing sprint/plan → clear error
+- [x] Tests cover: domain analysis, team sizing, task descriptions, worktree decision logic, error cases
 
 **Depends on:** M4e, M7, M13, M14, Agent Teams platform
 **Changes:** new skill (`skills/xp-spawn-team/SKILL.md`), new agent (`agents/xp-spawn-team.md`), tests
