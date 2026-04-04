@@ -38,7 +38,7 @@ If there are deferred stories, note them: "Additionally, N deferred stories from
 For each selected feature, decompose into user stories. Each story must have:
 
 - **Unique ID**: `story-001`, `story-002`, etc. (sequential across all stories in the sprint)
-- **Title**: "As a [role] I can [action]" — customer-language narrative, not technical
+- **Title**: Clear, descriptive name. When the product spec has backing documentation with milestones or technical specs, use the existing technical language (e.g., "Implement training cycle state machine per ASYNC_TRAINING.md"). When the spec was built from conversation with no backing docs, use user-story format ("As a [role] I can [action]").
 - **Size**: S, M, or L only. If a story feels XL, split it into smaller stories immediately. No XL stories in the final sprint.
   - **S** = small, can bundle multiple in one iteration
   - **M** = standard, one per iteration
