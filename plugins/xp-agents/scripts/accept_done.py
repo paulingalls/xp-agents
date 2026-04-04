@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """PostToolUse:Skill hook: accept completion bookkeeping.
 
-When /xp-accept completes, sets the accept marker and checks
-if the sprint is complete (all stories done/deferred). If complete,
-nudges /xp-sprint-review.
+When /xp-accept completes, clears the 'needs acceptance' marker and
+checks if the sprint is complete (all stories done/deferred). If
+complete, nudges /xp-sprint-review.
 """
 
 import sys
@@ -38,17 +38,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    # Set accept marker
-    try:
-        markers.marker_write(smm_dir, markers.ACCEPT, "done")
-    except (OSError, ValueError):
-        concern = _common.make_event(
-            _common.CONCERN,
-            "accept-done",
-            "Failed to write accept marker — session may re-prompt on stop",
-            severity="low",
-        )
-        _common.append_safe(smm_dir, concern)
+    # Clear 'needs acceptance' marker
+    markers.marker_consume(smm_dir, markers.ACCEPT)
 
     # Log iteration completion — countable by retrospective
     status = _common.make_event(

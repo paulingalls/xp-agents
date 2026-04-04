@@ -2,8 +2,9 @@
 """Stop command hook: accept gate.
 
 Blocks stop when sprint.md has in-progress stories and the accept
-marker has not been set. Forces /xp-accept before ending a session
-with unverified stories.
+marker is present. The marker means "acceptance needed" — it is set
+by pre_tool_write when code is written during an active sprint, and
+cleared by accept_done when /xp-accept completes.
 """
 
 import sys
@@ -39,7 +40,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     ):
         return None
 
-    if markers.marker_exists(smm_dir, markers.ACCEPT):
+    if not markers.marker_exists(smm_dir, markers.ACCEPT):
         return None
 
     return _BLOCK_REASON

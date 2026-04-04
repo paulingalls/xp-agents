@@ -9,44 +9,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _make_skill_input, _make_stop_input, make_event
-
-SPRINT_IN_PROGRESS = """\
-# Sprint: Build auth
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** none
-"""
-
-SPRINT_READY_ONLY = """\
-# Sprint: Build auth
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** ready
-- **Dependencies:** none
-"""
-
-SPRINT_ALL_DONE = """\
-# Sprint: Build auth
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** deferred
-"""
-
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_IN_PROGRESS,
+    SPRINT_READY_ONLY,
+    _HookTestCase,
+    _make_skill_input,
+    _make_stop_input,
+    make_event,
+)
 
 # ===========================================================================
 # accept_gate.py — Stop hook
@@ -94,21 +65,32 @@ class TestAcceptGate(_HookTestCase):
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
-    def test_in_progress_with_accept_marker_allows_stop(self):
+    def test_in_progress_with_accept_marker_blocks(self):
+        """Marker means 'needs acceptance' — should block."""
         import accept_gate
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-accept", result)
 
-    def test_in_progress_without_accept_marker_blocks(self):
+    def test_in_progress_without_accept_marker_allows_stop(self):
+        """No marker means no work needing acceptance — should pass."""
         import accept_gate
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-accept", result)
+        self.assertIsNone(result)
+
+    def test_marker_present_but_no_in_progress_allows_stop(self):
+        """Orphaned marker with no in-progress stories — should pass."""
+        import accept_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / ".accept").write_text("done")
+        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
 
     def test_corrupt_sprint_allows_stop(self):
         import accept_gate
@@ -151,22 +133,34 @@ class TestAcceptDone(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_sets_accept_marker(self):
+    def test_consumes_accept_marker(self):
+        """Accept done clears the 'needs acceptance' marker."""
         import accept_done
 
         self._write_events([make_event()])
+        (self.smm_dir / ".accept").write_text("done")
         accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
-        self.assertTrue((self.smm_dir / ".accept").exists())
+        self.assertFalse((self.smm_dir / ".accept").exists())
 
-    def test_qualified_skill_name(self):
+    def test_consumes_marker_qualified_name(self):
+        """Also works with fully-qualified skill name."""
         import accept_done
 
         self._write_events([make_event()])
+        (self.smm_dir / ".accept").write_text("done")
         accept_done.run(
             _make_skill_input("xp-agents:xp-accept"),
             smm_dir=self.smm_dir,
         )
-        self.assertTrue((self.smm_dir / ".accept").exists())
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_no_marker_no_error(self):
+        """Accept done without marker present should not error."""
+        import accept_done
+
+        self._write_events([make_event()])
+        accept_done.run(_make_skill_input("xp-accept"), smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".accept").exists())
 
     def test_sprint_complete_nudges_review(self):
         import accept_done

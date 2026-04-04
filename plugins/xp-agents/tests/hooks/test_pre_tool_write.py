@@ -14,6 +14,8 @@ import _common
 import coordination
 import pre_tool_write
 from conftest import (
+    SPRINT_IN_PROGRESS,
+    SPRINT_READY_ONLY,
     _HookTestCase,
     _make_bash_input,
     _make_write_input,
@@ -420,6 +422,60 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
         )
         if result:
             self.assertNotIn("xp-review-plan", result)
+
+
+class TestAcceptMarker(_HookTestCase):
+    """pre_tool_write sets accept marker when in-progress stories exist."""
+
+    def test_sets_accept_marker_when_in_progress_stories(self):
+        """Write + in-progress stories → marker set."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_no_marker_when_no_sprint(self):
+        """Write + no sprint → no marker."""
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_no_marker_when_no_in_progress(self):
+        """Write + all ready stories → no marker."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_idempotent_marker_setting(self):
+        """Marker already exists → no error, still exists."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_plan_file_does_not_set_marker(self):
+        """Plan file writes should not trigger accept marker."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        plan_input = _make_write_input(
+            session_id="t",
+            cwd="/tmp",
+            tool_input={
+                "file_path": "/Users/x/.claude/plans/my-plan.md",
+                "content": "# Plan",
+            },
+        )
+        pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".accept").exists())
 
 
 if __name__ == "__main__":

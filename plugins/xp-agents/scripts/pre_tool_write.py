@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import markers
+import sprint_state
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
@@ -253,6 +254,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)
         if tdd_nudge:
             parts.append(tdd_nudge)
+
+    # Accept marker — signal "needs acceptance" when writing during active sprint.
+    # Plan files are exempt (writing a plan isn't iteration work).
+    if smm_dir and not is_plan_file:
+        sprint_content = sprint_state.read_sprint_content(smm_dir)
+        if (
+            sprint_content
+            and sprint_state.has_in_progress_stories(sprint_content)
+            and not markers.marker_exists(smm_dir, markers.ACCEPT)
+        ):
+            markers.marker_write(smm_dir, markers.ACCEPT, "done")
 
     if not parts:
         return None

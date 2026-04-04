@@ -48,7 +48,9 @@ If the user says "skip" at any earlier step, still run housekeeping.
 
 ## Step 5: Story Selection OR Goal Collection
 
-**If the preload shows "SPRINT_ACTIVE"** (sprint with ready stories):
+**If the preload shows "SPRINT_ACTIVE" OR if Step 3 just created a sprint**, do story selection. If Step 3 created the sprint, re-read sprint.md from SMM_DIR to get the ready stories (the preload data is stale).
+
+**Story selection** (sprint with ready stories):
 
 1. Show the ready stories listed in the preload output to the user.
 2. Ask the user via `AskUserQuestion`: "Which stories should we work on this iteration?" Offer options: individual story IDs (e.g., "story-001, story-003"), or "all ready stories". If the user has questions about any stories, resolve them inline here.
@@ -75,4 +77,4 @@ If the user says "skip" at any earlier step, still run housekeeping.
 
 ## Step 6: Complete
 
-Kickoff is complete. Begin working on the selected stories or session goals.
+Kickoff is complete. **Do NOT stop.** Enter plan mode and begin planning the first selected story immediately. If no sprint is active, begin working on the session goals.

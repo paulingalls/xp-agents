@@ -29,6 +29,47 @@ sys.path.insert(0, str(_SMM_DIR))
 
 
 # ---------------------------------------------------------------------------
+# Sprint fixtures — shared across test_accept.py, test_pre_tool_write.py, etc.
+# ---------------------------------------------------------------------------
+
+SPRINT_IN_PROGRESS = """\
+# Sprint: Build auth
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** none
+"""
+
+SPRINT_READY_ONLY = """\
+# Sprint: Build auth
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** ready
+- **Dependencies:** none
+"""
+
+SPRINT_ALL_DONE = """\
+# Sprint: Build auth
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** done
+
+### story-002: As a user I can register
+- **Size:** S
+- **Status:** deferred
+"""
+
+
+# ---------------------------------------------------------------------------
 # Event factory
 # ---------------------------------------------------------------------------
 
