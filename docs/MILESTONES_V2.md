@@ -554,14 +554,14 @@ Implement TeammateIdle and TaskCompleted hooks.
 - Detect teammate events via `teammate_name` field
 
 **Acceptance criteria:**
-- [ ] `_common.get_validated_smm_dir()` helper extracts SMM dir validation boilerplate, used by 6+ existing scripts
-- [ ] Shared TDD check function extracted from `tdd_stop_gate.py`, used by all three hooks (Stop, TeammateIdle, TaskCompleted)
-- [ ] `teammate_idle.py` blocks (exit 2 + stderr) when tests failing, allows (exit 0) when passing
-- [ ] `task_completed.py` blocks (exit 2 + stderr) when tests failing, allows (exit 0) when passing
-- [ ] Both hooks detect teammates via `teammate_name` field; skip gracefully if absent
-- [ ] Both registered in `hooks.json` under `TeammateIdle` and `TaskCompleted` events
-- [ ] Missing `events.jsonl` or SMM handled gracefully (exit 0, no crash)
-- [ ] Tests cover: TDD check logic, teammate detection, exit codes, stderr messages, edge cases
+- [x] `_common.get_validated_smm_dir()` helper extracts SMM dir validation boilerplate, used by 6+ existing scripts
+- [x] Shared TDD check function extracted from `tdd_stop_gate.py`, used by all three hooks (Stop, TeammateIdle, TaskCompleted)
+- [x] `teammate_idle.py` blocks (exit 2 + stderr) when tests failing, allows (exit 0) when passing
+- [x] `task_completed.py` blocks (exit 2 + stderr) when tests failing, allows (exit 0) when passing
+- [x] Both hooks detect teammates via `teammate_name` field; skip gracefully if absent
+- [x] Both registered in `hooks.json` under `TeammateIdle` and `TaskCompleted` events
+- [x] Missing `events.jsonl` or SMM handled gracefully (exit 0, no crash)
+- [x] Tests cover: TDD check logic, teammate detection, exit codes, stderr messages, edge cases
 
 **Depends on:** Agent Teams platform stabilization
 **Changes:** `_common.py`, `tdd_stop_gate.py` (extract shared logic), new `task_completed.py`, new `teammate_idle.py`, hooks.json, tests
