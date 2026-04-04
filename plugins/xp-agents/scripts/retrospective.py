@@ -299,6 +299,7 @@ def _compute_session_stats(events: list[dict]) -> dict:
         "questions_open": 0,
         "questions_answered": 0,
         "decisions_total": 0,
+        "iterations_completed": 0,
     }
 
     question_ids: set[str] = set()
@@ -307,6 +308,8 @@ def _compute_session_stats(events: list[dict]) -> dict:
         match e.get("type", ""):
             case _common.STATUS:
                 stats["status_count"] += 1
+                if e.get("metadata", {}).get("action") == "iteration_complete":
+                    stats["iterations_completed"] += 1
             case _common.CONCERN:
                 stats["concerns_raised"] += 1
             case _common.QUESTION:

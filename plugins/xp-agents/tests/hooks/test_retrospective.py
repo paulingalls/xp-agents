@@ -293,6 +293,48 @@ class TestRetrospective(_HookTestCase):
         self.assertEqual(data["session_stats"]["decisions_total"], 2)
         self.assertNotIn("decisions_draft", data["session_stats"])
 
+    def test_session_stats_iterations_completed(self):
+        import retrospective
+
+        events = [
+            make_event("status", content="work", working_on=["a.py"]),
+            make_event(
+                "status",
+                content="Iteration complete — accept verification done.",
+                working_on=[],
+                metadata={"action": "iteration_complete"},
+            ),
+            make_event("status", content="more work", working_on=["b.py"]),
+            make_event(
+                "status",
+                content="Iteration complete — accept verification done.",
+                working_on=[],
+                metadata={"action": "iteration_complete"},
+            ),
+            make_event(content="filler"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["iterations_completed"], 2)
+
+    def test_session_stats_zero_iterations(self):
+        import retrospective
+
+        events = [make_event(content=f"work {i}") for i in range(5)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertEqual(data["session_stats"]["iterations_completed"], 0)
+
 
 # ===========================================================================
 # M6.5: Retrospective nudge tests
