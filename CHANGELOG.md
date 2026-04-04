@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.0.1 — v2 Testing Fixes
+
+### Fixed
+- **Accept gate premature blocking** — Inverted accept marker semantics: `.accept` now means "needs acceptance" (set by pre_tool_write on code writes, cleared by accept_done). Fixes gate blocking after kickoff when no work had been done.
+- **Kickoff story selection after sprint creation** — Step 5 now handles sprints created during Step 3 (stale preload data). Previously fell through to goal collection.
+- **Kickoff Step 6** — Agent now enters plan mode immediately after story selection instead of stopping.
+
+### Improved
+- **Product spec source references** — Skill now includes `Sources:` lines pointing back to original docs when bootstrapping from existing documentation.
+- **Sprint story source references** — Stories include `Source:` field linking to product_spec.md feature. Traceable chain: story → product_spec → source docs.
+- **Sprint confirmation UX** — Compact summary table in AskUserQuestion preview (avoids truncation). Full sprint.md and product_spec.md output inline after writing.
+- **Story title flexibility** — Technical titles allowed when backing docs exist; user-story format for conversation-built specs.
+- **Sprint test fixtures** — Deduplicated to conftest.py shared module.
+
+### Stats
+- 1344 tests (all passing)
+- 7 commits since v2.0.0
+
 ## v2.0.0 — Agent Teams & v2 Complete (M10–M16)
 
 ### Added
