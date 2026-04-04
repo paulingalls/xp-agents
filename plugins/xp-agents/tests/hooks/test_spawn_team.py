@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Tests for M15: xp-spawn-team preload integration.
+
+Covers: preload.sh output (SMM, sprint, plan, guide), graceful degradation.
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+from conftest import _IntegrationTestCase
+
+_PRELOAD_SCRIPT = (
+    Path(__file__).parent.parent.parent
+    / "skills"
+    / "xp-spawn-team"
+    / "scripts"
+    / "preload.sh"
+)
+
+_SAMPLE_SPRINT = """\
+# Sprint: Build user management REST API
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-26
+
+## Stories
+
+### story-001: User registration
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+
+### story-002: JWT authentication
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** story-001
+"""
+
+_SAMPLE_PLAN = """\
+# Implementation Plan
+
+## Step 1: Add user model
+- File: src/models/user.py
+- Tests: tests/test_user.py
+
+## Step 2: Add auth endpoints
+- File: src/api/auth.py
+- Tests: tests/test_auth.py
+"""
+
+
+class TestSpawnTeamPreload(_IntegrationTestCase):
+    """M15: preload.sh dumps SMM + sprint + plan + guide."""
+
+    def setUp(self):
+        super().setUp()
+        # Create a temp plans directory to avoid polluting real ~/.claude/plans/
+        self._plans_dir = Path(tempfile.mkdtemp())
+        self._orig_home = os.environ.get("HOME")
+
+    def tearDown(self):
+        # Clean up temp plans
+        import shutil
+
+        shutil.rmtree(self._plans_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _write_plan(self, content: str = _SAMPLE_PLAN) -> Path:
+        """Write a plan file to a temp location and return its path."""
+        plan_file = self._plans_dir / "test-plan.md"
+        plan_file.write_text(content)
+        return plan_file
+
+    def _run_preload(
+        self,
+        extra_env: dict | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run preload.sh as a subprocess."""
+        if not _PRELOAD_SCRIPT.is_file():
+            self.skipTest("preload.sh not yet created")
+        env = os.environ.copy()
+        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            ["bash", str(_PRELOAD_SCRIPT)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_preload_outputs_smm_dir(self):
+        """Preload output includes SMM_DIR= line."""
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SMM_DIR=", result.stdout)
+
+    def test_preload_outputs_smm_state(self):
+        """Preload output includes SMM content when materialized."""
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Ship v1", result.stdout)
+
+    def test_preload_outputs_sprint_content(self):
+        """Preload output includes sprint.md content."""
+        (self.smm_dir / "sprint.md").write_text(_SAMPLE_SPRINT)
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Sprint Data", result.stdout)
+        self.assertIn("sprint-001", result.stdout)
+
+    def test_preload_outputs_plan_content(self):
+        """Preload output includes current plan content."""
+        plan_path = self._write_plan()
+        # Point the marker to our plan
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Current Plan", result.stdout)
+        self.assertIn("Add user model", result.stdout)
+
+    def test_preload_outputs_behavioral_guide(self):
+        """Preload output includes behavioral guide section."""
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Behavioral Guide", result.stdout)
+
+    def test_preload_missing_sprint_graceful(self):
+        """No sprint.md -> exits 0, shows not-found message."""
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not found", result.stdout.lower())
+
+    def test_preload_missing_plan_graceful(self):
+        """No plan file -> exits 0, shows not-found message."""
+        # Ensure no marker and no plans directory
+        marker = self.smm_dir / ".plan-awaiting-review"
+        if marker.exists():
+            marker.unlink()
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Should have "not found" for the plan section
+        stdout_lower = result.stdout.lower()
+        self.assertTrue(
+            "plan" in stdout_lower and "not found" in stdout_lower,
+            f"Expected plan not-found message, got: {result.stdout[:500]}",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
