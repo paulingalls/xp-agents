@@ -582,14 +582,14 @@ Update SubagentStart to detect teammates and inject appropriate guide.
 - Commit-gated reviews enforced automatically via PreToolUse:Bash
 
 **Acceptance criteria:**
-- [ ] `subagent_start.py` detects teammates via `is_teammate_by_agent_type()` and injects teammate-specific guide
-- [ ] Teammate guide includes DO (claim tasks, TDD, commit frequently, stay in file domain, message lead for urgent discoveries)
-- [ ] Teammate guide includes DON'T (no kickoff, housekeeping, goals, retrospectives)
-- [ ] Teammate guide includes SKIP (EnterPlanMode — built-in plan approval handles it)
-- [ ] Existing non-teammate agent tiers unchanged (Explore, Plan, xp-* agents)
-- [ ] Guide content does not reference lead-only ceremonies or skills
-- [ ] Guide references commit-gated review cycle as automatic enforcement
-- [ ] Tests cover: teammate detection, guide content verification, non-teammate agents unaffected
+- [x] `subagent_start.py` detects teammates via `is_teammate_by_agent_type()` and injects teammate-specific guide
+- [x] Teammate guide includes DO (claim tasks, TDD, commit frequently, stay in file domain, message lead for urgent discoveries)
+- [x] Teammate guide includes DON'T (no kickoff, housekeeping, goals, retrospectives)
+- [x] Teammate guide includes SKIP (EnterPlanMode — built-in plan approval handles it)
+- [x] Existing non-teammate agent tiers unchanged (Explore, Plan, xp-* agents)
+- [x] Guide content does not reference lead-only ceremonies or skills
+- [x] Guide references commit-gated review cycle as automatic enforcement
+- [x] Tests cover: teammate detection, guide content verification, non-teammate agents unaffected
 
 **Depends on:** M10, M13
 **Changes:** `subagent_start.py`, BEHAVIORAL_GUIDE.md (add teammate section or separate guide), tests
