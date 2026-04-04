@@ -101,9 +101,7 @@ class TestTeammateGuide(_HookTestCase):
 
     def test_teammate_gets_teammate_guide_not_solo(self):
         """Teammate agent gets TEAMMATE_GUIDE, not BEHAVIORAL_GUIDE."""
-        result = self._run_teammate(
-            metadata={"assigned_stories": ["story-002"]},
-        )
+        result = self._run_teammate()
         self.assertIsNotNone(result)
         self.assertIn("Teammate Guide", result)
         self.assertNotIn("XP Agent Behavioral Guide", result)
@@ -130,20 +128,13 @@ class TestTeammateGuide(_HookTestCase):
         result = self._run_teammate()
         self.assertNotIn("EnterPlanMode", result)
 
-    def test_teammate_still_gets_filtered_stories(self):
-        """Teammate guide injection still includes assigned stories."""
-        result = self._run_teammate(
-            metadata={"assigned_stories": ["story-002"]},
-        )
-        self.assertIn("### story-002:", result)
-        self.assertNotIn("### story-001:", result)
-
-    def test_teammate_without_stories_gets_guide(self):
-        """Teammate detected by agent_type, no stories — still gets guide."""
+    def test_teammate_no_sprint_stories_injected(self):
+        """Stories come via spawn prompt, not SubagentStart injection."""
         result = self._run_teammate()
         self.assertIsNotNone(result)
-        self.assertIn("Teammate Guide", result)
-        self.assertNotIn("XP Agent Behavioral Guide", result)
+        # Sprint content should NOT appear — stories come from spawn prompt
+        self.assertNotIn("sprint-001", result)
+        self.assertNotIn("story-001", result)
 
     def test_non_teammate_tiers_unaffected(self):
         """Built-in types still get solo behavioral guide."""

@@ -320,22 +320,21 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Ship v1", result)
         self.assertIn("sprint-001", result)
 
-    def test_teammate_gets_smm_and_assigned_stories(self):
-        """Teammate with assigned_stories gets SMM + filtered sprint."""
+    def test_teammate_gets_smm_and_guide(self):
+        """Teammate gets SMM + teammate guide (stories via spawn prompt)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
                 "agent_id": "teammate-1",
                 "agent_type": "backend-worker",
-                "metadata": {"assigned_stories": ["story-002"]},
             },
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
-        self.assertIn("### story-002:", result)
-        self.assertNotIn("### story-001:", result)
-        self.assertNotIn("### story-003:", result)
+        self.assertIn("Teammate Guide", result)
+        # Sprint stories NOT injected — come via spawn prompt instead
+        self.assertNotIn("sprint-001", result)
 
     def test_teammate_no_metadata_gets_smm_only(self):
         """Agent without assigned_stories gets default (full SMM + guide)."""

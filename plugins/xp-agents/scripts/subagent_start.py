@@ -4,7 +4,7 @@
 Tiered injection via dispatch table (M10) + teammate detection (M14):
 - Explore: Intent + Constraints pillars only (~200 tokens)
 - xp-plan-reviewer / xp-retrospective: Full SMM + sprint.md
-- Teammate (custom agent_type): SMM + teammate guide + filtered stories
+- Teammate (custom agent_type): SMM + teammate guide (stories via spawn prompt)
 - Default (Plan/general-purpose/background): Full SMM + behavioral guide
 - Other xp-* agents: skipped (use own preloads)
 
@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import sprint_state
-from sprint_parser import extract_story_sections
 
 # ---------------------------------------------------------------------------
 # SMM section extraction for Explore agents
@@ -84,19 +83,13 @@ def _inject_with_sprint(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Teammate: SMM + teammate guide + filtered stories from sprint.md."""
+    """Teammate: SMM + teammate guide. Story context comes via spawn prompt."""
     parts: list[str] = []
     if smm:
         parts.append(_common.wrap_smm_context(smm))
     guide = _common.load_teammate_guide()
     if guide:
         parts.append(guide)
-    story_ids = input_data.get("metadata", {}).get("assigned_stories", [])
-    if story_ids:
-        sprint_content = sprint_state.read_sprint_content(smm_dir)
-        filtered = extract_story_sections(sprint_content, story_ids)
-        if filtered:
-            parts.append(filtered)
     return parts
 
 
