@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.0.0 — Agent Teams & v2 Complete (M10–M16)
+
+### Added
+- **M10: Tiered sprint context injection** — SubagentStart dispatch table routes xp-* agents, Explore/Plan agents, and sprint-context agents to different injection tiers. Sprint data injected for sprint-aware subagents.
+- **M11: Sprint Review** — `/xp-sprint-review` skill with agent, preload, and `sprint_review_done.py` hook. `prepare_review_data()` assembles sprint data for review. Hook records sprint end event with deterministic velocity.
+- **M12: Sprint Retrospective** — `/xp-sprint-retro` skill with agent and preload. Sprint retro prep script collects session retro history. `save_retrospective.py` parameterized for both session and sprint retros. Per-story data with sizes added to sprint parser.
+- **M13: Teammate TDD Hooks** — `TeammateIdle` and `TaskCompleted` hooks enforce TDD for Agent Team teammates. Shared `tdd_check.py` module extracted. `get_validated_smm_dir()` helper adopted across all 22 hook scripts.
+- **M14: Teammate Behavioral Guide** — `is_teammate_by_agent_type()` detection function (custom agent_type, excludes built-in and xp-*). `TEAMMATE_GUIDE.md` injected via SubagentStart for detected teammates.
+- **M15: Spawn Team Skill** — `/xp-spawn-team` skill with agent and preload. Domain analysis and team sizing delegated to LLM judgment (no prep script).
+- **M16: v2 Documentation** — Architecture, SMM design, and CLAUDE.md updated for v2. Iteration/session vocabulary corrected. `iteration_complete` marker added. `iterations_completed` in session stats for retrospective.
+- **v2 test plan** — Comprehensive test plan for v2 plugin validation.
+
+### Fixed
+- **Prompt nugget** — Resolved concerns no longer shown as new in prompt nuggets.
+- **Assigned stories metadata** — Removed undocumented `metadata.assigned_stories` dependency from teammate injection. Teammates get story context from spawn prompt.
+- **Iteration/session vocabulary** — Fixed conflation of iterations and sessions throughout docs and code. Multiple iterations can occur within a single session.
+- **Session-end checklist** — Added nudge on git push for unresolved items.
+- **PLUGIN_TOOLS.md** — Consolidated platform findings into existing sections instead of appending.
+
+### Stats
+- 1337 tests (all passing)
+- M10–M16 shipped — All v2 milestones complete
+- 27 commits since v1.13.0
+
 ## v1.13.0 — M9: Sprint Pillar in Housekeeping
 
 ### Added
