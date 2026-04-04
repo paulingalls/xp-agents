@@ -66,6 +66,8 @@ cat <<'SPECEOF' | python3 ${CLAUDE_SKILL_DIR}/scripts/save_product_spec.py --smm
 SPECEOF
 ```
 
+After writing, **output the full product_spec.md content** in the conversation so the user can review it. The file lives in the SMM directory (not the project), so the user can't browse to it easily. If they spot issues, they can interrupt and request changes.
+
 Record a status event:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
@@ -83,7 +85,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 4. For refinements: read the current spec with `Read`, show the feature to the user, let them add/remove/edit requirements. Only modify `[planned]` features.
 5. **NEVER modify `[delivered: ...]` markers** — only `/xp-sprint-review` does that. If the user asks to change a delivered feature, explain that delivered features are locked and suggest adding a new `[planned]` feature instead.
 6. Write the full updated spec using `save_product_spec.py` (same pipe pattern as create flow). The writer replaces the entire file, so always include all existing content.
-7. Record a status event describing what changed.
+7. **Output the full updated product_spec.md content** in the conversation so the user can review changes.
+8. Record a status event describing what changed.
 
 ## Document Ingestion
 

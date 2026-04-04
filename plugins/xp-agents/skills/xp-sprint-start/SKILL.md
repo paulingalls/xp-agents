@@ -54,15 +54,24 @@ Write a one-sentence sprint goal that captures the customer-meaningful outcome. 
 
 ## Step 4: Customer Confirmation
 
-Present the complete sprint plan to the user via `AskUserQuestion`:
+Present a **compact summary table** via `AskUserQuestion` — not the full story details. The preview should fit without truncation:
+
 - Sprint goal
-- Story count and size distribution (e.g., "7 stories: 2S, 3M, 2L")
-- Each story with its ID, title, size, dependencies, and acceptance criteria
-- Deferred stories marked as "(carried from previous sprint)"
+- Story count and size distribution (e.g., "9 stories: 3S, 4M, 2L")
+- A table with columns: ID, Title, Size, Deps
+
+```
+| ID | Title | Size | Deps |
+|---|---|---|---|
+| story-001 | Stamina and Focus pools | M | none |
+| story-002 | HP growth with CON | S | none |
+```
+
+Deferred stories marked as "(carried)" in the title.
 
 Options: "Confirm this sprint" or "Adjust sprint scope"
 
-If the customer wants adjustments, make the requested changes and re-present. Do not write any files until the customer confirms.
+The full acceptance criteria come from the product spec — no need to repeat them in the confirmation preview. If the customer wants adjustments, make the requested changes and re-present. Do not write any files until the customer confirms.
 
 ## Step 5: Write sprint.md
 
@@ -92,6 +101,8 @@ SPRINTEOF
 ```
 
 All stories start with **Status: ready**. Priority is implicit by order — first story is highest priority.
+
+After writing, **output the full sprint.md content** in the conversation so the user can review it. The file lives in the SMM directory (not the project), so the user can't browse to it easily. If they spot issues, they can interrupt and request changes.
 
 ## Step 6: Record Sprint Event
 
