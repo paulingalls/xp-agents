@@ -93,6 +93,21 @@ If the user provides a file path or pastes document content:
 3. Present the extracted features to the user for confirmation before adding.
 4. Add confirmed features as `[planned]` entries.
 
+## Source References
+
+When bootstrapping from existing project documentation, include a `Sources:` line for each feature pointing back to the original docs. This helps agents find detailed design context during sprint planning.
+
+```markdown
+### Combat System [planned]
+- Phase-based simultaneous declaration
+- 500ms collection buffer for batching
+- **Sources:** docs/COMBAT_DESIGN.md, docs/GAME_MECHANICS.md §Combat
+```
+
+- List the file path(s) where detailed design for that feature lives.
+- Use `§Section` notation when the relevant content is in a specific section of a larger doc.
+- Only include references that add value — skip if the feature was described entirely by the user with no backing docs.
+
 ## Guidelines
 
 - Be concise — gather requirements efficiently, don't over-ask.

@@ -12,9 +12,11 @@
 
 ---
 
-## Phase 1: Solo Enforcement (v1.5 baseline)
+## Phase 1: Solo Enforcement (v1.5 baseline) ✅ COMPLETE
 
-### Test 1: Session Start + Kickoff Gate
+Validated through real usage across M10–M16 development sessions. All gates exercised organically except TDD stop gate (covered by unit/integration tests in test_stop_gates.py).
+
+### Test 1: Session Start + Kickoff Gate ✅
 
 **Verify:** fresh session creates markers and blocks until kickoff runs.
 
@@ -26,7 +28,7 @@
 6. **Expect:** `.needs-kickoff` marker consumed, BEHAVIORAL_GUIDE injected
 7. **Verify:** you can now work normally
 
-### Test 2: Small Commit — Security-Only Gate (< 3 code files)
+### Test 2: Small Commit — Security-Only Gate (< 3 code files) ✅
 
 **Verify:** below-threshold commits only require security triage.
 
@@ -36,7 +38,7 @@
 4. Run `/xp-security-triage`
 5. Commit succeeds
 
-### Test 3: Large Commit — Full Review Cycle (3+ code files)
+### Test 3: Large Commit — Full Review Cycle (3+ code files) ✅
 
 **Verify:** sequential gate chain: simplify → quality review → security triage.
 
@@ -46,7 +48,7 @@
 4. Run `/xp-quality-review` — Try commit — **Expect:** blocked for `/xp-security-triage`
 5. Run `/xp-security-triage` — Commit succeeds
 
-### Test 4: Plan Mode + Plan Review Gate
+### Test 4: Plan Mode + Plan Review Gate ✅
 
 **Verify:** plan review blocks writes after plan mode.
 
@@ -56,7 +58,7 @@
 4. Run `/xp-review-plan`
 5. File writes now work
 
-### Test 5: TDD Stop Gate
+### Test 5: TDD Stop Gate ✅
 
 **Verify:** can't stop with failing tests.
 
@@ -205,11 +207,11 @@
 All features above have automated unit and integration tests:
 
 ```bash
-# Run everything (1334 tests):
+# Run everything (1337 tests):
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 
 # By suite:
-python3 -m unittest discover -s plugins/xp-agents/tests/hooks -p "test_*.py" -v       # 881 tests
+python3 -m unittest discover -s plugins/xp-agents/tests/hooks -p "test_*.py" -v       # 884 tests
 python3 -m unittest discover -s plugins/xp-agents/tests/integration -p "test_*.py" -v  # 103 tests
 python3 -m unittest discover -s plugins/xp-agents/tests/engine -p "test_*.py" -v       # 211 tests
 python3 -m unittest discover -s plugins/xp-agents/tests/smm -p "test_*.py" -v          # 139 tests
