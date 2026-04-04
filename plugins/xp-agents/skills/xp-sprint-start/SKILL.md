@@ -44,7 +44,8 @@ For each selected feature, decompose into user stories. Each story must have:
   - **M** = standard, one per iteration
   - **L** = large, full iteration
 - **Dependencies**: Other story IDs this story depends on, or "none"
-- **Acceptance Criteria**: 3-5 concrete, testable conditions. At least one must be an E2E test definition prefixed with "E2E:" that describes an end-to-end scenario.
+- **Acceptance Criteria**: 3-5 concrete, testable conditions. At least one must be an E2E test definition prefixed with "E2E:" that describes an end-to-end scenario. Acceptance criteria should describe user-facing behavior, not implementation details (e.g., no "DB migration creates X table").
+- **Source**: The product_spec.md feature this story decomposes from (e.g., `product_spec.md §Resource Pools — Stamina & Focus`). This lets agents trace back to detailed requirements and any source docs referenced in the spec.
 
 Include deferred stories from the previous sprint. Renumber their IDs to fit the new sequence. Preserve their original acceptance criteria unless the customer requests changes.
 
@@ -90,6 +91,7 @@ cat <<'SPRINTEOF' | python3 ${CLAUDE_SKILL_DIR}/scripts/save_sprint.py --smm-dir
 - **Size:** <S|M|L>
 - **Status:** ready
 - **Dependencies:** <story-NNN or none>
+- **Source:** product_spec.md §<Feature Name>
 - **Acceptance Criteria:**
   - <criterion 1>
   - <criterion 2>
