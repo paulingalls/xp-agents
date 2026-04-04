@@ -319,3 +319,147 @@ Skill/Subagent description → Agent matches against current task → May or may
 | Skills (forked) | Agent type defaults | Partially — via `allowed-tools` (use `Bash(*/skills/*/scripts/*)` for preloads) |
 | Plugin subagents | `tools` field in agent def | No — user must approve at runtime |
 | Background subagents | User pre-approval at launch | Sort of — user prompted upfront, but can't interact during execution |
+
+---
+
+## Plugin-Specific Constraints (confirmed 2026-04-04)
+
+Plugin subagents do **NOT** support these frontmatter fields — they are silently ignored:
+- `hooks` — scoped hooks cannot be defined in plugin agents
+- `mcpServers` — MCP servers cannot be scoped to plugin agents
+- `permissionMode` — permission mode cannot be overridden by plugin agents
+
+**Workaround:** Use global `hooks.json` for all hook registration (our current approach). If per-agent hooks are needed, copy the agent file to `.claude/agents/` or `~/.claude/agents/`.
+
+---
+
+## New Hook Events (confirmed 2026-04-04)
+
+### TaskCreated
+
+Fires when a task is created via TaskCreate tool.
+
+| Field | Value |
+|-------|-------|
+| **Input** | `task_id`, `task_subject`, `task_description` (optional), `teammate_name` (optional), `team_name` (optional), `permission_mode` |
+| **Block** | exit 2 + stderr blocks task creation |
+| **Use cases** | Enforce naming conventions, require descriptions, validate task scope |
+
+### PermissionDenied
+
+Fires when auto mode classifier denies a tool call.
+
+| Field | Value |
+|-------|-------|
+| **Input** | `tool_name`, `tool_input`, `tool_use_id`, `reason` |
+| **Output** | `{"hookSpecificOutput": {"hookEventName": "PermissionDenied", "retry": true}}` |
+| **Behavior** | Only fires in auto mode. `retry: true` tells model it may retry. |
+
+### StopFailure
+
+Fires when turn ends due to API error (rate_limit, authentication_failed, billing_error, invalid_request, server_error, max_output_tokens, unknown).
+
+| Field | Value |
+|-------|-------|
+| **Input** | Common fields + error context |
+| **Output** | Ignored |
+| **Behavior** | Observability only |
+
+### CwdChanged
+
+Fires when working directory changes.
+
+| Field | Value |
+|-------|-------|
+| **Input** | `new_cwd` |
+| **Output** | Can write `CLAUDE_ENV_FILE` (like SessionStart) |
+
+### FileChanged
+
+Fires when a watched file changes on disk.
+
+| Field | Value |
+|-------|-------|
+| **Matcher** | Filename (basename) |
+| **Input** | `file_path`, `change_type` |
+| **Output** | Can write `CLAUDE_ENV_FILE` |
+
+---
+
+## Updated Event Schemas (confirmed 2026-04-04)
+
+### TaskCompleted — Full Schema
+
+Previously documented with minimal fields. Full schema:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `task_id` | string | Task identifier |
+| `task_subject` | string | Task title |
+| `task_description` | string (optional) | Task description |
+| `teammate_name` | string (optional) | Present when fired by teammate |
+| `team_name` | string (optional) | Present when fired within a team |
+| `permission_mode` | string | Current permission mode |
+
+### TeammateIdle — Full Schema
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `teammate_name` | string | Name of the idle teammate |
+| `team_name` | string | Name of the team |
+| `permission_mode` | string | Current permission mode |
+
+### SubagentStart — Confirmed Input Schema
+
+**CRITICAL:** The documented schema is `agent_id` + `agent_type` only. There is **no `metadata` field** in the documented schema. The `metadata.assigned_stories` approach (Risk 5a5291a1) relies on an undocumented field that may not be passed through.
+
+**Alternative approaches for teammate context:**
+- `agent_type` — always present, set by the caller. Custom agent types can encode information (e.g., `backend-worker` vs `frontend-worker`).
+- `agent_name` — may be available (the `name` parameter when spawning via Agent tool). Needs empirical testing.
+- Subagent definitions usable as teammate types — when spawning a teammate referencing a subagent type, the teammate gets `tools` and `model` from the definition, plus the body appended to the system prompt. This is the documented mechanism for teammate specialization.
+
+---
+
+## New Subagent Frontmatter Fields (confirmed 2026-04-04)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `disallowedTools` | string/list | Denylist — tools to remove from inherited set. Applied before `tools`. |
+| `memory` | enum | Persistent memory scope: `user`, `project`, `local`. Enables cross-session learning. |
+| `background` | boolean | Always run as background task. Default: false. |
+| `effort` | enum | Override effort level: `low`, `medium`, `high`, `max` (Opus 4.6 only). |
+| `isolation` | enum | Set to `worktree` for isolated git worktree. Auto-cleaned if no changes. |
+| `color` | enum | Display color: red, blue, green, yellow, purple, orange, pink, cyan. |
+| `initialPrompt` | string | Auto-submitted first user turn when running as main session agent (`--agent`). |
+| `maxTurns` | number | Maximum agentic turns before subagent stops. |
+| `hooks` | object | Scoped hooks — only fire while this subagent is active. **Not supported for plugin agents.** |
+| `mcpServers` | list | MCP servers scoped to this subagent. Inline defs or name references. **Not supported for plugin agents.** |
+| `permissionMode` | enum | Override permission mode. **Not supported for plugin agents.** |
+
+### Subagent Definitions as Teammate Types
+
+When spawning a teammate via Agent Teams, you can reference a subagent type. The teammate uses its `tools` and `model`, with the definition body appended to the teammate's system prompt as additional instructions. This is the documented mechanism for specializing teammates without undocumented metadata fields.
+
+---
+
+## New Skill Frontmatter Fields (confirmed 2026-04-04)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `paths` | string/list | Glob patterns limiting auto-activation to matching files. |
+| `argument-hint` | string | Hint shown during autocomplete (e.g., `[issue-number]`). |
+| `shell` | enum | `bash` (default) or `powershell` for `!` commands. |
+| `hooks` | object | Scoped hooks — only fire while this skill is active. |
+
+---
+
+## Universal Output Fields (all hook events)
+
+All hook events support these top-level output fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `continue` | boolean | Set to `false` to stop the session entirely (not just block the action). |
+| `stopReason` | string | Message when `continue: false`. |
+| `suppressOutput` | boolean | Suppress the hook's stdout from being processed. |
+| `systemMessage` | string | Notification shown to the **user** (not the agent). |
