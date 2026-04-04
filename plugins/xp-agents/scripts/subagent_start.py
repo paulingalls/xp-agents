@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection via dispatch table (M10):
+Tiered injection via dispatch table (M10) + teammate detection (M14):
 - Explore: Intent + Constraints pillars only (~200 tokens)
 - xp-plan-reviewer / xp-retrospective: Full SMM + sprint.md
-- Teammate (assigned_stories in metadata): Full SMM + filtered stories
+- Teammate (custom agent_type): SMM + teammate guide + filtered stories
 - Default (Plan/general-purpose/background): Full SMM + behavioral guide
 - Other xp-* agents: skipped (use own preloads)
 
@@ -84,8 +84,13 @@ def _inject_with_sprint(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Teammate: full SMM + filtered stories from sprint.md."""
-    parts = _inject_full(smm, smm_dir, input_data)
+    """Teammate: SMM + teammate guide + filtered stories from sprint.md."""
+    parts: list[str] = []
+    if smm:
+        parts.append(_common.wrap_smm_context(smm))
+    guide = _common.load_teammate_guide()
+    if guide:
+        parts.append(guide)
     story_ids = input_data.get("metadata", {}).get("assigned_stories", [])
     if story_ids:
         sprint_content = sprint_state.read_sprint_content(smm_dir)
@@ -141,9 +146,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if injector is None:
         if agent_type.startswith("xp-"):
             return None
-        # Check for teammate metadata before defaulting
-        stories = input_data.get("metadata", {}).get("assigned_stories")
-        injector = _inject_teammate if stories else _inject_full
+        # Detect teammates by agent_type, fall back to default
+        is_teammate = is_teammate_by_agent_type(input_data)
+        injector = _inject_teammate if is_teammate else _inject_full
 
     # Resolve SMM dir
     smm_dir = _common.get_validated_smm_dir(smm_dir)

@@ -206,6 +206,18 @@ def load_behavioral_guide() -> str:
     return ""
 
 
+@functools.lru_cache(maxsize=1)
+def load_teammate_guide() -> str:
+    """Load TEAMMATE_GUIDE.md from plugin root."""
+    try:
+        guide_path = resolve_plugin_root() / "TEAMMATE_GUIDE.md"
+        if guide_path.is_file():
+            return guide_path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Event reading (no locking — for hook scripts that don't need atomicity)
 # ---------------------------------------------------------------------------
