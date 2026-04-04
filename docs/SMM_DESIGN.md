@@ -105,6 +105,21 @@ Coordination is **not a pillar of the curated SMM**. It operates at a fundamenta
 
 ---
 
+### Sprint (separate from curated SMM)
+
+Sprint state is **not a pillar of the curated SMM**. Like Coordination, it operates at a different cadence — sprint lifecycle (days/weeks) vs session curation. It lives in `sprint.md` and `product_spec.md` in the SMM directory.
+
+| File | Created By | Lifecycle | Purpose |
+|---|---|---|---|
+| `product_spec.md` | `/xp-product-spec` | Persistent across sprints | Features, acceptance criteria, priorities |
+| `sprint.md` | `/xp-sprint-start` | One active at a time | Stories, sizes, statuses, dependencies |
+
+**Sprint events** (`type: sprint`) record lifecycle transitions (start, end) with metadata including velocity (stories_planned, stories_delivered, stories_carried).
+
+**Sprint-aware injection:** xp-plan-reviewer and xp-retrospective get sprint.md via SubagentStart. Teammates get filtered stories (only their assigned work). `/xp-spawn-team` preload dumps both sprint.md and the current plan.
+
+---
+
 ### Wisdom
 
 Behavioral rules learned from experience. The institutional memory.

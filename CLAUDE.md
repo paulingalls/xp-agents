@@ -193,11 +193,13 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json         ← plugin manifest
-├── BEHAVIORAL_GUIDE.md                ← XP values + process rules, loaded by kickoff_done.py
+├── BEHAVIORAL_GUIDE.md                ← XP values + process rules for lead/solo agents
+├── TEAMMATE_GUIDE.md                  ← DO/DON'T/SKIP/KEEP rules for Agent Team teammates
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks + shared modules
-├── agents/*.md                        ← subagent definitions (xp-retrospective, xp-plan-reviewer)
+├── agents/*.md                        ← subagent definitions (6 agents: retrospective, plan-reviewer,
+│                                        security-reviewer, sprint-reviewer, sprint-retro, spawn-team)
 ├── skills/                            ← forked + inline skills
 │   ├── xp-kickoff/SKILL.md           ← session start orchestrator
 │   ├── xp-run-retrospective/SKILL.md ← forked, delegates to xp-retrospective agent
@@ -205,11 +207,18 @@ plugins/xp-agents/
 │   ├── xp-goal-collection/SKILL.md   ← inline, session goals
 │   ├── xp-housekeeping/SKILL.md      ← inline, four-pillar SMM curation
 │   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
-│   ├── xp-security-triage/SKILL.md   ← inline, classifies staged changes
+│   ├── xp-security-triage/SKILL.md   ← forked, delegates to xp-security-reviewer agent
 │   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
-│   └── xp-smm-protocol/SKILL.md      ← reference guide for event types
+│   ├── xp-smm-protocol/SKILL.md      ← reference guide for event types
+│   ├── xp-product-spec/SKILL.md      ← inline, product specification (product_spec.md)
+│   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.md)
+│   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
+│   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
+│   ├── xp-sprint-retro/SKILL.md      ← forked, delegates to xp-sprint-retro agent
+│   └── xp-spawn-team/SKILL.md        ← forked, delegates to xp-spawn-team agent
 └── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
-         resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,schema.json}
+         resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
+         sprint_parser.py,schema.json}
 ```
 
 ## Error Handling
@@ -259,9 +268,9 @@ tests/
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
 │   ├── test_review_cycle.py ← review_cycle_done, subagent review flags
 │   ├── test_gates.py        ← security triage markers
-│   ├── test_stop_gates.py   ← tdd_stop_gate
+│   ├── test_stop_gates.py   ← tdd_stop_gate, find_last_test_signal
 │   ├── test_validation.py   ← hooks.json structure and registration
-│   ├── test_plugin_integrity.py ← plugin file structure, agent files
+│   ├── test_plugin_integrity.py ← plugin file structure, agent files, skill files
 │   ├── test_auto_resolve.py ← auto-resolve logic
 │   ├── test_retrospective.py ← retrospective data preparation
 │   ├── test_retro_save.py   ← save_retrospective
@@ -269,7 +278,13 @@ tests/
 │   ├── test_lint.py         ← lint detection and execution
 │   ├── test_commits.py      ← commit helpers
 │   ├── test_coordination.py ← coordination logic
-│   └── test_prompt_nugget.py ← prompt nugget delivery
+│   ├── test_prompt_nugget.py ← prompt nugget delivery
+│   ├── test_subagent_tiers.py ← tiered SubagentStart injection (Explore, Plan, sprint)
+│   ├── test_teammate_guide.py ← M14 teammate detection + guide injection
+│   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
+│   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
+│   ├── test_sprint_retro.py  ← sprint retro data prep, preload
+│   └── test_spawn_team.py   ← M15 spawn-team preload integration
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
@@ -324,3 +339,9 @@ tests/
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
 - Python 3.10+, stdlib only, zero dependencies
+- Three-file architecture: events.jsonl + product_spec.md + sprint.md
+- Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
+- Interactive skills (sprint-start, product-spec) inline; review/analysis skills forked
+- Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
+- No prep script for spawn-team — domain analysis is LLM judgment
+- Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
