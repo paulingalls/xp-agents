@@ -11,6 +11,7 @@ allowed-tools:
   - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
   - Bash(cat *| python3 */save_retrospective.py *)
 ---
 

@@ -12,6 +12,7 @@ allowed-tools:
   - Write
   - Edit
   - Bash(*/append.sh *)
+  - Bash(*/skills/*/scripts/*)
   - Bash(*/init.sh)
 ---
 
