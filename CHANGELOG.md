@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.0.4 — Behavioral Guide, SMM Seed & Quality Review Updates
+
+### Improved
+- **Behavioral guide updated for v2** — Added sprint iteration flow (product-spec, sprint-start, accept, sprint-review, sprint-retro), Agent Teams (spawn-team, teammate guide), and accept gate to stop hook section. 87 lines total.
+- **SMM seed constraints** — File size limits now explicit: target 300 lines, max 500.
+- **SMM seed wisdom** — Added design principles: SRP/DRY for file organization, fail fast/fail loud, descriptive naming over comments, test behavior at boundaries not implementation.
+- **Quality review** — New Step 5 code smells quick scan catches what /simplify missed: functions doing too much, deep nesting, magic values, unclear names, copy-paste patterns.
+
+### Stats
+- 1345 tests (all passing)
+
 ## v2.0.3 — Accept Gate & Agent Behavior Fixes
 
 ### Fixed
