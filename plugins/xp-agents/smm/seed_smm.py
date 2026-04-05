@@ -16,9 +16,14 @@ from pathlib import Path
 # Detection helpers
 # ---------------------------------------------------------------------------
 
+# -- Linter configs (catch bugs, anti-patterns) --
 _LINTER_CONFIGS = [
+    # Python
     "ruff.toml",
     ".flake8",
+    ".pylintrc",
+    ".mypy.ini",
+    # JS/TS
     ".eslintrc",
     ".eslintrc.json",
     ".eslintrc.js",
@@ -27,24 +32,53 @@ _LINTER_CONFIGS = [
     "eslint.config.js",
     "eslint.config.mjs",
     "eslint.config.ts",
+    # Rust
     "Cargo.toml",  # clippy via cargo
+    # Go
     ".golangci.yml",
     ".golangci.yaml",
+    # Ruby
     ".rubocop.yml",
+    # C/C++
     ".clang-tidy",
+    # Java
     "checkstyle.xml",
+    "pmd.xml",
+    "spotbugs.xml",
+    # Kotlin
     "detekt.yml",
+    ".ktlint",
+    # PHP
     "phpcs.xml",
+    "phpstan.neon",
+    "phpstan.neon.dist",
+    # Dart/Flutter
     "analysis_options.yaml",
+    # Elixir
     ".credo.exs",
+    # C#
     "stylecop.json",
+    ".editorconfig",  # dotnet analyzers use this
+    # Swift
     ".swiftlint.yml",
-    "biome.json",  # biome does both lint + format
+    # Scala
+    ".scalafix.conf",
+    "scalafix.conf",
+    # Lua
+    ".luacheckrc",
+    # Haskell
+    ".hlint.yaml",
+    # Zig — built-in, no config file (detected via zig.zon)
+    # Multi-language
+    "biome.json",
     "biome.jsonc",
 ]
 
+# -- Formatter configs (consistent style) --
 _FORMATTER_CONFIGS = [
+    # Python
     "ruff.toml",  # ruff does both lint + format
+    # JS/TS/HTML/CSS/JSON/MD
     ".prettierrc",
     ".prettierrc.json",
     ".prettierrc.yml",
@@ -55,11 +89,32 @@ _FORMATTER_CONFIGS = [
     "prettier.config.js",
     "prettier.config.cjs",
     "prettier.config.mjs",
-    ".clang-format",
-    ".php-cs-fixer.php",
+    # Rust
     "rustfmt.toml",
     ".rustfmt.toml",
-    ".editorconfig",
+    # C/C++
+    ".clang-format",
+    # PHP
+    ".php-cs-fixer.php",
+    ".php-cs-fixer.dist.php",
+    # Ruby — rubocop does both lint + format
+    ".rubocop.yml",
+    # Swift
+    ".swift-format",
+    # Kotlin
+    ".editorconfig",  # ktfmt/ktlint use this
+    # Elixir
+    ".formatter.exs",
+    # Scala
+    ".scalafmt.conf",
+    # Lua
+    "stylua.toml",
+    ".stylua.toml",
+    # Haskell
+    ".ormolu",
+    "fourmolu.yaml",
+    ".fourmolu.yaml",
+    # Multi-language
     "biome.json",
     "biome.jsonc",
 ]
@@ -68,11 +123,16 @@ _FORMATTER_CONFIGS = [
 _LINTER_CONTENT_CHECKS = {
     "pyproject.toml": "[tool.ruff]",
     "setup.cfg": "[flake8]",
+    "build.gradle": "checkstyle",  # Java/Kotlin Gradle projects
+    "build.gradle.kts": "checkstyle",
 }
 
 _FORMATTER_CONTENT_CHECKS = {
     "pyproject.toml": "[tool.ruff.format]",
     "Cargo.toml": "[profile",  # implies rustfmt via cargo
+    "build.gradle": "spotless",  # Java/Kotlin Gradle formatter
+    "build.gradle.kts": "spotless",
+    "mix.exs": "formatter",  # Elixir mix format config
 }
 
 _TEST_DIRS = {"tests", "__tests__", "test", "spec"}
@@ -93,6 +153,19 @@ _TEST_FILE_PATTERNS = [
     "*Test.cs",
     "*_test.dart",
     "*_test.exs",
+    "*_test.lua",
+    "*Spec.scala",
+    "*Test.scala",
+    "*Spec.hs",
+    "*_test.zig",
+]
+
+# Languages with built-in formatters (no config file to detect).
+# We check for source files instead.
+_BUILTIN_FORMATTER_GLOBS = [
+    "*.go",  # gofmt is built-in
+    "*.dart",  # dart format is built-in
+    "*.zig",  # zig fmt is built-in
 ]
 
 _HOOK_INDICATORS = [
@@ -142,7 +215,7 @@ def has_linter(root: Path) -> bool:
 
 
 def has_formatter(root: Path) -> bool:
-    """Check if any code formatter config exists."""
+    """Check if any code formatter config exists or language has built-in formatter."""
     for config in _FORMATTER_CONFIGS:
         if (root / config).exists():
             return True
@@ -154,6 +227,10 @@ def has_formatter(root: Path) -> bool:
                     return True
             except (OSError, UnicodeDecodeError):
                 continue
+    # Languages with built-in formatters — check for source files
+    for pattern in _BUILTIN_FORMATTER_GLOBS:
+        if list(root.glob(pattern)) or list(root.glob(f"*/{pattern}")):
+            return True
     return False
 
 
