@@ -10,6 +10,10 @@ pre-commit:
     shellcheck:
       glob: "*.sh"
       run: shellcheck -x -e SC1091 {staged_files}
+    pyright:
+      glob: "plugins/xp-agents/{scripts,smm}/*.py"
+      root: "plugins/xp-agents/"
+      run: pyright
     tests-smm:
       run: python3 -m unittest discover -s plugins/xp-agents/tests/smm -p "test_*.py"
     tests-engine:

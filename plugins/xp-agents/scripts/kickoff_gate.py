@@ -84,7 +84,7 @@ if __name__ == "__main__":
     result = run(input_data)
     if result == _NUDGE:
         _common.hook_output("UserPromptSubmit", _REVIEW_MESSAGE)
-    elif result is not None:
+    elif isinstance(result, dict):
         result["systemMessage"] = "Session kickoff required — run /xp-kickoff."
         print(json.dumps(result))
     sys.exit(0)

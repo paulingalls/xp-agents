@@ -111,6 +111,8 @@ def marker_write(
         raise ValueError(f"Refusing to write to symlink: {path}")
     match marker.content_type:
         case "json":
+            if not isinstance(data, dict):
+                raise TypeError(f"JSON marker requires dict, got {type(data)}")
             write_json_atomic(path, data)
         case "text":
             write_text_atomic(path, data if isinstance(data, str) else str(data))

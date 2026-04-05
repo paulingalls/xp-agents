@@ -158,10 +158,15 @@ def check_tdd_order(
         return None
 
     # Load existing tracker
-    tracker = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id) or {
-        "writes": [],
-        "test_written": False,
-    }
+    raw = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id)
+    tracker: dict = (
+        raw
+        if isinstance(raw, dict)
+        else {
+            "writes": [],
+            "test_written": False,
+        }
+    )
 
     changed = False
 
