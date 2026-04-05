@@ -190,7 +190,8 @@ def generate_smm(root: Path) -> str:
         "Write tests before implementation (TDD) — red, green, commit, refactor",
         "Plan before building new features — use plan mode for design",
         "Small commits — one logical change per commit",
-        "Small files — single responsibility, one concern per file",
+        "Small files — target 300 lines, max 500. "
+        "Large files eat agent context on every read",
         "Use strict linting — enforce coding standards automatically",
         "Use git commit hooks — run lint and tests before every commit",
     ]
@@ -253,10 +254,6 @@ def generate_smm(root: Path) -> str:
     lines.append(
         "- After exiting plan mode, run /xp-review-plan before writing code — "
         "it extracts assumptions, decisions, and risks into the SMM"
-    )
-    lines.append(
-        "- Keep files under 300 lines when possible, max 500 — "
-        "large files eat agent context on every read"
     )
     lines.append("")
 
