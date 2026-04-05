@@ -270,7 +270,9 @@ def generate_smm(root: Path) -> str:
     )
     lines.append(
         "- Test at boundaries — validate at system edges "
-        "(user input, APIs, file I/O), trust internal code"
+        "(external input, APIs, I/O), trust internal logic. "
+        "Don't write tests for trivially correct code — "
+        "test behavior, not implementation"
     )
     lines.append("")
 
