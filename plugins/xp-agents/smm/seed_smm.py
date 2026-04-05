@@ -255,7 +255,7 @@ def generate_smm(root: Path) -> str:
         "it extracts assumptions, decisions, and risks into the SMM"
     )
     lines.append(
-        "- Keep files under 300 lines when possible — "
+        "- Keep files under 300 lines when possible, max 500 — "
         "large files eat agent context on every read"
     )
     lines.append("")
