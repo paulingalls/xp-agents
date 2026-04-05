@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.0.6 — Pyright, Language Coverage & SMM Seed Improvements
+
+### Added
+- **Pyright in lefthook pipeline** — Basic type checking for scripts/ and smm/. Runs in parallel with other pre-commit checks (~1s).
+- **Separate linter and formatter detection** — SMM seed now distinguishes linting (catches bugs) from formatting (consistent style) with separate constraints and risk messages.
+- **18 linter ecosystems** — Python (ruff, flake8, pylint, mypy), JS/TS (eslint), Rust (clippy), Go (golangci-lint), Ruby (rubocop), C/C++/Objective-C (clang-tidy), Java (checkstyle, pmd, spotbugs), Kotlin (detekt, ktlint), PHP (phpcs, phpstan), Dart/Flutter, Elixir (.credo.exs), C# (stylecop), Swift (swiftlint), Scala (scalafix), Lua (luacheck), Haskell (hlint), plus Gradle content checks and biome.
+- **16 formatter ecosystems** — Python (ruff format), JS/TS (prettier), Rust (rustfmt), C/C++/Objective-C (clang-format), PHP (php-cs-fixer), Ruby (rubocop), Swift (swift-format), Kotlin (editorconfig), Elixir (.formatter.exs), Scala (scalafmt), Lua (stylua), Haskell (ormolu/fourmolu), Go/Dart/Zig (built-in via source detection), plus Gradle spotless and biome.
+- **22 test patterns** — Added Objective-C/C++ (XCTest), Lua, Scala, Haskell, Zig.
+- **Design principles in seed wisdom** — SRP/DRY, fail fast/fail loud, descriptive naming, test behavior not implementation.
+- **Code smells step** in quality review skill.
+
+### Fixed
+- **10 Pyright type errors** — isinstance narrowing for marker_read returns in pre_tool_write.py, kickoff_gate.py, and TypeError guard in markers.py.
+
+### Stats
+- 1345 tests (all passing)
+
 ## v2.0.5 — Accept Gate, Preload Dedup & Agent Teams Flow
 
 ### Fixed
