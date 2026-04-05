@@ -260,6 +260,18 @@ def generate_smm(root: Path) -> str:
         "one concern per file, extract when you see duplication "
         "or mixed responsibilities"
     )
+    lines.append(
+        "- Fail fast, fail loud — raise exceptions rather than "
+        "returning None or empty results when something is wrong"
+    )
+    lines.append(
+        "- Name things well — use descriptive names over comments. "
+        "If you need a comment to explain what, rename instead"
+    )
+    lines.append(
+        "- Test at boundaries — validate at system edges "
+        "(user input, APIs, file I/O), trust internal code"
+    )
     lines.append("")
 
     return "\n".join(lines)
