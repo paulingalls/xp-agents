@@ -530,28 +530,15 @@ class TestBashPostToolPushWarning(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("concern", result.lower())
 
-    def test_push_with_missing_status_warns(self):
-        """git push without recent status nudges session-end summary."""
-        self._write_events([make_event("customer_input", content="Build something")])
-        result = bash_post_tool.run(
-            _make_bash_input(command="git push origin v2", stdout=""),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("session-end status", result.lower())
-
-    def test_push_all_clean_no_warning(self):
-        """git push with no issues returns None."""
-        self._write_events(
-            [
-                make_event("status", content="All done", agent_id="main"),
-            ]
-        )
+    def test_push_always_nudges_summary(self):
+        """git push always nudges session summary for user."""
+        self._write_events([make_event("status", content="All done")])
         result = bash_post_tool.run(
             _make_bash_input(command="git push origin main", stdout=""),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("summarize", result.lower())
 
     def test_push_xp_agent_skips(self):
         """xp- agents skip push warning."""

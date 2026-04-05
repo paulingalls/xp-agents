@@ -137,11 +137,11 @@ class TestSessionEnd(_HookTestCase):
         se = next(e for e in events if e.get("type") == "session_end")
         self.assertIn("src/app.ts", se["working_on"])
 
-    def test_final_status_recorded_true(self):
+    def test_final_status_always_true(self):
+        """session_end event IS the final status — always true."""
         import session_end
 
-        s = make_event("status", agent_id="main", working_on=["f.py"])
-        self._write_events([s])
+        self._write_events([make_event()])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
@@ -149,18 +149,6 @@ class TestSessionEnd(_HookTestCase):
         events = _common.read_events_raw(self.smm_dir)
         se = next(e for e in events if e.get("type") == "session_end")
         self.assertTrue(se["final_status_recorded"])
-
-    def test_final_status_recorded_false(self):
-        import session_end
-
-        self._write_events([make_event()])  # Not a status event from main
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == "session_end")
-        self.assertFalse(se["final_status_recorded"])
 
     def test_empty_events(self):
         import session_end

@@ -107,10 +107,7 @@ def _session_end_checklist(smm_dir: Path) -> str | None:
         parts.append(
             f"{unresolved} unresolved concern(s) — review before ending session."
         )
-    if not _common.has_final_status(events):
-        parts.append("Record a session-end status summarizing what was accomplished.")
-    if not parts:
-        return None
+    parts.append("Summarize what was accomplished this session for the user.")
     return "Session-end checklist: " + " ".join(parts)
 
 

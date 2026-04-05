@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Stop command hook: session-end soft warning.
 
-Surfaces unresolved concerns and missing final status as additionalContext
-before the session ends. Soft warning only — does not block.
+Surfaces unresolved concerns and reminds the agent to summarize
+the session for the user. Soft warning only — does not block.
 """
 
 import sys
@@ -35,11 +35,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             f"{unresolved} unresolved concern(s) — review before ending session."
         )
 
-    if not _common.has_final_status(events):
-        parts.append("Record a session-end status summarizing what was accomplished.")
-
-    if not parts:
-        return None
+    parts.append("Summarize what was accomplished this session for the user.")
 
     return "Session-end checklist: " + " ".join(parts)
 

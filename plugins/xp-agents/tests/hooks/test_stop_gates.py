@@ -232,8 +232,8 @@ class TestSessionEndWarning(_HookTestCase):
         self.assertIn("2", result)
         self.assertIn("concern", result.lower())
 
-    def test_resolved_concerns_no_warning(self):
-        """Resolved concerns do not trigger a warning."""
+    def test_resolved_concerns_no_concern_warning(self):
+        """Resolved concerns: no concern warning, summary nudge still fires."""
         concern = make_event("concern", content="Fixed issue", severity="medium")
         resolve = make_event(
             "status",
@@ -243,34 +243,17 @@ class TestSessionEndWarning(_HookTestCase):
         self._write_events([concern, resolve])
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertNotIn("concern", result.lower())
+        self.assertIn("summarize", result.lower())
 
-    def test_missing_final_status_warns(self):
-        """No recent status from main agent produces a reminder."""
-        self._write_events(
-            [
-                make_event("customer_input", content="Build something"),
-            ]
-        )
+    def test_always_nudges_summary(self):
+        """Always reminds agent to summarize for the user."""
+        self._write_events([make_event("status", content="Did work")])
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
-        self.assertIn("session-end status", result.lower())
-
-    def test_recent_status_no_reminder(self):
-        """Recent status from main agent suppresses the reminder."""
-        self._write_events(
-            [
-                make_event(
-                    "status",
-                    content="Completed M9 implementation",
-                    agent_id="main",
-                ),
-            ]
-        )
-        inp = _make_stop_input()
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
+        self.assertIn("summarize", result.lower())
 
     def test_both_issues_combined(self):
         """Both unresolved concerns and missing status produce one warning."""
@@ -284,7 +267,7 @@ class TestSessionEndWarning(_HookTestCase):
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("concern", result.lower())
-        self.assertIn("session-end status", result.lower())
+        self.assertIn("summarize", result.lower())
 
 
 # ===========================================================================

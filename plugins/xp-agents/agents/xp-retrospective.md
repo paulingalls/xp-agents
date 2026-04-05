@@ -52,7 +52,6 @@ Use `digest.honesty_signals` for concrete honesty analysis:
 - **`commits_without_triage`** — commits not preceded by security triage. 0 is healthy. Any non-zero is a Fix.
 - **`code_file_writes` vs `concerns_raised`** — many code writes (10+) with zero concerns suggests uncritical work. Flag as a question: "No concerns raised despite N code file writes — was the work really that clean?"
 - **`assumptions_stated`** — 0 assumptions in a session with significant work suggests implicit assumptions not being recorded. Flag as Fix.
-- **`final_status_recorded`** — false means the session ended without a summary. Flag as Fix.
 
 ## Output
 
