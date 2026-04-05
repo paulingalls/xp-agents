@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.0.5 — Accept Gate, Preload Dedup & Agent Teams Flow
+
+### Fixed
+- **Accept gate defers for active teammates** — Checks coordination.json for running agents. No more false blocking when main agent waits for background teammates.
+- **Teammate race condition** — Teammates registered in coordination.json at SubagentStart spawn, closing the window before first file write.
+- **Accept gate defers during review cycle** — No longer blocks when /simplify spawns background agents.
+- **Forked skill permissions** — Added missing `Bash(*/skills/*/scripts/*)` to xp-spawn-team, xp-sprint-review, xp-sprint-retro. Fixes preload permission errors.
+- **Session-end final_status** — session_end event always records true. Stop warning nudges user-facing summary. Removed from retro agent checks.
+- **Retro agent file management** — Removed misleading "cleans up .retro-input.json" instruction.
+
+### Improved
+- **Preload deduplication** — Added xp-spawn-team, xp-sprint-reviewer, xp-sprint-retro to SubagentStart dispatch table. Removed duplicate SMM/guide/sprint dumps from 4 preload scripts (spawn-team, sprint-review, sprint-retro, review-plan).
+- **Kickoff story branching** — Step 6 now evaluates story count and dependencies: 1 story → solo, 2+ independent → spawn team, 2+ dependent → plan first in order.
+- **Teammate guide** — Corrected review cycle instructions (teammates must invoke skills themselves).
+
+### Stats
+- 1345 tests (all passing)
+
 ## v2.0.4 — Guides, SMM Seed & Quality Review Updates
 
 ### Improved
