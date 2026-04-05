@@ -78,9 +78,15 @@ The preload above lists any existing debt events for the changed files. For each
 - **If the changes make the debt worse** — fix it now.
 - **If the changes are unrelated to the debt** — note it but don't block.
 
-## Step 5: Take Action
+## Step 5: Code Smells — Quick Scan
 
-For each finding from Steps 1-4:
+Glance at the changed files for obvious code smells. You're not repeating /simplify — you're catching what slipped through with fresh eyes. Clean code matters: every smell compounds over time and wastes agent context on future reads.
+
+Flag anything that jumps out: functions doing too much, deep nesting, magic values, unclear names, copy-paste patterns, or modules with mixed responsibilities. If it's quick to fix, fix it. If not, record as debt.
+
+## Step 6: Take Action
+
+For each finding from Steps 1–5:
 
 ### Fix it directly (preferred — courage)
 Edit the files to address the issue. Run tests afterward to verify.
@@ -96,7 +102,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --files '["path/to/file.py"]'
 ```
 
-## Step 6: Record Summary
+## Step 7: Record Summary
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
