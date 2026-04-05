@@ -127,6 +127,19 @@ class TestAcceptGate(_HookTestCase):
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_review_cycle_reset_blocks(self):
+        """Post-commit review cycle (all flags false) does not defer."""
+        import accept_gate
+        import markers
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        # Review cycle marker exists but all flags reset (post-commit state)
+        markers.reset_review_cycle(self.smm_dir, "main", "abc123")
+        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-accept", result)
+
     def test_active_teammates_allows_stop(self):
         """Accept gate defers when teammates are running."""
         import accept_gate
