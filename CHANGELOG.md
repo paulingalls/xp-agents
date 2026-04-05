@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.0.3 — Accept Gate & Agent Behavior Fixes
+
+### Fixed
+- **Accept gate defers during review cycle** — No longer blocks when /simplify spawns background agents and the main agent pauses. Checks for active review cycle marker.
+- **Retro agent file management** — Removed "Cleans up .retro-input.json" instruction that caused the agent to improvise an `mv` command. Cleanup is handled by save_retrospective.py.
+
+### Stats
+- 1345 tests (all passing)
+
 ## v2.0.2 — Stop Hook Schema Fix
 
 ### Fixed
