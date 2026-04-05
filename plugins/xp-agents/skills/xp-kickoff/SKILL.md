@@ -77,4 +77,11 @@ If the user says "skip" at any earlier step, still run housekeeping.
 
 ## Step 6: Complete
 
-Kickoff is complete. **Do NOT stop.** Enter plan mode and begin planning the first selected story immediately. If no sprint is active, begin working on the session goals.
+Kickoff is complete. **Do NOT stop.**
+
+**If stories were selected**, decide how to proceed:
+- **1 story** → Enter plan mode and begin planning it immediately.
+- **2+ independent stories** (no dependencies between them) → Enter plan mode to plan the work, then run `/xp-spawn-team` to get team sizing and spawn instructions for parallel execution.
+- **2+ stories with dependencies** → Enter plan mode and plan the first story (by dependency order). The dependent stories will be picked up after.
+
+**If no sprint is active**, begin working on the session goals.
