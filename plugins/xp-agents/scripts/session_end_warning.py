@@ -45,8 +45,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 
 if __name__ == "__main__":
+    import json
+
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        _common.hook_output("Stop", result)
+        # Stop hooks don't support hookSpecificOutput/additionalContext.
+        # Use top-level reason (soft warning, not a block).
+        print(json.dumps({"reason": result}))
     sys.exit(0)
