@@ -39,7 +39,7 @@ _LINTER_CONFIGS = [
     ".golangci.yaml",
     # Ruby
     ".rubocop.yml",
-    # C/C++
+    # C/C++/Objective-C
     ".clang-tidy",
     # Java
     "checkstyle.xml",
@@ -92,7 +92,7 @@ _FORMATTER_CONFIGS = [
     # Rust
     "rustfmt.toml",
     ".rustfmt.toml",
-    # C/C++
+    # C/C++/Objective-C
     ".clang-format",
     # PHP
     ".php-cs-fixer.php",
@@ -150,6 +150,8 @@ _TEST_FILE_PATTERNS = [
     "*Test.java",
     "*Test.kt",
     "*Tests.swift",
+    "*Tests.m",  # Objective-C (XCTest)
+    "*Tests.mm",  # Objective-C++ (XCTest)
     "*Test.cs",
     "*_test.dart",
     "*_test.exs",
