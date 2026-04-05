@@ -255,6 +255,11 @@ def generate_smm(root: Path) -> str:
         "- After exiting plan mode, run /xp-review-plan before writing code — "
         "it extracts assumptions, decisions, and risks into the SMM"
     )
+    lines.append(
+        "- Keep files small with single responsibility and DRY — "
+        "one concern per file, extract when you see duplication "
+        "or mixed responsibilities"
+    )
     lines.append("")
 
     return "\n".join(lines)
