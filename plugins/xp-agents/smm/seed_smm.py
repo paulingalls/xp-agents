@@ -27,22 +27,39 @@ _LINTER_CONFIGS = [
     "eslint.config.js",
     "eslint.config.mjs",
     "eslint.config.ts",
-    ".prettierrc",
-    ".prettierrc.json",
-    "Cargo.toml",
+    "Cargo.toml",  # clippy via cargo
     ".golangci.yml",
     ".golangci.yaml",
     ".rubocop.yml",
     ".clang-tidy",
-    ".clang-format",
     "checkstyle.xml",
     "detekt.yml",
     "phpcs.xml",
-    ".php-cs-fixer.php",
     "analysis_options.yaml",
     ".credo.exs",
     "stylecop.json",
     ".swiftlint.yml",
+    "biome.json",  # biome does both lint + format
+    "biome.jsonc",
+]
+
+_FORMATTER_CONFIGS = [
+    "ruff.toml",  # ruff does both lint + format
+    ".prettierrc",
+    ".prettierrc.json",
+    ".prettierrc.yml",
+    ".prettierrc.yaml",
+    ".prettierrc.js",
+    ".prettierrc.cjs",
+    ".prettierrc.mjs",
+    "prettier.config.js",
+    "prettier.config.cjs",
+    "prettier.config.mjs",
+    ".clang-format",
+    ".php-cs-fixer.php",
+    "rustfmt.toml",
+    ".rustfmt.toml",
+    ".editorconfig",
     "biome.json",
     "biome.jsonc",
 ]
@@ -51,6 +68,11 @@ _LINTER_CONFIGS = [
 _LINTER_CONTENT_CHECKS = {
     "pyproject.toml": "[tool.ruff]",
     "setup.cfg": "[flake8]",
+}
+
+_FORMATTER_CONTENT_CHECKS = {
+    "pyproject.toml": "[tool.ruff.format]",
+    "Cargo.toml": "[profile",  # implies rustfmt via cargo
 }
 
 _TEST_DIRS = {"tests", "__tests__", "test", "spec"}
@@ -109,6 +131,22 @@ def has_linter(root: Path) -> bool:
         if (root / config).exists():
             return True
     for config, content in _LINTER_CONTENT_CHECKS.items():
+        path = root / config
+        if path.exists():
+            try:
+                if content in path.read_text(encoding="utf-8"):
+                    return True
+            except (OSError, UnicodeDecodeError):
+                continue
+    return False
+
+
+def has_formatter(root: Path) -> bool:
+    """Check if any code formatter config exists."""
+    for config in _FORMATTER_CONFIGS:
+        if (root / config).exists():
+            return True
+    for config, content in _FORMATTER_CONTENT_CHECKS.items():
         path = root / config
         if path.exists():
             try:
@@ -181,6 +219,7 @@ def has_ci(root: Path) -> bool:
 def generate_smm(root: Path) -> str:
     """Generate seed SMM content based on project analysis."""
     linter = has_linter(root)
+    formatter = has_formatter(root)
     tests = has_tests(root)
     hooks = has_git_hooks(root)
     ci = has_ci(root)
@@ -192,7 +231,8 @@ def generate_smm(root: Path) -> str:
         "Small commits — one logical change per commit",
         "Small files — target 300 lines, max 500. "
         "Large files eat agent context on every read",
-        "Use strict linting — enforce coding standards automatically",
+        "Use strict linting — catch bugs and anti-patterns automatically",
+        "Use a code formatter — consistent style keeps diffs clean",
         "Use git commit hooks — run lint and tests before every commit",
     ]
 
@@ -200,9 +240,15 @@ def generate_smm(root: Path) -> str:
     risks: list[str] = []
     if not linter:
         risks.append(
-            "No linter configured — add one for automated coding standards "
-            "(e.g., ruff for Python, eslint for JS/TS, swiftlint for Swift, "
-            "biome for JS/TS)"
+            "No linter configured — add one to catch bugs automatically "
+            "(e.g., ruff for Python, eslint for JS/TS, clippy for Rust, "
+            "golangci-lint for Go)"
+        )
+    if not formatter:
+        risks.append(
+            "No code formatter configured — add one for consistent style "
+            "(e.g., ruff format for Python, prettier for JS/TS, gofmt for Go, "
+            "rustfmt for Rust)"
         )
     if not tests:
         risks.append(
@@ -233,7 +279,9 @@ def generate_smm(root: Path) -> str:
         for r in risks:
             lines.append(f"- {r}")
     else:
-        lines.append("- (none detected — project has linter, tests, hooks, and CI)")
+        lines.append(
+            "- (none detected — project has linter, formatter, tests, hooks, and CI)"
+        )
     lines.append("")
 
     lines.append("## Wisdom")
