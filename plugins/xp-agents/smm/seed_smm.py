@@ -254,6 +254,10 @@ def generate_smm(root: Path) -> str:
         "- After exiting plan mode, run /xp-review-plan before writing code — "
         "it extracts assumptions, decisions, and risks into the SMM"
     )
+    lines.append(
+        "- Keep files under 300 lines when possible — "
+        "large files eat agent context on every read"
+    )
     lines.append("")
 
     return "\n".join(lines)

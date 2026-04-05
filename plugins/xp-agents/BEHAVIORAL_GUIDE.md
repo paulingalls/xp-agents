@@ -50,8 +50,20 @@ These are not optional. Hooks enforce some of these as safety nets, but the righ
 **After exiting plan mode:**
 - Run `/xp-review-plan` before writing any code. The write hook blocks until you do, but run it proactively.
 
+**Sprint iteration flow:**
+- Run `/xp-product-spec` to define features, `/xp-sprint-start` to decompose into stories.
+- Pick stories at kickoff, plan and implement them, then run `/xp-accept` to verify acceptance criteria before stopping.
+- When all stories are done or deferred, run `/xp-sprint-review` to record velocity and update the product spec.
+- Run `/xp-sprint-retro` for cross-iteration pattern analysis.
+
+**Agent Teams (when parallelizing work):**
+- Use `/xp-spawn-team` to analyze the plan and generate spawn instructions with file domains and team sizing.
+- Teammates receive TEAMMATE_GUIDE.md (not this guide) — they focus on implementation within their domain.
+
 **When a Stop hook blocks you:**
-- The TDD stop gate blocks if tests are failing. Fix the tests before stopping. If you genuinely believe the gate is wrong, record a `debt` event explaining why.
+- The TDD stop gate blocks if tests are failing. Fix the tests before stopping.
+- The accept gate blocks if you've written code during an active sprint — run `/xp-accept` first.
+- If you genuinely believe a gate is wrong, record a `debt` event explaining why.
 
 ---
 
