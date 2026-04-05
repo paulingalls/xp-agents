@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.0.7 — Accept Gate Root Cause Fix & Post-Team Checklist
+
+### Fixed
+- **Accept gate permanent deferral** — Review cycle marker persists after commit with all flags reset to false. Gate was checking `marker_exists` (always true) instead of whether any review flag is actively set. Root cause of accept never blocking after team iterations.
+
+### Improved
+- **Post-team checklist in spawn-team output** — Spawn instructions now include explicit steps for after teammates finish: commit work, run `/xp-accept`, then `/xp-sprint-review` if all stories complete.
+
+### Stats
+- 1346 tests (all passing)
+
 ## v2.0.6 — Pyright, Language Coverage & SMM Seed Improvements
 
 ### Added
