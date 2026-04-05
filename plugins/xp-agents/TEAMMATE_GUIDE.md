@@ -24,4 +24,4 @@ You are a teammate working on assigned stories. The lead agent coordinates the p
 
 - **TDD discipline.** Hooks enforce test-passing gates on TeammateIdle and TaskCompleted. If your tests are failing, you cannot go idle or complete a task.
 - **Concern recording.** If something looks wrong, record it. The lead and other teammates need visibility.
-- **Commit-gated reviews.** The review cycle is enforced automatically by hooks. When you commit code changes, the gate ensures review steps complete. You do not need to manually invoke review skills.
+- **Commit-gated reviews.** Before committing code changes, run the review cycle: `/simplify` → `/xp-quality-review` → `/xp-security-triage` → commit. The commit gate blocks if you skip a step.

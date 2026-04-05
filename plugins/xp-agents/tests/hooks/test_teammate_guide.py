@@ -152,11 +152,11 @@ class TestTeammateGuide(_HookTestCase):
                 self.assertNotIn("Teammate Guide", result)
                 self.assertIn("XP Agent Behavioral Guide", result)
 
-    def test_review_cycle_referenced_as_automatic(self):
-        """Teammate guide references commit-gated review as automatic."""
+    def test_review_cycle_referenced(self):
+        """Teammate guide references commit-gated review cycle."""
         result = self._run_teammate()
         self.assertIn("review", result.lower())
-        self.assertIn("automatic", result.lower())
+        self.assertIn("/simplify", result.lower())
 
 
 if __name__ == "__main__":
