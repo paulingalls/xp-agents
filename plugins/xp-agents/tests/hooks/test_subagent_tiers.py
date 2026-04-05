@@ -320,6 +320,48 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Ship v1", result)
         self.assertIn("sprint-001", result)
 
+    def test_spawn_team_gets_smm_and_sprint(self):
+        """Spawn team (xp-spawn-team) gets full SMM + sprint.md."""
+        result = self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "spawn-1",
+                "agent_type": "xp-spawn-team",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("sprint-001", result)
+
+    def test_sprint_reviewer_gets_smm_and_sprint(self):
+        """Sprint reviewer (xp-sprint-reviewer) gets full SMM + sprint."""
+        result = self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "review-1",
+                "agent_type": "xp-sprint-reviewer",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("sprint-001", result)
+
+    def test_sprint_retro_gets_smm_and_sprint(self):
+        """Sprint retro (xp-sprint-retro) gets full SMM + sprint."""
+        result = self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "retro-1",
+                "agent_type": "xp-sprint-retro",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("sprint-001", result)
+
     def test_teammate_gets_smm_and_guide(self):
         """Teammate gets SMM + teammate guide (stories via spawn prompt)."""
         result = self.subagent_start.run(

@@ -127,6 +127,9 @@ _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
     "xp-plan-reviewer": _inject_with_sprint,
     "xp-retrospective": _inject_with_sprint,
+    "xp-spawn-team": _inject_with_sprint,
+    "xp-sprint-reviewer": _inject_with_sprint,
+    "xp-sprint-retro": _inject_with_sprint,
 }
 
 

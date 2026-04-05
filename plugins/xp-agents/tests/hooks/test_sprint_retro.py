@@ -252,11 +252,12 @@ class TestSprintRetroPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("RETRO_INPUT=", result.stdout)
 
-    def test_preload_includes_behavioral_guide(self):
+    def test_preload_no_guide(self):
+        """Preload no longer dumps guide (SubagentStart handles it)."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Behavioral Guide", result.stdout)
+        self.assertNotIn("Behavioral Guide", result.stdout)
 
 
 if __name__ == "__main__":

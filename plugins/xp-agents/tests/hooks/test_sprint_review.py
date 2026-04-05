@@ -405,12 +405,12 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("REVIEW_INPUT=", result.stdout)
 
-    def test_preload_includes_behavioral_guide(self):
-        """Preload output includes behavioral guide section."""
+    def test_preload_no_guide(self):
+        """Preload no longer dumps guide (SubagentStart handles it)."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Behavioral Guide", result.stdout)
+        self.assertNotIn("Behavioral Guide", result.stdout)
 
     def test_preload_creates_review_input_file(self):
         """Preload creates .sprint-review-input.json in SMM dir."""

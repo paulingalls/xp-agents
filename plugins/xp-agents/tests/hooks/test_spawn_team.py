@@ -104,22 +104,6 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
-    def test_preload_outputs_smm_state(self):
-        """Preload output includes SMM content when materialized."""
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Ship v1", result.stdout)
-
-    def test_preload_outputs_sprint_content(self):
-        """Preload output includes sprint.md content."""
-        (self.smm_dir / "sprint.md").write_text(_SAMPLE_SPRINT)
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("## Sprint Data", result.stdout)
-        self.assertIn("sprint-001", result.stdout)
-
     def test_preload_outputs_plan_content(self):
         """Preload output includes current plan content."""
         plan_path = self._write_plan()
@@ -130,32 +114,24 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         self.assertIn("## Current Plan", result.stdout)
         self.assertIn("Add user model", result.stdout)
 
-    def test_preload_outputs_behavioral_guide(self):
-        """Preload output includes behavioral guide section."""
+    def test_preload_no_smm_or_guide(self):
+        """Preload no longer dumps SMM or guide (SubagentStart handles those)."""
+        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Behavioral Guide", result.stdout)
+        self.assertNotIn("Ship v1", result.stdout)
+        self.assertNotIn("Behavioral Guide", result.stdout)
 
-    def test_preload_missing_sprint_graceful(self):
-        """No sprint.md -> exits 0, shows not-found message."""
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("not found", result.stdout.lower())
-
-    def test_preload_missing_plan_graceful(self):
-        """No plan file -> exits 0, shows not-found message."""
-        # Ensure no marker and no plans directory
+    def test_preload_no_marker_exits_ok(self):
+        """No plan marker -> exits 0, falls back to glob or shows not-found."""
         marker = self.smm_dir / ".plan-awaiting-review"
         if marker.exists():
             marker.unlink()
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        # Should have "not found" for the plan section
-        stdout_lower = result.stdout.lower()
-        self.assertTrue(
-            "plan" in stdout_lower and "not found" in stdout_lower,
-            f"Expected plan not-found message, got: {result.stdout[:500]}",
-        )
+        # Should have either plan content (from glob) or not-found message
+        self.assertIn("plan", result.stdout.lower())
 
 
 if __name__ == "__main__":
