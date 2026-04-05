@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.2 — Stop Hook Schema Fix
+
+### Fixed
+- **Session-end warning Stop hook** — Was outputting `hookSpecificOutput`/`additionalContext` which Stop hooks don't support. Now uses top-level `reason` field per the Stop hook schema.
+
+### Stats
+- 1344 tests (all passing)
+
 ## v2.0.1 — v2 Testing Fixes
 
 ### Fixed
