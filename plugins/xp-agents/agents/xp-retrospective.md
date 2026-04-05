@@ -134,7 +134,6 @@ RETRO_JSON
 This single command:
 - Writes the retrospective event to events.jsonl
 - Saves a timestamped JSON file to the retrospectives directory
-- Cleans up .retro-input.json
 - Outputs `EVENT_ID=<id>` and `RETRO_FILE=<path>`
 
 **If you do not see `EVENT_ID=` in the output, the save failed — retry it.**
