@@ -158,6 +158,14 @@ class TestTeammateGuide(_HookTestCase):
         self.assertIn("review", result.lower())
         self.assertIn("/simplify", result.lower())
 
+    def test_teammate_registered_in_coordination(self):
+        """Teammate is registered in coordination.json at spawn."""
+        import coordination
+
+        self._run_teammate(agent_id="worker-1")
+        coord = coordination.read_coordination(self.smm_dir)
+        self.assertIn("worker-1", coord)
+
 
 if __name__ == "__main__":
     unittest.main()

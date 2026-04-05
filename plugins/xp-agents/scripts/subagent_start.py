@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import coordination
 import sprint_state
 
 # ---------------------------------------------------------------------------
@@ -84,6 +85,10 @@ def _inject_with_sprint(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
     """Teammate: SMM + teammate guide. Story context comes via spawn prompt."""
+    # Register in coordination immediately — closes race window before first file write
+    agent_id = input_data.get("agent_id", "")
+    if agent_id and smm_dir:
+        coordination.update_coordination(smm_dir, agent_id, [])
     parts: list[str] = []
     if smm:
         parts.append(_common.wrap_smm_context(smm))

@@ -127,6 +127,28 @@ class TestAcceptGate(_HookTestCase):
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_active_teammates_allows_stop(self):
+        """Accept gate defers when teammates are running."""
+        import accept_gate
+        import coordination
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        # Teammate registered in coordination
+        coordination.update_coordination(self.smm_dir, "worker-1", [])
+        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_active_teammates_blocks(self):
+        """Accept gate blocks when no teammates are running."""
+        import accept_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        # No coordination entries
+        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
 
 # ===========================================================================
 # accept_done.py — PostToolUse:Skill hook

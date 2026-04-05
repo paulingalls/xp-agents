@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import coordination
 import markers
 import sprint_state
 
@@ -46,6 +47,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Defer if review cycle is in progress — agent is mid-workflow, not stopping
     agent_id = input_data.get("agent_id", "main")
     if markers.marker_exists(smm_dir, markers.REVIEW_CYCLE, agent_id):
+        return None
+
+    # Defer if teammates are active — main agent is coordinating, not stopping
+    coord = coordination.read_coordination(smm_dir)
+    if any(aid != agent_id for aid in coord):
         return None
 
     return _BLOCK_REASON
