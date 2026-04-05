@@ -43,6 +43,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not markers.marker_exists(smm_dir, markers.ACCEPT):
         return None
 
+    # Defer if review cycle is in progress — agent is mid-workflow, not stopping
+    agent_id = input_data.get("agent_id", "main")
+    if markers.marker_exists(smm_dir, markers.REVIEW_CYCLE, agent_id):
+        return None
+
     return _BLOCK_REASON
 
 

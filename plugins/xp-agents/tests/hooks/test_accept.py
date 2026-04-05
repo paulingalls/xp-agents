@@ -106,6 +106,27 @@ class TestAcceptGate(_HookTestCase):
         result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_review_cycle_active_allows_stop(self):
+        """Accept gate defers when review cycle is in progress."""
+        import accept_gate
+        import markers
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        # Review cycle marker exists — agent is mid-workflow
+        markers.write_review_cycle(
+            self.smm_dir,
+            "main",
+            {
+                "simplify_done": True,
+                "quality_review_done": False,
+                "security_review_done": False,
+                "last_review_commit": "abc123",
+            },
+        )
+        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
 
 # ===========================================================================
 # accept_done.py — PostToolUse:Skill hook
