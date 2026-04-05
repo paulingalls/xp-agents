@@ -108,6 +108,15 @@ Produce this exact structure:
 ### Task 2: [title]
 ...
 
+## Post-Team Checklist
+
+After all teammates complete:
+1. Review and commit their work (the review cycle will run automatically)
+2. Run `/xp-accept` to verify acceptance criteria and mark stories done
+3. If all stories are done/deferred, run `/xp-sprint-review`
+
+**Do NOT stop after committing teammate work — run `/xp-accept` first.**
+
 ## Spawn Prompt Template
 
 Use this prompt when creating the team:
