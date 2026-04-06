@@ -295,8 +295,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text(_SAMPLE_SPRINT)
 
-    def test_plan_reviewer_gets_smm_and_sprint(self):
-        """Plan reviewer (xp-plan-reviewer) gets full SMM + sprint.md."""
+    def test_plan_reviewer_returns_none(self):
+        """xp-plan-reviewer uses own preload — SubagentStart returns None."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -305,10 +305,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("sprint-001", result)
-        self.assertIn("story-002", result)
+        self.assertIsNone(result)
 
     def test_retrospective_returns_none(self):
         """xp-retrospective uses own preload — SubagentStart returns None."""
@@ -395,8 +392,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         # No sprint content without assigned_stories
         self.assertNotIn("sprint-001", result)
 
-    def test_missing_sprint_degrades_gracefully(self):
-        """Plan reviewer without sprint.md still gets SMM, no error."""
+    def test_plan_reviewer_no_sprint_still_none(self):
+        """xp-plan-reviewer returns None even without sprint.md."""
         (self.smm_dir / "sprint.md").unlink()
         result = self.subagent_start.run(
             {
@@ -406,9 +403,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertNotIn("sprint-001", result)
+        self.assertIsNone(result)
 
     def test_other_xp_agents_still_skipped(self):
         """xp-* agents not in dispatch table return None."""

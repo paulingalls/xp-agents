@@ -204,8 +204,8 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertIn("Bash", fm, f"{name} missing Bash in tools")
 
     def test_skills_include_smm_protocol(self):
-        # xp-security-reviewer doesn't need xp-smm-protocol (M2/M8)
-        skip = {"xp-security-reviewer"}
+        # Agents with optimized preloads don't need xp-smm-protocol (M2/M3/M8)
+        skip = {"xp-security-reviewer", "xp-plan-reviewer"}
         for name in _SUBAGENT_NAMES:
             if name in skip:
                 continue

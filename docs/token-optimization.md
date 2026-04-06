@@ -132,11 +132,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `skills/xp-review-plan/scripts/preload.sh`, `agents/xp-plan-reviewer.md`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] Preload provides SMM pillars + sprint.md via `_preload_base.sh` helpers
-- [ ] `agents/xp-plan-reviewer.md` accurately describes what preload provides (not SubagentStart)
-- [ ] Decision made: full SMM vs selective pillars, with rationale
-- [ ] `subagent_start.run()` returns `None` for agent_type "xp-plan-reviewer"
-- [ ] Full test suite passes
+- [x] Preload provides full SMM + sprint.md + XP values via `_preload_base.sh` helpers
+- [x] `agents/xp-plan-reviewer.md` accurately describes what preload provides (not SubagentStart)
+- [x] Decision: full SMM (all 4 pillars needed — Intent for scope, Constraints for conflicts, Risks for awareness, Wisdom for behavioral rules)
+- [x] Removed `skills: [xp-smm-protocol]` (M8 early)
+- [x] `subagent_start.run()` returns `None` for agent_type "xp-plan-reviewer"
+- [x] Full test suite passes (1367 tests)
 
 ### M4: xp-sprint-review / xp-sprint-reviewer
 

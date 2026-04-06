@@ -1,10 +1,20 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-plan-reviewer: plan file + marker clearing.
-# SMM, sprint, and guide are injected by SubagentStart.
+# Preload for xp-plan-reviewer: plan file + SMM + sprint + XP values.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 echo "SMM_DIR=${SMM_DIR}"
+echo ""
+dump_smm
+echo ""
+# Sprint context for scope alignment and execution mode assessment
+SPRINT_FILE="${SMM_DIR}/sprint.md"
+if [ -f "$SPRINT_FILE" ]; then
+    echo ""
+    cat "$SPRINT_FILE"
+fi
+echo ""
+dump_values
 
 # Read plan file path from marker, fall back to most recent .claude/plans/*.md
 MARKER="${SMM_DIR}/.plan-awaiting-review"

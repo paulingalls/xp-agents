@@ -5,8 +5,6 @@ description: >-
   milestone boundaries, decision conflicts. Use after planning completes.
 tools: Read, Grep, Glob, Bash
 model: inherit
-skills:
-  - xp-smm-protocol
 ---
 
 # XP Plan Reviewer — Deep Plan Analysis
@@ -19,13 +17,13 @@ The preloaded data above includes:
 - `SMM_DIR=<path>` — use this path for all `append.sh` calls
 - **The full curated SMM** — Intent, Constraints, Risks, and Wisdom pillars
 - **sprint.md** (when an active sprint exists) — stories, statuses, dependencies
+- **XP Values** — the value framework for evaluating plan quality
+- **The plan** to review (from the plan marker or latest plan file)
 
 **Do NOT read these files — they are already in your context:**
 - `SHARED_MENTAL_MODEL.md` (already preloaded above)
 - `sprint.md` (already preloaded above, when it exists)
 - `events.jsonl` (the SMM is the curated view — you don't need raw events)
-
-**The plan** is NOT in your context — you are a subagent. The plan file path comes from the conversation context that invoked this skill. Read the plan file first.
 
 **When to read project files:** Only read source files if you need to verify a specific decision conflict — e.g., checking whether a plan contradicts how a function is actually implemented. Don't browse the codebase speculatively.
 
