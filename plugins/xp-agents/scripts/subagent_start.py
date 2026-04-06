@@ -3,9 +3,9 @@
 
 Tiered injection via dispatch table (M10) + teammate detection (M14):
 - Explore: Intent + Constraints pillars only (~200 tokens)
-- xp-plan-reviewer / xp-retrospective: Full SMM + sprint.md
-- Teammate (custom agent_type): SMM + teammate guide (stories via spawn prompt)
-- Default (Plan/general-purpose/background): Full SMM + behavioral guide
+- xp-plan-reviewer / xp-retrospective: Full SMM + XP values + sprint.md
+- Teammate (custom agent_type): SMM + XP values + teammate guide
+- Default (Plan/general-purpose/background): Full SMM + XP values
 - Other xp-* agents: skipped (use own preloads)
 
 Note: The is_xp_agent() early return used in other hooks is replaced here
@@ -64,13 +64,13 @@ def _inject_explore(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 def _inject_full(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Default: full SMM + behavioral guide."""
+    """Default: full SMM + XP values (no process guide)."""
     parts: list[str] = []
     if smm:
         parts.append(_common.wrap_smm_context(smm))
-    guide = _common.load_behavioral_guide()
-    if guide:
-        parts.append(guide)
+    values = _common.load_xp_values()
+    if values:
+        parts.append(values)
     return parts
 
 
@@ -84,7 +84,7 @@ def _inject_with_sprint(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Teammate: SMM + teammate guide. Story context comes via spawn prompt."""
+    """Teammate: SMM + XP values + teammate guide. Stories via spawn prompt."""
     # Register in coordination immediately — closes race window before first file write
     agent_id = input_data.get("agent_id", "")
     if agent_id and smm_dir:
@@ -92,6 +92,9 @@ def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
     parts: list[str] = []
     if smm:
         parts.append(_common.wrap_smm_context(smm))
+    values = _common.load_xp_values()
+    if values:
+        parts.append(values)
     guide = _common.load_teammate_guide()
     if guide:
         parts.append(guide)

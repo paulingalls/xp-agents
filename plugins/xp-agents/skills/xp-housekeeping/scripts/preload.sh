@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-housekeeping (forked): prepare curation data, output paths + guide.
+# Preload for xp-housekeeping (forked): prepare curation data, output paths + values.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
@@ -15,4 +15,4 @@ if [ -f "${SMM_DIR}/.curation-input.json" ]; then
 fi
 echo ""
 
-dump_guide
+dump_values

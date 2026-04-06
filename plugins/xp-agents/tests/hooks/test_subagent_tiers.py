@@ -41,8 +41,8 @@ class TestSubagentStart(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_returns_guide_without_smm_file(self):
-        """Without curated SMM file, non-Explore agent still gets behavioral guide."""
+    def test_returns_values_without_smm_file(self):
+        """Without curated SMM file, non-Explore agent still gets XP values."""
         import subagent_start
 
         self._write_events([make_event()])
@@ -50,9 +50,9 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        # Non-Explore agent gets behavioral guide even without SMM
+        # Non-Explore agent gets XP values even without SMM
         self.assertIsNotNone(result)
-        self.assertIn("Behavioral Guide", result)
+        self.assertIn("XP Values", result)
 
     def test_reads_curated_smm_from_disk(self):
         """M5: SubagentStart reads curated SMM from disk when available."""
@@ -67,16 +67,16 @@ class TestSubagentStart(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
 
-    def test_empty_events_still_gets_guide(self):
+    def test_empty_events_still_gets_values(self):
         import subagent_start
 
         result = subagent_start.run(
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        # Non-Explore agent gets behavioral guide even with empty events
+        # Non-Explore agent gets XP values even with empty events
         self.assertIsNotNone(result)
-        self.assertIn("Behavioral Guide", result)
+        self.assertIn("XP Values", result)
 
     def test_default_agent_id(self):
         """Default agent_id is 'subagent' — used in start event."""
@@ -94,8 +94,8 @@ class TestSubagentStart(_HookTestCase):
         ]
         self.assertEqual(len(start_events), 1)
 
-    def test_falls_back_to_guide_without_smm_file(self):
-        """Without curated SMM, non-Explore agent gets behavioral guide."""
+    def test_falls_back_to_values_without_smm_file(self):
+        """Without curated SMM, non-Explore agent gets XP values."""
         import subagent_start
 
         self._write_events([make_event("goal", content="Ship v1")])
@@ -105,7 +105,7 @@ class TestSubagentStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("Behavioral Guide", result)
+        self.assertIn("XP Values", result)
 
 
 class TestSubagentStartEvent(_HookTestCase):
@@ -200,8 +200,8 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertNotIn("BEHAVIORAL_GUIDE", result)
 
-    def test_general_agent_gets_full_smm_and_guide(self):
-        """General-purpose agent gets full SMM + behavioral guide."""
+    def test_general_agent_gets_full_smm_and_values(self):
+        """General-purpose agent gets full SMM + XP values (no process guide)."""
         result = self.subagent_start.run(
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
@@ -211,9 +211,11 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         self.assertIn("Constraints", result)
         self.assertIn("Risks", result)
         self.assertIn("Wisdom", result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("EnterPlanMode", result)
 
-    def test_plan_agent_gets_full_smm_and_guide(self):
-        """Plan agent gets full SMM + behavioral guide."""
+    def test_plan_agent_gets_full_smm_and_values(self):
+        """Plan agent gets full SMM + XP values (no process guide)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -224,6 +226,8 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("Intent", result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("EnterPlanMode", result)
         self.assertIn("Constraints", result)
         self.assertIn("Risks", result)
         self.assertIn("Wisdom", result)

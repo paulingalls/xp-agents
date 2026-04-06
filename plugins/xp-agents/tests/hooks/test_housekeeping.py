@@ -81,11 +81,12 @@ class TestHousekeepingPreload(_IntegrationTestCase):
         ):
             self.assertIn(key, data, f"Missing key: {key}")
 
-    def test_outputs_behavioral_guide(self):
-        """Preload includes behavioral guide for XP values context."""
+    def test_outputs_xp_values(self):
+        """Preload includes XP values (not process guide) for curation."""
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Behavioral Guide", result.stdout)
+        self.assertIn("XP Values", result.stdout)
+        self.assertNotIn("EnterPlanMode", result.stdout)
 
     def test_graceful_without_events(self):
         """Empty events.jsonl — preload still succeeds."""

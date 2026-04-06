@@ -193,7 +193,8 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 ```
 plugins/xp-agents/
 ├── .claude-plugin/plugin.json         ← plugin manifest
-├── BEHAVIORAL_GUIDE.md                ← XP values + process rules for lead/solo agents
+├── XP_VALUES.md                       ← XP values (Honesty, Communication, Simplicity, Feedback, Courage, Respect)
+├── PROCESS_GUIDE.md                   ← Process rules for lead/solo agents (skills, commit gates, sprint flow)
 ├── TEAMMATE_GUIDE.md                  ← DO/DON'T/SKIP/KEEP rules for Agent Team teammates
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations

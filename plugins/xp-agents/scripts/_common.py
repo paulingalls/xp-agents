@@ -195,12 +195,24 @@ def resolve_plugin_root() -> Path:
 
 
 @functools.lru_cache(maxsize=1)
-def load_behavioral_guide() -> str:
-    """Load BEHAVIORAL_GUIDE.md from plugin root."""
+def load_xp_values() -> str:
+    """Load XP_VALUES.md from plugin root."""
     try:
-        guide_path = resolve_plugin_root() / "BEHAVIORAL_GUIDE.md"
-        if guide_path.is_file():
-            return guide_path.read_text(encoding="utf-8")
+        path = resolve_plugin_root() / "XP_VALUES.md"
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
+def load_process_guide() -> str:
+    """Load PROCESS_GUIDE.md from plugin root."""
+    try:
+        path = resolve_plugin_root() / "PROCESS_GUIDE.md"
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
     except (OSError, ValueError):
         pass
     return ""

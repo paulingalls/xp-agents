@@ -68,14 +68,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     markers.marker_consume(smm_dir, markers.NEEDS_PRODUCT_SPEC)
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
-    # Housekeeping is forked — inject SMM + behavioral guide so the
-    # main agent has both in context after kickoff completes.
+    # Housekeeping is forked — inject SMM + XP values + process guide so
+    # the main agent has full context after kickoff completes.
     smm_content = ""
     smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
     with contextlib.suppress(FileNotFoundError):
         smm_content = smm_file.read_text(encoding="utf-8").strip()
 
-    guide = _common.load_behavioral_guide()
+    values = _common.load_xp_values()
+    process = _common.load_process_guide()
 
     # Nudge if sprint exists but no stories are in-progress
     sprint_content = sprint_state.read_sprint_content(smm_dir)
@@ -87,7 +88,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "stories for this iteration."
         )
 
-    parts = [p for p in [smm_content, guide, nudge] if p]
+    parts = [p for p in [smm_content, values, process, nudge] if p]
     result = "\n\n".join(parts)
     return result if result else None
 

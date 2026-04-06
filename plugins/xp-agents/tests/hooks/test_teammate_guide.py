@@ -99,12 +99,13 @@ class TestTeammateGuide(_HookTestCase):
         }
         return self.subagent_start.run(data, smm_dir=self.smm_dir)
 
-    def test_teammate_gets_teammate_guide_not_solo(self):
-        """Teammate agent gets TEAMMATE_GUIDE, not BEHAVIORAL_GUIDE."""
+    def test_teammate_gets_teammate_guide_and_values(self):
+        """Teammate agent gets TEAMMATE_GUIDE + XP values, not process guide."""
         result = self._run_teammate()
         self.assertIsNotNone(result)
         self.assertIn("Teammate Guide", result)
-        self.assertNotIn("XP Agent Behavioral Guide", result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("EnterPlanMode", result)
 
     def test_teammate_guide_has_do_items(self):
         """Teammate guide includes DO items from design doc."""
@@ -137,7 +138,7 @@ class TestTeammateGuide(_HookTestCase):
         self.assertNotIn("story-001", result)
 
     def test_non_teammate_tiers_unaffected(self):
-        """Built-in types still get solo behavioral guide."""
+        """Built-in types get XP values (not teammate guide)."""
         for agent_type in ("Plan", "general-purpose"):
             with self.subTest(agent_type=agent_type):
                 result = self.subagent_start.run(
@@ -150,7 +151,7 @@ class TestTeammateGuide(_HookTestCase):
                 )
                 self.assertIsNotNone(result)
                 self.assertNotIn("Teammate Guide", result)
-                self.assertIn("XP Agent Behavioral Guide", result)
+                self.assertIn("XP Values", result)
 
     def test_review_cycle_referenced(self):
         """Teammate guide references commit-gated review cycle."""

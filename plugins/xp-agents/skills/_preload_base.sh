@@ -7,7 +7,8 @@ set -euo pipefail
 #
 # After sourcing, PLUGIN_ROOT and SMM_DIR are set.
 # Call dump_smm to output the SMM state section.
-# Call dump_guide to output the behavioral guide.
+# Call dump_values to output XP values only.
+# Call dump_guide to output XP values + process guide.
 # Call dump_diff to output git diff stats.
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,12 +27,25 @@ dump_smm() {
     fi
 }
 
+dump_values() {
+    local values="${PLUGIN_ROOT}/XP_VALUES.md"
+    if [ -f "$values" ]; then
+        echo ""
+        echo "## XP Values"
+        cat "$values"
+    else
+        echo "## XP Values: not found"
+    fi
+}
+
 dump_guide() {
-    local guide="${PLUGIN_ROOT}/BEHAVIORAL_GUIDE.md"
-    if [ -f "$guide" ]; then
+    local values="${PLUGIN_ROOT}/XP_VALUES.md"
+    local process="${PLUGIN_ROOT}/PROCESS_GUIDE.md"
+    if [ -f "$values" ] || [ -f "$process" ]; then
         echo ""
         echo "## Behavioral Guide"
-        cat "$guide"
+        [ -f "$values" ] && cat "$values"
+        [ -f "$process" ] && { echo ""; cat "$process"; }
     else
         echo "## Behavioral Guide: not found"
     fi

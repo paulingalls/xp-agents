@@ -85,6 +85,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-retrospective"
 **Files:** `scripts/subagent_start.py`, `agents/xp-retrospective.md`, `tests/hooks/test_subagent_tiers.py`
 
+**Acceptance criteria:**
+- [ ] `agents/xp-retrospective.md` verified — no references to "full curated SMM" or sprint.md as preloaded content
+- [ ] Preload output matches everything agent .md says is available
+- [ ] `subagent_start.run()` returns `None` for agent_type "xp-retrospective"
+- [ ] Full test suite passes
+
 ### M2: xp-security-triage / xp-security-reviewer
 
 **Current preload:** SMM_DIR, full git diffs (~2K-50K variable)
@@ -92,8 +98,13 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Agent needs:** SMM_DIR, diffs
 
 **Audit:** Verify this is already optimal. Check if diff output could be trimmed for large changesets (e.g., stat-only when diff exceeds a threshold, full diff for small ones).
-**Acceptance criteria:** Confirm no changes needed, or propose a diff-size threshold with estimated savings.
 **Files:** `skills/xp-security-triage/scripts/preload_diff.sh`, `agents/xp-security-reviewer.md`
+
+**Acceptance criteria:**
+- [ ] Preload confirmed optimal OR diff-size threshold implemented with tests
+- [ ] No SubagentStart injection for "xp-security-reviewer" (already clean — verify)
+- [ ] `agents/xp-security-reviewer.md` accurately describes what's preloaded
+- [ ] Full test suite passes
 
 ### M3: xp-review-plan / xp-plan-reviewer
 
@@ -113,6 +124,13 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-plan-reviewer". Verify preload outputs expected sections.
 **Files:** `skills/xp-review-plan/scripts/preload.sh`, `agents/xp-plan-reviewer.md`, `tests/hooks/test_subagent_tiers.py`
 
+**Acceptance criteria:**
+- [ ] Preload provides SMM pillars + sprint.md via `_preload_base.sh` helpers
+- [ ] `agents/xp-plan-reviewer.md` accurately describes what preload provides (not SubagentStart)
+- [ ] Decision made: full SMM vs selective pillars, with rationale
+- [ ] `subagent_start.run()` returns `None` for agent_type "xp-plan-reviewer"
+- [ ] Full test suite passes
+
 ### M4: xp-sprint-review / xp-sprint-reviewer
 
 **Current preload:** SMM_DIR, REVIEW_INPUT path only (~200 tokens). review-input.json contains sprint_md + product_spec_md.
@@ -125,6 +143,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-sprint-reviewer"
 **Files:** `skills/xp-sprint-review/scripts/preload.sh`, `agents/xp-sprint-reviewer.md`, `tests/hooks/test_subagent_tiers.py`
 
+**Acceptance criteria:**
+- [ ] Preload optionally adds selective SMM pillars (or documented as unnecessary with rationale)
+- [ ] `agents/xp-sprint-reviewer.md` accurately describes what's preloaded
+- [ ] `subagent_start.run()` returns `None` for agent_type "xp-sprint-reviewer"
+- [ ] Full test suite passes
+
 ### M5: xp-run-sprint-retro / xp-sprint-retro
 
 **Current preload:** SMM_DIR, RETRO_INPUT path only (~200 tokens). retro-input.json contains sprint_md + session_retros.
@@ -136,6 +160,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Action:** Add `dump_guide` to preload (following xp-run-retrospective pattern). Update agent .md.
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-sprint-retro"
 **Files:** `skills/xp-run-sprint-retro/scripts/preload.sh`, `agents/xp-sprint-retro.md`, `tests/hooks/test_subagent_tiers.py`
+
+**Acceptance criteria:**
+- [ ] Preload includes `dump_guide` for XP values context (following xp-run-retrospective pattern)
+- [ ] `agents/xp-sprint-retro.md` accurately describes what's preloaded
+- [ ] `subagent_start.run()` returns `None` for agent_type "xp-sprint-retro"
+- [ ] Full test suite passes
 
 ### M6: xp-spawn-team / xp-spawn-team
 
@@ -150,6 +180,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-spawn-team"
 **Files:** `skills/xp-spawn-team/scripts/preload.sh`, `agents/xp-spawn-team.md`, `tests/hooks/test_subagent_tiers.py`
 
+**Acceptance criteria:**
+- [ ] Preload provides SMM + sprint.md via `_preload_base.sh` helpers
+- [ ] `agents/xp-spawn-team.md` lines 18-25 updated to match what preload actually provides
+- [ ] `subagent_start.run()` returns `None` for agent_type "xp-spawn-team"
+- [ ] Full test suite passes
+
 ### M7: Remove xp-* agents from SubagentStart dispatch + cleanup
 
 **Depends on:** M1-M6 (all preloads verified and updated)
@@ -163,6 +199,14 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 
 **Test:** Update all 5 xp-* agent tests to assert `result is None`. Consolidate into parameterized test. Run full test suite.
 **Files:** `scripts/subagent_start.py`, `tests/hooks/test_subagent_tiers.py`
+
+**Acceptance criteria:**
+- [ ] `_DISPATCH` contains only `"Explore"` — all 5 xp-* entries removed
+- [ ] `_inject_with_sprint()` function removed (if it exists)
+- [ ] `sprint_state` import removed from `subagent_start.py` (if no longer needed)
+- [ ] All xp-* agent tests assert `result is None` (parameterized)
+- [ ] Full test suite passes
+- [ ] Token savings verified: ~12,000-20,000 tokens per session removed from subagent injection
 
 ---
 
@@ -181,6 +225,15 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Test:** Update plugin integrity test (`test_skills_include_smm_protocol`) — either remove the test or invert it.
 **Files:** All 7 `agents/*.md` files, `tests/hooks/test_plugin_integrity.py`
 
+**Acceptance criteria:**
+- [ ] Investigation complete: confirmed whether `skills:` auto-loads into context or is on-demand only
+- [ ] Pre-audit: each agent's event types cataloged vs. xp-smm-protocol coverage
+- [ ] All 7 agents: `skills: [xp-smm-protocol]` removed from frontmatter
+- [ ] Each agent has inline append.sh examples covering all event types it records
+- [ ] Plugin integrity test updated (removed or inverted)
+- [ ] Full test suite passes
+- [ ] Token savings verified: ~13,300 tokens (1,900 x 7) per session
+
 ### M9: Optimize non-plugin agent tiers (Explore, Plan, teammates, default)
 
 **Current:**
@@ -194,8 +247,15 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 - Does default need the full behavioral guide? General-purpose agents do varied work.
 - Are teammates getting the right content?
 
-**Acceptance criteria:** Per-tier decision on what to inject, with rationale. Implement changes or confirm current state is optimal.
 **Files:** `scripts/subagent_start.py`, `tests/hooks/test_subagent_tiers.py`
+
+**Acceptance criteria:**
+- [ ] Explore tier: confirmed lean (Intent + Constraints only) or trimmed further
+- [ ] Plan tier: decision made on behavioral guide inclusion with rationale
+- [ ] Teammates tier: verified SMM + teammate guide is necessary and sufficient
+- [ ] Default tier: decision made on behavioral guide inclusion with rationale
+- [ ] Any implementation changes have tests
+- [ ] Full test suite passes
 
 ---
 
@@ -215,6 +275,11 @@ Preload simplified from ~105 to ~54 lines. GOALS_REVIEW, QUESTIONS_CHECK, HOUSEK
 **Body:** ~600 tokens — 3-step flow (Try items, questions, sprint/work selection)
 **Assessment:** Already optimized during kickoff redesign. Lean preload using shared helpers from `_preload_base.sh`.
 
+**Acceptance criteria:**
+- [ ] Preload confirmed lean (<500 tokens variable output)
+- [ ] No redundant data between preload and SKILL.md body
+- [ ] Full test suite passes
+
 ### M12: xp-housekeeping ✅ (DONE — kickoff redesign)
 
 Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters main context. Preload writes `.curation-input.json` to disk; agent reads it. kickoff_done.py injects SMM + behavioral guide (~2K tokens) after completion.
@@ -225,11 +290,22 @@ Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters 
 **Body:** ~1,300 tokens
 **Audit:** Diff size is variable. Is full diff necessary or would stat-only + selective diff work? Are debt entries filtered efficiently?
 
+**Acceptance criteria:**
+- [ ] Diff injection strategy audited — full diff confirmed necessary or size-limited alternative implemented
+- [ ] Debt entry filtering verified efficient (no stale/irrelevant debt injected)
+- [ ] Body size verified appropriate (~1,300 tokens)
+- [ ] Full test suite passes
+
 ### M14: xp-product-spec
 
 **Current preload:** existing product_spec.md content or "No product spec found", feature counts
 **Body:** ~1,400 tokens
 **Audit:** For large product specs, this could be very large. Should it inject a summary/path instead of full content?
+
+**Acceptance criteria:**
+- [ ] Large product spec handling audited — full content confirmed appropriate or summary/path alternative implemented
+- [ ] Token size measured for typical and worst-case product specs
+- [ ] Full test suite passes
 
 ### M15: xp-sprint-start
 
@@ -237,16 +313,32 @@ Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters 
 **Body:** ~1,500 tokens
 **Audit:** Sprint.md content could be large. Are deferred stories filtered efficiently?
 
+**Acceptance criteria:**
+- [ ] Sprint.md size handling audited — confirmed bounded or size-limiting implemented
+- [ ] Deferred story filtering verified efficient
+- [ ] Full test suite passes
+
 ### M16: xp-accept
 
 **Current preload:** sprint.md with in-progress stories or ERROR/NO_IN_PROGRESS flag
 **Body:** ~600 tokens
 **Audit:** Already lightweight. Verify only in-progress stories are loaded, not full sprint.
 
+**Acceptance criteria:**
+- [ ] Confirmed only in-progress stories loaded (not full sprint.md)
+- [ ] Token size verified lightweight (~600 tokens body + preload)
+- [ ] Full test suite passes
+
 ### M17: xp-smm-protocol (reference only)
 
 **Current:** No preload. ~1,200 tokens of reference documentation.
 **Audit:** Related to M8 (agent skills removal). As inline skill for main agent, verify size is appropriate. Could it be trimmed?
+
+**Acceptance criteria:**
+- [ ] Reference doc size measured (~1,200 tokens expected)
+- [ ] Content verified necessary — no redundant or rarely-used sections
+- [ ] Trimmed if possible, or confirmed minimal
+- [ ] Full test suite passes
 
 ---
 
@@ -266,6 +358,13 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 
 **Audit:** Is compact re-injection of full SMM necessary? Could it inject a reference instead? Is the skills list text necessary on every session start?
 
+**Acceptance criteria:**
+- [ ] GUPP text size verified (~40 tokens) — confirmed minimal
+- [ ] Skills list injection necessity evaluated — keep or remove with rationale
+- [ ] Compact re-injection of full SMM evaluated — necessary (context lost) or replaceable with reference
+- [ ] retrospective.py injection size verified (~200-300 tokens)
+- [ ] Any changes have tests; full test suite passes
+
 ### M19: UserPromptSubmit hooks (`user_prompt_log.py` + `kickoff_gate.py` + `prompt_nugget.py`)
 
 **user_prompt_log.py:** No injection (records only)
@@ -274,9 +373,21 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 
 **Audit:** Already well-deduped via markers and watermarks. Verify token sizes are minimal.
 
+**Acceptance criteria:**
+- [ ] kickoff_gate.py injection size verified (~100-300 tokens, one-time)
+- [ ] prompt_nugget.py injection size verified (~100 tokens max, watermark-deduped)
+- [ ] user_prompt_log.py confirmed record-only (no injection)
+- [ ] Deduplication verified working (no repeat injections across prompts)
+- [ ] Full test suite passes
+
 ### M20: SubagentStop hook (`subagent_stop.py`)
 
 **Audit:** Verify this is record-only with no context injection overhead.
+
+**Acceptance criteria:**
+- [ ] Confirmed record-only — no additionalContext returned
+- [ ] No unnecessary processing that could be deferred
+- [ ] Full test suite passes
 
 ### M21: PostToolUse:Write hooks (`post_tool_use.py` + `lint_check.py`)
 
@@ -285,10 +396,22 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 
 **Audit:** Verify post_tool_use.py has no injection. Verify lint_check.py output sizes.
 
+**Acceptance criteria:**
+- [ ] post_tool_use.py confirmed no injection (returns None)
+- [ ] lint_check.py error output size verified (~100-300 tokens when linter fails)
+- [ ] No-linter nudge verified one-time per session (~100 tokens)
+- [ ] Full test suite passes
+
 ### M22: PostToolUse:Bash hook (`bash_post_tool.py`)
 
 **Current:** Advisory about other agents editing same files (~80 tokens). Test result parsing/nudges (variable).
 **Audit:** How often does the advisory fire? Is the test result output sized appropriately? Fires on EVERY Bash command.
+
+**Acceptance criteria:**
+- [ ] Advisory frequency measured — how often does "other agents editing same files" fire?
+- [ ] Advisory confirmed useful or removed/suppressed if noise
+- [ ] Test result parsing output size verified appropriate
+- [ ] Full test suite passes
 
 ### M23: PostToolUse:Skill hooks (`review_cycle_done.py` + `kickoff_done.py` + `accept_done.py` + `sprint_review_done.py`)
 
@@ -299,19 +422,44 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 
 **Audit:** kickoff_done is the biggest — could the behavioral guide be trimmed? (See debt item about splitting values vs process.) All 4 hooks fire on EVERY Skill completion — verify each checks skill name before injecting.
 
+**Acceptance criteria:**
+- [ ] Each PostToolUse:Skill hook verified — checks skill name before injecting (no spurious injection on unrelated skills)
+- [ ] kickoff_done.py injection size measured (SMM ~300-600 + guide ~1,800 tokens)
+- [ ] Behavioral guide trimming evaluated (values-only for this injection point?)
+- [ ] review_cycle_done.py, accept_done.py, sprint_review_done.py injection sizes verified minimal
+- [ ] Full test suite passes
+
 ### M24: PostToolUse:ExitPlanMode hook (`post_tool_exit_plan.py`)
 
 **Audit:** Verify injection size. Fires once per plan exit.
 
+**Acceptance criteria:**
+- [ ] Injection size measured — confirmed minimal
+- [ ] Verified fires only once per plan exit (not repeated)
+- [ ] Full test suite passes
+
 ### M25: PreToolUse:Write hook (`pre_tool_write.py`)
 
 **Current:** TDD reminder (~100 tokens, conditional). Plan review gate (blocks). Conflict check. Accept marker.
-**Audit:** TDD reminder fires on non-code files (DEBT — fix in M30). Verify other injections are minimal.
+**Audit:** TDD reminder fires on non-code files (DEBT — fix in M31). Verify other injections are minimal.
+
+**Acceptance criteria:**
+- [ ] TDD reminder injection size verified (~100 tokens conditional)
+- [ ] Plan review gate verified — blocks only, no large injection
+- [ ] Conflict check verified minimal overhead
+- [ ] False positive on non-code files documented (deferred to M31)
+- [ ] Full test suite passes
 
 ### M26: PreToolUse:Bash hook (`pre_tool_bash.py`)
 
 **Current:** File modification advisory (~80 tokens). Commit gate (blocks, no injection).
 **Audit:** How often does the advisory fire? Is it useful or noise?
+
+**Acceptance criteria:**
+- [ ] File modification advisory frequency measured
+- [ ] Advisory confirmed useful or removed/suppressed
+- [ ] Commit gate verified — blocks only, no injection overhead
+- [ ] Full test suite passes
 
 ### M27: Stop hooks (`tdd_stop_gate.py` + `accept_gate.py` + `session_end_warning.py`)
 
@@ -321,13 +469,32 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 
 **Audit:** Verify exit 2 + stderr pattern (no JSON overhead). session_end_warning may inject unnecessarily.
 
+**Acceptance criteria:**
+- [ ] tdd_stop_gate.py and accept_gate.py confirmed exit 2 + stderr (no additionalContext)
+- [ ] session_end_warning.py injection evaluated — always necessary or conditional?
+- [ ] Session-end checklist size verified (~100 tokens)
+- [ ] Full test suite passes
+
 ### M28: Teammate hooks (`teammate_idle.py` + `task_completed.py`)
 
 **Audit:** What do these inject? How often do they fire during agent team work?
 
+**Acceptance criteria:**
+- [ ] teammate_idle.py injection content and size documented
+- [ ] task_completed.py injection content and size documented
+- [ ] Firing frequency during agent team work estimated
+- [ ] Confirmed appropriate or trimmed
+- [ ] Full test suite passes
+
 ### M29: Other hooks (`bash_failure.py`, `session_end.py`, `pre_compact.py`)
 
 **Audit:** Primarily record-only. Verify no context injection.
+
+**Acceptance criteria:**
+- [ ] bash_failure.py confirmed record-only (no injection)
+- [ ] session_end.py confirmed record-only (no injection)
+- [ ] pre_compact.py confirmed record-only (no injection)
+- [ ] Full test suite passes
 
 ---
 
@@ -340,12 +507,28 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 **Savings:** ~700-1,700 tokens per invocation
 **Files:** Both prep scripts, both agent .md files, test files
 
+**Acceptance criteria:**
+- [ ] `prepare_review_data.py` uses `sprint_md_path` reference instead of embedded `sprint_md` content
+- [ ] `prepare_sprint_retro_data.py` uses `sprint_md_path` reference instead of embedded `sprint_md` content
+- [ ] Both agent .md files updated to Read sprint.md from path when needed
+- [ ] Tests updated for new JSON schema (path instead of content)
+- [ ] Token savings verified: ~700-1,700 tokens per invocation
+- [ ] Full test suite passes
+
 ### M31: Fix TDD tracker false positives (debt item)
 
 **Current:** `check_tdd_order()` treats any non-test file as implementation code. Editing product_spec.md, sprint.md, plan files triggers false nudges.
 **Target:** Add `is_code_file()` check — skip TDD tracking for non-code files.
 **Test (TDD):** Write failing test first — markdown write without test = no nudge; .py write without test = nudge.
 **Files:** `scripts/pre_tool_write.py`, `tests/hooks/test_pre_tool_write.py`
+
+**Acceptance criteria:**
+- [ ] `is_code_file()` function implemented in `pre_tool_write.py`
+- [ ] Markdown (.md) writes do not trigger TDD nudge
+- [ ] Python (.py) writes without preceding test still trigger TDD nudge
+- [ ] product_spec.md, sprint.md, plan files confirmed excluded
+- [ ] Test written first (TDD): markdown write without test = no nudge
+- [ ] Full test suite passes
 
 ---
 

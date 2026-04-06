@@ -56,23 +56,42 @@ class TestMilestone6Files(unittest.TestCase):
     def setUp(self):
         self.plugin_root = Path(__file__).parent.parent.parent
 
-    def test_behavioral_guide_exists(self):
-        """BEHAVIORAL_GUIDE.md must exist at plugin root."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+    def test_xp_values_exists(self):
+        """XP_VALUES.md must exist at plugin root."""
+        path = self.plugin_root / "XP_VALUES.md"
         self.assertTrue(path.is_file(), f"Missing: {path}")
 
-    def test_behavioral_guide_token_budget(self):
-        """BEHAVIORAL_GUIDE.md word count should estimate 300-2,000 tokens."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+    def test_process_guide_exists(self):
+        """PROCESS_GUIDE.md must exist at plugin root."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        self.assertTrue(path.is_file(), f"Missing: {path}")
+
+    def test_xp_values_token_budget(self):
+        """XP_VALUES.md word count should estimate 150-1,000 tokens."""
+        path = self.plugin_root / "XP_VALUES.md"
         if not path.exists():
-            self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
+            self.skipTest("XP_VALUES.md not yet created")
         words = len(path.read_text().split())
         estimated_tokens = words / 0.75
         self.assertGreaterEqual(
-            estimated_tokens, 300, f"Too short: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
-            estimated_tokens, 2000, f"Too long: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 1000, f"Too long: ~{estimated_tokens:.0f} tokens"
+        )
+
+    def test_process_guide_token_budget(self):
+        """PROCESS_GUIDE.md word count should estimate 150-1,200 tokens."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        words = len(path.read_text().split())
+        estimated_tokens = words / 0.75
+        self.assertGreaterEqual(
+            estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
+        )
+        self.assertLessEqual(
+            estimated_tokens, 1200, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
 
     def test_skill_directories_exist(self):
@@ -125,19 +144,24 @@ class TestMilestone6Files(unittest.TestCase):
                 f"{name} too long: ~{estimated_tokens:.0f} tokens",
             )
 
-    def test_behavioral_guide_no_contradictions(self):
-        """Guide should not contradict hook enforcement (spot check)."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+    def test_xp_values_has_core_values(self):
+        """XP_VALUES.md should cover XP values."""
+        path = self.plugin_root / "XP_VALUES.md"
         if not path.exists():
-            self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
+            self.skipTest("XP_VALUES.md not yet created")
         content = path.read_text()
-        # Guide should reference hooks, not claim to replace them
-        self.assertNotIn("instead of hooks", content.lower())
-        self.assertNotIn("ignore quality review", content.lower())
-        # Guide should cover XP values and honesty
         self.assertIn("Honesty", content)
         self.assertIn("Courage", content)
         self.assertIn("Simplicity", content)
+
+    def test_process_guide_no_contradictions(self):
+        """Process guide should not contradict hook enforcement."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        content = path.read_text()
+        self.assertNotIn("instead of hooks", content.lower())
+        self.assertNotIn("ignore quality review", content.lower())
         self.assertIn("TDD", content)
 
 
@@ -380,12 +404,14 @@ class TestPluginIntegrity(unittest.TestCase):
         data = json.loads(path.read_text())
         self.assertIn("commit_size_threshold", data)
 
-    def test_behavioral_guide_exists(self):
-        """BEHAVIORAL_GUIDE.md exists and is non-trivial."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
-        self.assertTrue(path.is_file(), "Missing BEHAVIORAL_GUIDE.md")
-        content = path.read_text()
-        self.assertGreater(len(content), 1000, "BEHAVIORAL_GUIDE.md too short")
+    def test_guide_files_exist(self):
+        """XP_VALUES.md and PROCESS_GUIDE.md exist and are non-trivial."""
+        values = self.plugin_root / "XP_VALUES.md"
+        process = self.plugin_root / "PROCESS_GUIDE.md"
+        self.assertTrue(values.is_file(), "Missing XP_VALUES.md")
+        self.assertTrue(process.is_file(), "Missing PROCESS_GUIDE.md")
+        combined = values.read_text() + process.read_text()
+        self.assertGreater(len(combined), 1000, "Guide files too short combined")
 
 
 if __name__ == "__main__":

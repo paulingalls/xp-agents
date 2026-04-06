@@ -49,7 +49,7 @@ Wait for it to complete before proceeding.
 
 ## Step 5: Housekeeping (ALWAYS RUNS)
 
-Run `/xp-housekeeping`. This is mandatory — it curates the five-pillar SMM (Intent, Constraints, Risks, Wisdom, Sprint) via a forked subagent. The curated SMM and behavioral guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
+Run `/xp-housekeeping`. This is mandatory — it curates the five-pillar SMM (Intent, Constraints, Risks, Wisdom, Sprint) via a forked subagent. The curated SMM, XP values, and process guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
 
 If the user says "skip" at any earlier step, still run housekeeping.
 

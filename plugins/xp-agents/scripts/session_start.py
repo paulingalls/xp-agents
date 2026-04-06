@@ -100,7 +100,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts.append(gupp)
     parts.append(SKILLS_TEXT)
 
-    # BEHAVIORAL_GUIDE.md is now injected by kickoff_done.py
+    # XP_VALUES.md + PROCESS_GUIDE.md are injected by kickoff_done.py
     # (PostToolUse:Skill hook) after /xp-kickoff completes,
     # together with the fresh SMM.
 
