@@ -2,7 +2,6 @@
 """Tests for retrospective digest, save retrospective, save SMM, and compact log."""
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -344,39 +343,9 @@ class TestSaveSMM(_HookTestCase):
         self.assertTrue(smm_file.exists())
         self.assertEqual(smm_file.read_text(), "")
 
-
-class TestCompactLog(_HookTestCase):
-    """Test compact_log.py housekeeping script via subprocess."""
-
-    def test_compact_log_subprocess(self):
-        """compact_log.py runs as subprocess and prints stats."""
-        # Seed events with a curation watermark
-        events = [make_event("status", content=f"e{i}") for i in range(5)] + [
-            make_event("session_end", content="end", working_on=[])
-        ]
-        self._write_events(events)
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-        from materialize import write_curation_watermark
-
-        write_curation_watermark(self.smm_dir, len(events), "xp-housekeeping")
-
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "compact_log.py"
-        )
-        result = subprocess.run(
-            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("Compacted:", result.stdout)
-        self.assertIn("archived", result.stdout)
-        self.assertIn("retained", result.stdout)
+    # TestCompactLog removed — compact_log.py deleted in M5 cleanup.
+    # Compaction is tested via compact.compact_after_curation() in
+    # tests/engine/test_compact_curation.py.
 
 
 class TestSaveRetrospectiveParams(_HookTestCase):

@@ -172,16 +172,18 @@ Since housekeeping is now forked, the main agent never sees the curated SMM. kic
 
 ---
 
-## M4: Rewrite kickoff SKILL.md + check_session_needs.sh
+## M4: Rewrite kickoff SKILL.md + check_session_needs.sh ✅
 
 New flow wiring: retro → gates → work-selection → housekeeping.
 
 **Acceptance criteria:**
-- [ ] `xp-kickoff/SKILL.md` has 5-step flow: retro → gates → work-selection → housekeeping → complete
-- [ ] `check_session_needs.sh` reduced to ~50 lines (GOALS_REVIEW, QUESTIONS_CHECK, HOUSEKEEPING removed)
-- [ ] `xp-work-selection` in `_ALL_SKILL_NAMES`, `xp-housekeeper` in `_SUBAGENT_NAMES`
-- [ ] `test_kickoff_skill_has_sprint_steps` checks for "Work Selection" step
-- [ ] Full test suite green, committed
+- [x] `xp-kickoff/SKILL.md` has 6-step flow: retro → product-spec → sprint-start → work-selection → housekeeping → complete
+- [x] `check_session_needs.sh` reduced to ~54 lines (GOALS_REVIEW, QUESTIONS_CHECK, HOUSEKEEPING removed, unused SMM_FILE removed)
+- [x] `xp-work-selection` in `_ALL_SKILL_NAMES`, `xp-housekeeper` in `_SUBAGENT_NAMES`
+- [x] `test_kickoff_skill_has_sprint_steps` checks for "Work Selection" and "Housekeeping"
+- [x] Full test suite green (1365 tests), committed
+
+**Status: COMPLETE** — committed as `bd81f6c`
 
 **Test first:** Update `tests/hooks/test_plugin_integrity.py`
 - Add `"xp-work-selection"` to `_ALL_SKILL_NAMES`

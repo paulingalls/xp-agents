@@ -227,48 +227,8 @@ class TestMigrateIntegration(_IntegrationTestCase):
         self.assertEqual(migrated[0]["schema_version"], 2)
 
 
-class TestLoadContext(_IntegrationTestCase):
-    def _run_load_context(self) -> subprocess.CompletedProcess:
-        """Run load_context.sh as a subprocess."""
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "load_context.sh"
-        )
-        return subprocess.run(
-            ["bash", str(script)],
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._test_env,
-        )
-
-    def _assert_output_file_exists(
-        self, result: subprocess.CompletedProcess, prefix: str
-    ) -> str:
-        """Assert stdout has one line with prefix pointing to existing file."""
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.strip().splitlines()
-        matched = [line for line in lines if line.startswith(prefix)]
-        self.assertEqual(len(matched), 1, f"Expected one {prefix} line, got: {lines}")
-        path = matched[0].split("=", 1)[1]
-        self.assertTrue(Path(path).exists(), f"File does not exist: {path}")
-        return path
-
-    def test_outputs_smm_file_path(self):
-        """load_context.sh outputs SMM_FILE= with correct path."""
-        # Pre-create curated SMM (housekeeping writes this, not load_context)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n## Intent\n")
-        result = self._run_load_context()
-        self._assert_output_file_exists(result, "SMM_FILE=")
-
-    def test_outputs_guide_file_path(self):
-        """load_context.sh outputs GUIDE_FILE= pointing to existing file."""
-        result = self._run_load_context()
-        self._assert_output_file_exists(result, "GUIDE_FILE=")
+# TestLoadContext removed — load_context.sh deleted in M5 cleanup.
+# Context loading is now handled by kickoff_done.py (SMM + guide injection).
 
 
 class TestPrepareCurationIntegration(_IntegrationTestCase):

@@ -152,41 +152,19 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
     def setUp(self):
         self.agents_dir = Path(__file__).parent.parent.parent / "agents"
 
-    # AC 4: first session asks for goals (now in skill)
-    def test_goal_collection_skill(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-goal-collection"
-        )
+    # AC 4: first session asks for goals (now in xp-work-selection)
+    def test_work_selection_has_goal_recording(self):
+        skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-work-selection"
         content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("Goal Collection", content)
         self.assertIn('--type "goal"', content)
 
-    # AC 5: question triage distills intents (now in skill)
-    def test_question_triage_intent_distillation(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-question-triage"
-        )
+    # AC 5-8: question triage + intent reconciliation (now in
+    # xp-work-selection for questions, xp-housekeeper for intents)
+    def test_work_selection_has_question_triage(self):
+        skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-work-selection"
         content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("Intent Reconciliation", content)
-        self.assertIn("customer_input", content)
-        self.assertIn("--intent-status", content)
-
-    # AC 7: delivered intents by event log activity
-    def test_question_triage_delivery_by_events(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-question-triage"
-        )
-        content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("delivered", content)
-        self.assertIn("recent events", content.lower())
-
-    # AC 8: ambiguous keeps intent open
-    def test_question_triage_err_toward_open(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-question-triage"
-        )
-        content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("Err toward keeping intents open", content)
+        self.assertIn("Open Questions", content)
+        self.assertIn('--type "answer"', content)
 
     # AC 12: retrospective escalates aging debt
     def test_retrospective_escalates_aging_debt(self):

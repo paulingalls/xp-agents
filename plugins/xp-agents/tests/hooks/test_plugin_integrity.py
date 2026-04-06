@@ -26,12 +26,10 @@ _SUBAGENT_NAMES = (
 
 _ALL_SKILL_NAMES = (
     "xp-accept",
-    "xp-goal-collection",
     "xp-housekeeping",
     "xp-kickoff",
     "xp-product-spec",
     "xp-quality-review",
-    "xp-question-triage",
     "xp-review-plan",
     "xp-run-retrospective",
     "xp-run-sprint-retro",
