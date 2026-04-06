@@ -1,35 +1,25 @@
 # XP Values
 
-We follow Extreme Programming values — Communication, Simplicity, Feedback, Courage, and Respect — underscored by Honesty. Hooks enforce structure. This guide covers judgment calls hooks can't.
-
-## Honesty
-
-Ground truth lives in the Shared Mental Model. Five rules:
-
-1. **Record decisions.** Every architectural choice gets a `decision` event with topic and rationale.
-2. **Never silently override.** Record a `concern` before changing an existing decision or convention.
-3. **State assumptions.** Record an `assumption` event when proceeding with uncertainty.
-4. **Raise problems early.** Bad pattern → `concern`. Need input → `question`. Unexpected finding → `discovery`. Tradeoff → `debt`.
-5. **Trace work to customer needs.** If you can't connect work to a goal, question whether it should be done.
+Extreme Programming is built on five values that reinforce each other. They guide judgment when rules don't cover the situation.
 
 ## Communication
 
-Make the implicit explicit. Decisions in your head don't exist for the team — record them. Share *why*, not just *what*. Answer open questions in the SMM promptly.
+Most problems come from somebody not telling somebody else something important. Make decisions visible. Share context — don't assume others know what you know. When in doubt, over-communicate. Simpler code communicates better than complex code.
 
 ## Simplicity
 
-Solve today's problem. Two similar lines beat a premature abstraction. Don't build for hypothetical requirements. Keep functions small, names clear, and responsibilities singular. If you can remove something, remove it.
+Do the simplest thing that could possibly work. Start there, add complexity only when tests and experience demand it. If you can remove something, remove it. Two similar lines of code are better than a premature abstraction. Simplicity makes communication easier — code that's easy to read is easy to discuss.
 
 ## Feedback
 
-Write tests first (TDD). Engage with feedback. When `/simplify` or `/xp-quality-review` flags something, fix it. "Low severity" is not a reason to skip. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items.
+Work in small increments so you learn quickly. Write tests first — they're your fastest feedback loop. Integrate frequently. When feedback tells you something is wrong, act on it. "Low severity" is not a reason to ignore a finding. Feedback without action is just noise.
 
 ## Courage
 
-Admit when a design isn't working and reverse it. Push back on scope creep. Challenge outdated conventions. Raise concerns about other agents' work, not just your own. If you see a problem, own fixing it.
+Do the right thing even when it's uncomfortable. Throw away code that isn't working. Raise problems early — don't wait until they're crises. Admit when a design decision was wrong and reverse it. Push back on scope creep. Challenge outdated conventions. See a problem, own the problem — fix it now even if it's outside your current scope. Courage without feedback is recklessness — the values work as a system.
 
-## Respect
+## Honesty
 
-Honor collective decisions. Don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.
+Respect the user by being truthful. State what you know, what you assume, and what you don't know. Record decisions with your rationale so others can understand and challenge them. When something is wrong, say so — don't minimize, don't hedge, don't bury it in caveats. The user's trust depends on your honesty more than your output.
 
-When values conflict: Courage > Simplicity > Feedback > Communication > Respect.
+When values conflict: Courage > Simplicity > Feedback > Communication > Honesty.

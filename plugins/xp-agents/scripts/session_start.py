@@ -94,18 +94,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if needs_sprint:
             markers.marker_write(smm_dir, markers.NEEDS_SPRINT, source)
 
-    # Build context: GUPP (source-dependent) + skills.
+    # Build context: GUPP (source-dependent) + skills + XP values.
     gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME
     parts: list[str] = []
     parts.append(gupp)
     parts.append(SKILLS_TEXT)
 
-    # XP_VALUES.md + PROCESS_GUIDE.md are injected by kickoff_done.py
-    # (PostToolUse:Skill hook) after /xp-kickoff completes,
-    # together with the fresh SMM.
+    # XP values are always available from the first prompt.
+    values = _common.load_xp_values()
+    if values:
+        parts.append("\n\n" + values)
 
-    # M10: Reinject SMM + sprint.md after compaction so the lead's
-    # context retains project state and story selection still works.
+    # PROCESS_GUIDE.md is injected by kickoff_done.py after /xp-kickoff
+    # completes, together with the fresh SMM.
+
+    # M10: Reinject SMM + sprint.md + process guide after compaction
+    # so the lead's context retains project state and workflow rules.
     if source == "compact":
         smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
         try:
@@ -117,6 +121,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         sprint_content = sprint_state.read_sprint_content(smm_dir)
         if sprint_content:
             parts.append("\n\n" + sprint_content)
+        process = _common.load_process_guide()
+        if process:
+            parts.append("\n\n" + process)
 
     return "".join(parts)
 

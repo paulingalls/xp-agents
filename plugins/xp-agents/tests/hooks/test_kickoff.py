@@ -221,16 +221,25 @@ class TestKickoffDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
 
-    def test_injects_xp_values_and_process(self):
-        """Should inject XP_VALUES.md + PROCESS_GUIDE.md after xp-housekeeping."""
+    def test_injects_process_guide(self):
+        """Should inject PROCESS_GUIDE.md after xp-housekeeping."""
         self._write_events([make_event("goal", content="Ship v1")])
         result = kickoff_done.run(
             _make_skill_input("xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
         self.assertIn("EnterPlanMode", result)
+
+    def test_no_xp_values_in_kickoff_done(self):
+        """Values injected at session start, not kickoff done."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertNotIn("XP Values", result)
 
     def test_ignores_other_skills(self):
         """Should return None for non-housekeeping skills."""
@@ -245,8 +254,8 @@ class TestKickoffDone(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_injects_smm_and_guides(self):
-        """Output has SMM content, XP values, and process guide."""
+    def test_injects_smm_and_process(self):
+        """Output has SMM content and process guide."""
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
             "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
         )
@@ -256,18 +265,17 @@ class TestKickoffDone(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
-        self.assertIn("XP Values", result)
         self.assertIn("EnterPlanMode", result)
 
     def test_graceful_without_smm_file(self):
-        """No SMM file — still returns XP values + process guide."""
+        """No SMM file — still returns process guide."""
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").unlink(missing_ok=True)
         result = kickoff_done.run(
             _make_skill_input("xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("EnterPlanMode", result)
 
     def test_deletes_needs_session_review_marker(self):
         """Should delete .needs-kickoff marker after injection."""
@@ -352,7 +360,7 @@ class TestKickoffDoneSprintNudge(_HookTestCase):
             _make_skill_input("xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
-        self.assertIn("XP Values", result)
+        self.assertIn("EnterPlanMode", result)
         self.assertIn("No stories marked", result)
 
 

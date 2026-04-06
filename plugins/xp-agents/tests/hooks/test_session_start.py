@@ -307,15 +307,15 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 
 
 # ===========================================================================
-# session_start behavioral guide tests
+# session_start XP values injection tests
 # ===========================================================================
 
 
-class TestSessionStartBehavioralGuide(_HookTestCase):
-    """Behavioral guide moved to kickoff_done."""
+class TestSessionStartXPValues(_HookTestCase):
+    """XP values injected at session start for all sources."""
 
-    def test_session_start_no_behavioral_guide(self):
-        """session_start should NOT include behavioral guide."""
+    def test_startup_includes_xp_values(self):
+        """session_start should include XP values on startup."""
         import session_start
 
         self._write_events([make_event()])
@@ -324,7 +324,34 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertNotIn("Honesty Principle", result)
+        self.assertIn("XP Values", result)
+        self.assertIn("Courage", result)
+
+    def test_startup_no_process_guide(self):
+        """session_start should NOT include process guide (deferred to kickoff)."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertNotIn("EnterPlanMode", result)
+
+    def test_compact_includes_xp_values_and_process(self):
+        """compact re-injects XP values + process guide (context lost)."""
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
+            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
+        )
+        result = session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn("XP Values", result)
+        self.assertIn("EnterPlanMode", result)
 
     def test_session_start_includes_skills(self):
         """Output should still contain skill names."""
