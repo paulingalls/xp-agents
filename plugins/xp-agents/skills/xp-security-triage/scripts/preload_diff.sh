@@ -10,6 +10,8 @@ source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
+dump_values
+echo ""
 
 # Show both staged and unstaged diffs
 STAGED_STAT=$(git diff --cached --stat 2>/dev/null || true)

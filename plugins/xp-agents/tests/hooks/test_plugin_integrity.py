@@ -204,11 +204,22 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertIn("Bash", fm, f"{name} missing Bash in tools")
 
     def test_skills_include_smm_protocol(self):
+        # xp-security-reviewer doesn't need xp-smm-protocol (M2/M8)
+        skip = {"xp-security-reviewer"}
         for name in _SUBAGENT_NAMES:
+            if name in skip:
+                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             parts = content.split("---", 2)
             fm = parts[1]
             self.assertIn("xp-smm-protocol", fm, f"{name} missing smm-protocol skill")
+
+    def test_security_reviewer_no_smm_protocol(self):
+        """xp-security-reviewer should NOT have xp-smm-protocol (M2)."""
+        content = (self.agents_dir / "xp-security-reviewer.md").read_text()
+        parts = content.split("---", 2)
+        fm = parts[1]
+        self.assertNotIn("xp-smm-protocol", fm)
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""
@@ -220,8 +231,12 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertIn("append.sh", body, f"{name} body missing append.sh reference")
 
     def test_body_mentions_smm_content_trust(self):
-        """Every subagent should have the SMM content trust section."""
+        """Subagents that read SMM data should have the content trust section."""
+        # xp-security-reviewer doesn't read the SMM — no trust section needed
+        skip = {"xp-security-reviewer"}
         for name in _SUBAGENT_NAMES:
+            if name in skip:
+                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             self.assertIn(
                 "SMM Content Trust", content, f"{name} missing SMM Content Trust"

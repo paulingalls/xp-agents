@@ -108,10 +108,10 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `skills/xp-security-triage/scripts/preload_diff.sh`, `agents/xp-security-reviewer.md`
 
 **Acceptance criteria:**
-- [ ] Preload confirmed optimal OR diff-size threshold implemented with tests
-- [ ] No SubagentStart injection for "xp-security-reviewer" (already clean — verify)
-- [ ] `agents/xp-security-reviewer.md` accurately describes what's preloaded
-- [ ] Full test suite passes
+- [x] Preload confirmed optimal — added `dump_values` for XP values (Courage)
+- [x] No SubagentStart injection for "xp-security-reviewer" (confirmed clean)
+- [x] `agents/xp-security-reviewer.md` rewritten — removed `skills: [xp-smm-protocol]` (M8 early), removed SMM Content Trust (irrelevant), strengthened MUST-run instructions, added explicit report-back step
+- [x] Full test suite passes (1367 tests)
 
 ### M3: xp-review-plan / xp-plan-reviewer
 
