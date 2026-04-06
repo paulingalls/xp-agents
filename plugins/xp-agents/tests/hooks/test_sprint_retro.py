@@ -13,7 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(
     0,
-    str(Path(__file__).parent.parent.parent / "skills" / "xp-sprint-retro" / "scripts"),
+    str(
+        Path(__file__).parent.parent.parent
+        / "skills"
+        / "xp-run-sprint-retro"
+        / "scripts"
+    ),
 )
 
 from conftest import _HookTestCase, _IntegrationTestCase
@@ -213,7 +218,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
     / "skills"
-    / "xp-sprint-retro"
+    / "xp-run-sprint-retro"
     / "scripts"
     / "preload.sh"
 )

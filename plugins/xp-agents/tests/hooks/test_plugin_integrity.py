@@ -36,7 +36,7 @@ _ALL_SKILL_NAMES = (
     "xp-security-triage",
     "xp-smm-protocol",
     "xp-spawn-team",
-    "xp-sprint-retro",
+    "xp-run-sprint-retro",
     "xp-sprint-review",
     "xp-sprint-start",
 )

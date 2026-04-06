@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-sprint-retro: prepare retro data, output paths.
+# Preload for xp-run-sprint-retro: prepare retro data, output paths.
 # SMM, sprint, and guide are injected by SubagentStart.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"

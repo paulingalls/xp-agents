@@ -54,7 +54,7 @@ These are not optional. Hooks enforce some of these as safety nets, but the righ
 - Run `/xp-product-spec` to define features, `/xp-sprint-start` to decompose into stories.
 - Pick stories at kickoff, plan and implement them, then run `/xp-accept` to verify acceptance criteria before stopping.
 - When all stories are done or deferred, run `/xp-sprint-review` to record velocity and update the product spec.
-- Run `/xp-sprint-retro` for cross-iteration pattern analysis.
+- Run `/xp-run-sprint-retro` for cross-iteration pattern analysis.
 
 **Agent Teams (when parallelizing work):**
 - Use `/xp-spawn-team` to analyze the plan and generate spawn instructions with file domains and team sizing.

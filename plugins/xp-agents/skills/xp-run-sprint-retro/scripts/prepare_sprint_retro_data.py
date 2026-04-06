@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-# Resolve plugin root: scripts/ -> xp-sprint-retro/ -> skills/ -> plugin root
+# Resolve plugin root: scripts/ -> xp-run-sprint-retro/ -> skills/ -> plugin root
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))

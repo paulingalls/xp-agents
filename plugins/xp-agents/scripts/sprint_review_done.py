@@ -3,7 +3,7 @@
 
 When /xp-sprint-review completes, recomputes velocity from sprint.md,
 records the sprint end event, cleans up the review input file, and
-nudges /xp-sprint-retro.
+nudges /xp-run-sprint-retro.
 """
 
 import sys
@@ -21,7 +21,7 @@ _REVIEW_NAMES = {"xp-sprint-review", "xp-agents:xp-sprint-review"}
 
 _RETRO_NUDGE = (
     "\n\n---\n**Sprint review complete.** "
-    "Run `/xp-sprint-retro` to reflect on the sprint."
+    "Run `/xp-run-sprint-retro` to reflect on the sprint."
 )
 
 

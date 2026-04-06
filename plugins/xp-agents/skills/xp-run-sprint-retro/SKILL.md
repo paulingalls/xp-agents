@@ -1,5 +1,5 @@
 ---
-name: xp-sprint-retro
+name: xp-run-sprint-retro
 description: >-
   Sprint-level retrospective. Analyzes cross-session patterns, sizing accuracy,
   and velocity across the sprint. Produces sprint Keep/Fix/Try.
