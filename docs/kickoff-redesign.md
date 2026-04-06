@@ -210,15 +210,17 @@ Remove ToolSearch instruction (no longer needed). Remove the "If no SPRINT_ACTIV
 
 ---
 
-## M5: Remove obsolete skills + cleanup
+## M5: Remove obsolete skills + cleanup ✅
 
 **Acceptance criteria:**
-- [ ] `skills/xp-question-triage/` directory deleted
-- [ ] `skills/xp-goal-collection/` directory deleted
-- [ ] `prepare_curation_preload.sh` and `check_open_items.sh` deleted
-- [ ] `_ALL_SKILL_NAMES` updated (question-triage and goal-collection removed)
-- [ ] Full test suite green, committed
-- [ ] End-to-end verification: `/xp-kickoff` runs the new flow successfully
+- [x] `skills/xp-question-triage/` directory deleted
+- [x] `skills/xp-goal-collection/` directory deleted
+- [x] `prepare_curation_preload.sh`, `check_open_items.sh`, `load_context.sh`, `compact_log.py` deleted
+- [x] `_ALL_SKILL_NAMES` updated (question-triage and goal-collection removed)
+- [x] Test files updated (test_validation, test_retro_save, test_maintenance, test_plugin_integrity)
+- [x] Full test suite green (1360 tests), committed
+
+**Status: COMPLETE** — committed as `f01eee8`
 
 **Test first:** Update `tests/hooks/test_plugin_integrity.py`
 - Remove `"xp-question-triage"` and `"xp-goal-collection"` from `_ALL_SKILL_NAMES`
