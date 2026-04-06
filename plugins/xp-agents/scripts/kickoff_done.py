@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: inject behavioral guide + compact after kickoff.
+"""PostToolUse:Skill hook: inject SMM + behavioral guide after kickoff.
 
 When /xp-housekeeping completes (the final step of kickoff),
-injects BEHAVIORAL_GUIDE.md as additionalContext and compacts the
-event log. The curated SMM is already in context — housekeeping reads
-and writes the file directly.
+injects SHARED_MENTAL_MODEL.md + BEHAVIORAL_GUIDE.md as
+additionalContext and compacts the event log. Housekeeping is
+forked, so the main agent needs both injected here.
 """
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -67,8 +68,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     markers.marker_consume(smm_dir, markers.NEEDS_PRODUCT_SPEC)
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
-    # Inject behavioral guide only — the agent already has the SMM
-    # from housekeeping step 8 (Read the file it just wrote).
+    # Housekeeping is forked — inject SMM + behavioral guide so the
+    # main agent has both in context after kickoff completes.
+    smm_content = ""
+    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
+    with contextlib.suppress(FileNotFoundError):
+        smm_content = smm_file.read_text(encoding="utf-8").strip()
+
     guide = _common.load_behavioral_guide()
 
     # Nudge if sprint exists but no stories are in-progress
@@ -81,7 +87,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "stories for this iteration."
         )
 
-    result = (guide or "") + nudge
+    parts = [p for p in [smm_content, guide, nudge] if p]
+    result = "\n\n".join(parts)
     return result if result else None
 
 

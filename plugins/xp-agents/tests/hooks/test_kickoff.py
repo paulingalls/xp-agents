@@ -209,15 +209,17 @@ import kickoff_done  # noqa: E402
 class TestKickoffDone(_HookTestCase):
     """PostToolUse:Skill hook injects SMM + behavioral guide after kickoff."""
 
-    def test_injects_smm_on_housekeeping(self):
-        """Should inject materialized SMM after xp-housekeeping."""
-        self._write_events([make_event("goal", content="Ship v1")])
+    def test_injects_smm_file_content(self):
+        """Should inject SHARED_MENTAL_MODEL.md content after housekeeping."""
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
+            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
+        )
         result = kickoff_done.run(
             _make_skill_input("xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("Shared Mental Model", result)
+        self.assertIn("Ship v1", result)
 
     def test_injects_behavioral_guide(self):
         """Should inject BEHAVIORAL_GUIDE.md after xp-housekeeping."""
@@ -242,18 +244,28 @@ class TestKickoffDone(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_returns_behavioral_guide_only(self):
-        """Output has behavioral guide, not SMM (agent has it from housekeeping)."""
+    def test_injects_smm_and_guide(self):
+        """Output has both SMM content and behavioral guide."""
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n## Intent\n- Ship v1\n"
+            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
         )
         result = kickoff_done.run(
             _make_skill_input("xp-housekeeping"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
         self.assertIn("XP Agent Behavioral Guide", result)
-        self.assertNotIn("<smm-context>", result)
+
+    def test_graceful_without_smm_file(self):
+        """No SMM file — still returns behavioral guide."""
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").unlink(missing_ok=True)
+        result = kickoff_done.run(
+            _make_skill_input("xp-housekeeping"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("XP Agent Behavioral Guide", result)
 
     def test_deletes_needs_session_review_marker(self):
         """Should delete .needs-kickoff marker after injection."""
