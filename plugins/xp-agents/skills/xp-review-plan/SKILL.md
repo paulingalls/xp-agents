@@ -7,7 +7,6 @@ effort: high
 context: fork
 agent: xp-agents:xp-plan-reviewer
 allowed-tools:
-  - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
