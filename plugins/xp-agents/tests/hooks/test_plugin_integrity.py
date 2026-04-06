@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 _SUBAGENT_NAMES = (
+    "xp-housekeeper",
     "xp-plan-reviewer",
     "xp-retrospective",
     "xp-security-reviewer",
@@ -33,12 +34,13 @@ _ALL_SKILL_NAMES = (
     "xp-question-triage",
     "xp-review-plan",
     "xp-run-retrospective",
+    "xp-run-sprint-retro",
     "xp-security-triage",
     "xp-smm-protocol",
     "xp-spawn-team",
-    "xp-run-sprint-retro",
     "xp-sprint-review",
     "xp-sprint-start",
+    "xp-work-selection",
 )
 
 # Inline skills with substantial instructional content (800-2500 token budget)
@@ -286,18 +288,13 @@ class TestPluginIntegrity(unittest.TestCase):
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
 
     def test_kickoff_skill_has_sprint_steps(self):
-        """M8b: kickoff SKILL.md must have sprint-aware steps."""
+        """Kickoff SKILL.md must have the redesigned flow steps."""
         skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
         content = skill_file.read_text()
-        self.assertIn("Product Spec Check", content)
-        self.assertIn("Sprint Check", content)
-        self.assertIn("Story Selection", content)
-
-    def test_kickoff_skill_backward_compat(self):
-        """M8b: kickoff SKILL.md must still support non-sprint projects."""
-        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
-        content = skill_file.read_text()
-        self.assertIn("xp-goal-collection", content)
+        self.assertIn("Product Spec", content)
+        self.assertIn("Sprint", content)
+        self.assertIn("Work Selection", content)
+        self.assertIn("Housekeeping", content)
 
     def test_kickoff_skill_has_read_tool(self):
         """M8b: kickoff SKILL.md must have Read in allowed-tools."""

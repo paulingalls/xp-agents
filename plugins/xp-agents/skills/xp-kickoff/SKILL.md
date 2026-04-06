@@ -2,7 +2,7 @@
 name: xp-kickoff
 description: >-
   Session start orchestrator. Sequences retrospective, sprint setup,
-  housekeeping, and story selection. Use at the start of every session.
+  work selection, and housekeeping. Use at the start of every session.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
@@ -16,9 +16,7 @@ allowed-tools:
 
 The session status above was preloaded automatically.
 
-**Before starting:** Run `ToolSearch` with query `"select:Skill,Agent"` to load the Skill and Agent tool schemas. Both are needed — skills invoke `/xp-run-retrospective` and `/xp-review-plan`, which delegate to plugin subagents via the Agent tool.
-
-**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping MUST always run — it is not optional. Only after ALL steps complete should you begin working.**
+**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 5) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
@@ -28,58 +26,38 @@ If the preload shows "RETRO_NEEDED", invoke the `/xp-run-retrospective` skill im
 
 Proceed to step 2.
 
-## Step 2: Product Spec Check (if NEEDS_PRODUCT_SPEC)
+## Step 2: Product Spec (if NEEDS_PRODUCT_SPEC)
 
 If the preload shows "NEEDS_PRODUCT_SPEC", invoke `/xp-product-spec` to create a product specification. Wait for it to complete before proceeding.
 
 If not shown, skip to step 3.
 
-## Step 3: Sprint Check (if NEEDS_SPRINT)
+## Step 3: Sprint Start (if NEEDS_SPRINT)
 
 If the preload shows "NEEDS_SPRINT", invoke `/xp-sprint-start` to plan a sprint with user stories. Wait for it to complete before proceeding.
 
 If not shown, skip to step 4.
 
-## Step 4: Housekeeping (ALWAYS RUNS)
+## Step 4: Work Selection (ALWAYS RUNS)
 
-Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and triggers the behavioral guide injection. **Kickoff is not complete until housekeeping finishes.**
+Run `/xp-work-selection`. This handles all user interaction for the session:
+- Retro Try item review (adopt/defer/drop)
+- Open question triage
+- Sprint story selection (or session goal collection if no sprint)
+
+Wait for it to complete before proceeding.
+
+## Step 5: Housekeeping (ALWAYS RUNS)
+
+Run `/xp-housekeeping`. This is mandatory — it curates the five-pillar SMM (Intent, Constraints, Risks, Wisdom, Sprint) via a forked subagent. The curated SMM and behavioral guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
 
 If the user says "skip" at any earlier step, still run housekeeping.
-
-## Step 5: Story Selection OR Goal Collection
-
-**If the preload shows "SPRINT_ACTIVE" OR if Step 3 just created a sprint**, do story selection. If Step 3 created the sprint, re-read sprint.md from SMM_DIR to get the ready stories (the preload data is stale).
-
-**Story selection** (sprint with ready stories):
-
-1. Show the ready stories listed in the preload output to the user.
-2. Ask the user via `AskUserQuestion`: "Which stories should we work on this iteration?" Offer options: individual story IDs (e.g., "story-001, story-003"), or "all ready stories". If the user has questions about any stories, resolve them inline here.
-3. Once the user confirms, use `Read` to read the full `sprint.md` from the SMM directory (path shown in preload as `SMM_DIR`).
-4. In the content, change each selected story's `**Status:** ready` to `**Status:** in-progress`. Leave unselected stories unchanged.
-5. Write the updated content via save_sprint.py:
-   ```bash
-   cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-sprint-start/scripts/save_sprint.py --smm-dir <SMM_DIR>
-   <full updated sprint.md content>
-   SPRINTEOF
-   ```
-6. Record a status event:
-   ```bash
-   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-     --type "status" --agent "xp-kickoff" \
-     --content "Story selection: marked N stories in-progress" \
-     --working-on '[]'
-   ```
-
-**If no SPRINT_ACTIVE** (no sprint, no ready stories, or first-time project):
-
-1. If the preload shows "QUESTIONS_NEEDED", run `/xp-question-triage` to handle open questions, assumptions, and previous retro Try items.
-2. Run `/xp-goal-collection` to show existing goals and ask for session goals.
 
 ## Step 6: Complete
 
 Kickoff is complete. **Do NOT stop.**
 
-**If stories were selected**, decide how to proceed:
+**If stories were selected in step 4**, decide how to proceed:
 - **1 story** → Enter plan mode and begin planning it immediately.
 - **2+ independent stories** (no dependencies between them) → Enter plan mode to plan the work, then run `/xp-spawn-team` to get team sizing and spawn instructions for parallel execution.
 - **2+ stories with dependencies** → Enter plan mode and plan the first story (by dependency order). The dependent stories will be picked up after.

@@ -115,13 +115,12 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
 
-    def test_backward_compat_no_markers_no_sprint(self):
+    def test_no_markers_no_sprint(self):
+        """No markers, no sprint — clean output with SMM_DIR only."""
         result = self._run_preload()
         self.assertEqual(result.returncode, 0)
-        # Should still have the standard sections
-        self.assertIn("GOALS_REVIEW", result.stdout)
-        self.assertIn("HOUSEKEEPING", result.stdout)
-        # Should NOT have sprint sections
+        self.assertIn("SMM_DIR=", result.stdout)
+        # Should NOT have conditional sections
         self.assertNotIn("NEEDS_PRODUCT_SPEC", result.stdout)
         self.assertNotIn("NEEDS_SPRINT", result.stdout)
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)

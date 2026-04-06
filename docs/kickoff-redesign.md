@@ -146,15 +146,17 @@ Curate the five-pillar SMM using the preloaded curation data. Read .curation-inp
 
 ---
 
-## M3: Update kickoff_done.py to inject SMM + guide
+## M3: Update kickoff_done.py to inject SMM + guide ✅
 
 Since housekeeping is now forked, the main agent never sees the curated SMM. kickoff_done.py must inject it.
 
 **Acceptance criteria:**
-- [ ] `kickoff_done.py` reads SHARED_MENTAL_MODEL.md and prepends to output
-- [ ] No SMM file → still returns behavioral guide (graceful degradation)
-- [ ] Updated tests in `tests/hooks/test_kickoff.py` pass
-- [ ] Full test suite green, committed
+- [x] `kickoff_done.py` reads SHARED_MENTAL_MODEL.md and prepends to output
+- [x] No SMM file → still returns behavioral guide (graceful degradation)
+- [x] 2 existing tests updated, 2 new tests added, all passing
+- [x] Full test suite green (1366 tests), committed
+
+**Status: COMPLETE** — committed as `1ce77fe`
 
 **Test first:** Update `tests/hooks/test_kickoff.py`
 - Existing guide injection tests: update assertions to expect SMM content prepended
