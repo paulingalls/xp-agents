@@ -205,7 +205,12 @@ class TestAgentFilesM65(unittest.TestCase):
 
     def test_skills_include_smm_protocol(self):
         # Agents with optimized preloads don't need xp-smm-protocol
-        skip = {"xp-security-reviewer", "xp-plan-reviewer", "xp-sprint-reviewer"}
+        skip = {
+            "xp-security-reviewer",
+            "xp-plan-reviewer",
+            "xp-sprint-reviewer",
+            "xp-sprint-retro",
+        }
         for name in _SUBAGENT_NAMES:
             if name in skip:
                 continue

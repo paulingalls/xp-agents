@@ -172,10 +172,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `skills/xp-run-sprint-retro/scripts/preload.sh`, `agents/xp-sprint-retro.md`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] Preload includes `dump_values` for XP values context (following xp-run-retrospective pattern)
-- [ ] `agents/xp-sprint-retro.md` accurately describes what's preloaded
-- [ ] `subagent_start.run()` returns `None` for agent_type "xp-sprint-retro"
-- [ ] Full test suite passes
+- [x] Preload includes XP values (`dump_values`) + Constraints/Wisdom pillars (`smm_section`)
+- [x] `prepare_sprint_retro_data.py` outputs `sprint_md_path` instead of embedded `sprint_md`
+- [x] `agents/xp-sprint-retro.md` rewritten — step-by-step, removed `skills: [xp-smm-protocol]`, added constraint/wisdom compliance analysis
+- [x] `subagent_start.run()` returns `None` for agent_type "xp-sprint-retro"
+- [x] Simplified `allowed-tools` in SKILL.md (forked skill cleanup)
+- [x] Full test suite passes (1367 tests)
 
 ### M6: xp-spawn-team / xp-spawn-team
 

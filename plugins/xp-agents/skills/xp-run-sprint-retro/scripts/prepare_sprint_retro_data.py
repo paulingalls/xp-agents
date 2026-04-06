@@ -76,7 +76,7 @@ def run(smm_dir: Path) -> dict | None:
         "velocity": velocity,
         "stories": sprint_data["stories"],
         "session_retros": session_retros,
-        "sprint_md": content,
+        "sprint_md_path": str(smm_dir / "sprint.md"),
     }
 
     _common.write_json_atomic(smm_dir / ".sprint-retro-input.json", retro_input)

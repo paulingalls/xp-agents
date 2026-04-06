@@ -86,7 +86,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
     """M12: prep script collects retros, velocity, and sizing."""
 
     def test_basic_output_structure(self):
-        """All required keys present."""
+        """All required keys present, with path instead of content."""
         import prepare_sprint_retro_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
@@ -99,9 +99,11 @@ class TestPrepareSprintRetroData(_HookTestCase):
             "velocity",
             "stories",
             "session_retros",
-            "sprint_md",
+            "sprint_md_path",
         ):
             self.assertIn(key, result, f"Missing key: {key}")
+        # Should NOT have embedded content
+        self.assertNotIn("sprint_md", result)
 
     def test_velocity_in_output(self):
         """Velocity matches sprint data."""
@@ -190,13 +192,15 @@ class TestPrepareSprintRetroData(_HookTestCase):
         result = prepare_sprint_retro_data.run(self.smm_dir)
         self.assertIsNone(result)
 
-    def test_sprint_md_in_output(self):
-        """Raw sprint markdown included."""
+    def test_sprint_md_path_in_output(self):
+        """sprint_md_path points to existing file."""
         import prepare_sprint_retro_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
         result = prepare_sprint_retro_data.run(self.smm_dir)
-        self.assertEqual(result["sprint_md"], SPRINT_CONTENT)
+        path = result["sprint_md_path"]
+        self.assertTrue(path)
+        self.assertTrue(Path(path).is_file())
 
     def test_retros_sorted_by_timestamp(self):
         """Session retros returned in chronological order."""
@@ -257,12 +261,26 @@ class TestSprintRetroPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("RETRO_INPUT=", result.stdout)
 
-    def test_preload_no_guide(self):
-        """Preload no longer dumps guide (SubagentStart handles it)."""
+    def test_preload_includes_values_and_smm_pillars(self):
+        """Preload includes XP values + Constraints/Wisdom pillars."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
+            "# Shared Mental Model\n\n"
+            "## Intent\n- Ship v1\n\n"
+            "## Constraints\n- TDD always\n\n"
+            "## Risks\n- Auth fragile\n\n"
+            "## Wisdom\n- Commit after green\n"
+        )
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("Behavioral Guide", result.stdout)
+        # Should have XP values
+        self.assertIn("XP Values", result.stdout)
+        # Should have Constraints and Wisdom pillars
+        self.assertIn("TDD always", result.stdout)
+        self.assertIn("Commit after green", result.stdout)
+        # Should NOT have Intent or Risks
+        self.assertNotIn("Ship v1", result.stdout)
+        self.assertNotIn("Auth fragile", result.stdout)
 
 
 if __name__ == "__main__":
