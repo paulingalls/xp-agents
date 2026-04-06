@@ -4,18 +4,25 @@
 
 The xp-agents plugin injects context into agent conversations through multiple channels: skill preloads, SubagentStart hooks, PostToolUse hooks, PreToolUse hooks, SessionStart hooks, UserPromptSubmit hooks, and Stop hooks. Each injection point was built independently, leading to redundancy and excessive token usage.
 
-The biggest offender: all 5 forked xp-* agents (plus Explore) are in the SubagentStart dispatch table, receiving full SMM + behavioral guide + sprint.md (~2,500-4,000 tokens each) on top of whatever their preload already provides. Additionally, all 7 agents load xp-smm-protocol as a skill (~1,900 tokens each) despite having their own append.sh examples.
+The biggest offender: all 5 forked xp-* agents (plus Explore) are in the SubagentStart dispatch table, receiving full SMM + XP values + sprint.md (~2,500-4,000 tokens each) on top of whatever their preload already provides. Additionally, all 7 agents load xp-smm-protocol as a skill (~1,900 tokens each) despite having their own append.sh examples.
 
 ## What's Already Done
 
 The **kickoff redesign** (see `docs/kickoff-redesign.md`) completed significant token optimization:
 - **Housekeeping forked** — ~12K tokens of curation JSON moved out of main context
 - **xp-work-selection** replaces xp-question-triage + xp-goal-collection (2 skills → 1)
-- **kickoff_done.py** now injects SMM + behavioral guide (main agent gets both after forked housekeeping)
+- **kickoff_done.py** now injects SMM + process guide (main agent gets both after forked housekeeping)
 - **Kickoff preload** simplified from ~105 to ~54 lines
 - **~436 lines of obsolete code deleted**
 
-**Estimated savings already realized: ~10K tokens per session from main context.**
+The **behavioral guide split** separated BEHAVIORAL_GUIDE.md into two files:
+- **XP_VALUES.md** (~400 tokens) — universal XP values, injected at session start for all agents
+- **PROCESS_GUIDE.md** (~500 tokens) — plugin-specific process rules, injected only for main agent
+- SubagentStart default tier (Plan, general-purpose) now gets XP values only (not process guide)
+- Teammates get XP values + TEAMMATE_GUIDE.md
+- Forked agent preloads (retro, housekeeping) use `dump_values` (not `dump_guide`)
+
+**Estimated savings already realized: ~10K tokens from kickoff redesign + ~900 tokens per non-main agent invocation from guide split.**
 
 ## Strategy
 
@@ -70,11 +77,11 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 
 ### M1: xp-run-retrospective / xp-retrospective
 
-**Current preload:** SMM_DIR, RETRO_INPUT path, behavioral guide via `dump_guide` (~2K-4K tokens)
-**Current SubagentStart:** full SMM + behavioral guide + sprint.md (~2,500-4,000 tokens)
-**Overlap:** Behavioral guide duplicated. Full SMM and sprint.md unnecessary.
+**Current preload:** SMM_DIR, RETRO_INPUT path, XP values via `dump_values` (~1K tokens)
+**Current SubagentStart:** full SMM + XP values + sprint.md (~2,500-4,000 tokens)
+**Overlap:** XP values duplicated. Full SMM and sprint.md unnecessary.
 
-**Agent needs:** SMM_DIR, retro-input.json path, behavioral guide (XP values for analysis). Does NOT need full SMM or sprint.md — retro-input.json has the event digest.
+**Agent needs:** SMM_DIR, retro-input.json path, XP values (for analysis lenses). Does NOT need full SMM or sprint.md — retro-input.json has the event digest.
 
 **Verification checklist:**
 - [ ] Read `agents/xp-retrospective.md` — confirm it does NOT reference "full curated SMM" or sprint.md as being preloaded
@@ -108,15 +115,15 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 
 ### M3: xp-review-plan / xp-plan-reviewer
 
-**Current preload:** SMM_DIR, plan file content (~3K-10K). No SMM, no guide, no sprint. Preload comment says "SMM, sprint, and guide are injected by SubagentStart."
-**Current SubagentStart:** full SMM + behavioral guide + sprint.md (~2,500-4,000 tokens)
+**Current preload:** SMM_DIR, plan file content (~3K-10K). No SMM, no sprint. Preload comment says "SMM, sprint, and guide are injected by SubagentStart."
+**Current SubagentStart:** full SMM + XP values + sprint.md (~2,500-4,000 tokens)
 
 **Agent .md issue:** Lines 18-21 claim "The full curated SMM" and "sprint.md" are preloaded, but they actually come from SubagentStart additionalContext, not the preload. When moving data to preload, the prompt text becomes accurate — but must be updated to match exactly what preload provides (selective pillars vs full SMM).
 
-**Agent needs:** SMM_DIR, plan content, SMM pillars for conflict checking, sprint.md for scope alignment. Does NOT need behavioral guide.
+**Agent needs:** SMM_DIR, plan content, SMM pillars for conflict checking, sprint.md for scope alignment. Does NOT need XP values or process guide.
 
 **Verification checklist:**
-- [ ] Read `agents/xp-plan-reviewer.md` — identify every reference to SMM pillars, sprint.md, behavioral guide
+- [ ] Read `agents/xp-plan-reviewer.md` — identify every reference to SMM pillars, sprint.md, XP values
 - [ ] Decide: full SMM (simpler, ~500 extra tokens) or selective pillars (saves ~200 tokens but risks incomplete review)
 - [ ] Update agent .md to accurately describe what's available
 
@@ -134,8 +141,8 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 ### M4: xp-sprint-review / xp-sprint-reviewer
 
 **Current preload:** SMM_DIR, REVIEW_INPUT path only (~200 tokens). review-input.json contains sprint_md + product_spec_md.
-**Current SubagentStart:** full SMM + behavioral guide + sprint.md (~2,500-4,000 tokens)
-**Overlap:** sprint.md in both input JSON and SubagentStart. Behavioral guide unnecessary.
+**Current SubagentStart:** full SMM + XP values + sprint.md (~2,500-4,000 tokens)
+**Overlap:** sprint.md in both input JSON and SubagentStart. XP values unnecessary for review.
 
 **Agent needs:** SMM_DIR, review-input.json path. Maybe Intent + Constraints pillars for context.
 
@@ -152,29 +159,29 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 ### M5: xp-run-sprint-retro / xp-sprint-retro
 
 **Current preload:** SMM_DIR, RETRO_INPUT path only (~200 tokens). retro-input.json contains sprint_md + session_retros.
-**Current SubagentStart:** full SMM + behavioral guide + sprint.md (~2,500-4,000 tokens)
+**Current SubagentStart:** full SMM + XP values + sprint.md (~2,500-4,000 tokens)
 **Overlap:** sprint.md duplicated. Full SMM unnecessary.
 
-**Agent needs:** SMM_DIR, retro-input.json path, behavioral guide (XP values for analysis — same as session retro).
+**Agent needs:** SMM_DIR, retro-input.json path, XP values (for analysis lenses — same as session retro).
 
-**Action:** Add `dump_guide` to preload (following xp-run-retrospective pattern). Update agent .md.
+**Action:** Add `dump_values` to preload (following xp-run-retrospective pattern). Update agent .md.
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-sprint-retro"
 **Files:** `skills/xp-run-sprint-retro/scripts/preload.sh`, `agents/xp-sprint-retro.md`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] Preload includes `dump_guide` for XP values context (following xp-run-retrospective pattern)
+- [ ] Preload includes `dump_values` for XP values context (following xp-run-retrospective pattern)
 - [ ] `agents/xp-sprint-retro.md` accurately describes what's preloaded
 - [ ] `subagent_start.run()` returns `None` for agent_type "xp-sprint-retro"
 - [ ] Full test suite passes
 
 ### M6: xp-spawn-team / xp-spawn-team
 
-**Current preload:** SMM_DIR, plan file content (~3K-10K). No SMM, no guide, no sprint. Preload comment says "SMM, sprint, and guide are injected by SubagentStart."
-**Current SubagentStart:** full SMM + behavioral guide + sprint.md (~2,500-4,000 tokens)
+**Current preload:** SMM_DIR, plan file content (~3K-10K). No SMM, no sprint. Preload comment says "SMM, sprint, and guide are injected by SubagentStart."
+**Current SubagentStart:** full SMM + XP values + sprint.md (~2,500-4,000 tokens)
 
-**Agent .md issue:** Lines 18-25 claim SMM, sprint data, plan, behavioral guide are all preloaded with "Do NOT re-read these files." But the preload only provides SMM_DIR + plan content. SMM and behavioral guide come from SubagentStart. Prompt must be updated to match what preload actually provides.
+**Agent .md issue:** Lines 18-25 claim SMM, sprint data, plan are all preloaded with "Do NOT re-read these files." But the preload only provides SMM_DIR + plan content. SMM comes from SubagentStart. Prompt must be updated to match what preload actually provides.
 
-**Agent needs:** SMM_DIR, plan content, SMM context for team planning, sprint.md for story decomposition. Does NOT need behavioral guide.
+**Agent needs:** SMM_DIR, plan content, SMM context for team planning, sprint.md for story decomposition. Does NOT need XP values or process guide.
 
 **Action:** Add SMM extraction and sprint.md to preload. Update agent .md.
 **Test:** Assert `subagent_start.run()` returns `None` for agent_type "xp-spawn-team"
@@ -190,7 +197,7 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 
 **Depends on:** M1-M6 (all preloads verified and updated)
 
-**Current:** 5 xp-* agents in `_DISPATCH` using `_inject_with_sprint()` → full SMM + behavioral guide + sprint.md
+**Current:** 5 xp-* agents in `_DISPATCH` using `_inject_with_sprint()` → full SMM + XP values + sprint.md
 **Target:** Remove all 5 entries. `_DISPATCH` contains only `"Explore"`. Remove `_inject_with_sprint()`, `sprint_state` import.
 
 **Note:** xp-housekeeper (added in kickoff redesign M2) already returns None via the xp-* guard — no dispatch entry needed.
@@ -236,25 +243,25 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 
 ### M9: Optimize non-plugin agent tiers (Explore, Plan, teammates, default)
 
-**Current:**
+**Current (after behavioral guide split):**
 - Explore: Intent + Constraints only (~200 tokens) — already lean
-- Plan: full SMM + behavioral guide (~2,700 tokens)
-- Teammates: SMM + teammate guide (~1,900 tokens)
-- Default (general-purpose): full SMM + behavioral guide (~2,700 tokens)
+- Plan: full SMM + XP values (~900 tokens) — ✅ reduced from ~2,700 (guide split)
+- Teammates: SMM + XP values + teammate guide (~1,300 tokens) — ✅ values added (guide split)
+- Default (general-purpose): full SMM + XP values (~900 tokens) — ✅ reduced from ~2,700 (guide split)
 
-**Audit per tier:**
-- Does Plan need the behavioral guide (~1,800 tokens)? The xp-plan-reviewer catches TDD ordering.
-- Does default need the full behavioral guide? General-purpose agents do varied work.
-- Are teammates getting the right content?
+**Remaining audit per tier:**
+- Does Plan need full SMM or only selective pillars?
+- Does default need full SMM?
+- Are teammates getting the right SMM content?
 
 **Files:** `scripts/subagent_start.py`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] Explore tier: confirmed lean (Intent + Constraints only) or trimmed further
-- [ ] Plan tier: decision made on behavioral guide inclusion with rationale
-- [ ] Teammates tier: verified SMM + teammate guide is necessary and sufficient
-- [ ] Default tier: decision made on behavioral guide inclusion with rationale
-- [ ] Any implementation changes have tests
+- [x] Explore tier: confirmed lean (Intent + Constraints only)
+- [x] Plan tier: XP values only, no process guide (guide split)
+- [x] Teammates tier: SMM + XP values + teammate guide (guide split)
+- [x] Default tier: XP values only, no process guide (guide split)
+- [ ] Remaining: evaluate whether full SMM is needed per tier or if selective pillars suffice
 - [ ] Full test suite passes
 
 ---
@@ -282,7 +289,7 @@ Preload simplified from ~105 to ~54 lines. GOALS_REVIEW, QUESTIONS_CHECK, HOUSEK
 
 ### M12: xp-housekeeping ✅ (DONE — kickoff redesign)
 
-Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters main context. Preload writes `.curation-input.json` to disk; agent reads it. kickoff_done.py injects SMM + behavioral guide (~2K tokens) after completion.
+Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters main context. Preload writes `.curation-input.json` to disk; agent reads it. kickoff_done.py injects SMM + process guide (~800 tokens) after completion. XP values injected at session start.
 
 ### M13: xp-quality-review
 
@@ -351,7 +358,8 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 **session_start.py injections:**
 - GUPP text (~40 tokens) — startup/resume/clear
 - Skills list (~120 tokens) — always
-- On compact: full SMM + sprint.md re-injection (~2,000 tokens)
+- XP values (~400 tokens) — always (injected at session start for all sources)
+- On compact: full SMM + sprint.md + process guide re-injection (~2,500 tokens)
 
 **retrospective.py injections:**
 - Retro summary (~200-300 tokens) — if 5+ unanalyzed events
@@ -416,16 +424,15 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 ### M23: PostToolUse:Skill hooks (`review_cycle_done.py` + `kickoff_done.py` + `accept_done.py` + `sprint_review_done.py`)
 
 **review_cycle_done.py:** Text nudges (~50-150 tokens)
-**kickoff_done.py:** SMM (~300-600 tokens) + BEHAVIORAL_GUIDE.md (~1,800 tokens) + optional sprint nudge. One-time after housekeeping. *(Updated in kickoff redesign M3 — now injects both SMM and guide.)*
+**kickoff_done.py:** SMM (~300-600 tokens) + PROCESS_GUIDE.md (~500 tokens) + optional sprint nudge. One-time after housekeeping. XP values already in context from session start.
 **accept_done.py:** Text nudge (~30 tokens) — conditional
 **sprint_review_done.py:** Text nudge (~30 tokens) + sprint end event
 
-**Audit:** kickoff_done is the biggest — could the behavioral guide be trimmed? (See debt item about splitting values vs process.) All 4 hooks fire on EVERY Skill completion — verify each checks skill name before injecting.
+**Audit:** kickoff_done is the biggest but already trimmed (process guide only, ~500 tokens — values injected at session start). All 4 hooks fire on EVERY Skill completion — verify each checks skill name before injecting.
 
 **Acceptance criteria:**
 - [ ] Each PostToolUse:Skill hook verified — checks skill name before injecting (no spurious injection on unrelated skills)
-- [ ] kickoff_done.py injection size measured (SMM ~300-600 + guide ~1,800 tokens)
-- [ ] Behavioral guide trimming evaluated (values-only for this injection point?)
+- [ ] kickoff_done.py injection size measured (SMM ~300-600 + process guide ~500 tokens)
 - [ ] review_cycle_done.py, accept_done.py, sprint_review_done.py injection sizes verified minimal
 - [ ] Full test suite passes
 
