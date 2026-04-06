@@ -121,7 +121,12 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("Ship v1", result.stdout)
-        self.assertNotIn("Behavioral Guide", result.stdout)
+        # Check for the guide's distinctive opening, not a generic phrase
+        # (plan file content may contain "Behavioral Guide" as text)
+        self.assertNotIn(
+            "## Honesty\n\nGround truth lives",
+            result.stdout,
+        )
 
     def test_preload_no_marker_exits_ok(self):
         """No plan marker -> exits 0, falls back to glob or shows not-found."""

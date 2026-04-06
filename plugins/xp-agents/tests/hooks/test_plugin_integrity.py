@@ -43,7 +43,6 @@ _ALL_SKILL_NAMES = (
 
 # Inline skills with substantial instructional content (800-2500 token budget)
 _CONTENT_SKILL_NAMES = (
-    "xp-housekeeping",
     "xp-product-spec",
     "xp-quality-review",
     "xp-smm-protocol",

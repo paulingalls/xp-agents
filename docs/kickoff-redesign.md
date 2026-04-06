@@ -36,9 +36,18 @@ The xp-kickoff skill runs at session start and currently orchestrates 4-6 separa
 
 ---
 
-## M1: Create xp-work-selection skill
+## M1: Create xp-work-selection skill ✅
 
 Replaces xp-question-triage + xp-goal-collection + kickoff story selection.
+
+**Acceptance criteria:**
+- [x] `skills/xp-work-selection/SKILL.md` exists with frontmatter including AskUserQuestion
+- [x] `skills/xp-work-selection/scripts/preload.sh` outputs Try items, open questions, sprint status, intent
+- [x] 12 tests in `tests/hooks/test_work_selection.py`, all passing
+- [x] Shared helpers (`get_latest_retro`, `get_try_items`, `count_sprint_status`) in `_preload_base.sh`
+- [x] Full test suite green (1358 tests), committed
+
+**Status: COMPLETE** — committed as `4b6234a`
 
 **Test first:** Create `tests/hooks/test_work_selection.py`
 - Preload outputs SMM_DIR
@@ -70,6 +79,15 @@ Replaces xp-question-triage + xp-goal-collection + kickoff story selection.
 ## M2: Fork xp-housekeeping to subagent
 
 Move from inline (~12K tokens in main context) to forked (subagent, zero user interaction).
+
+**Acceptance criteria:**
+- [ ] `agents/xp-housekeeper.md` exists with five-pillar curation instructions, no AskUserQuestion
+- [ ] `skills/xp-housekeeping/scripts/prepare_curation_input.py` writes `.curation-input.json` atomically
+- [ ] `skills/xp-housekeeping/scripts/preload.sh` outputs SMM_DIR, CURATION_INPUT path, behavioral guide
+- [ ] `skills/xp-housekeeping/SKILL.md` has `context: fork`, `agent: xp-agents:xp-housekeeper`
+- [ ] SubagentStart returns None for agent_type "xp-housekeeper"
+- [ ] Tests in `tests/hooks/test_housekeeping.py`, all passing
+- [ ] Full test suite green, committed
 
 **Test first:** Create `tests/hooks/test_housekeeping.py`
 - `prepare_curation_input.py` writes `.curation-input.json` atomically
@@ -128,6 +146,12 @@ Curate the five-pillar SMM using the preloaded curation data. Read .curation-inp
 
 Since housekeeping is now forked, the main agent never sees the curated SMM. kickoff_done.py must inject it.
 
+**Acceptance criteria:**
+- [ ] `kickoff_done.py` reads SHARED_MENTAL_MODEL.md and prepends to output
+- [ ] No SMM file → still returns behavioral guide (graceful degradation)
+- [ ] Updated tests in `tests/hooks/test_kickoff.py` pass
+- [ ] Full test suite green, committed
+
 **Test first:** Update `tests/hooks/test_kickoff.py`
 - Existing guide injection tests: update assertions to expect SMM content prepended
 - New test: write SMM file to disk, run kickoff_done, verify output contains SMM content
@@ -145,6 +169,13 @@ Since housekeeping is now forked, the main agent never sees the curated SMM. kic
 ## M4: Rewrite kickoff SKILL.md + check_session_needs.sh
 
 New flow wiring: retro → gates → work-selection → housekeeping.
+
+**Acceptance criteria:**
+- [ ] `xp-kickoff/SKILL.md` has 5-step flow: retro → gates → work-selection → housekeeping → complete
+- [ ] `check_session_needs.sh` reduced to ~50 lines (GOALS_REVIEW, QUESTIONS_CHECK, HOUSEKEEPING removed)
+- [ ] `xp-work-selection` in `_ALL_SKILL_NAMES`, `xp-housekeeper` in `_SUBAGENT_NAMES`
+- [ ] `test_kickoff_skill_has_sprint_steps` checks for "Work Selection" step
+- [ ] Full test suite green, committed
 
 **Test first:** Update `tests/hooks/test_plugin_integrity.py`
 - Add `"xp-work-selection"` to `_ALL_SKILL_NAMES`
@@ -172,6 +203,14 @@ Remove ToolSearch instruction (no longer needed). Remove the "If no SPRINT_ACTIV
 ---
 
 ## M5: Remove obsolete skills + cleanup
+
+**Acceptance criteria:**
+- [ ] `skills/xp-question-triage/` directory deleted
+- [ ] `skills/xp-goal-collection/` directory deleted
+- [ ] `prepare_curation_preload.sh` and `check_open_items.sh` deleted
+- [ ] `_ALL_SKILL_NAMES` updated (question-triage and goal-collection removed)
+- [ ] Full test suite green, committed
+- [ ] End-to-end verification: `/xp-kickoff` runs the new flow successfully
 
 **Test first:** Update `tests/hooks/test_plugin_integrity.py`
 - Remove `"xp-question-triage"` and `"xp-goal-collection"` from `_ALL_SKILL_NAMES`
