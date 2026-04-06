@@ -51,6 +51,33 @@ smm_has_section() {
     grep -q "^## ${1}$" "$SMM_FILE" 2>/dev/null
 }
 
+# Find the latest retrospective JSON file.
+# Usage: get_latest_retro "$RETRO_DIR"
+# Returns path on stdout, empty string if none found.
+get_latest_retro() {
+    find "$1" -maxdepth 1 -name "*.json" 2>/dev/null | sort -r | head -1
+}
+
+# Extract Try items from a retrospective JSON file.
+# Usage: get_try_items "$RETRO_FILE"
+# Outputs "- <content>" lines, empty if none.
+get_try_items() {
+    python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+items = data.get('try', [])
+for item in items:
+    c = item.get('content', item) if isinstance(item, dict) else item
+    print(f'- {c}')
+" "$1" 2>/dev/null || true
+}
+
+# Count stories with a given status in sprint.md.
+# Usage: count_sprint_status "ready" "$SPRINT_FILE"
+count_sprint_status() {
+    grep -cF "**Status:** $1" "$2" 2>/dev/null || echo 0
+}
+
 # Extract a markdown section from the SMM file by heading name.
 # Captures from ^## Name$ until the next ^## heading.
 # Usage: smm_section "Intent" [max_lines]
