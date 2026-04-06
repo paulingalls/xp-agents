@@ -310,8 +310,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("sprint-001", result)
         self.assertIn("story-002", result)
 
-    def test_retrospective_gets_smm_and_sprint(self):
-        """Retrospective (xp-retrospective) gets full SMM + sprint.md."""
+    def test_retrospective_returns_none(self):
+        """xp-retrospective uses own preload — SubagentStart returns None."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -320,9 +320,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("sprint-001", result)
+        self.assertIsNone(result)
 
     def test_spawn_team_gets_smm_and_sprint(self):
         """Spawn team (xp-spawn-team) gets full SMM + sprint.md."""

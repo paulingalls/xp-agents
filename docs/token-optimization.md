@@ -93,10 +93,10 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `scripts/subagent_start.py`, `agents/xp-retrospective.md`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] `agents/xp-retrospective.md` verified — no references to "full curated SMM" or sprint.md as preloaded content
-- [ ] Preload output matches everything agent .md says is available
-- [ ] `subagent_start.run()` returns `None` for agent_type "xp-retrospective"
-- [ ] Full test suite passes
+- [x] `agents/xp-retrospective.md` verified — no references to "full curated SMM" or sprint.md as preloaded content
+- [x] Preload output matches everything agent .md says is available (SMM_DIR, RETRO_INPUT, XP values)
+- [x] `subagent_start.run()` returns `None` for agent_type "xp-retrospective"
+- [x] Full test suite passes (1366 tests)
 
 ### M2: xp-security-triage / xp-security-reviewer
 
