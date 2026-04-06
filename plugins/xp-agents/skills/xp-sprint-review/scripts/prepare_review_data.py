@@ -33,15 +33,14 @@ def run(smm_dir: Path) -> dict | None:
     if not sprint_data["sprint_id"]:
         return None
 
-    # Read product_spec.md raw — no Python parser per constraint [8774066d]
+    # Product spec path — agent Reads the file directly if it needs to Edit
     spec_path = smm_dir / "product_spec.md"
+    spec_path_str = ""
     try:
         if spec_path.exists() and not spec_path.is_symlink():
-            spec_text = spec_path.read_text(encoding="utf-8")
-        else:
-            spec_text = ""
+            spec_path_str = str(spec_path)
     except OSError:
-        spec_text = ""
+        pass
 
     velocity = sprint_parser.compute_velocity(sprint_data)
 
@@ -51,8 +50,8 @@ def run(smm_dir: Path) -> dict | None:
         "started": sprint_data["started"],
         "stories_by_status": sprint_data["stories_by_status"],
         "velocity": velocity,
-        "sprint_md": content,
-        "product_spec_md": spec_text,
+        "sprint_md_path": str(smm_dir / "sprint.md"),
+        "product_spec_md_path": spec_path_str,
     }
 
     _common.write_json_atomic(smm_dir / ".sprint-review-input.json", review_input)

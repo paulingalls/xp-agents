@@ -129,7 +129,6 @@ def is_teammate_by_agent_type(input_data: dict) -> bool:
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
     "xp-spawn-team": _inject_with_sprint,
-    "xp-sprint-reviewer": _inject_with_sprint,
     "xp-sprint-retro": _inject_with_sprint,
 }
 

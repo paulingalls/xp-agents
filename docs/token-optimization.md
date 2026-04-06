@@ -152,10 +152,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `skills/xp-sprint-review/scripts/preload.sh`, `agents/xp-sprint-reviewer.md`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] Preload optionally adds selective SMM pillars (or documented as unnecessary with rationale)
-- [ ] `agents/xp-sprint-reviewer.md` accurately describes what's preloaded
-- [ ] `subagent_start.run()` returns `None` for agent_type "xp-sprint-reviewer"
-- [ ] Full test suite passes
+- [x] Preload confirmed minimal — SMM_DIR + REVIEW_INPUT path only (no SMM, no values, no sprint content)
+- [x] `prepare_review_data.py` outputs paths (sprint_md_path, product_spec_md_path) instead of embedded content
+- [x] `agents/xp-sprint-reviewer.md` rewritten — agent Reads files directly, removed `skills: [xp-smm-protocol]`
+- [x] `subagent_start.run()` returns `None` for agent_type "xp-sprint-reviewer"
+- [x] Simplified `allowed-tools` in SKILL.md (forked skill cleanup)
+- [x] Full test suite passes (1367 tests)
 
 ### M5: xp-run-sprint-retro / xp-sprint-retro
 

@@ -142,14 +142,24 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertEqual(vel["stories_carried"], 1)
 
     def test_review_input_structure(self):
-        """Output dict has all required keys."""
+        """Output dict has structured keys + paths, not embedded content."""
         import prepare_review_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
-        for key in ("sprint_id", "goal", "velocity", "sprint_md", "product_spec_md"):
+        expected = (
+            "sprint_id",
+            "goal",
+            "velocity",
+            "sprint_md_path",
+            "product_spec_md_path",
+        )
+        for key in expected:
             self.assertIn(key, result, f"Missing key: {key}")
+        # Should NOT have embedded content
+        self.assertNotIn("sprint_md", result)
+        self.assertNotIn("product_spec_md", result)
 
     def test_no_sprint_returns_none(self):
         """No sprint.md -> None."""
@@ -158,24 +168,26 @@ class TestPrepareReviewData(_HookTestCase):
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNone(result)
 
-    def test_missing_product_spec_empty_string(self):
-        """No product_spec.md -> product_spec_md=''."""
+    def test_missing_product_spec_empty_path(self):
+        """No product_spec.md -> product_spec_md_path=''."""
         import prepare_review_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
-        self.assertEqual(result["product_spec_md"], "")
+        self.assertEqual(result["product_spec_md_path"], "")
 
-    def test_product_spec_included_raw(self):
-        """product_spec_md contains exact raw text."""
+    def test_product_spec_path_set(self):
+        """product_spec_md_path points to existing file."""
         import prepare_review_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         (self.smm_dir / "product_spec.md").write_text(PRODUCT_SPEC)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
-        self.assertEqual(result["product_spec_md"], PRODUCT_SPEC)
+        path = result["product_spec_md_path"]
+        self.assertTrue(path)
+        self.assertTrue(Path(path).is_file())
 
     def test_all_done_velocity(self):
         """3/3 done -> planned=3, delivered=3, carried=0."""
@@ -405,12 +417,13 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("REVIEW_INPUT=", result.stdout)
 
-    def test_preload_no_guide(self):
-        """Preload no longer dumps guide (SubagentStart handles it)."""
+    def test_preload_no_guide_or_smm(self):
+        """Preload is minimal — no guide, no SMM injection."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("Behavioral Guide", result.stdout)
+        self.assertNotIn("XP Values", result.stdout)
+        self.assertNotIn("Shared Mental Model", result.stdout)
 
     def test_preload_creates_review_input_file(self):
         """Preload creates .sprint-review-input.json in SMM dir."""

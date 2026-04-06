@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # Preload for xp-sprint-review: prepare review data, output paths.
-# SMM, sprint, and guide are injected by SubagentStart.
+# Agent reads sprint.md and product_spec.md directly via paths in JSON.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 

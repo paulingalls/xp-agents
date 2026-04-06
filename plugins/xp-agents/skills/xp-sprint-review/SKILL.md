@@ -8,12 +8,9 @@ effort: high
 context: fork
 agent: xp-agents:xp-sprint-reviewer
 allowed-tools:
-  - Read
-  - Write
-  - Edit
   - Bash(*/append.sh *)
-  - Bash(*/skills/*/scripts/*)
   - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`

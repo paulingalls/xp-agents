@@ -333,8 +333,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Ship v1", result)
         self.assertIn("sprint-001", result)
 
-    def test_sprint_reviewer_gets_smm_and_sprint(self):
-        """Sprint reviewer (xp-sprint-reviewer) gets full SMM + sprint."""
+    def test_sprint_reviewer_returns_none(self):
+        """xp-sprint-reviewer uses own preload — SubagentStart returns None."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -343,9 +343,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("sprint-001", result)
+        self.assertIsNone(result)
 
     def test_sprint_retro_gets_smm_and_sprint(self):
         """Sprint retro (xp-sprint-retro) gets full SMM + sprint."""
