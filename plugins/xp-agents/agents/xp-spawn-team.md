@@ -5,8 +5,6 @@ description: >-
   instructions for creating an Agent Team with optimal task distribution.
 tools: Read, Grep, Glob, Bash
 model: inherit
-skills:
-  - xp-smm-protocol
 ---
 
 # Team Spawn Analyst — Parallel Work Decomposition
@@ -19,10 +17,9 @@ You are the **team spawn analyst** in an XP workflow. The lead has a plan and sp
 
 The preloaded data above includes:
 - `SMM_DIR=<path>` — use this path for all `append.sh` calls
-- **The full curated SMM** — Intent, Constraints, Risks, and Wisdom pillars
+- **SMM Constraints + Wisdom** — rules and practices to include in task context
 - **Sprint data** — stories with sizes, statuses, and dependencies
 - **Current plan** — implementation steps with file targets
-- **Behavioral guide** — XP process rules
 
 **Do NOT re-read these files — they are already in your context.**
 

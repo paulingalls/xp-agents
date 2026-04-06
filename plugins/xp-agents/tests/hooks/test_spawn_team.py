@@ -114,19 +114,32 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         self.assertIn("## Current Plan", result.stdout)
         self.assertIn("Add user model", result.stdout)
 
-    def test_preload_no_smm_or_guide(self):
-        """Preload no longer dumps SMM or guide (SubagentStart handles those)."""
+    def test_preload_has_smm_pillars_and_sprint(self):
+        """Preload includes Constraints/Wisdom pillars + sprint.md."""
         smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
+        smm_file.write_text(
+            "# Shared Mental Model\n\n"
+            "## Intent\n- Ship v1\n\n"
+            "## Constraints\n- TDD always\n\n"
+            "## Risks\n- Auth fragile\n\n"
+            "## Wisdom\n- Commit after green\n"
+        )
+        (self.smm_dir / "sprint.md").write_text(_SAMPLE_SPRINT)
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
+        # Should have Constraints and Wisdom
+        self.assertIn("TDD always", result.stdout)
+        self.assertIn("Commit after green", result.stdout)
+        # Should NOT have Intent or Risks
         self.assertNotIn("Ship v1", result.stdout)
-        # Check for the guide's distinctive opening, not a generic phrase
-        # (plan file content may contain "Behavioral Guide" as text)
-        self.assertNotIn(
-            "## Honesty\n\nGround truth lives",
-            result.stdout,
-        )
+        self.assertNotIn("Auth fragile", result.stdout)
+        # Should have sprint content
+        self.assertIn("sprint-001", result.stdout)
+        # Verify values are not injected as a preload section
+        # (plan content may contain "XP Values" as text — only check
+        # that the output before "## Current Plan" has no values header)
+        before_plan = result.stdout.split("## Current Plan")[0]
+        self.assertNotIn("## XP Values", before_plan)
 
     def test_preload_no_marker_exits_ok(self):
         """No plan marker -> exits 0, falls back to glob or shows not-found."""

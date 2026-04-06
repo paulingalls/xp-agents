@@ -210,6 +210,7 @@ class TestAgentFilesM65(unittest.TestCase):
             "xp-plan-reviewer",
             "xp-sprint-reviewer",
             "xp-sprint-retro",
+            "xp-spawn-team",
         }
         for name in _SUBAGENT_NAMES:
             if name in skip:

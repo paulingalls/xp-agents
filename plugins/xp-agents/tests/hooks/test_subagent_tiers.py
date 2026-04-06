@@ -319,8 +319,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_spawn_team_gets_smm_and_sprint(self):
-        """Spawn team (xp-spawn-team) gets full SMM + sprint.md."""
+    def test_spawn_team_returns_none(self):
+        """xp-spawn-team uses own preload — SubagentStart returns None."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -329,9 +329,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("sprint-001", result)
+        self.assertIsNone(result)
 
     def test_sprint_reviewer_returns_none(self):
         """xp-sprint-reviewer uses own preload — SubagentStart returns None."""

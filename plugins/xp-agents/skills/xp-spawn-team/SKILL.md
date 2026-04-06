@@ -8,7 +8,6 @@ effort: high
 context: fork
 agent: xp-agents:xp-spawn-team
 allowed-tools:
-  - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)

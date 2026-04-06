@@ -193,10 +193,11 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `skills/xp-spawn-team/scripts/preload.sh`, `agents/xp-spawn-team.md`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] Preload provides SMM + sprint.md via `_preload_base.sh` helpers
-- [ ] `agents/xp-spawn-team.md` lines 18-25 updated to match what preload actually provides
-- [ ] `subagent_start.run()` returns `None` for agent_type "xp-spawn-team"
-- [ ] Full test suite passes
+- [x] Preload provides Constraints/Wisdom pillars + sprint.md + plan content
+- [x] `agents/xp-spawn-team.md` updated — removed `skills: [xp-smm-protocol]`, accurate "What You Already Have"
+- [x] `subagent_start.run()` returns `None` for agent_type "xp-spawn-team"
+- [x] Simplified `allowed-tools` in SKILL.md (forked skill cleanup)
+- [x] Full test suite passes (1367 tests)
 
 ### M7: Remove xp-* agents from SubagentStart dispatch + cleanup
 
