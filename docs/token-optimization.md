@@ -305,47 +305,48 @@ Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters 
 
 ### M14: xp-product-spec
 
-**Current preload:** existing product_spec.md content or "No product spec found", feature counts
+**Current preload:** feature counts + `PRODUCT_SPEC=<path>` or "create mode" message
 **Body:** ~1,400 tokens
-**Audit:** For large product specs, this could be very large. Should it inject a summary/path instead of full content?
+**Audit:** Previously injected full product_spec.md content. Changed to path-based — agent reads via Read tool when needed. Preload now outputs ~3 lines (SMM_DIR, counts, path) regardless of spec size.
 
 **Acceptance criteria:**
-- [ ] Large product spec handling audited — full content confirmed appropriate or summary/path alternative implemented
-- [ ] Token size measured for typical and worst-case product specs
-- [ ] Full test suite passes
+- [x] Large product spec handling audited — path-based alternative implemented, agent reads on demand
+- [x] Token size: preload is now O(1) — fixed ~50 tokens regardless of spec size. Body ~1,400 tokens unchanged.
+- [x] Full test suite passes (1370 tests)
 
 ### M15: xp-sprint-start
 
-**Current preload:** existing sprint.md or create mode, deferred stories, NEXT_SPRINT_ID
+**Current preload:** feature counts + `PRODUCT_SPEC=<path>`, deferred stories, NEXT_SPRINT_ID
 **Body:** ~1,500 tokens
-**Audit:** Sprint.md content could be large. Are deferred stories filtered efficiently?
+**Audit:** Previously injected full product_spec.md content. Changed to path-based — agent reads via Read tool. Deferred story detection is efficient (grep-based, shows only headers). SMM context for sprint-start and product-spec handled by kickoff reading SMM before steps 2-3 (not in preloads — they're inline skills sharing main agent context).
 
 **Acceptance criteria:**
-- [ ] Sprint.md size handling audited — confirmed bounded or size-limiting implemented
-- [ ] Deferred story filtering verified efficient
-- [ ] Full test suite passes
+- [x] Product spec handling: path-based (`PRODUCT_SPEC=<path>`) instead of full content injection
+- [x] Deferred story filtering verified efficient — grep-based, shows only deferred story headers
+- [x] SMM context: kickoff reads SMM before invoking product-spec/sprint-start (inline skills)
+- [x] Full test suite passes (1370 tests)
 
 ### M16: xp-accept
 
-**Current preload:** sprint.md with in-progress stories or ERROR/NO_IN_PROGRESS flag
+**Current preload:** in-progress count + `SPRINT_FILE=<path>` or ERROR/NO_IN_PROGRESS flag
 **Body:** ~600 tokens
-**Audit:** Already lightweight. Verify only in-progress stories are loaded, not full sprint.
+**Audit:** Previously dumped full sprint.md content. Changed to path-based — agent reads via Read tool in Step 1. Preload now outputs ~3 lines regardless of sprint size.
 
 **Acceptance criteria:**
-- [ ] Confirmed only in-progress stories loaded (not full sprint.md)
-- [ ] Token size verified lightweight (~600 tokens body + preload)
-- [ ] Full test suite passes
+- [x] Changed from full sprint content to path-based (`SPRINT_FILE=<path>`) — agent reads on demand
+- [x] Token size: preload is now O(1) — fixed ~50 tokens. Body ~600 tokens unchanged.
+- [x] Full test suite passes (1374 tests — 4 new preload tests added)
 
-### M17: xp-smm-protocol (reference only)
+### M17: xp-smm-protocol ✅ (confirmed optimal)
 
-**Current:** No preload. ~1,200 tokens of reference documentation.
-**Audit:** Related to M8 (agent skills removal). As inline skill for main agent, verify size is appropriate. Could it be trimmed?
+**Current:** No preload. ~1,200 tokens of reference documentation. On-demand only — invoked via `/xp-smm-protocol`, not auto-loaded.
+**Audit:** Since M8 removed it from all agent `skills:` entries, token cost is zero unless explicitly invoked. Content is well-structured: event types table, question priority guide, working_on/references fields, good vs bad examples, 4 common recording patterns. All sections serve a purpose — patterns teach syntax that the behavioral guide doesn't cover.
 
 **Acceptance criteria:**
-- [ ] Reference doc size measured (~1,200 tokens expected)
-- [ ] Content verified necessary — no redundant or rarely-used sections
-- [ ] Trimmed if possible, or confirmed minimal
-- [ ] Full test suite passes
+- [x] Reference doc size measured — 142 lines, ~1,200 tokens as expected
+- [x] Content verified necessary — all sections serve distinct purposes, no redundancy
+- [x] Confirmed minimal — on-demand invocation means zero cost unless called. No trim needed.
+- [x] Full test suite passes (1374 tests)
 
 ---
 

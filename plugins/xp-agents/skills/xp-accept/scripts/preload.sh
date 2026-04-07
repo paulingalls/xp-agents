@@ -15,8 +15,7 @@ if [ ! -f "$SPRINT_FILE" ]; then
     exit 0
 fi
 
-in_progress_count=$(grep -cF '**Status:** in-progress' "$SPRINT_FILE" 2>/dev/null || true)
-in_progress_count=${in_progress_count:-0}
+in_progress_count=$(count_sprint_status "in-progress" "$SPRINT_FILE")
 
 if [ "$in_progress_count" -eq 0 ]; then
     echo "### NO_IN_PROGRESS"
@@ -25,6 +24,5 @@ if [ "$in_progress_count" -eq 0 ]; then
 fi
 
 echo "### STORIES_TO_ACCEPT"
-echo "Sprint has ${in_progress_count} in-progress stories to verify:"
-echo ""
-cat "$SPRINT_FILE"
+echo "Sprint has ${in_progress_count} in-progress stories to verify."
+echo "SPRINT_FILE=${SPRINT_FILE}"

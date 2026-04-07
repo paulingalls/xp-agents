@@ -114,8 +114,8 @@ class TestProductSpecPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("No product spec", result.stdout)
 
-    def test_preload_with_spec(self):
-        """Outputs existing spec content when product_spec.md exists."""
+    def test_preload_with_spec_outputs_path(self):
+        """Outputs path to spec file, not full content."""
         spec_content = (
             "# Product Spec: Test\n\n"
             "## Features\n\n"
@@ -125,7 +125,9 @@ class TestProductSpecPreload(_IntegrationTestCase):
         (self.smm_dir / "product_spec.md").write_text(spec_content)
         result = self._run_preload()
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Auth [planned]", result.stdout)
+        self.assertIn("PRODUCT_SPEC=", result.stdout)
+        # Should NOT contain full spec content — agent reads via Read tool
+        self.assertNotIn("Auth [planned]", result.stdout)
 
     def test_preload_feature_counts(self):
         """Outputs correct planned/delivered feature counts."""

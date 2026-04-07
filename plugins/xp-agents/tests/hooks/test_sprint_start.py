@@ -151,7 +151,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
         self.assertIn("ERROR", result.stdout)
 
     def test_preload_with_planned_features(self):
-        """Shows planned features from product_spec.md."""
+        """Outputs path and counts, not full spec content."""
         (self.smm_dir / "product_spec.md").write_text(
             "# Product Spec\n\n"
             "### Auth [planned]\n- Login with email\n\n"
@@ -159,8 +159,10 @@ class TestSprintStartPreload(_IntegrationTestCase):
         )
         result = self._run_preload()
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Auth [planned]", result.stdout)
+        self.assertIn("PRODUCT_SPEC=", result.stdout)
         self.assertIn("2", result.stdout)  # 2 planned features
+        # Should NOT contain full spec content — agent reads via Read tool
+        self.assertNotIn("Auth [planned]", result.stdout)
 
     def test_preload_existing_sprint_deferred(self):
         """Shows deferred stories from existing sprint.md."""

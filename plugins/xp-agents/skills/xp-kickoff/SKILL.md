@@ -28,13 +28,13 @@ Proceed to step 2.
 
 ## Step 2: Product Spec (if NEEDS_PRODUCT_SPEC)
 
-If the preload shows "NEEDS_PRODUCT_SPEC", invoke `/xp-product-spec` to create a product specification. Wait for it to complete before proceeding.
+If the preload shows "NEEDS_PRODUCT_SPEC", first `Read` the SMM file at `<SMM_DIR>/SHARED_MENTAL_MODEL.md` for context (constraints, wisdom, and risks guide spec creation). Then invoke `/xp-product-spec`. Wait for it to complete before proceeding.
 
 If not shown, skip to step 3.
 
 ## Step 3: Sprint Start (if NEEDS_SPRINT)
 
-If the preload shows "NEEDS_SPRINT", invoke `/xp-sprint-start` to plan a sprint with user stories. Wait for it to complete before proceeding.
+If the preload shows "NEEDS_SPRINT" and you haven't already read the SMM in step 2, `Read` the SMM file at `<SMM_DIR>/SHARED_MENTAL_MODEL.md` first. Then invoke `/xp-sprint-start`. Wait for it to complete before proceeding.
 
 If not shown, skip to step 4.
 

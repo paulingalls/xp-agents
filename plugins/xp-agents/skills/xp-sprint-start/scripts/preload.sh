@@ -28,8 +28,7 @@ fi
 delivered=$(grep -c '\[delivered:' "$SPEC_FILE" 2>/dev/null || true)
 delivered=${delivered:-0}
 echo "## Planned Features (${planned} planned, ${delivered} delivered)"
-echo ""
-cat "$SPEC_FILE"
+echo "PRODUCT_SPEC=${SPEC_FILE}"
 
 # --- Check for deferred stories in existing sprint ---
 SPRINT_FILE="${SMM_DIR}/sprint.md"

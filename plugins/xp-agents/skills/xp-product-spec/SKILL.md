@@ -17,7 +17,7 @@ allowed-tools:
 
 # Product Spec
 
-The preload above shows the current state: existing spec with feature counts, or "create mode" if no spec exists.
+The preload above shows the current state: feature counts + `PRODUCT_SPEC=<path>` (update mode), or "create mode" if no spec exists. In update mode, use `Read` to load the spec from the path when needed.
 
 ## Mode Detection
 
@@ -79,10 +79,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Update Flow
 
-1. Show the user a summary of the existing spec (feature counts already in preload output).
+1. Read the full spec from `PRODUCT_SPEC=<path>` using `Read`. Show the user a summary (feature counts are in the preload, full content is in the file).
 2. Ask what they want to do using `AskUserQuestion` with options: "Add features", "Refine existing features", "Add constraints/NFRs", "Done".
 3. For new features: gather requirements the same way as Create flow. Add as `### Feature Name [planned]` after existing features.
-4. For refinements: read the current spec with `Read`, show the feature to the user, let them add/remove/edit requirements. Only modify `[planned]` features.
+4. For refinements: show the feature to the user, let them add/remove/edit requirements. Only modify `[planned]` features.
 5. **NEVER modify `[delivered: ...]` markers** — only `/xp-sprint-review` does that. If the user asks to change a delivered feature, explain that delivered features are locked and suggest adding a new `[planned]` feature instead.
 6. Write the full updated spec using `save_product_spec.py` (same pipe pattern as create flow). The writer replaces the entire file, so always include all existing content.
 7. **Output the full updated product_spec.md content** in the conversation so the user can review changes.

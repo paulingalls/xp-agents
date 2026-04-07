@@ -29,7 +29,7 @@ If the preload shows **Deferred Stories from Previous Sprint**, these stories ca
 
 ## Step 1: Feature Selection
 
-Show the user all `[planned]` features from the product spec (visible in preload output). Ask which features to include in this sprint using `AskUserQuestion`. Options should include "All planned features" and individual feature names.
+Read the product spec from `PRODUCT_SPEC=<path>` using `Read`. Show the user all `[planned]` features. Ask which features to include in this sprint using `AskUserQuestion`. Options should include "All planned features" and individual feature names.
 
 If there are deferred stories, note them: "Additionally, N deferred stories from the previous sprint will be included."
 

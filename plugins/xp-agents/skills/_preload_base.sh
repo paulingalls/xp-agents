@@ -131,7 +131,9 @@ for item in items:
 # Count stories with a given status in sprint.md.
 # Usage: count_sprint_status "ready" "$SPRINT_FILE"
 count_sprint_status() {
-    grep -cF "**Status:** $1" "$2" 2>/dev/null || echo 0
+    local count
+    count=$(grep -cF "**Status:** $1" "$2" 2>/dev/null || true)
+    echo "${count:-0}"
 }
 
 # Extract a markdown section from the SMM file by heading name.

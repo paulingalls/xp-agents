@@ -14,13 +14,13 @@ allowed-tools:
 
 # Accept Verification
 
-The sprint state above was preloaded automatically.
+The preload above shows the sprint state: in-progress count + `SPRINT_FILE=<path>`, or ERROR/NO_IN_PROGRESS.
 
 **If the preload shows "ERROR" or "NO_IN_PROGRESS"**, explain the situation and stop. There is nothing to accept.
 
 ## Step 1: Review Each In-Progress Story
 
-For each story with `**Status:** in-progress` in the sprint:
+Read the sprint file using the `SPRINT_FILE` path from the preload output. For each story with `**Status:** in-progress`:
 
 1. **Present the story** — show the story title and all acceptance criteria.
 2. **For each E2E criterion** (prefixed with "E2E:") — guide the user to run the test. Use Bash to execute test commands if the criterion specifies them. Report results.
@@ -34,7 +34,7 @@ For each story with `**Status:** in-progress` in the sprint:
 
 After all in-progress stories have been marked:
 
-1. Use `Read` to read the full `sprint.md` from the SMM directory (path in preload as `SMM_DIR`).
+1. The full sprint.md is already in context from Step 1's `Read`.
 2. For each story the user marked, change `**Status:** in-progress` to `**Status:** done` or `**Status:** deferred`.
 3. Write the updated content:
    ```bash

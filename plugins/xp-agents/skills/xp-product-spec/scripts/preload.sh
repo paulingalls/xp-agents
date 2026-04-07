@@ -14,8 +14,7 @@ if [ -f "$SPEC_FILE" ]; then
     delivered=$(grep -c '\[delivered:' "$SPEC_FILE" 2>/dev/null || echo 0)
     echo "## Existing Product Spec"
     echo "${planned} features planned, ${delivered} delivered"
-    echo ""
-    cat "$SPEC_FILE"
+    echo "PRODUCT_SPEC=${SPEC_FILE}"
 else
     echo "## No product spec found"
     echo "Create mode: guide the user through requirements gathering."
