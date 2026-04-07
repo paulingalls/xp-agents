@@ -254,20 +254,15 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 - Teammates: SMM + XP values + teammate guide (~1,300 tokens) — ✅ values added (guide split)
 - Default (general-purpose): full SMM + XP values (~900 tokens) — ✅ reduced from ~2,700 (guide split)
 
-**Remaining audit per tier:**
-- Does Plan need full SMM or only selective pillars?
-- Does default need full SMM?
-- Are teammates getting the right SMM content?
-
 **Files:** `scripts/subagent_start.py`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [x] Explore tier: confirmed lean (Intent + Constraints only)
-- [x] Plan tier: XP values only, no process guide (guide split)
-- [x] Teammates tier: SMM + XP values + teammate guide (guide split)
-- [x] Default tier: XP values only, no process guide (guide split)
-- [ ] Remaining: evaluate whether full SMM is needed per tier or if selective pillars suffice
-- [ ] Full test suite passes
+- [x] Explore tier: confirmed lean — Intent + Constraints only, no values needed (pure search agent)
+- [x] Plan tier: full SMM + XP values — needs all pillars for varied work (guide split)
+- [x] Teammates tier: full SMM + XP values + teammate guide (guide split)
+- [x] Default tier: full SMM + XP values — needs all pillars for varied work (guide split)
+- [x] SMM pillar audit: full SMM appropriate for Plan/teammates/default (they do varied work); selective pillars only for Explore (search-focused)
+- [x] Full test suite passes (1366 tests)
 
 ---
 
