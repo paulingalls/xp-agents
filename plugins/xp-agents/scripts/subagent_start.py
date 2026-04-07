@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection via dispatch table (M10) + teammate detection (M14):
+Tiered injection via dispatch table + teammate detection:
 - Explore: Intent + Constraints pillars only (~200 tokens)
-- xp-plan-reviewer / xp-retrospective: Full SMM + XP values + sprint.md
 - Teammate (custom agent_type): SMM + XP values + teammate guide
 - Default (Plan/general-purpose/background): Full SMM + XP values
-- Other xp-* agents: skipped (use own preloads)
+- All xp-* agents: skipped (use own preloads via forked skill)
 
 Note: The is_xp_agent() early return used in other hooks is replaced here
 by the dispatch table. xp-* agents not in _DISPATCH return None. Do NOT
@@ -23,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
-import sprint_state
 
 # ---------------------------------------------------------------------------
 # SMM section extraction for Explore agents
@@ -71,15 +69,6 @@ def _inject_full(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
     values = _common.load_xp_values()
     if values:
         parts.append(values)
-    return parts
-
-
-def _inject_with_sprint(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Plan reviewer / retrospective: full SMM + sprint.md."""
-    parts = _inject_full(smm, smm_dir, input_data)
-    sprint_content = sprint_state.read_sprint_content(smm_dir)
-    if sprint_content:
-        parts.append(sprint_content)
     return parts
 
 

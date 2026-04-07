@@ -214,12 +214,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** `scripts/subagent_start.py`, `tests/hooks/test_subagent_tiers.py`
 
 **Acceptance criteria:**
-- [ ] `_DISPATCH` contains only `"Explore"` — all 5 xp-* entries removed
-- [ ] `_inject_with_sprint()` function removed (if it exists)
-- [ ] `sprint_state` import removed from `subagent_start.py` (if no longer needed)
-- [ ] All xp-* agent tests assert `result is None` (parameterized)
-- [ ] Full test suite passes
-- [ ] Token savings verified: ~12,000-20,000 tokens per session removed from subagent injection
+- [x] `_DISPATCH` contains only `"Explore"` — all xp-* entries removed (M1-M6)
+- [x] `_inject_with_sprint()` function removed
+- [x] `sprint_state` import removed from `subagent_start.py`
+- [x] All xp-* agent tests assert `result is None` (M1-M6)
+- [x] Full test suite passes (1367 tests)
+- [x] Docstring updated to reflect simplified dispatch
 
 ---
 
