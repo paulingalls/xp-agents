@@ -276,32 +276,32 @@ Each milestone: audit what the preload injects into main agent context, whether 
 
 Preload simplified from ~105 to ~54 lines. GOALS_REVIEW, QUESTIONS_CHECK, HOUSEKEEPING sections removed. Body simplified to 6-step flow referencing xp-work-selection and xp-housekeeping skills.
 
-### M11: xp-work-selection (NEW — replaces xp-question-triage + xp-goal-collection)
+### M11: xp-work-selection ✅ (confirmed optimal)
 
 **Current preload:** `preload.sh` → Try items from retro, open questions from SMM Risks, sprint status, customer intent (~200-500 tokens variable)
 **Body:** ~600 tokens — 3-step flow (Try items, questions, sprint/work selection)
-**Assessment:** Already optimized during kickoff redesign. Lean preload using shared helpers from `_preload_base.sh`.
+**Assessment:** Already optimized during kickoff redesign. Lean preload using shared helpers from `_preload_base.sh`. Runs before housekeeping so no SMM or process guide in context — XP values from SessionStart are sufficient. All preload data is bounded by SMM caps (Risks ~10 items, Intent ~10 items).
 
 **Acceptance criteria:**
-- [ ] Preload confirmed lean (<500 tokens variable output)
-- [ ] No redundant data between preload and SKILL.md body
-- [ ] Full test suite passes
+- [x] Preload confirmed lean (<500 tokens variable output)
+- [x] No redundant data between preload and SKILL.md body
+- [x] Full test suite passes (1366 tests)
 
-### M12: xp-housekeeping ✅ (DONE — kickoff redesign)
+### M12: xp-housekeeping ✅ (confirmed optimal — kickoff redesign)
 
-Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters main context. Preload writes `.curation-input.json` to disk; agent reads it. kickoff_done.py injects SMM + process guide (~800 tokens) after completion. XP values injected at session start.
+Forked to xp-housekeeper subagent. Curation JSON (~12K tokens) no longer enters main context. Preload writes `.curation-input.json` to disk; agent reads it via Read tool. kickoff_done.py injects SMM + process guide (~800 tokens) after completion. XP values injected via preload `dump_values` — needed for curation judgment calls (Simplicity guides pruning, Courage guides keeping uncomfortable risks visible).
 
 ### M13: xp-quality-review
 
-**Current preload:** diff of changed files + technical debt for changed files + open plan concerns
+**Current preload:** diff stat of uncommitted changes + new untracked files + technical debt for changed files + open plan concerns
 **Body:** ~1,300 tokens
-**Audit:** Diff size is variable. Is full diff necessary or would stat-only + selective diff work? Are debt entries filtered efficiently?
+**Audit:** Diff uses `--stat` only (lightweight). Agent reads individual files via Read tool when needed. Bug found: preload used `HEAD~1` (previous commit) instead of `HEAD` (uncommitted changes). Fixed `dump_diff` and `changed_files` to use `git diff HEAD` + `git ls-files --others --exclude-standard` for new files.
 
 **Acceptance criteria:**
-- [ ] Diff injection strategy audited — full diff confirmed necessary or size-limited alternative implemented
-- [ ] Debt entry filtering verified efficient (no stale/irrelevant debt injected)
-- [ ] Body size verified appropriate (~1,300 tokens)
-- [ ] Full test suite passes
+- [x] Diff injection strategy audited — `--stat` only (file names + line counts), agent reads files individually. Fixed to show uncommitted changes (`HEAD`) instead of previous commit (`HEAD~1`). New untracked files now included.
+- [x] Debt entry filtering verified efficient — per-file lookup via `find_debt_for_file`, output truncated at 120 chars
+- [x] Body size verified appropriate (~1,300 tokens, 122 lines, 7-step review)
+- [x] Full test suite passes (1370 tests — 4 new preload tests added)
 
 ### M14: xp-product-spec
 

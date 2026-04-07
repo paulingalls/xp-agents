@@ -53,7 +53,15 @@ The preloaded data above includes:
 - Check if the plan contradicts any decisions or conventions in the SMM's **Constraints** pillar.
 - Flag conflicts explicitly, referencing the specific decision or convention.
 
-### 5. Assumptions
+### 5. Design Quality
+- Look for common anti-patterns or opportunities to apply clean design principles and avoid code smells
+- Check for unnecessary abstraction — helpers, utilities, or base classes for one-time operations.
+- Flag duplication — if the plan introduces logic that likely exists elsewhere, note it.
+- Check single responsibility — each new module/function should do one thing.
+- Flag over-engineering — feature flags, backwards-compatibility shims, or configurability beyond what the plan requires.
+- If the plan adds complexity, ask whether a simpler approach exists.
+
+### 6. Assumptions
 Record only assumptions that **matter** — where the wrong assumption would cause rework. Don't record obvious defaults or restatements of existing SMM constraints. For each significant assumption, write an `assumption` event:
 
 ```bash
@@ -63,7 +71,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Assumption: description of what is assumed"
 ```
 
-### 6. Questions for the User
+### 7. Questions for the User
 When the plan contains ambiguity that only the user or customer can resolve — and getting it wrong means significant rework — write a `question` event instead of an assumption:
 
 ```bash
@@ -92,7 +100,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --priority "🟡"
 ```
 
-### 7. Architectural Decisions (Constraints Pillar)
+### 8. Architectural Decisions (Constraints Pillar)
 Record only **new** decisions — don't re-record decisions already in the SMM's Constraints pillar. For new decisions embedded in the plan:
 
 ```bash
@@ -103,7 +111,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --topic "topic-name"
 ```
 
-### 8. Execution Mode Recommendation
+### 9. Execution Mode Recommendation
 
 When sprint.md is available in your context, assess how the plan should be executed:
 

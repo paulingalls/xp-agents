@@ -13,39 +13,7 @@ echo ""
 dump_values
 echo ""
 
-# Show both staged and unstaged diffs
-STAGED_STAT=$(git diff --cached --stat 2>/dev/null || true)
-UNSTAGED_STAT=$(git diff --stat 2>/dev/null || true)
-
-if [ -n "$STAGED_STAT" ]; then
-    echo "## Staged Changes"
-    echo "$STAGED_STAT"
-    echo ""
-    echo "## Staged Diff"
-    git diff --cached 2>/dev/null || true
-fi
-
-if [ -n "$UNSTAGED_STAT" ]; then
-    echo ""
-    echo "## Unstaged Changes"
-    echo "$UNSTAGED_STAT"
-    echo ""
-    echo "## Unstaged Diff"
-    git diff 2>/dev/null || true
-fi
-
-# Show untracked (new) files — git diff misses these entirely
-UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null || true)
-if [ -n "$UNTRACKED" ]; then
-    echo ""
-    echo "## New Files (untracked)"
-    echo "$UNTRACKED"
-fi
-
-if [ -z "$STAGED_STAT" ] && [ -z "$UNSTAGED_STAT" ] && [ -z "$UNTRACKED" ]; then
-    echo "## No Changes"
-    echo "(no staged, unstaged, or untracked changes detected)"
-fi
+dump_diff full
 
 # Write triage marker + log event (merged from mark_triaged.py)
 python3 "${PLUGIN_ROOT}/skills/xp-security-triage/scripts/mark_triaged.py" --smm-dir "${SMM_DIR}" 2>/dev/null || true

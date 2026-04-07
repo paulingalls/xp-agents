@@ -8,8 +8,8 @@ set -euo pipefail
 # After sourcing, PLUGIN_ROOT and SMM_DIR are set.
 # Call dump_smm to output the SMM state section.
 # Call dump_values to output XP values only.
-# Call dump_guide to output XP values + process guide.
-# Call dump_diff to output git diff stats.
+# Call dump_diff to output git diff stats (or dump_diff full for complete diffs).
+# Call get_changed_files to get list of all changed file names.
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
@@ -38,22 +38,64 @@ dump_values() {
     fi
 }
 
-dump_guide() {
-    local values="${PLUGIN_ROOT}/XP_VALUES.md"
-    local process="${PLUGIN_ROOT}/PROCESS_GUIDE.md"
-    if [ -f "$values" ] || [ -f "$process" ]; then
-        echo ""
-        echo "## Behavioral Guide"
-        [ -f "$values" ] && cat "$values"
-        [ -f "$process" ] && { echo ""; cat "$process"; }
-    else
-        echo "## Behavioral Guide: not found"
-    fi
+# List all changed files (staged + unstaged + untracked), one per line.
+# Usage: get_changed_files
+get_changed_files() {
+    { git diff HEAD --name-only 2>/dev/null
+      git ls-files --others --exclude-standard 2>/dev/null
+    } | sort -u
 }
 
+# Show uncommitted changes. Default: stat only. Pass "full" for complete diffs.
+# Usage: dump_diff        # stat + new file list
+#        dump_diff full   # staged/unstaged diffs + new files
 dump_diff() {
-    echo "## Recent Changes"
-    git diff HEAD~1 --stat 2>/dev/null || echo "(no recent diff available)"
+    local mode="${1:-stat}"
+    local staged_stat unstaged_stat untracked
+
+    staged_stat=$(git diff --cached --stat 2>/dev/null || true)
+    unstaged_stat=$(git diff --stat 2>/dev/null || true)
+    untracked=$(git ls-files --others --exclude-standard 2>/dev/null || true)
+
+    if [ -z "$staged_stat" ] && [ -z "$unstaged_stat" ] && [ -z "$untracked" ]; then
+        echo "## No Changes"
+        echo "(no staged, unstaged, or untracked changes detected)"
+        return
+    fi
+
+    if [ "$mode" = "full" ]; then
+        if [ -n "$staged_stat" ]; then
+            echo "## Staged Changes"
+            echo "$staged_stat"
+            echo ""
+            echo "## Staged Diff"
+            git diff --cached 2>/dev/null || true
+        fi
+        if [ -n "$unstaged_stat" ]; then
+            echo ""
+            echo "## Unstaged Changes"
+            echo "$unstaged_stat"
+            echo ""
+            echo "## Unstaged Diff"
+            git diff 2>/dev/null || true
+        fi
+    else
+        echo "## Recent Changes"
+        if [ -n "$staged_stat" ]; then
+            echo "Staged:"
+            echo "$staged_stat"
+        fi
+        if [ -n "$unstaged_stat" ]; then
+            echo "Unstaged:"
+            echo "$unstaged_stat"
+        fi
+    fi
+
+    if [ -n "$untracked" ]; then
+        echo ""
+        echo "## New Files (untracked)"
+        echo "$untracked"
+    fi
     echo ""
 }
 
