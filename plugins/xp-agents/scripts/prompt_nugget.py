@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
 import read_delta
 from resolution import compute_resolutions
 
@@ -30,6 +31,14 @@ _NUGGET_PRIORITY = {
 
 _MAX_NUGGETS = 3
 _WATERMARK_ID = "prompt-nugget"
+
+# Concern patterns already visible in tool output — filter from nuggets.
+_NOISY_CONCERN_PREFIXES = (
+    concerns.TEST_COMMAND_FAILED_PREFIX,
+    concerns.TEST_FAILURES_PREFIX,
+    concerns.LINT_CONCERN_PREFIX,
+    concerns.LINT_RESOLVED_PREFIX,
+)
 
 
 def _truncate(text: str, max_len: int = 120) -> str:
@@ -75,7 +84,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     signals = [
         e
         for e in new_events
-        if e.get("type") in _NUGGET_PRIORITY and e.get("id") not in resolved_ids
+        if e.get("type") in _NUGGET_PRIORITY
+        and e.get("id") not in resolved_ids
+        and not (
+            e.get("type") == _common.CONCERN
+            and e.get("content", "").startswith(_NOISY_CONCERN_PREFIXES)
+        )
     ]
     if not signals:
         return None

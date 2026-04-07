@@ -219,6 +219,69 @@ class TestPromptNugget(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Real problem", result)
 
+    def test_test_failure_concern_excluded(self):
+        """Test failure concerns are filtered — already visible in tool output."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test command failed (unittest): Exit code 1",
+                    severity="medium",
+                ),
+                make_event(
+                    "concern",
+                    content="Test failures detected: 3 failed (unittest)",
+                    severity="medium",
+                ),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_lint_concern_excluded(self):
+        """Lint concerns are filtered — already visible in edit hook output."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Lint errors in plugins/xp-agents/scripts/foo.py: 2 errors",
+                    severity="medium",
+                ),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_non_test_concern_still_shown(self):
+        """Non-test/lint concerns still appear in nuggets."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Commit touches 12 files",
+                    severity="medium",
+                ),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Commit touches", result)
+
     def test_resolved_debt_excluded(self):
         """Debt resolved by a later event should not appear."""
         import prompt_nugget

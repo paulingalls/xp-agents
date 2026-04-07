@@ -215,7 +215,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
-                f"Test failures detected: {failed} failed ({framework})",
+                f"{concerns.TEST_FAILURES_PREFIX}: {failed} failed ({framework})",
                 severity="high",
             )
             _common.append_safe(smm_dir, concern)

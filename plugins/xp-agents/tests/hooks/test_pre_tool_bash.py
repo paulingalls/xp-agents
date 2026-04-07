@@ -168,12 +168,67 @@ class TestCommitGateCodeFilesOnly(_HookTestCase):
         self.assertTrue(security.has_staged_code_files("/tmp", "git commit -am 'x'"))
 
     def test_is_code_file_classification(self):
-        """is_code_file correctly classifies files."""
-        self.assertTrue(security.is_code_file("src/app.ts"))
+        """is_code_file correctly classifies code files across languages."""
+        # Python
         self.assertTrue(security.is_code_file("main.py"))
+        self.assertTrue(security.is_code_file("src/utils.pyi"))
+        # JavaScript / TypeScript
+        self.assertTrue(security.is_code_file("src/app.ts"))
+        self.assertTrue(security.is_code_file("src/app.js"))
+        self.assertTrue(security.is_code_file("src/App.tsx"))
+        self.assertTrue(security.is_code_file("src/App.jsx"))
+        # Go
+        self.assertTrue(security.is_code_file("cmd/server.go"))
+        # Rust
+        self.assertTrue(security.is_code_file("src/main.rs"))
+        # Java / Kotlin / Scala
+        self.assertTrue(security.is_code_file("src/Main.java"))
+        self.assertTrue(security.is_code_file("src/Main.kt"))
+        self.assertTrue(security.is_code_file("src/Main.scala"))
+        # Ruby
+        self.assertTrue(security.is_code_file("lib/app.rb"))
+        # C / C++
+        self.assertTrue(security.is_code_file("src/main.c"))
+        self.assertTrue(security.is_code_file("src/main.cpp"))
+        self.assertTrue(security.is_code_file("include/header.h"))
+        # C#
+        self.assertTrue(security.is_code_file("src/Program.cs"))
+        # Swift
+        self.assertTrue(security.is_code_file("Sources/App.swift"))
+        # PHP
+        self.assertTrue(security.is_code_file("src/index.php"))
+        # Dart
+        self.assertTrue(security.is_code_file("lib/main.dart"))
+        # Elixir
+        self.assertTrue(security.is_code_file("lib/app.ex"))
+        self.assertTrue(security.is_code_file("lib/app.exs"))
+        # Shell
+        self.assertTrue(security.is_code_file("scripts/build.sh"))
+
+    def test_is_code_file_excludes_non_code(self):
+        """is_code_file excludes docs, config, images, and lock files."""
+        # Docs
         self.assertFalse(security.is_code_file("README.md"))
+        self.assertFalse(security.is_code_file("docs/guide.txt"))
+        self.assertFalse(security.is_code_file("docs/api.rst"))
+        # Config
         self.assertFalse(security.is_code_file("package.json"))
+        self.assertFalse(security.is_code_file("config.yaml"))
+        self.assertFalse(security.is_code_file("pyproject.toml"))
+        self.assertFalse(security.is_code_file(".gitignore"))
+        self.assertFalse(security.is_code_file(".env"))
+        self.assertFalse(security.is_code_file(".editorconfig"))
+        self.assertFalse(security.is_code_file(".prettierignore"))
+        self.assertFalse(security.is_code_file(".eslintignore"))
+        # Images
         self.assertFalse(security.is_code_file("logo.png"))
+        self.assertFalse(security.is_code_file("icon.svg"))
+        # Lock files
+        self.assertFalse(security.is_code_file("package-lock.json"))
+        # Special names
+        self.assertFalse(security.is_code_file("LICENSE"))
+        self.assertFalse(security.is_code_file("Makefile"))
+        self.assertFalse(security.is_code_file("Dockerfile"))
 
 
 class TestPreToolBashReviewCycle(_HookTestCase):

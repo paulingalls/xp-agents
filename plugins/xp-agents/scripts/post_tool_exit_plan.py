@@ -6,7 +6,6 @@ After the agent exits plan mode, inject context telling it to run
 marker so pre_tool_write.py can nudge on writes if the agent ignores this.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -57,11 +56,5 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        output = {
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": result,
-            }
-        }
-        print(json.dumps(output))
+        _common.hook_output("PostToolUse", result)
     sys.exit(0)

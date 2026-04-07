@@ -42,6 +42,10 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 - TDD gate: fix failing tests. Accept gate: run `/xp-accept` first.
 - If a gate is wrong, record a `debt` event explaining why.
 
+## Project Files
+
+Project state lives in `SMM_DIR`: `SHARED_MENTAL_MODEL.md` (curated briefing), `sprint.md` (current sprint stories), `product_spec.md` (product requirements). Resolve `SMM_DIR` by running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
+
 ## Recording Events
 
 Use `append.sh` for all event writes. Never write directly to `events.jsonl`.

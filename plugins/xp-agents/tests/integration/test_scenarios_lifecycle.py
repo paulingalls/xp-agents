@@ -274,8 +274,8 @@ class TestSprintTieredInjection(_IntegrationTestCase):
         # xp-plan-reviewer now returns None (uses preload for SMM/sprint)
         self.assertEqual(result.stdout.strip(), "")
 
-    def test_compact_reinjects_sprint_subprocess(self):
-        """SessionStart compact source reinjects SMM + sprint.md."""
+    def test_compact_reinjects_smm_not_sprint(self):
+        """SessionStart compact reinjects SMM but not sprint.md."""
         self._write_sprint_and_smm()
         self._seed_events([make_event()])
         result = self._run_script(
@@ -285,8 +285,8 @@ class TestSprintTieredInjection(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Ship v1", ctx)
-        self.assertIn("sprint-001", ctx)
+        self.assertIn("Ship v1", ctx)  # SMM content
+        self.assertNotIn("sprint-001", ctx)  # sprint.md not injected
 
 
 if __name__ == "__main__":

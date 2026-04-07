@@ -39,16 +39,27 @@ _NON_CODE_SUFFIXES = frozenset(
         ".xcscheme",
         ".lock",
         ".license",
+    }
+)
+
+# Dotfiles and special names — matched by full filename (case-insensitive).
+# Dotfiles like .gitignore have no suffix in Python (Path(".gitignore").suffix == "").
+_NON_CODE_NAMES = frozenset(
+    {
+        "license",
+        "changelog",
+        "readme",
+        "makefile",
+        "dockerfile",
         ".gitignore",
         ".gitattributes",
         ".env",
         ".env.example",
         ".dockerignore",
+        ".editorconfig",
+        ".prettierignore",
+        ".eslintignore",
     }
-)
-
-_NON_CODE_NAMES = frozenset(
-    {"license", "changelog", "readme", "makefile", "dockerfile"}
 )
 
 

@@ -40,6 +40,9 @@ TEST_CONCERN_RE = re.compile(
 )
 
 LINT_CONCERN_PREFIX = "Lint errors in "
+LINT_RESOLVED_PREFIX = "Lint concern resolved"
+TEST_COMMAND_FAILED_PREFIX = "Test command failed"
+TEST_FAILURES_PREFIX = "Test failures detected"
 
 
 def lint_concern_matches(content: str, rel_path: str) -> bool:

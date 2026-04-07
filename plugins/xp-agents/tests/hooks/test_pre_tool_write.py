@@ -224,6 +224,32 @@ class TestCheckTddOrder(_HookTestCase):
         result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")
         self.assertIsNone(result)
 
+    def test_markdown_no_tracking(self):
+        """Non-code files (md, json, yaml) should not trigger TDD nudge."""
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md", "Write")
+        result = pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "docs/DESIGN.md", "Write"
+        )
+        self.assertIsNone(result)
+
+    def test_product_spec_no_tracking(self):
+        """product_spec.md should not trigger TDD nudge."""
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "product_spec.md", "Write")
+        result = pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "sprint.md", "Write"
+        )
+        self.assertIsNone(result)
+
+    def test_code_after_markdown_still_nudges(self):
+        """Markdown writes don't count, but code writes after them do."""
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md", "Write")
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.py", "Write")
+        result = pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "src/utils.py", "Write"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("TDD", result)
+
 
 class TestPreToolWriteRun(_HookTestCase):
     def test_xp_agent_skips(self):

@@ -109,9 +109,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 parts.append("\n\n" + smm_content)
         except FileNotFoundError:
             pass
-        sprint_content = sprint_state.read_sprint_content(smm_dir)
-        if sprint_content:
-            parts.append("\n\n" + sprint_content)
         process = _common.load_process_guide()
         if process:
             parts.append("\n\n" + process)

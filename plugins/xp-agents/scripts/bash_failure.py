@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import concerns
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -59,7 +60,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     concern = _common.make_event(
         _common.CONCERN,
         agent_id,
-        f"Test command failed ({framework}): {first_line}",
+        f"{concerns.TEST_COMMAND_FAILED_PREFIX} ({framework}): {first_line}",
         severity="high",
     )
     _common.append_safe(smm_dir, concern)

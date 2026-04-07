@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import markers
+import security
 import sprint_state
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
@@ -176,6 +177,10 @@ def check_tdd_order(
             changed = True
         if changed:
             markers.marker_write(smm_dir, markers.TDD_TRACKER, tracker, agent_id)
+        return None
+
+    # Non-code files (md, json, yaml, etc.) don't count for TDD tracking
+    if not security.is_code_file(file_path):
         return None
 
     # Implementation file

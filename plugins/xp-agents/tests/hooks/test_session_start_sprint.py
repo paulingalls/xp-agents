@@ -168,8 +168,8 @@ class TestSessionStartCompactSprint(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
 
-    def test_compact_reinjects_sprint(self):
-        """Compact source includes sprint.md content."""
+    def test_compact_does_not_inject_sprint(self):
+        """Compact reinjects SMM + process guide, not sprint.md."""
         import session_start
 
         result = session_start.run(
@@ -177,7 +177,7 @@ class TestSessionStartCompactSprint(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("sprint-001", result)
+        self.assertNotIn("sprint-001", result)
 
     def test_compact_no_sprint_still_works(self):
         """Compact without sprint.md still returns SMM."""
