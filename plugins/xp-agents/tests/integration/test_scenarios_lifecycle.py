@@ -259,8 +259,8 @@ class TestSprintTieredInjection(_IntegrationTestCase):
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text(self._SPRINT_MD)
 
-    def test_plan_reviewer_returns_none_subprocess(self):
-        """SubagentStart subprocess: plan reviewer uses own preload."""
+    def test_plan_reviewer_gets_values_subprocess(self):
+        """SubagentStart subprocess: plan reviewer gets XP values."""
         self._write_sprint_and_smm()
         result = self._run_script(
             "subagent_start.py",
@@ -271,8 +271,7 @@ class TestSprintTieredInjection(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        # xp-plan-reviewer now returns None (uses preload for SMM/sprint)
-        self.assertEqual(result.stdout.strip(), "")
+        self.assertIn("XP Values", result.stdout)
 
     def test_compact_reinjects_smm_not_sprint(self):
         """SessionStart compact reinjects SMM but not sprint.md."""

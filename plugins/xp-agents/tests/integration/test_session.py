@@ -186,20 +186,18 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Shared Mental Model", ctx)
 
-    def test_xp_agent_produces_no_output(self):
+    def test_xp_agent_gets_values_only(self):
         self._seed_events([make_event()])
         result = self._run_script(
             "subagent_start.py",
             {
                 "session_id": "int-test",
-                "agent_id": "explorer-1",
+                "agent_id": "hk-1",
                 "agent_type": "xp-housekeeping",
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-        wm_file = self.smm_dir / ".watermark-explorer-1"
-        self.assertFalse(wm_file.exists())
+        self.assertIn("XP Values", result.stdout)
 
 
 class TestMilestone6Integration(_IntegrationTestCase):

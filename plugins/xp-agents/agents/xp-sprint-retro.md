@@ -17,8 +17,10 @@ You are the **sprint retrospective analyst** in an XP workflow. A sprint has end
 The preloaded data above includes:
 - `SMM_DIR=<path>` — use this path for all `append.sh` calls
 - `RETRO_INPUT=<path>` — path to `.sprint-retro-input.json`
-- **XP Values** — the value framework for analyzing sprint behavior
-- **SMM Constraints + Wisdom** — the rules the sprint should have followed
+- `SMM_FILE=<path>` — the curated SMM (read for Constraints + Wisdom context)
+- **XP Values** — injected automatically, already in your context
+
+**Before analyzing, read `SMM_FILE` using the Read tool** — you need the Constraints and Wisdom pillars to evaluate whether the sprint followed established rules.
 
 ## Step 1: Read the Retro Input
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.0.10 — File-Based Preloads & Universal XP Values
+
+### Architecture
+- **File-based preloads for all forked skills** — Preloads now output file paths (`SMM_FILE=`, `PLAN_FILE=`, `SPRINT_FILE=`, `DIFF_FILE=`) instead of dumping full content to stdout. Subagents read files via Read tool. Reduces main agent context bloat when `context: fork` fires in the main agent.
+- **Universal XP values via SubagentStart** — XP values (~250 tokens) injected for ALL subagents (xp-*, Explore, Plan, teammates, general-purpose). Removed `dump_values` from all 6 forked preloads. Clean separation: preloads provide skill-specific data paths, SubagentStart provides universal values.
+- **Security triage diff to file** — `dump_diff full` redirected to `.security-triage-diff.txt`; agent reads via `DIFF_FILE=` path.
+
+### Improved
+- **XP Values rewritten** — Tighter, directive language (~250 tokens, down from ~470). Values address the agent directly as guideposts. Value priority reordered: Honesty > Courage > Simplicity > Feedback > Communication.
+- **Agent definitions updated** — All 7 forked agents updated to read files via Read tool instead of assuming content is in context. Consistent "XP Values — injected automatically" across all agents.
+
+### New Tests
+- `test_review_plan.py` — 7 tests for path-based preload output
+- `test_security_triage.py` — 5 tests for diff-to-file preload
+
+### Stats
+- 1398 tests (all passing)
+
 ## v2.0.9 — Critical Debt Resolution & V2 Testing Fixes
 
 ### Fixed (10-session and 8-session critical debt)

@@ -15,15 +15,17 @@ You are the **plan reviewer** in an XP workflow. A planning subagent has just pr
 
 The preloaded data above includes:
 - `SMM_DIR=<path>` — use this path for all `append.sh` calls
-- **The full curated SMM** — Intent, Constraints, Risks, and Wisdom pillars
-- **sprint.md** (when an active sprint exists) — stories, statuses, dependencies
-- **XP Values** — the value framework for evaluating plan quality
-- **The plan** to review (from the plan marker or latest plan file)
+- `SMM_FILE=<path>` — the curated SMM (Intent, Constraints, Risks, Wisdom)
+- `SPRINT_FILE=<path>` (when an active sprint exists) — stories, statuses, dependencies
+- `PLAN_FILE=<path>` — the plan to review (from the plan marker or latest plan file)
+- **XP Values** — injected automatically, already in your context
 
-**Do NOT read these files — they are already in your context:**
-- `SHARED_MENTAL_MODEL.md` (already preloaded above)
-- `sprint.md` (already preloaded above, when it exists)
-- `events.jsonl` (the SMM is the curated view — you don't need raw events)
+**Before reviewing, read these files using the Read tool:**
+1. Read `PLAN_FILE` — this is the plan you are reviewing
+2. Read `SMM_FILE` — you need Constraints and Risks for conflict checking
+3. Read `SPRINT_FILE` (if provided) — you need stories and dependencies for scope checking
+
+Do NOT read `events.jsonl` — the SMM is the curated view, you don't need raw events.
 
 **When to read project files:** Only read source files if you need to verify a specific decision conflict — e.g., checking whether a plan contradicts how a function is actually implemented. Don't browse the codebase speculatively.
 

@@ -246,26 +246,23 @@ class TestSprintRetroPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("RETRO_INPUT=", result.stdout)
 
-    def test_preload_includes_values_and_smm_pillars(self):
-        """Preload includes XP values + Constraints/Wisdom pillars."""
+    def test_preload_outputs_smm_path_no_content(self):
+        """SMM_FILE= path, no values or pillar content in stdout."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
         (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
             "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
             "## Constraints\n- TDD always\n\n"
-            "## Risks\n- Auth fragile\n\n"
             "## Wisdom\n- Commit after green\n"
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        # Should have XP values
-        self.assertIn("XP Values", result.stdout)
-        # Should have Constraints and Wisdom pillars
-        self.assertIn("TDD always", result.stdout)
-        self.assertIn("Commit after green", result.stdout)
-        # Should NOT have Intent or Risks
-        self.assertNotIn("Ship v1", result.stdout)
-        self.assertNotIn("Auth fragile", result.stdout)
+        # SMM_FILE path present
+        self.assertIn("SMM_FILE=", result.stdout)
+        # No XP values (injected via SubagentStart now)
+        self.assertNotIn("XP Values", result.stdout)
+        # No SMM content
+        self.assertNotIn("TDD always", result.stdout)
+        self.assertNotIn("Commit after green", result.stdout)
 
 
 if __name__ == "__main__":

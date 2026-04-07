@@ -66,12 +66,11 @@ class TestHousekeepingPreload(_IntegrationTestCase):
         ):
             self.assertIn(key, data, f"Missing key: {key}")
 
-    def test_outputs_xp_values(self):
-        """Preload includes XP values (not process guide) for curation."""
+    def test_no_xp_values_in_preload(self):
+        """Preload no longer includes XP values — injected via SubagentStart."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("XP Values", result.stdout)
-        self.assertNotIn("EnterPlanMode", result.stdout)
+        self.assertNotIn("XP Values", result.stdout)
 
     def test_graceful_without_events(self):
         """Empty events.jsonl — preload still succeeds."""
@@ -85,18 +84,19 @@ class TestHousekeepingPreload(_IntegrationTestCase):
 # ===========================================================================
 
 
-class TestSubagentStartSkipsHousekeeper(_HookTestCase):
-    """M2: xp-housekeeper agent type returns None from SubagentStart."""
+class TestSubagentStartHousekeeper(_HookTestCase):
+    """xp-housekeeper gets XP values from SubagentStart."""
 
-    def test_xp_housekeeper_returns_none(self):
-        """SubagentStart skips xp-housekeeper via xp-* guard."""
+    def test_xp_housekeeper_gets_values(self):
+        """SubagentStart injects XP values for xp-housekeeper."""
         import subagent_start
 
         result = subagent_start.run(
             {"agent_type": "xp-housekeeper"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
 
 
 if __name__ == "__main__":

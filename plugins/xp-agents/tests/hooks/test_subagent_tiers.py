@@ -22,16 +22,17 @@ from conftest import _HookTestCase, make_event
 
 
 class TestSubagentStart(_HookTestCase):
-    def test_xp_agent_skips(self):
+    def test_xp_agent_gets_values_only(self):
         import subagent_start
 
         result = subagent_start.run(
             {"session_id": "test", "agent_id": "exp-1", "agent_type": "xp-nav"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
 
-    def test_missing_smm_dir(self):
+    def test_missing_smm_dir_still_gets_values(self):
         import subagent_start
 
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
@@ -39,7 +40,8 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "exp-1"},
             smm_dir=fake_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
 
     def test_returns_values_without_smm_file(self):
         """Without curated SMM file, non-Explore agent still gets XP values."""
@@ -127,7 +129,7 @@ class TestSubagentStartEvent(_HookTestCase):
         self.assertEqual(start_ev["agent_id"], "explorer-1")
         self.assertEqual(start_ev["content"], "Subagent explorer-1 started")
 
-    def test_xp_agent_no_event(self):
+    def test_xp_agent_records_start_event(self):
         import subagent_start
 
         self._write_events([make_event()])
@@ -140,8 +142,9 @@ class TestSubagentStartEvent(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = self._read_events()
-        # xp- agents should not write start events
-        self.assertEqual(len(events), 1)
+        # xp-* agents now go through run() and record start events
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[1]["agent_id"], "xp-nav-1")
 
 
 # ===========================================================================
@@ -295,8 +298,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text(_SAMPLE_SPRINT)
 
-    def test_plan_reviewer_returns_none(self):
-        """xp-plan-reviewer uses own preload — SubagentStart returns None."""
+    def test_plan_reviewer_gets_values_only(self):
+        """xp-plan-reviewer gets XP values only (data from preload)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -305,10 +308,13 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        # Should NOT get SMM content (that comes from preload)
+        self.assertNotIn("Ship v1", result)
 
-    def test_retrospective_returns_none(self):
-        """xp-retrospective uses own preload — SubagentStart returns None."""
+    def test_retrospective_gets_values_only(self):
+        """xp-retrospective gets XP values only (data from preload)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -317,10 +323,12 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("Ship v1", result)
 
-    def test_spawn_team_returns_none(self):
-        """xp-spawn-team uses own preload — SubagentStart returns None."""
+    def test_spawn_team_gets_values_only(self):
+        """xp-spawn-team gets XP values only (data from preload)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -329,10 +337,12 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("Ship v1", result)
 
-    def test_sprint_reviewer_returns_none(self):
-        """xp-sprint-reviewer uses own preload — SubagentStart returns None."""
+    def test_sprint_reviewer_gets_values_only(self):
+        """xp-sprint-reviewer gets XP values only (data from preload)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -341,10 +351,12 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("Ship v1", result)
 
-    def test_sprint_retro_returns_none(self):
-        """xp-sprint-retro uses own preload — SubagentStart returns None."""
+    def test_sprint_retro_gets_values_only(self):
+        """xp-sprint-retro gets XP values only (data from preload)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -353,7 +365,9 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("Ship v1", result)
 
     def test_teammate_gets_smm_and_guide(self):
         """Teammate gets SMM + teammate guide (stories via spawn prompt)."""
@@ -386,8 +400,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         # No sprint content without assigned_stories
         self.assertNotIn("sprint-001", result)
 
-    def test_plan_reviewer_no_sprint_still_none(self):
-        """xp-plan-reviewer returns None even without sprint.md."""
+    def test_plan_reviewer_no_sprint_still_gets_values(self):
+        """xp-plan-reviewer gets values even without sprint.md."""
         (self.smm_dir / "sprint.md").unlink()
         result = self.subagent_start.run(
             {
@@ -397,10 +411,11 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
 
-    def test_other_xp_agents_still_skipped(self):
-        """xp-* agents not in dispatch table return None."""
+    def test_other_xp_agents_get_values(self):
+        """xp-* agents not in dispatch table still get XP values."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -409,7 +424,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
 
     def test_explore_unchanged(self):
         """Explore still gets Intent + Constraints only, no sprint."""

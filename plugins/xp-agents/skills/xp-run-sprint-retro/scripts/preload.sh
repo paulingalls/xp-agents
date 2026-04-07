@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-run-sprint-retro: retro data + XP values + SMM pillars.
+# Preload for xp-run-sprint-retro: retro data + SMM path.
 # Agent reads sprint.md directly via path in JSON.
+# Agent reads SMM file for Constraints/Wisdom via Read tool.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
@@ -13,18 +14,9 @@ echo "SMM_DIR=${SMM_DIR}"
 if echo "$PREP_OUTPUT" | grep -q "RETRO_INPUT="; then
     echo "$PREP_OUTPUT"
 fi
-echo ""
 
-# XP values for analysis lenses
-dump_values
-echo ""
-
-# Constraints + Wisdom pillars for evaluating sprint behavior
+# SMM file path (agent reads Constraints + Wisdom via Read tool)
 SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
 if [ -f "$SMM_FILE" ]; then
-    echo "## SMM Constraints"
-    smm_section "Constraints"
-    echo ""
-    echo "## SMM Wisdom"
-    smm_section "Wisdom"
+    echo "SMM_FILE=${SMM_FILE}"
 fi

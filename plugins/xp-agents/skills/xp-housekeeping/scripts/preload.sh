@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-housekeeping (forked): prepare curation data, output paths + values.
+# Preload for xp-housekeeping (forked): prepare curation data, output paths.
+# XP values injected universally via SubagentStart.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
@@ -13,6 +14,3 @@ echo "SMM_DIR=${SMM_DIR}"
 if [ -f "${SMM_DIR}/.curation-input.json" ]; then
     echo "CURATION_INPUT=${SMM_DIR}/.curation-input.json"
 fi
-echo ""
-
-dump_values

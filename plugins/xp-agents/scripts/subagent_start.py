@@ -2,14 +2,13 @@
 """SubagentStart hook: inject project context for subagents.
 
 Tiered injection via dispatch table + teammate detection:
-- Explore: Intent + Constraints pillars only (~200 tokens)
-- Teammate (custom agent_type): SMM + XP values + teammate guide
-- Default (Plan/general-purpose/background): Full SMM + XP values
-- All xp-* agents: skipped (use own preloads via forked skill)
+- Explore: Intent + Constraints pillars (~200 tokens)
+- Teammate (custom agent_type): SMM + teammate guide
+- Default (Plan/general-purpose/background): Full SMM
+- xp-* forked agents: values only (data comes from preloads)
 
-Note: The is_xp_agent() early return used in other hooks is replaced here
-by the dispatch table. xp-* agents not in _DISPATCH return None. Do NOT
-copy this pattern to other hooks — they still need the universal guard.
+XP values (~250 tokens) are injected universally for ALL subagents,
+appended after tier-specific context.
 """
 
 import re
@@ -54,7 +53,7 @@ def _extract_pillars(smm_content: str, pillars: set[str]) -> str:
 
 
 def _inject_explore(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Explore: Intent + Constraints only, no guide."""
+    """Explore: Intent + Constraints only."""
     if not smm:
         return []
     extracted = _extract_pillars(smm, {"Intent", "Constraints"})
@@ -62,18 +61,15 @@ def _inject_explore(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 def _inject_full(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Default: full SMM + XP values (no process guide)."""
+    """Default: full SMM (no process guide)."""
     parts: list[str] = []
     if smm:
         parts.append(_common.wrap_smm_context(smm))
-    values = _common.load_xp_values()
-    if values:
-        parts.append(values)
     return parts
 
 
 def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
-    """Teammate: SMM + XP values + teammate guide. Stories via spawn prompt."""
+    """Teammate: SMM + teammate guide. Stories via spawn prompt."""
     # Register in coordination immediately — closes race window before first file write
     agent_id = input_data.get("agent_id", "")
     if agent_id and smm_dir:
@@ -81,13 +77,15 @@ def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
     parts: list[str] = []
     if smm:
         parts.append(_common.wrap_smm_context(smm))
-    values = _common.load_xp_values()
-    if values:
-        parts.append(values)
     guide = _common.load_teammate_guide()
     if guide:
         parts.append(guide)
     return parts
+
+
+def _inject_xp_agent(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-* forked agents: values only (data comes from preloads)."""
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -129,19 +127,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core subagent_start logic. Returns additionalContext or None."""
     agent_type = input_data.get("agent_type", "")
 
-    # Dispatch: known types use their tier, unknown xp-* agents skip
+    # Dispatch: known types use their tier
     injector = _DISPATCH.get(agent_type)
     if injector is None:
         if agent_type.startswith("xp-"):
-            return None
-        # Detect teammates by agent_type, fall back to default
-        is_teammate = is_teammate_by_agent_type(input_data)
-        injector = _inject_teammate if is_teammate else _inject_full
+            injector = _inject_xp_agent
+        else:
+            # Detect teammates by agent_type, fall back to default
+            is_teammate = is_teammate_by_agent_type(input_data)
+            injector = _inject_teammate if is_teammate else _inject_full
 
     # Resolve SMM dir
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
-        return None
+        # Even without SMM, inject values for all subagents
+        values = _common.load_xp_values()
+        return values if values else None
 
     agent_id = input_data.get("agent_id", "subagent")
 
@@ -161,8 +162,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _common.append_safe(smm_dir, start_event)
 
-    # Run the selected injector
+    # Run the selected injector (tier-specific context)
     parts = injector(smm_content, smm_dir, input_data)
+
+    # Universal: XP values injected for ALL subagents
+    values = _common.load_xp_values()
+    if values:
+        parts.append(values)
 
     if not parts:
         return None

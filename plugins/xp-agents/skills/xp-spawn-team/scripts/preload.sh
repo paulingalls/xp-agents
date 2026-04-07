@@ -1,31 +1,23 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-spawn-team: plan + sprint + SMM pillars.
+# Preload for xp-spawn-team: output file paths for agent to Read.
+# XP values injected universally via SubagentStart.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
-echo "SMM_DIR=${SMM_DIR}"
-echo ""
 
-# Constraints + Wisdom pillars for task context
+echo "SMM_DIR=${SMM_DIR}"
+
+# SMM file path (agent reads Constraints + Wisdom via Read tool)
 SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
 if [ -f "$SMM_FILE" ]; then
-    echo "## SMM Constraints"
-    smm_section "Constraints"
-    echo ""
-    echo "## SMM Wisdom"
-    smm_section "Wisdom"
-    echo ""
+    echo "SMM_FILE=${SMM_FILE}"
 fi
 
-# Sprint stories — the tasks to decompose into parallel work
+# Sprint file path
 SPRINT_FILE="${SMM_DIR}/sprint.md"
 if [ -f "$SPRINT_FILE" ]; then
-    echo "## Sprint Data"
-    cat "$SPRINT_FILE"
-else
-    echo "## Sprint Data: not found"
+    echo "SPRINT_FILE=${SPRINT_FILE}"
 fi
-echo ""
 
 # Current plan — check marker first, fall back to most recent
 MARKER="${SMM_DIR}/.plan-awaiting-review"
@@ -39,9 +31,5 @@ if [ -z "$PLAN_PATH" ] || [ ! -f "$PLAN_PATH" ]; then
 fi
 
 if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
-    echo "## Current Plan"
-    cat "$PLAN_PATH"
-else
-    echo "## Current Plan: not found"
-    echo "No plan file available. Cannot structure tasks for team spawning."
+    echo "PLAN_FILE=${PLAN_PATH}"
 fi
