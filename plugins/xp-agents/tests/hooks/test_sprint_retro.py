@@ -2,8 +2,6 @@
 """Tests for prepare_sprint_retro_data.py and preload."""
 
 import json
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -231,33 +229,20 @@ _PRELOAD_SCRIPT = (
 class TestSprintRetroPreload(_IntegrationTestCase):
     """M12: preload.sh runs prepare_sprint_retro_data and outputs paths."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        if not _PRELOAD_SCRIPT.is_file():
-            self.skipTest("preload.sh not yet created")
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_preload_outputs_smm_dir(self):
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_preload_outputs_retro_input(self):
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("RETRO_INPUT=", result.stdout)
 
     def test_preload_no_sprint_graceful(self):
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("RETRO_INPUT=", result.stdout)
 
@@ -271,7 +256,7 @@ class TestSprintRetroPreload(_IntegrationTestCase):
             "## Risks\n- Auth fragile\n\n"
             "## Wisdom\n- Commit after green\n"
         )
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         # Should have XP values
         self.assertIn("XP Values", result.stdout)

@@ -68,6 +68,49 @@ SPRINT_ALL_DONE = """\
 - **Status:** deferred
 """
 
+SPRINT_MIXED = """\
+# Sprint: Build auth
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-04-01
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+
+### story-002: As a user I can register
+- **Size:** S
+- **Status:** ready
+- **Dependencies:** none
+
+### story-003: As an admin I can list users
+- **Size:** L
+- **Status:** ready
+- **Dependencies:** story-002
+"""
+
+SPRINT_MIXED_IN_PROGRESS = """\
+# Sprint: Build auth
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-04-01
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+
+### story-002: As a user I can register
+- **Size:** S
+- **Status:** in-progress
+- **Dependencies:** none
+"""
+
 
 # ---------------------------------------------------------------------------
 # Event factory
@@ -284,6 +327,25 @@ class _IntegrationTestCase(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
         shutil.rmtree(self._plugin_data_dir, ignore_errors=True)
+
+    def _run_preload(
+        self,
+        script_path: Path,
+        extra_env: dict | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run a preload.sh script as a subprocess."""
+        if not script_path.is_file():
+            self.skipTest(f"Preload script not found: {script_path}")
+        env = self._test_env.copy()
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            ["bash", str(script_path)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
     def _run_script(
         self, script_name: str, input_data: dict

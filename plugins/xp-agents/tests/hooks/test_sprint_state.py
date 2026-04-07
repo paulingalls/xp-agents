@@ -9,73 +9,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase
-
-SPRINT_READY = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** ready
-- **Dependencies:** none
-"""
-
-SPRINT_IN_PROGRESS = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** none
-"""
-
-SPRINT_DONE_ONLY = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** deferred
-- **Dependencies:** none
-"""
-
-SPRINT_MIXED = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** in-progress
-- **Dependencies:** none
-"""
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_IN_PROGRESS,
+    SPRINT_MIXED_IN_PROGRESS,
+    SPRINT_READY_ONLY,
+    _HookTestCase,
+)
 
 
 class TestHasActiveStories(unittest.TestCase):
@@ -84,7 +24,7 @@ class TestHasActiveStories(unittest.TestCase):
     def test_ready_story(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_active_stories(SPRINT_READY))
+        self.assertTrue(sprint_state.has_active_stories(SPRINT_READY_ONLY))
 
     def test_in_progress_story(self):
         import sprint_state
@@ -94,7 +34,7 @@ class TestHasActiveStories(unittest.TestCase):
     def test_done_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_active_stories(SPRINT_DONE_ONLY))
+        self.assertFalse(sprint_state.has_active_stories(SPRINT_ALL_DONE))
 
     def test_empty_string(self):
         import sprint_state
@@ -104,7 +44,7 @@ class TestHasActiveStories(unittest.TestCase):
     def test_mixed_statuses(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_active_stories(SPRINT_MIXED))
+        self.assertTrue(sprint_state.has_active_stories(SPRINT_MIXED_IN_PROGRESS))
 
 
 class TestHasInProgressStories(unittest.TestCase):
@@ -118,12 +58,12 @@ class TestHasInProgressStories(unittest.TestCase):
     def test_ready_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_in_progress_stories(SPRINT_READY))
+        self.assertFalse(sprint_state.has_in_progress_stories(SPRINT_READY_ONLY))
 
     def test_mixed_has_in_progress(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_in_progress_stories(SPRINT_MIXED))
+        self.assertTrue(sprint_state.has_in_progress_stories(SPRINT_MIXED_IN_PROGRESS))
 
 
 class TestReadSprintContent(_HookTestCase):
@@ -132,9 +72,9 @@ class TestReadSprintContent(_HookTestCase):
     def test_exists(self):
         import sprint_state
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY)
+        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
         result = sprint_state.read_sprint_content(self.smm_dir)
-        self.assertEqual(result, SPRINT_READY)
+        self.assertEqual(result, SPRINT_READY_ONLY)
 
     def test_missing(self):
         import sprint_state
@@ -146,7 +86,7 @@ class TestReadSprintContent(_HookTestCase):
         import sprint_state
 
         target = self.smm_dir / "real_sprint.md"
-        target.write_text(SPRINT_READY)
+        target.write_text(SPRINT_READY_ONLY)
         link = self.smm_dir / "sprint.md"
         link.symlink_to(target)
         result = sprint_state.read_sprint_content(self.smm_dir)
@@ -183,7 +123,7 @@ class TestHasReadyStories(unittest.TestCase):
     def test_ready_story(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_ready_stories(SPRINT_READY))
+        self.assertTrue(sprint_state.has_ready_stories(SPRINT_READY_ONLY))
 
     def test_in_progress_only(self):
         import sprint_state
@@ -193,13 +133,13 @@ class TestHasReadyStories(unittest.TestCase):
     def test_done_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_ready_stories(SPRINT_DONE_ONLY))
+        self.assertFalse(sprint_state.has_ready_stories(SPRINT_ALL_DONE))
 
     def test_mixed_no_ready(self):
         import sprint_state
 
-        # SPRINT_MIXED has done + in-progress, no ready
-        self.assertFalse(sprint_state.has_ready_stories(SPRINT_MIXED))
+        # SPRINT_MIXED_IN_PROGRESS has done + in-progress, no ready
+        self.assertFalse(sprint_state.has_ready_stories(SPRINT_MIXED_IN_PROGRESS))
 
 
 class TestIsSprintComplete(unittest.TestCase):
@@ -208,12 +148,12 @@ class TestIsSprintComplete(unittest.TestCase):
     def test_done_and_deferred_only(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.is_sprint_complete(SPRINT_DONE_ONLY))
+        self.assertTrue(sprint_state.is_sprint_complete(SPRINT_ALL_DONE))
 
     def test_ready_not_complete(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_READY))
+        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_READY_ONLY))
 
     def test_in_progress_not_complete(self):
         import sprint_state
@@ -223,7 +163,7 @@ class TestIsSprintComplete(unittest.TestCase):
     def test_mixed_not_complete(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_MIXED))
+        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_MIXED_IN_PROGRESS))
 
     def test_empty_string_is_complete(self):
         import sprint_state

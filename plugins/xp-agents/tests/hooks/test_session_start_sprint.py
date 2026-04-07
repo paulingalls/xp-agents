@@ -13,30 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
-
-# ===========================================================================
-# M8a: Sprint state detection tests
-# ===========================================================================
-
-SPRINT_ACTIVE = """\
-# Sprint: Build auth
-## Stories
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** ready
-"""
-
-SPRINT_DONE_ONLY = """\
-# Sprint: Build auth
-## Stories
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** deferred
-"""
+from conftest import SPRINT_ALL_DONE, SPRINT_READY_ONLY, _HookTestCase, make_event
 
 
 class TestSessionStartSprintDetection(_HookTestCase):
@@ -77,7 +54,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "sprint.md").write_text(SPRINT_DONE_ONLY)
+        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -88,7 +65,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ACTIVE)
+        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -100,7 +77,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
 
         self._write_events([make_event()])
         (self.smm_dir / "product_spec.md").write_text("# Product Spec\n")
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ACTIVE)
+        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,

@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Tests for save_product_spec.py and product spec preload."""
 
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -94,23 +92,9 @@ _PRELOAD_SCRIPT = (
 class TestProductSpecPreload(_IntegrationTestCase):
     """Tests for the product spec preload script."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        """Run preload.sh as a subprocess."""
-        if not _PRELOAD_SCRIPT.is_file():
-            self.skipTest("preload.sh not yet created")
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_preload_no_spec(self):
         """Outputs create-mode message when no product_spec.md exists."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("No product spec", result.stdout)
 
@@ -123,7 +107,7 @@ class TestProductSpecPreload(_IntegrationTestCase):
             "- Login with email\n"
         )
         (self.smm_dir / "product_spec.md").write_text(spec_content)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("PRODUCT_SPEC=", result.stdout)
         # Should NOT contain full spec content — agent reads via Read tool
@@ -142,7 +126,7 @@ class TestProductSpecPreload(_IntegrationTestCase):
             "- Stripe integration\n"
         )
         (self.smm_dir / "product_spec.md").write_text(spec_content)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("2", result.stdout)  # 2 planned
         self.assertIn("1", result.stdout)  # 1 delivered

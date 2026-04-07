@@ -420,26 +420,15 @@ class TestCoordinationIntegration(_IntegrationTestCase):
 class TestRetroPreloadIntegration(_IntegrationTestCase):
     """Verify preload.sh outputs digest but not raw events."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        """Run the retrospective preload.sh script."""
-        preload_sh = (
+    def test_preload_outputs_paths_and_guide(self):
+        """Preload outputs SMM_DIR, RETRO_INPUT path, and behavioral guide."""
+        result = self._run_preload(
             Path(__file__).parent.parent.parent
             / "skills"
             / "xp-run-retrospective"
             / "scripts"
             / "preload.sh"
         )
-        return subprocess.run(
-            ["bash", str(preload_sh)],
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._test_env,
-        )
-
-    def test_preload_outputs_paths_and_guide(self):
-        """Preload outputs SMM_DIR, RETRO_INPUT path, and behavioral guide."""
-        result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         output = result.stdout
         self.assertIn("SMM_DIR=", output)

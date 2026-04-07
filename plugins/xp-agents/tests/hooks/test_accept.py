@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Tests for accept_gate.py, accept_done.py, and accept preload."""
 
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -288,36 +286,23 @@ _PRELOAD_SCRIPT = (
 class TestAcceptPreload(_IntegrationTestCase):
     """M16: preload outputs path, not full sprint content."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        if not _PRELOAD_SCRIPT.is_file():
-            self.skipTest("preload.sh not yet created")
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_preload_no_sprint(self):
         """Outputs ERROR when no sprint.md exists."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
 
     def test_preload_no_in_progress(self):
         """Outputs NO_IN_PROGRESS when no in-progress stories."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("NO_IN_PROGRESS", result.stdout)
 
     def test_preload_outputs_path_not_content(self):
         """Outputs SPRINT_FILE path, not full sprint content."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SPRINT_FILE=", result.stdout)
         # Should NOT contain full sprint content
@@ -326,7 +311,7 @@ class TestAcceptPreload(_IntegrationTestCase):
     def test_preload_shows_in_progress_count(self):
         """Outputs count of in-progress stories."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("in-progress", result.stdout.lower())
 

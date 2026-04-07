@@ -2,8 +2,6 @@
 """Tests for xp-housekeeping forked skill: preload and subagent dispatch."""
 
 import json
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -30,34 +28,21 @@ _PRELOAD_SCRIPT = (
 class TestHousekeepingPreload(_IntegrationTestCase):
     """M2: Forked housekeeping preload creates curation input and outputs paths."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        if not _PRELOAD_SCRIPT.is_file():
-            self.skipTest("preload.sh not yet created")
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_outputs_smm_dir(self):
         """Preload outputs SMM_DIR path."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_outputs_curation_input_path(self):
         """Preload outputs CURATION_INPUT path."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("CURATION_INPUT=", result.stdout)
 
     def test_curation_input_file_created(self):
         """.curation-input.json exists after preload runs."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         curation_file = self.smm_dir / ".curation-input.json"
         self.assertTrue(
@@ -67,7 +52,7 @@ class TestHousekeepingPreload(_IntegrationTestCase):
 
     def test_curation_input_has_expected_keys(self):
         """Curation JSON contains the structured data keys."""
-        self._run_preload()
+        self._run_preload(_PRELOAD_SCRIPT)
         curation_file = self.smm_dir / ".curation-input.json"
         if not curation_file.exists():
             self.skipTest(".curation-input.json not created")
@@ -83,14 +68,14 @@ class TestHousekeepingPreload(_IntegrationTestCase):
 
     def test_outputs_xp_values(self):
         """Preload includes XP values (not process guide) for curation."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("XP Values", result.stdout)
         self.assertNotIn("EnterPlanMode", result.stdout)
 
     def test_graceful_without_events(self):
         """Empty events.jsonl — preload still succeeds."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 

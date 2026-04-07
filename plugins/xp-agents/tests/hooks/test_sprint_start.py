@@ -2,8 +2,6 @@
 """Tests for save_sprint.py and sprint start preload."""
 
 import json
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -110,33 +108,19 @@ _PRELOAD_SCRIPT = (
 class TestSprintStartPreload(_IntegrationTestCase):
     """Tests for the sprint start preload script."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        """Run preload.sh as a subprocess."""
-        if not _PRELOAD_SCRIPT.is_file():
-            self.skipTest("preload.sh not yet created")
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_preload_outputs_smm_dir(self):
         """Preload output includes SMM_DIR= line."""
         # Need product_spec.md to avoid early error exit
         (self.smm_dir / "product_spec.md").write_text(
             "# Product Spec\n\n### Auth [planned]\n- Login\n"
         )
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_preload_no_product_spec(self):
         """Outputs error when no product_spec.md exists."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
         self.assertIn("product_spec", result.stdout.lower())
@@ -146,7 +130,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
         (self.smm_dir / "product_spec.md").write_text(
             "# Product Spec\n\n### Auth [delivered: sprint-001]\n- Login\n"
         )
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
 
@@ -157,7 +141,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
             "### Auth [planned]\n- Login with email\n\n"
             "### Search [planned]\n- Full-text search\n"
         )
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("PRODUCT_SPEC=", result.stdout)
         self.assertIn("2", result.stdout)  # 2 planned features
@@ -176,7 +160,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
             "### story-002: As a user I can login\n"
             "- **Status:** deferred\n"
         )
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("Deferred", result.stdout)
 
@@ -211,7 +195,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
             ),
         ]
         (self.smm_dir / "events.jsonl").write_text("\n".join(events) + "\n")
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("sprint-003", result.stdout)
 

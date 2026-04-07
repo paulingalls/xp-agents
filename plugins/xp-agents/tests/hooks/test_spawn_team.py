@@ -5,7 +5,6 @@ Covers: preload.sh output (SMM, sprint, plan, guide), graceful degradation.
 """
 
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -79,28 +78,9 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         plan_file.write_text(content)
         return plan_file
 
-    def _run_preload(
-        self,
-        extra_env: dict | None = None,
-    ) -> subprocess.CompletedProcess:
-        """Run preload.sh as a subprocess."""
-        if not _PRELOAD_SCRIPT.is_file():
-            self.skipTest("preload.sh not yet created")
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        if extra_env:
-            env.update(extra_env)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_preload_outputs_smm_dir(self):
         """Preload output includes SMM_DIR= line."""
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
@@ -109,7 +89,7 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         plan_path = self._write_plan()
         # Point the marker to our plan
         (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("## Current Plan", result.stdout)
         self.assertIn("Add user model", result.stdout)
@@ -125,7 +105,7 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
             "## Wisdom\n- Commit after green\n"
         )
         (self.smm_dir / "sprint.md").write_text(_SAMPLE_SPRINT)
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         # Should have Constraints and Wisdom
         self.assertIn("TDD always", result.stdout)
@@ -146,7 +126,7 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
         marker = self.smm_dir / ".plan-awaiting-review"
         if marker.exists():
             marker.unlink()
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         # Should have either plan content (from glob) or not-found message
         self.assertIn("plan", result.stdout.lower())

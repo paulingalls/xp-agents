@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Tests for xp-quality-review preload."""
 
-import os
 import subprocess
 import sys
 import unittest
@@ -22,19 +21,8 @@ _PRELOAD_SCRIPT = (
 class TestQualityReviewPreload(_IntegrationTestCase):
     """M13: preload shows uncommitted changes, not previous commit."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        env = os.environ.copy()
-        env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
-        return subprocess.run(
-            ["bash", str(_PRELOAD_SCRIPT)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
     def test_preload_outputs_smm_dir(self):
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
@@ -57,7 +45,7 @@ class TestQualityReviewPreload(_IntegrationTestCase):
         # Modify the file (uncommitted)
         (self.tmpdir / "old.py").write_text("new content")
 
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("old.py", result.stdout)
 
@@ -65,7 +53,7 @@ class TestQualityReviewPreload(_IntegrationTestCase):
         """Preload should include new untracked files in changed files list."""
         (self.tmpdir / "brand_new.py").write_text("new file")
 
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("brand_new.py", result.stdout)
 
@@ -79,7 +67,7 @@ class TestQualityReviewPreload(_IntegrationTestCase):
             check=True,
         )
 
-        result = self._run_preload()
+        result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("staged.py", result.stdout)
 
