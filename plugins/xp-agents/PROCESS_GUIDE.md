@@ -42,21 +42,95 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 - TDD gate: fix failing tests. Accept gate: run `/xp-accept` first.
 - If a gate is wrong, record a `debt` event explaining why.
 
----
+## Recording Events
 
-Record events using `append.sh` with `--smm-dir`:
+Use `append.sh` for all event writes. Never write directly to `events.jsonl`.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "assumption" --agent "main" --content "Description"
-
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "decision" --agent "main" --content "Description" \
-  --topic "topic-name"
-
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "concern" --agent "main" --content "What's wrong" \
-  --severity "medium"
+  --type "TYPE" \
+  --agent "$AGENT_ID" \
+  --content "Description here" \
+  --working-on '["file1.ts", "file2.ts"]'
 ```
 
-Run `append.sh --help` for all options. Invoke `/xp-smm-protocol` for detailed event type guidance.
+### Event Types and Four Pillars
+
+Events are materialized into four pillars in the SMM:
+
+| Pillar | Event Types | Purpose |
+|--------|-------------|---------|
+| **Intent** | `goal`, `customer_input`, `customer_intent` | What we're building and why |
+| **Constraints** | `decision`, `convention` | Architectural choices and standards |
+| **Risks** | `concern`, `assumption`, `debt`, `question`, `discovery` | What could go wrong, unknowns |
+| **Wisdom** | `retrospective` (Try items) | Lessons learned, experiments to run |
+
+| Type | Pillar | When to Use | Required Fields |
+|------|--------|-------------|-----------------|
+| `goal` | Intent | Project north star, what we're building | content |
+| `status` | (activity) | What you're working on right now | content (working_on defaults to []) |
+| `concern` | Risks | Problem needing attention | content, severity (low/medium/high) |
+| `question` | Risks | Need customer input | content, priority |
+| `customer_input` | Intent | (Auto-logged by hook) | content |
+| `customer_intent` | Intent | Distilled customer request | content, intent_status (open/delivered/superseded) |
+| `decision` | Constraints | Architectural choice made | content, topic |
+| `convention` | Constraints | Team standard established | content, topic |
+| `assumption` | Risks | Stated belief, may need verification | content |
+| `discovery` | Risks | Unexpected finding | content |
+| `debt` | Risks | Acknowledged tradeoff, known issue | content, files (affected file list) |
+| `retrospective` | Wisdom | (Written by retrospective agent) | content |
+
+### Question Priority
+
+- **🔴 Blocking** (`priority: "blocking"`) — Both paths create significant rework. Triggers desktop notification. Use sparingly.
+- **🟡 Assumed** (`priority: "assumed"`) — **Default.** State your assumption and proceed. Escalate to 🔴 only if wrong path costs days.
+- **🟢 Informational** (`priority: "info"`) — Nice to know. Won't change approach.
+
+### The `working_on` Field
+
+Every `status` event should include `working_on` — a JSON array of file paths currently being modified. This powers conflict detection and session end summaries. Update when you switch files.
+
+### The `references` Field
+
+Link related events by ID: an `answer` references the `question` it answers, a `discovery` references the `assumption` it contradicts.
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "answer" \
+  --agent "main" \
+  --content "Customer confirmed: use PostgreSQL" \
+  --references '["question-id-here"]'
+```
+
+### Good vs Bad Events
+
+**Good:** Specific, actionable, grounded — "Decided to use PostgreSQL for user data because SQLite can't handle concurrent writes" (decision). **Bad:** Vague or noisy — "Working on stuff" (status), "Something might be wrong" (concern).
+
+### Common Recording Patterns
+
+```bash
+# Starting a new task
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "main" \
+  --content "Starting auth module refactor to typed errors" \
+  --working-on '["src/auth/handler.ts", "src/auth/middleware.ts"]'
+
+# Making an architectural choice
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "decision" --agent "main" \
+  --content "Using typed error classes instead of string matching — safer refactoring" \
+  --topic "error-handling"
+
+# Flagging technical debt
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "debt" --agent "main" \
+  --content "Legacy string error matching still in 3 edge cases — will migrate next pass" \
+  --files '["src/auth/legacy.ts"]'
+
+# Recording an assumption
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "assumption" --agent "main" \
+  --content "Assuming all auth errors are subclasses of AuthError — not verified for third-party providers"
+```
+
+Read Intent and Risks before every significant action. Check Constraints when making architectural choices.

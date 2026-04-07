@@ -210,7 +210,6 @@ plugins/xp-agents/
 │   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
 │   ├── xp-security-triage/SKILL.md   ← forked, delegates to xp-security-reviewer agent
 │   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
-│   ├── xp-smm-protocol/SKILL.md      ← reference guide for event types
 │   ├── xp-product-spec/SKILL.md      ← inline, product specification (product_spec.md)
 │   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.md)
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate

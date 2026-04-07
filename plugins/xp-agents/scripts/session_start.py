@@ -34,13 +34,6 @@ GUPP_STARTUP = (
     "\n\n---\nRun /xp-kickoff before doing anything else, and start immediately."
 )
 
-SKILLS_TEXT = (
-    "\n\n---\n"
-    "**Available Skills (invoke these regularly):**\n"
-    "- `/xp-smm-protocol` — Event recording reference. Invoke when recording "
-    "decisions, questions, concerns, assumptions, discoveries, or debt"
-)
-
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -75,8 +68,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
-        # Graceful: return GUPP + skills even without SMM
-        return GUPP_STARTUP + SKILLS_TEXT
+        # Graceful: return GUPP even without SMM
+        return GUPP_STARTUP
 
     # Write .needs-kickoff marker on fresh starts.
     # "startup" = new session (block until kickoff), "clear" = mid-session
@@ -98,8 +91,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME
     parts: list[str] = []
     parts.append(gupp)
-    parts.append(SKILLS_TEXT)
-
     # XP values are always available from the first prompt.
     values = _common.load_xp_values()
     if values:

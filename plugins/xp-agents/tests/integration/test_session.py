@@ -216,18 +216,7 @@ class TestMilestone6Integration(_IntegrationTestCase):
         # Guide moved to kickoff_done.py
         self.assertNotIn("Honesty Principle", ctx)
         # Skills should still be present
-        self.assertIn("xp-smm-protocol", ctx)
         self.assertIn("xp-kickoff", ctx)
-
-    def test_skill_files_parseable(self):
-        """All skill SKILL.md files exist and are non-trivial."""
-        plugin_root = Path(__file__).parent.parent.parent
-        for name in ("xp-smm-protocol",):
-            skill_file = plugin_root / "skills" / name / "SKILL.md"
-            self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
-            content = skill_file.read_text()
-            self.assertGreater(len(content), 500, f"{name} too short")
-            self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
 
 
 class TestMilestone65Integration(_IntegrationTestCase):

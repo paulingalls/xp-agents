@@ -193,7 +193,6 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-security-triage` | Classify committed files for security review | Before commits |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
-| `/xp-smm-protocol` | Reference guide for event types and append.sh usage | On demand |
 
 ### The Shared Mental Model
 

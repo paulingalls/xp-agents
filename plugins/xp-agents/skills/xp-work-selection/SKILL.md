@@ -75,7 +75,8 @@ If the user declines to answer, move on gracefully.
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
      --type "status" --agent "xp-work-selection" \
-     --content "Story selection: marked N stories in-progress"
+     --content "Story selection: marked N stories in-progress" \
+     --working-on '[]'
    ```
 
 **If sprint active but no ready stories (all in-progress or done):**

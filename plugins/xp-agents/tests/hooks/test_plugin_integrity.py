@@ -34,7 +34,6 @@ _ALL_SKILL_NAMES = (
     "xp-run-retrospective",
     "xp-run-sprint-retro",
     "xp-security-triage",
-    "xp-smm-protocol",
     "xp-spawn-team",
     "xp-sprint-review",
     "xp-sprint-start",
@@ -45,7 +44,6 @@ _ALL_SKILL_NAMES = (
 _CONTENT_SKILL_NAMES = (
     "xp-product-spec",
     "xp-quality-review",
-    "xp-smm-protocol",
     "xp-sprint-start",
 )
 
@@ -91,8 +89,18 @@ class TestMilestone6Files(unittest.TestCase):
             estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
-            estimated_tokens, 1200, f"Too long: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 2000, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
+
+    def test_process_guide_includes_event_protocol(self):
+        """PROCESS_GUIDE.md must include event recording protocol."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        content = path.read_text()
+        self.assertIn("Event Types", content)
+        self.assertIn("working_on", content)
+        self.assertIn("references", content)
 
     def test_skill_directories_exist(self):
         """All skill dirs must exist with SKILL.md."""
@@ -202,18 +210,6 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertGreaterEqual(len(parts), 3, f"{name} frontmatter not closed")
             fm = parts[1]
             self.assertIn("Bash", fm, f"{name} missing Bash in tools")
-
-    def test_no_agent_has_smm_protocol_skill(self):
-        """No agent should have xp-smm-protocol in skills (M8)."""
-        for name in _SUBAGENT_NAMES:
-            content = (self.agents_dir / f"{name}.md").read_text()
-            parts = content.split("---", 2)
-            fm = parts[1]
-            self.assertNotIn(
-                "xp-smm-protocol",
-                fm,
-                f"{name} still has xp-smm-protocol in skills",
-            )
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""
