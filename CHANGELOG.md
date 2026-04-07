@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.0.8 — Token Optimization (Phases 3-5)
+
+Complete token optimization across all skill preloads, hook injections, and data files. Every injection point audited and optimized.
+
+### Phase 3: Inline Skill Preloads (M10-M17)
+- **Path-based preloads** — product-spec, sprint-start, and accept preloads now output file paths (`PRODUCT_SPEC=`, `SPRINT_FILE=`) instead of embedding full content. Agents read on demand via Read tool.
+- **Kickoff SMM read** — Kickoff reads SMM before product-spec/sprint-start steps so inline skills have constraint/wisdom context without duplicate injection.
+- **Merged xp-smm-protocol into PROCESS_GUIDE.md** — Full event recording protocol (event types, pillars, priority guide, working_on, references, common patterns) merged into process guide. Removed xp-smm-protocol skill entirely. All plugin users get event recording guidance without needing CLAUDE.md.
+- **Added Project Files section** to PROCESS_GUIDE.md — documents SMM_DIR, sprint.md, product_spec.md locations so agent can find them after compaction.
+
+### Phase 4: Hook Injection Audits (M18-M29)
+- **Removed sprint.md from compact re-injection** (M18) — SMM Sprint pillar summary is sufficient; agent reads full sprint on demand. Saves ~700-1,700 tokens per compact.
+- **Filtered test/lint concerns from prompt nuggets** (M19) — Test failures and lint errors are already visible in tool output. Nuggets now only surface concerns the agent hasn't seen (commit size, plan review concerns, debt).
+- **Centralized concern prefix constants** — `TEST_COMMAND_FAILED_PREFIX`, `TEST_FAILURES_PREFIX`, `LINT_RESOLVED_PREFIX` added to concerns.py. Producers and filters use shared constants.
+- **M20-M29 confirmed optimal** — All hook injections verified minimal and appropriately gated. No unnecessary injections found.
+
+### Phase 5: Data Optimization (M30-M31)
+- **Fixed TDD tracker false positives** (M31) — `check_tdd_order()` now skips non-code files (md, json, yaml, etc.) via `security.is_code_file()`. No more false nudges on product_spec.md, sprint.md, or plan files.
+- **Fixed dotfile classification bug** — `.gitignore`, `.env`, `.dockerignore`, `.editorconfig`, `.prettierignore`, `.eslintignore` were misclassified as code because `Path(".gitignore").suffix == ""`. Moved from `_NON_CODE_SUFFIXES` to `_NON_CODE_NAMES`.
+- **Sprint input JSON** (M30) — Already completed in Phase 2 (M4/M5). Both prep scripts use `sprint_md_path` references.
+
+### Other Improvements
+- **Consolidated dump_diff helper** — `dump_diff` and `get_changed_files` in `_preload_base.sh` now correctly show uncommitted changes (`git diff HEAD` + untracked) instead of previous commit (`HEAD~1`). Security triage's 30 lines of inline git commands replaced with `dump_diff full`.
+- **Removed dead `dump_guide()` function** from `_preload_base.sh`.
+- **Fixed `count_sprint_status` bug** — `grep -c || echo 0` produced `"0\n0"` when count was 0. Fixed with `|| true` + default.
+- **Added Design Quality section** to xp-plan-reviewer checklist — DRY, SRP, unnecessary abstraction, over-engineering.
+- **Simplified `post_tool_exit_plan.py`** — replaced manual JSON with `_common.hook_output()`.
+- **Expanded `is_code_file` test coverage** — 25+ languages (Python, JS/TS, Go, Rust, Java, Kotlin, Scala, Ruby, C/C++, C#, Swift, PHP, Dart, Elixir, Shell) + non-code exclusions.
+- **Consolidated test fixtures** — `_run_preload()` extracted to `_IntegrationTestCase` (removed from 11 files). `SPRINT_MIXED` and `SPRINT_MIXED_IN_PROGRESS` added to conftest.py (removed from 4 files). Net -250 lines of test code.
+- **Removed SKILLS_TEXT** from session_start.py — no longer needed after xp-smm-protocol merge.
+
+### Stats
+- 1380 tests (all passing, +34 new)
+- 13 skills (was 14 — xp-smm-protocol removed)
+- Token optimization plan: all 31 milestones complete
+
 ## v2.0.7 — Accept Gate Root Cause Fix & Post-Team Checklist
 
 ### Fixed

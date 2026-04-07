@@ -516,12 +516,12 @@ Each milestone: audit what the hook injects as additionalContext, how often it f
 **Files:** Both prep scripts, both agent .md files, test files
 
 **Acceptance criteria:**
-- [ ] `prepare_review_data.py` uses `sprint_md_path` reference instead of embedded `sprint_md` content
-- [ ] `prepare_sprint_retro_data.py` uses `sprint_md_path` reference instead of embedded `sprint_md` content
-- [ ] Both agent .md files updated to Read sprint.md from path when needed
-- [ ] Tests updated for new JSON schema (path instead of content)
-- [ ] Token savings verified: ~700-1,700 tokens per invocation
-- [ ] Full test suite passes
+- [x] `prepare_review_data.py` uses `sprint_md_path` reference (done in M4)
+- [x] `prepare_sprint_retro_data.py` uses `sprint_md_path` reference (done in M5)
+- [x] Both agent .md files updated — `sprint_md_path` documented, agents Read from path
+- [x] Tests updated for path-based JSON schema (M4/M5)
+- [x] Token savings: ~700-1,700 tokens per invocation (sprint content stays on disk)
+- [x] Full test suite passes (1380 tests)
 
 ### M31: Fix TDD tracker false positives (debt item) ✅
 
