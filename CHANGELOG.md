@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.0.11 — Security Reviewer Simplification & Skill Guard Consistency
+
+### Fixed
+- **Security reviewer no longer triages** — Removed diff preloading and triage decision entirely. The built-in `/security-review` command does its own diff analysis; the agent just invokes it and records the result. Fixes the root cause of security review being skipped (agent would read diff, decide it was trivial, skip the review).
+- **Simplified security reviewer agent** — Reduced from Read/Grep/Glob/Bash/Skill to just Bash/Skill. No file reading needed since `/security-review` is self-contained.
+
+### Improved
+- **Consistent forked skill guards** — All 7 SKILL.md bodies now use identical pattern: "This skill should run as a forked subagent. Your agent definition contains all instructions — follow them, record the result, and report back." Generic "do not do this work yourself" guard reinforces the agent can't proceed without the subagent.
+- **Security triage preload minimized** — Only outputs `SMM_DIR` and writes triage marker. No diff file, no XP values (injected via SubagentStart).
+
+### Stats
+- 1397 tests (all passing)
+
 ## v2.0.10 — File-Based Preloads & Universal XP Values
 
 ### Architecture

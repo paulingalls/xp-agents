@@ -15,6 +15,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-This skill runs as a forked subagent (xp-spawn-team). The preload above prepared the sprint and plan data. Your agent definition contains all analysis rules and instructions — follow those to produce spawn instructions.
+This skill should run as a forked subagent (xp-spawn-team). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
 
-If you are the main agent and see this: do not analyze team sizing yourself. This skill must run as the xp-spawn-team subagent. Show the full spawn instructions to the user.
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-spawn-team subagent. Show the full output to the user.

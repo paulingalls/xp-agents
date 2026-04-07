@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for xp-security-triage preload: path-based diff output.
+"""Tests for xp-security-triage preload.
 
-Preload should write diff to a file and output DIFF_FILE=<path>
-instead of dumping full diff content to stdout.
+Preload outputs SMM_DIR and writes triage marker.
+/security-review does its own diff — preload does not create a diff file.
 """
 
 import subprocess
@@ -26,49 +26,32 @@ _PRELOAD_SCRIPT = (
 
 
 class TestSecurityTriagePreload(_IntegrationTestCase):
-    """Preload writes diff to file, outputs path."""
-
-    def _stage_file(self, name: str = "test_code.py", content: str = "x = 1\n"):
-        (self.tmpdir / name).write_text(content)
-        subprocess.run(
-            ["git", "add", name],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
+    """Preload outputs SMM_DIR, writes marker, no diff."""
 
     def test_preload_outputs_smm_dir(self):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
-    def test_preload_outputs_diff_file_path(self):
-        """DIFF_FILE= path output, NOT full diff content."""
-        self._stage_file()
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("DIFF_FILE=", result.stdout)
-
-    def test_diff_file_contains_content(self):
-        """The diff file should contain actual diff output."""
-        self._stage_file("app.py", "print('hello')\n")
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        diff_path = None
-        for line in result.stdout.splitlines():
-            if line.startswith("DIFF_FILE="):
-                diff_path = line.split("=", 1)[1]
-                break
-        self.assertIsNotNone(diff_path, "DIFF_FILE= not in output")
-        content = Path(diff_path).read_text()
-        self.assertIn("app.py", content)
-
-    def test_diff_content_not_in_stdout(self):
-        """Diff content should NOT appear directly in stdout."""
-        self._stage_file("app.py", "print('hello')\n")
+    def test_preload_no_diff_in_stdout(self):
+        """Diff content should NOT appear in stdout."""
+        (self.tmpdir / "app.py").write_text("print('hello')\n")
+        subprocess.run(
+            ["git", "add", "app.py"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("print('hello')", result.stdout)
+        self.assertNotIn("DIFF_FILE=", result.stdout)
+
+    def test_preload_no_xp_values_in_stdout(self):
+        """XP values injected via SubagentStart, not preload."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("XP Values", result.stdout)
 
     def test_preload_exits_ok_with_no_changes(self):
         """No staged changes -> exits 0."""

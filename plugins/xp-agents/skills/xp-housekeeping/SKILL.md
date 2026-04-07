@@ -17,6 +17,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-This skill runs as a forked subagent (xp-housekeeper). The preload above prepared the curation data. Your agent definition contains all curation rules and instructions — follow those to curate the five-pillar SMM.
+This skill should run as a forked subagent (xp-housekeeper). Your agent definition contains all instructions — follow them, record the result, and then report back your summary to the main agent.
 
-If you are the main agent and see this: do not curate the SMM yourself. This skill must run as the xp-housekeeper subagent.
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-housekeeper subagent. Show the full output to the user.

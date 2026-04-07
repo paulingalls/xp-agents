@@ -14,6 +14,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-This skill runs as a forked subagent (xp-plan-reviewer). The preload above prepared the plan and SMM data. Your agent definition contains all review checklists and instructions — follow those to review the plan.
+This skill should run as a forked subagent (xp-plan-reviewer). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
 
-If you are the main agent and see this: do not review the plan yourself. This skill must run as the xp-plan-reviewer subagent. Show the full review output to the user.
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-plan-reviewer subagent. Show the full output to the user.
