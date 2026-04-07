@@ -247,6 +247,26 @@ class TestValidateEvent(unittest.TestCase):
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("priority" in e for e in errors))
 
+    def test_decision_bare_retro_try_adopted_rejected(self):
+        """Bare 'retro-try-adopted' topic must be rejected — use retro-try-<slug>."""
+        event = self._base_event(type="decision", topic="retro-try-adopted")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("retro-try-" in e for e in errors))
+
+    def test_decision_retro_try_with_slug_accepted(self):
+        """Specific retro-try-<slug> topics are valid."""
+        event = self._base_event(type="decision", topic="retro-try-answer-recording")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_decision_retro_try_with_short_slug_accepted(self):
+        event = self._base_event(type="decision", topic="retro-try-fix-gate")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_decision_non_retro_topic_unaffected(self):
+        """Normal topics should not be affected by retro-try validation."""
+        event = self._base_event(type="decision", topic="database-choice")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
     def test_working_on_wrong_type(self):
         event = self._base_event(type="status", working_on="not-a-list")
         errors = _append_impl.validate_event(event)

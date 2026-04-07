@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import security
 
-REVIEW_CYCLE_THRESHOLD: int = 3
+REVIEW_CYCLE_THRESHOLD: int = 2
 
 
 def parse_commit_message(tool_response: str) -> str | None:

@@ -15,4 +15,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload_diff.sh`
 
-Run `/security-review` on the changes above (staged, unstaged, and new files).
+This skill runs as a forked subagent (xp-security-reviewer). The preload above prepared the diff data. Your agent definition contains all triage rules and instructions — follow those to triage the changes.
+
+If you are the main agent and see this: do not triage the changes yourself. This skill must run as the xp-security-reviewer subagent.

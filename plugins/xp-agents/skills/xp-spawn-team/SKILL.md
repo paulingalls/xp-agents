@@ -15,6 +15,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-Analyze the sprint and plan data above. Identify file domains, parallel task groups, and team sizing. Output structured spawn instructions for the lead.
+This skill runs as a forked subagent (xp-spawn-team). The preload above prepared the sprint and plan data. Your agent definition contains all analysis rules and instructions — follow those to produce spawn instructions.
 
-**Show the full spawn instructions to the user** — do not summarize or act on them silently.
+If you are the main agent and see this: do not analyze team sizing yourself. This skill must run as the xp-spawn-team subagent. Show the full spawn instructions to the user.

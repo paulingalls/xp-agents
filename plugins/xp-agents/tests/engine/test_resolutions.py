@@ -91,6 +91,47 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(q["id"], result["question_answers"])
         self.assertIn(q["id"], result["answered_question_ids"])
 
+    def test_question_resolved_via_metadata_resolves(self):
+        """Questions can be resolved via metadata.resolves too."""
+        q = make_event("question", content="Should Sprint replace Intent?")
+        resolver = make_event(
+            "status",
+            content="Resolved: decided to keep them separate",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        result = _append_impl.compute_resolutions([q, resolver])
+        self.assertIn(q["id"], result["question_answers"])
+        self.assertIn(q["id"], result["answered_question_ids"])
+
+    def test_question_answer_event_takes_precedence(self):
+        """If both answer event and metadata.resolves exist, answer event wins."""
+        q = make_event("question", content="Which DB?")
+        resolver = make_event(
+            "status",
+            content="Resolved via housekeeping",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        result = _append_impl.compute_resolutions([q, resolver, answer])
+        self.assertIn(q["id"], result["question_answers"])
+        # Answer event should be the resolution, not the metadata resolver
+        self.assertEqual(result["question_answers"][q["id"]], answer)
+
+    def test_question_answer_precedence_reverse_order(self):
+        """Answer event wins even if it appears before metadata.resolves."""
+        q = make_event("question", content="Which DB?")
+        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        resolver = make_event(
+            "status",
+            content="Resolved via housekeeping",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        result = _append_impl.compute_resolutions([q, answer, resolver])
+        self.assertEqual(result["question_answers"][q["id"]], answer)
+
     def test_unresolved_items_not_in_results(self):
         goal = make_event("goal", content="Ship v1.0")
         concern = make_event("concern", content="Missing tests")

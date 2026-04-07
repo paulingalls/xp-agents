@@ -280,9 +280,9 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
 
     def test_below_threshold_blocks_without_security(self):
-        """2 code files, staged code present, no security marker -> blocks."""
+        """1 code file, staged code present, no security marker -> blocks."""
         with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py"]),
+            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
             patch("security.has_staged_code_files", return_value=True),
         ):
             with self.assertRaises(_common.BlockedError) as ctx:
@@ -290,10 +290,10 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             self.assertIn("/xp-security-triage", str(ctx.exception))
 
     def test_below_threshold_passes_with_security(self):
-        """2 code files, security marker exists -> commit allowed."""
+        """1 code file, security marker exists -> commit allowed."""
         security.write_security_triaged(self.smm_dir)
         with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py"]),
+            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
             patch("security.has_staged_code_files", return_value=True),
         ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)

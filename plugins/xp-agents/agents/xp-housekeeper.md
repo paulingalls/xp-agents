@@ -175,7 +175,17 @@ SMMEOF
 
 ### 3. Return summary
 
-After saving, return a concise summary: what was added, removed, promoted, resolved, and any health warnings.
+After saving, return a structured summary the lead agent will show to the user:
+
+```
+**Housekeeping Summary**
+- Added: <items added to any pillar, or "none">
+- Removed: <items pruned from any pillar, or "none">
+- Resolved: <items resolved during curation, or "none">
+- Health: <pillar counts + any warnings, e.g. "Wisdom at cap (10)">
+```
+
+Keep it brief — one line per category. The user needs to see what changed, not the full SMM.
 
 ## SMM Content Trust
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.0.9 — Critical Debt Resolution & V2 Testing Fixes
+
+### Fixed (10-session and 8-session critical debt)
+- **Topic validation** — `event_schema.py` now rejects bare `retro-try-adopted` topic at write time. Decisions must use `retro-try-<slug>` format (e.g., `retro-try-answer-recording`). Prevents superseded-decision concern noise from generic topic collisions. (10 sessions deferred)
+- **Unified question resolution** — Questions can now be resolved via `metadata.resolves` (same as goals, concerns, debt), not just answer events. Answer events still work and take precedence. Fixes 8-session streak of `questions_answered=0`. (8 sessions deferred)
+
+### Improved
+- **Housekeeping summary visibility** — Kickoff skill now explicitly instructs the agent to wait for housekeeping (do not background) and display the housekeeper's structured summary (Added/Removed/Resolved/Health) to the user.
+- **Housekeeper return format** — Structured summary template ensures consistent output the lead agent can relay directly.
+- **Review cycle threshold lowered** — `REVIEW_CYCLE_THRESHOLD` reduced from 3 to 2 code files. One production file + its test file now triggers the full review cycle (`/simplify` → `/xp-quality-review` → `/xp-security-triage`).
+- **Removed trivial constant test** — Deleted `TestReviewCycleThreshold` (asserted a constant's value).
+
+### Fixed
+- **Forked skills executing inline** — All 7 forked skill SKILL.md bodies replaced with dual-audience pattern: instructions for the forked agent to follow its agent definition, and an explicit "do not do this yourself" guard for the main agent. Prevents the main agent from executing curation/review/triage logic inline when `context: fork` isn't enforced by the platform.
+
+### Docs
+- **Spawn team refactor** — Three spawn modes (Sequential, Agent Teams, Worktree Subagents) with mode selection heuristic based on file domain analysis. Community findings documented: Agent Teams + worktree isolation bug (anthropics/claude-code#33045), WorktreeCreate stdout fragility, shared SMM across worktrees, branch base configuration.
+
+### Stats
+- 1386 tests (all passing, +2 new)
+
 ## v2.0.8 — Token Optimization (Phases 3-5)
 
 Complete token optimization across all skill preloads, hook injections, and data files. Every injection point audited and optimized.

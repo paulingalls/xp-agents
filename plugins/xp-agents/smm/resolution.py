@@ -51,7 +51,8 @@ def compute_resolutions(events: list[dict]) -> dict:
     """Single-pass computation of question answers and event resolutions.
 
     Resolution mechanism:
-      - Questions: resolved by `answer` events that reference them
+      - Questions: resolved by `answer` events that reference them,
+        OR via `metadata.resolves` (answer events take precedence)
       - Goals, concerns, debt, decisions, assumptions: resolved via `metadata.resolves`
         array (any event with metadata.resolves: ["target-id"] resolves
         the target)
@@ -97,6 +98,10 @@ def compute_resolutions(events: list[dict]) -> dict:
                 continue
             full_id, target = resolved
             match target.get("type"):
+                case "question":
+                    # setdefault: answer events (added above) take
+                    # precedence over metadata.resolves
+                    question_answers.setdefault(full_id, event)
                 case "concern":
                     concern_resolutions[full_id] = event
                 case "goal":

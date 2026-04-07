@@ -17,4 +17,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-Curate the five-pillar SMM using the preloaded curation data. Read .curation-input.json, apply judgment to curate all pillars (Intent, Constraints, Risks, Wisdom, Sprint), record resolutions, and write the updated SMM via save_smm.py.
+This skill runs as a forked subagent (xp-housekeeper). The preload above prepared the curation data. Your agent definition contains all curation rules and instructions — follow those to curate the five-pillar SMM.
+
+If you are the main agent and see this: do not curate the SMM yourself. This skill must run as the xp-housekeeper subagent.

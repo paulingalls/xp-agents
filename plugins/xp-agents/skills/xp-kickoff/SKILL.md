@@ -51,9 +51,13 @@ Wait for it to complete before proceeding.
 
 Run `/xp-housekeeping`. This is mandatory — it curates the five-pillar SMM (Intent, Constraints, Risks, Wisdom, Sprint) via a forked subagent. The curated SMM, XP values, and process guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
 
+**Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 6. The subagent returns a summary of what it changed — you must show this summary to the user so they know what was added, removed, or resolved in the SMM.
+
 If the user says "skip" at any earlier step, still run housekeeping.
 
 ## Step 6: Complete
+
+**Show the housekeeping summary to the user.** The housekeeper subagent returns a concise summary of SMM changes (items added, removed, promoted, resolved, health warnings). Display this so the user can see what changed. Do not skip or summarize it further.
 
 Kickoff is complete. **Do NOT stop.**
 

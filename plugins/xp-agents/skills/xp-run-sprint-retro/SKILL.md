@@ -15,4 +15,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-Analyze the sprint data above. Review cross-session patterns, assess sizing accuracy, and produce sprint-level Keep/Fix/Try.
+This skill runs as a forked subagent (xp-sprint-retro). The preload above prepared the sprint data. Your agent definition contains all analysis rules and instructions — follow those to produce the sprint-level Keep/Fix/Try.
+
+If you are the main agent and see this: do not analyze the sprint retrospective yourself. This skill must run as the xp-sprint-retro subagent.

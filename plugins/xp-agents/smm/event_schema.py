@@ -159,6 +159,11 @@ def validate_event(event: dict) -> list[str]:
                 errors.append(f"Field 'topic' is required for type '{event_type}'")
             elif not isinstance(event["topic"], str):
                 errors.append("Field 'topic' must be a string")
+            elif event["topic"] == "retro-try-adopted":
+                errors.append(
+                    "Topic 'retro-try-adopted' is too generic — use"
+                    " 'retro-try-<slug>' (e.g. 'retro-try-answer-recording')"
+                )
 
         case "concern":
             if "severity" in event and event["severity"] not in VALID_SEVERITIES:

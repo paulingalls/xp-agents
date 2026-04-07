@@ -165,13 +165,6 @@ class TestGetCodeFilesForReview(unittest.TestCase):
         self.assertIn("src/b.py", result)
 
 
-class TestReviewCycleThreshold(unittest.TestCase):
-    """Test threshold constant."""
-
-    def test_threshold_is_three(self):
-        self.assertEqual(commits.REVIEW_CYCLE_THRESHOLD, 3)
-
-
 # ---------------------------------------------------------------------------
 # get_uncommitted_code_files
 # ---------------------------------------------------------------------------

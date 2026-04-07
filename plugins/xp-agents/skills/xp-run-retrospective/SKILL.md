@@ -14,4 +14,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-Analyze the retrospective data above using the Keep/Fix/Try framework with XP values as lenses. Record findings to the event log and retrospectives directory.
+This skill runs as a forked subagent (xp-retrospective). The preload above prepared the retrospective data. Your agent definition contains all analysis rules and instructions — follow those to produce the Keep/Fix/Try retrospective.
+
+If you are the main agent and see this: do not analyze the retrospective yourself. This skill must run as the xp-retrospective subagent. Show the full retrospective output to the user.
