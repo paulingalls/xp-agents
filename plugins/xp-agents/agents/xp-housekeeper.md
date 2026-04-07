@@ -6,8 +6,6 @@ description: >-
   Use after work selection completes during kickoff.
 tools: Read, Grep, Glob, Bash
 model: inherit
-skills:
-  - xp-smm-protocol
 ---
 
 # SMM Curator — Five-Pillar Curation

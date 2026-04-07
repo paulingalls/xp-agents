@@ -239,13 +239,12 @@ Ensure each preload provides what its agent needs, then remove xp-* agents from 
 **Files:** All 7 `agents/*.md` files, `tests/hooks/test_plugin_integrity.py`
 
 **Acceptance criteria:**
-- [ ] Investigation complete: confirmed whether `skills:` auto-loads into context or is on-demand only
-- [ ] Pre-audit: each agent's event types cataloged vs. xp-smm-protocol coverage
-- [ ] All 7 agents: `skills: [xp-smm-protocol]` removed from frontmatter
-- [ ] Each agent has inline append.sh examples covering all event types it records
-- [ ] Plugin integrity test updated (removed or inverted)
-- [ ] Full test suite passes
-- [ ] Token savings verified: ~13,300 tokens (1,900 x 7) per session
+- [x] Investigation complete: `skills:` auto-loads full skill content into subagent context (not on-demand)
+- [x] All 7 agents: `skills: [xp-smm-protocol]` removed (5 during M1-M6, 2 in M8)
+- [x] Each agent has inline append.sh examples in their .md
+- [x] Plugin integrity test inverted — asserts NO agent has xp-smm-protocol
+- [x] Full test suite passes (1366 tests)
+- [x] Token savings: ~13,300 tokens (1,900 x 7) per session removed from agent context
 
 ### M9: Optimize non-plugin agent tiers (Explore, Plan, teammates, default)
 

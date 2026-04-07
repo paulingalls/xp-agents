@@ -203,29 +203,17 @@ class TestAgentFilesM65(unittest.TestCase):
             fm = parts[1]
             self.assertIn("Bash", fm, f"{name} missing Bash in tools")
 
-    def test_skills_include_smm_protocol(self):
-        # Agents with optimized preloads don't need xp-smm-protocol
-        skip = {
-            "xp-security-reviewer",
-            "xp-plan-reviewer",
-            "xp-sprint-reviewer",
-            "xp-sprint-retro",
-            "xp-spawn-team",
-        }
+    def test_no_agent_has_smm_protocol_skill(self):
+        """No agent should have xp-smm-protocol in skills (M8)."""
         for name in _SUBAGENT_NAMES:
-            if name in skip:
-                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             parts = content.split("---", 2)
             fm = parts[1]
-            self.assertIn("xp-smm-protocol", fm, f"{name} missing smm-protocol skill")
-
-    def test_security_reviewer_no_smm_protocol(self):
-        """xp-security-reviewer should NOT have xp-smm-protocol (M2)."""
-        content = (self.agents_dir / "xp-security-reviewer.md").read_text()
-        parts = content.split("---", 2)
-        fm = parts[1]
-        self.assertNotIn("xp-smm-protocol", fm)
+            self.assertNotIn(
+                "xp-smm-protocol",
+                fm,
+                f"{name} still has xp-smm-protocol in skills",
+            )
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""

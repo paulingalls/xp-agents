@@ -5,8 +5,6 @@ description: >-
   Use at session start when retrospective data is available.
 tools: Read, Grep, Glob, Bash
 model: inherit
-skills:
-  - xp-smm-protocol
 ---
 
 # XP Retrospective Analyst — Keep/Fix/Try
