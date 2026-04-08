@@ -534,6 +534,40 @@ class TestSprintRetroDone(_HookTestCase):
         # Handler should not return a nudge (end of the chain)
         self.assertIsNone(result)
 
+    def test_records_sprint_id_from_sprint_md(self):
+        """M4a: sprint_retro_done metadata includes sprint_id from sprint.md.
+
+        Detection (_needs_sprint_retro) scopes by sprint_id — without it,
+        the scanner can't tell which sprint was retro'd.
+        """
+        (self.smm_dir / "sprint.md").write_text(
+            "# Sprint\n\n- **Sprint ID:** sprint-042\n- **Started:** 2026-04-08\n"
+            "\n## Stories\n\n### story-001: foo\n- **Size:** S\n- **Status:** done\n"
+            "- **Dependencies:** none\n"
+        )
+        subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        retro_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "sprint_retro_done"
+        ]
+        self.assertEqual(len(retro_events), 1)
+        self.assertEqual(retro_events[0]["metadata"].get("sprint_id"), "sprint-042")
+
+    def test_sprint_id_fallback_when_sprint_md_missing(self):
+        """M4a: if sprint.md is missing, sprint_id falls back to 'unknown'.
+        Mirrors _handle_sprint_review_done fallback behavior."""
+        subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        retro_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "sprint_retro_done"
+        ]
+        self.assertEqual(len(retro_events), 1)
+        self.assertEqual(retro_events[0]["metadata"].get("sprint_id"), "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

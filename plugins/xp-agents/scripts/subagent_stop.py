@@ -150,20 +150,29 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
 def _handle_sprint_retro_done(smm_dir: Path, input_data: dict) -> str | None:
     """Handle xp-sprint-retro subagent completion.
 
-    Records a sprint_retro_done status event and cleans up the retro
-    input file. Returns None — this is the end of the sprint cascade,
-    no further nudge needed.
+    Records a sprint_retro_done status event (with sprint_id for detection
+    scoping) and cleans up the retro input file. Returns None — this is
+    the end of the sprint cascade, no further nudge needed.
     """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _SPRINT_RETRO_AGENT_TYPES:
         return None
+
+    sprint_content = sprint_state.read_sprint_content(smm_dir)
+    sprint_id = "unknown"
+    if sprint_content:
+        sprint_data = sprint_parser.parse_sprint_data(sprint_content)
+        sprint_id = sprint_data["sprint_id"] or "unknown"
 
     event = _common.make_event(
         EVENT_TYPE_STATUS,
         _SPRINT_RETRO_AGENT_ID,
         "Sprint retrospective complete.",
         working_on=[],
-        metadata={"action": STATUS_ACTION_SPRINT_RETRO_DONE},
+        metadata={
+            "sprint_id": sprint_id,
+            "action": STATUS_ACTION_SPRINT_RETRO_DONE,
+        },
     )
     _common.append_safe(smm_dir, event)
 
