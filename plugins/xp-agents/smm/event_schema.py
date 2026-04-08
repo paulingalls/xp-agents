@@ -79,6 +79,13 @@ VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
+# Retrospective event metadata.action discriminators — distinguish session
+# retros from sprint retros so the session-start watermark scanner only
+# advances on session retros. Without this, a sprint retro at end of session
+# poisons the next session's retro detection.
+RETRO_ACTION_SESSION_DONE = "session_retro_done"
+RETRO_ACTION_SPRINT_DONE = "sprint_retro_done"
+
 
 MAX_JSON_ARG_SIZE = 65536
 MAX_CONTENT_LENGTH = 50_000

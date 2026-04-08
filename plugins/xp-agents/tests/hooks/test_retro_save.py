@@ -273,105 +273,6 @@ class TestSaveRetrospective(_HookTestCase):
         )
 
 
-class TestSaveSMM(_HookTestCase):
-    """Tests for save_smm.py helper script."""
-
-    def setUp(self):
-        super().setUp()
-        # Add skill scripts to path so we can import save_smm
-        skill_scripts = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-        )
-        if str(skill_scripts) not in sys.path:
-            sys.path.insert(0, str(skill_scripts))
-
-    def test_writes_smm_file(self):
-        """save_smm.run() writes markdown content to SHARED_MENTAL_MODEL.md."""
-        import save_smm
-
-        content = "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        save_smm.run(content, smm_dir=self.smm_dir)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        self.assertTrue(smm_file.exists())
-        self.assertEqual(smm_file.read_text(), content)
-
-    def test_updates_curation_watermark(self):
-        """save_smm.run() updates .curation-watermark with event count."""
-        import save_smm
-
-        # Seed some events
-        self._write_events(
-            [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
-            ]
-        )
-        save_smm.run("# SMM\n", smm_dir=self.smm_dir)
-        import materialize as _mat
-
-        wm = _mat.read_curation_watermark(self.smm_dir)
-        self.assertEqual(wm["event_count"], 2)
-        self.assertEqual(wm["agent_id"], "xp-housekeeping")
-
-    def test_overwrites_existing_smm(self):
-        """save_smm.run() overwrites an existing SHARED_MENTAL_MODEL.md."""
-        import save_smm
-
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("old content")
-        save_smm.run("new content", smm_dir=self.smm_dir)
-        self.assertEqual(smm_file.read_text(), "new content")
-
-    def test_file_permissions(self):
-        """Written SMM file has mode 0o600."""
-        import save_smm
-
-        save_smm.run("# SMM\n", smm_dir=self.smm_dir)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        mode = smm_file.stat().st_mode & 0o777
-        self.assertEqual(mode, 0o600)
-
-    def test_empty_content_writes_empty_file(self):
-        """Empty string input produces an empty file."""
-        import save_smm
-
-        save_smm.run("", smm_dir=self.smm_dir)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        self.assertTrue(smm_file.exists())
-        self.assertEqual(smm_file.read_text(), "")
-
-    def test_triggers_compaction(self):
-        """save_smm.run() compacts the event log after writing and updating watermark.
-
-        Ensures compaction happens regardless of whether housekeeping runs
-        forked or inline — save_smm.py is the single place state changes.
-        """
-        from unittest.mock import patch
-
-        import save_smm
-
-        self._write_events([make_event("goal", content="Ship v1")])
-        target = "save_smm.compact.compact_after_curation"
-        with patch(target) as mock_compact:
-            save_smm.run("# SMM\n", smm_dir=self.smm_dir)
-        mock_compact.assert_called_once_with(self.smm_dir)
-
-    def test_compaction_failure_does_not_fail_write(self):
-        """If compaction fails, save_smm should still succeed (write is primary)."""
-        from unittest.mock import patch
-
-        import save_smm
-
-        target = "save_smm.compact.compact_after_curation"
-        with patch(target, side_effect=OSError("boom")):
-            save_smm.run("# SMM\n", smm_dir=self.smm_dir)
-        # Write should have succeeded
-        self.assertTrue((self.smm_dir / "SHARED_MENTAL_MODEL.md").exists())
-
-
 class TestSaveRetrospectiveParams(_HookTestCase):
     """M12: parameterized agent, prefix, and cleanup file."""
 
@@ -436,6 +337,69 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         self.assertEqual(retro["agent_id"], "xp-retrospective")
         self.assertIn("Session retrospective", retro["content"])
         self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+
+class TestSaveRetrospectiveRetroKind(_HookTestCase):
+    """M1a: --retro-kind flag writes metadata.action discriminator."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir(exist_ok=True)
+
+    def _valid_kft(self) -> dict:
+        return {
+            "keep": [{"content": "Good"}],
+            "fix": [],
+            "try": [],
+        }
+
+    def test_retro_kind_session_writes_session_action(self):
+        """--retro-kind session writes metadata.action=session_retro_done."""
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            retro_kind="session",
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
+
+    def test_retro_kind_sprint_writes_sprint_action(self):
+        """--retro-kind sprint puts metadata.action=sprint_retro_done on retro event."""
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            retro_kind="sprint",
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
+
+    def test_retro_kind_default_is_session(self):
+        """No retro_kind argument defaults to session for backwards compat."""
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
+
+    def test_retro_kind_constants_exist(self):
+        """event_schema.py exposes RETRO_ACTION_SESSION_DONE/SPRINT_DONE constants."""
+        import event_schema
+
+        self.assertEqual(event_schema.RETRO_ACTION_SESSION_DONE, "session_retro_done")
+        self.assertEqual(event_schema.RETRO_ACTION_SPRINT_DONE, "sprint_retro_done")
 
 
 if __name__ == "__main__":

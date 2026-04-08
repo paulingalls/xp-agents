@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _append_impl
 import _common
+from event_schema import RETRO_ACTION_SESSION_DONE, RETRO_ACTION_SPRINT_DONE
 
 
 def run(
@@ -26,6 +27,7 @@ def run(
     agent_id: str = "xp-retrospective",
     prefix: str = "Session retrospective",
     cleanup_file: str = ".retro-input.json",
+    retro_kind: str = "session",
 ) -> dict[str, str] | None:
     """Save retrospective analysis to event log and file.
 
@@ -35,6 +37,9 @@ def run(
         agent_id: Agent ID for the event (default: session retro agent).
         prefix: Content prefix (default: "Session retrospective").
         cleanup_file: Input file to clean up after save.
+        retro_kind: "session" or "sprint". Written to metadata.action so the
+            session-start watermark scanner can distinguish kinds. Defaults
+            to "session" for backwards compatibility with existing callers.
 
     Returns:
         Dict with event_id and retro_file on success, None on failure.
@@ -62,8 +67,14 @@ def run(
     try_count = len(kft_data.get("try", []))
     content = f"{prefix}: {keep_count} keeps, {fix_count} fixes, {try_count} tries"
 
-    # Build retrospective event
-    event = _common.make_event("retrospective", agent_id, content)
+    action = (
+        RETRO_ACTION_SPRINT_DONE
+        if retro_kind == "sprint"
+        else RETRO_ACTION_SESSION_DONE
+    )
+    event = _common.make_event(
+        "retrospective", agent_id, content, metadata={"action": action}
+    )
     if kft_data.get("keep"):
         event["keep"] = kft_data["keep"]
     if kft_data.get("fix"):
@@ -130,6 +141,15 @@ def main() -> None:
         default=".retro-input.json",
         help="Input file to clean up after save",
     )
+    parser.add_argument(
+        "--retro-kind",
+        default="session",
+        choices=["session", "sprint"],
+        help=(
+            "Retro kind: 'session' or 'sprint'. Written to metadata.action so "
+            "the session-start watermark scanner distinguishes kinds."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -145,6 +165,7 @@ def main() -> None:
         agent_id=args.agent,
         prefix=args.prefix,
         cleanup_file=args.cleanup_file,
+        retro_kind=args.retro_kind,
     )
     if result is None:
         sys.exit(1)
