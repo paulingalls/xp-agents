@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.0.13 — Move Sprint Retro to Session Start
+
+### Fixed
+- **Sprint-retro watermark poisoning.** `save_retrospective.py` wrote `type: "retrospective"` events for both session and sprint retros, and the session-start watermark scanner (`_find_unanalyzed_start`) stopped at any retro regardless of kind. A sprint retro at end of session silently starved the next session's regular retro (empirically verified: 473 events, last retro at line 472, 1 unanalyzed → below threshold → retro skipped). Retrospective events now carry `metadata.action` (`session_retro_done` vs `sprint_retro_done`) so the scanner only stops at session retros. Legacy retros without the discriminator are treated as session retros for backwards compat.
+
+### Architecture
+- **Sprint retro runs at session start**, not end of session. Previously `sprint_stop_gate.py` had a 3-step cascade (accept → sprint-review → sprint-retro) that blocked Stop until the user ran `/xp-run-sprint-retro`. Now the cascade ends at sprint-review. At the next `SessionStart`, `retrospective.py` checks for a dangling `sprint_end` event with no matching `sprint_retro_done` and branches to sprint-retro prep, writing `.sprint-retro-input.json` instead of `.retro-input.json`. `check_session_needs.sh` reports `SPRINT_RETRO_NEEDED` vs `RETRO_NEEDED`; `xp-kickoff` Step 1 invokes the right skill. Sprint retro leverages the same session-start retro-prep infrastructure.
+- **New `scripts/sprint_retro_detection.py`** — `_needs_sprint_retro(events)` and `maybe_run_sprint_retro_branch(smm_dir, events)` handle the detection + prep short-circuit. Kept out of `retrospective.py` to stay under the 500-line cap. Scoped by `sprint_id`: the most recent `sprint_end` is the candidate; if a newer `sprint_start` follows (abandoned sprint), detection returns None and the session retro handles the events.
+- **`prepare_sprint_retro_data.py` relocated** from `skills/xp-run-sprint-retro/scripts/` to `scripts/` so the SessionStart hook can import it. Skill preload remains as an idempotent fallback that emits the existing file's path when SessionStart has already prepared it.
+- **`sprint_retro_done` status events carry `sprint_id`** — required by detection scoping. `_handle_sprint_retro_done` reads `sprint.md` via `sprint_parser`, mirrors `_handle_sprint_review_done` fallback.
+- **Sprint-id-paired compaction retention** — `compact.py _classify_pre_watermark` retains `sprint_retro_done` events whose `sprint_id` matches a retained `sprint_end`. Without this, a stale retro_done would be archived and detection would incorrectly re-fire after compaction.
+- **Reverses decision `62a35600`** from v2.0.12 ("sprint retro replacing session retro at sprint boundary is out of scope"). That reasoning was backwards — shared prep is exactly why session-start placement is clean.
+
+### Removed
+- `_RETRO_MESSAGE` and `_SPRINT_RETRO_NUDGE` constants from `sprint_stop_gate.py` / `subagent_stop.py` — cascade no longer nudges for retro at Stop.
+- `_scan_sprint_lifecycle_events` helper — replaced by simpler `_has_sprint_end_event` (no more dead `has_retro_done` tracking).
+
+### Stats
+- 1430 tests (all passing) — 26 new tests covering watermark filter, detection logic, prep-script relocation, idempotence, schema equivalence, wiring, kickoff branching, cascade simplification, and compaction retention.
+
 ## v2.0.12 — Replace PostToolUse:Skill with Reliable Signals
 
 ### Fixed

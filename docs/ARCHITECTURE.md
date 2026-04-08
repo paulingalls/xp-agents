@@ -97,11 +97,11 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset, security marker consume), test result parsing. `async: true` |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
-| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (inject SMM after xp-housekeeper), `_handle_sprint_review_done` (record sprint end + retro nudge), `_handle_sprint_retro_done` (record retro_done event). Writes `.plan-awaiting-review` marker file for Plan subagent. |
+| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (inject SMM after xp-housekeeper), `_handle_sprint_review_done` (record sprint end, return None — sprint retro runs at next session start), `_handle_sprint_retro_done` (record retro_done event with sprint_id for detection scoping). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done, security_review_done) when review skills complete. Nudges next step via `additionalContext` |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
-| **Stop** | | `sprint_stop_gate.py` | Unified sprint lifecycle cascade: blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review; sprint_end + no sprint_retro_done → run /xp-run-sprint-retro |
+| **Stop** | | `sprint_stop_gate.py` | Sprint lifecycle cascade (accept → review): blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review. Sprint retrospective is NOT part of the cascade — it runs at the start of the next session via `retrospective.py`'s sprint-retro branch. |
 | **Stop** | | `session_end_warning.py` | Soft warning: unresolved concerns, missing final status |
 | **TeammateIdle** | | `teammate_idle.py` | TDD enforcement for teammates (exit 2 if tests failing) |
 | **TaskCompleted** | | `task_completed.py` | TDD enforcement for task completion (exit 2 if tests failing) |
@@ -296,7 +296,9 @@ plugins/xp-agents/
 │   ├── review_cycle_done.py      ← PostToolUse:Skill — set review cycle flags
 │   ├── kickoff_gate.py
 │   ├── post_tool_exit_plan.py       ← PostToolUse:ExitPlanMode nudge + marker
-│   ├── sprint_stop_gate.py          ← Stop gate — unified sprint lifecycle cascade (accept → review → retro)
+│   ├── sprint_stop_gate.py          ← Stop gate — sprint lifecycle cascade (accept → review; sprint retro runs at next session start)
+│   ├── sprint_retro_detection.py    ← SessionStart sprint-retro detection (wired into retrospective.py)
+│   ├── prepare_sprint_retro_data.py ← Sprint retro data prep (moved from skill dir in M2)
 │   ├── session_end_warning.py       ← Stop soft warning — unresolved concerns, missing final status
 │   ├── teammate_idle.py             ← TeammateIdle TDD gate (exit 2 if tests failing)
 │   ├── task_completed.py            ← TaskCompleted TDD gate (exit 2 if tests failing)
