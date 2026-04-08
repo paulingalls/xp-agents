@@ -9,15 +9,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-sys.path.insert(
-    0,
-    str(
-        Path(__file__).parent.parent.parent
-        / "skills"
-        / "xp-run-sprint-retro"
-        / "scripts"
-    ),
-)
 
 from conftest import _HookTestCase, _IntegrationTestCase
 
@@ -263,6 +254,54 @@ class TestSprintRetroPreload(_IntegrationTestCase):
         # No SMM content
         self.assertNotIn("TDD always", result.stdout)
         self.assertNotIn("Commit after green", result.stdout)
+
+    def test_preload_is_idempotent_when_input_exists(self):
+        """M2: if .sprint-retro-input.json already exists (written by
+        SessionStart hook), the skill preload should not overwrite it.
+
+        This preserves the schema written by the session-start path and
+        avoids recomputing prep data twice.
+        """
+        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        sentinel_file = self.smm_dir / ".sprint-retro-input.json"
+        sentinel_content = '{"sentinel": "pre-written-by-session-start"}'
+        sentinel_file.write_text(sentinel_content)
+
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RETRO_INPUT=", result.stdout)
+        # File must be untouched — preload is a no-op when it exists.
+        self.assertEqual(sentinel_file.read_text(), sentinel_content)
+
+    def test_preload_and_direct_call_produce_equivalent_schema(self):
+        """M2: SessionStart-hook path (direct function call) and skill-preload
+        path (shell invocation) must produce .sprint-retro-input.json files
+        with identical top-level keys.
+
+        Prevents schema drift between the two code paths.
+        """
+        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+
+        # Path A: direct function call (SessionStart hook style)
+        import prepare_sprint_retro_data
+
+        prepare_sprint_retro_data.run(self.smm_dir)
+        direct_file = self.smm_dir / ".sprint-retro-input.json"
+        direct_keys = set(json.loads(direct_file.read_text()).keys())
+        direct_file.unlink()
+
+        # Path B: preload shell script (manual invocation style)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        preload_file = self.smm_dir / ".sprint-retro-input.json"
+        self.assertTrue(preload_file.exists())
+        preload_keys = set(json.loads(preload_file.read_text()).keys())
+
+        self.assertEqual(
+            direct_keys,
+            preload_keys,
+            "direct call and preload must produce equivalent JSON schemas",
+        )
 
 
 if __name__ == "__main__":

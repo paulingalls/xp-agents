@@ -10,14 +10,12 @@ import json
 import sys
 from pathlib import Path
 
-# Resolve plugin root: scripts/ -> xp-run-sprint-retro/ -> skills/ -> plugin root
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
-sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-import _common  # noqa: E402
-import sprint_parser  # noqa: E402
-import sprint_state  # noqa: E402
+import _common
+import sprint_parser
+import sprint_state
 
 
 def _collect_session_retros(smm_dir: Path, started: str) -> list[dict]:
