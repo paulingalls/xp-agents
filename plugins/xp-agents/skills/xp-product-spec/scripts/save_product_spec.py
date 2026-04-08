@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Save product spec: write product_spec.md atomically.
+"""Save product spec: write product_spec.md atomically + clear marker.
 
-Accepts markdown on stdin, writes product_spec.md to the SMM directory.
-No watermark — product spec is not a curation artifact.
+Accepts markdown on stdin, writes product_spec.md to the SMM directory,
+then clears the .needs-product-spec marker since the spec now exists.
 
 Usage:
     echo '<markdown>' | python3 save_product_spec.py --smm-dir DIR
@@ -15,11 +15,12 @@ from pathlib import Path
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
+import marker_names  # noqa: E402
 from _append_impl import write_text_atomic  # noqa: E402
 
 
 def run(content: str, smm_dir: Path) -> None:
-    """Write product_spec.md atomically.
+    """Write product_spec.md atomically and clear NEEDS_PRODUCT_SPEC.
 
     Args:
         content: Markdown content to write.
@@ -31,6 +32,9 @@ def run(content: str, smm_dir: Path) -> None:
         raise OSError(f"product_spec.md is a symlink: {target}")
 
     write_text_atomic(target, content)
+
+    # Clear NEEDS_PRODUCT_SPEC marker — the spec now exists
+    (smm_dir / marker_names.NEEDS_PRODUCT_SPEC).unlink(missing_ok=True)
 
 
 def main() -> None:

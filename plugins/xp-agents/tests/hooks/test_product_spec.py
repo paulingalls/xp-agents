@@ -75,6 +75,17 @@ class TestSaveProductSpec(_HookTestCase):
         self._run_save(content)
         self.assertEqual((self.smm_dir / "product_spec.md").read_text(), content)
 
+    def test_clears_needs_product_spec_marker(self):
+        """NEEDS_PRODUCT_SPEC marker cleared after successful write."""
+        (self.smm_dir / ".needs-product-spec").write_text("startup")
+        self._run_save("# Product Spec: Test\n")
+        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
+
+    def test_no_marker_no_error(self):
+        """Running without the marker present does not error."""
+        self._run_save("# Product Spec: Test\n")
+        # No assertion needed — should not raise
+
 
 # ===========================================================================
 # preload.sh — Product spec preload script
