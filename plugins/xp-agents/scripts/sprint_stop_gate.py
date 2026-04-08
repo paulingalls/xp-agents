@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Stop command hook: unified sprint lifecycle gate.
 
-Replaces accept_gate.py. Handles the full sprint cascade:
+Replaces accept_gate.py. Handles the sprint cascade (accept → review):
   1. in-progress stories + ACCEPT marker → block "run /xp-accept"
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
-  3. sprint_end event, no sprint_retro_done event → block "run /xp-run-sprint-retro"
+
+Sprint retrospective is NOT part of the Stop cascade. It runs at the
+start of the next session via retrospective.py, which detects a
+dangling sprint_end and branches to sprint-retro prep.
 
 Common deferrals (review cycle active, teammates active) apply to all
 steps so the main agent can continue its current workflow without being
@@ -22,12 +25,7 @@ import coordination
 import markers
 import sprint_parser
 import sprint_state
-from event_schema import (
-    EVENT_TYPE_SPRINT,
-    EVENT_TYPE_STATUS,
-    SPRINT_ACTION_END,
-    STATUS_ACTION_SPRINT_RETRO_DONE,
-)
+from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
 
 _ACCEPT_MESSAGE = (
     "Stories are in-progress. Run /xp-accept to verify "
@@ -36,11 +34,6 @@ _ACCEPT_MESSAGE = (
 
 _REVIEW_MESSAGE = (
     "Sprint complete. Run /xp-sprint-review to review what shipped before stopping."
-)
-
-_RETRO_MESSAGE = (
-    "Sprint review complete. Run /xp-run-sprint-retro to reflect on "
-    "the sprint before stopping."
 )
 
 _REVIEW_FLAGS = ("simplify_done", "quality_review_done", "security_review_done")
@@ -60,37 +53,18 @@ def _sprint_id_from_content(content: str) -> str:
     return sprint_parser.parse_sprint_data(content).get("sprint_id") or ""
 
 
-def _scan_sprint_lifecycle_events(
-    events: list[dict], sprint_id: str
-) -> tuple[bool, bool]:
-    """Single reverse-pass scan for sprint_end and sprint_retro_done events.
-
-    Returns (has_end, has_retro_done). Bails early once both are found.
-    sprint_id filter applies only to the sprint_end event — retro_done is
-    global since we only care about the most recent one clearing the cascade.
-    """
-    has_end = False
-    has_retro_done = False
+def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:
+    """Return True if a sprint_end event for the given sprint_id exists."""
     for event in reversed(events):
-        event_type = event.get("type")
+        if event.get("type") != EVENT_TYPE_SPRINT:
+            continue
         metadata = event.get("metadata") or {}
-        action = metadata.get("action")
         if (
-            not has_end
-            and event_type == EVENT_TYPE_SPRINT
-            and action == SPRINT_ACTION_END
+            metadata.get("action") == SPRINT_ACTION_END
             and metadata.get("sprint_id") == sprint_id
         ):
-            has_end = True
-        elif (
-            not has_retro_done
-            and event_type == EVENT_TYPE_STATUS
-            and action == STATUS_ACTION_SPRINT_RETRO_DONE
-        ):
-            has_retro_done = True
-        if has_end and has_retro_done:
-            break
-    return has_end, has_retro_done
+            return True
+    return False
 
 
 def _compute_block_message(smm_dir: Path, sprint_content: str) -> str | None:
@@ -101,7 +75,7 @@ def _compute_block_message(smm_dir: Path, sprint_content: str) -> str | None:
             return _ACCEPT_MESSAGE
         return None
 
-    # Cascade steps 2 and 3 require the sprint to be complete
+    # Cascade step 2: sprint-review gate — requires sprint complete
     if not sprint_state.is_sprint_complete(sprint_content):
         return None
 
@@ -111,12 +85,8 @@ def _compute_block_message(smm_dir: Path, sprint_content: str) -> str | None:
         return None
 
     events = _common.read_events_raw(smm_dir)
-    has_end, has_retro_done = _scan_sprint_lifecycle_events(events, sprint_id)
-
-    if not has_end:
+    if not _has_sprint_end_event(events, sprint_id):
         return _REVIEW_MESSAGE
-    if not has_retro_done:
-        return _RETRO_MESSAGE
     return None
 
 

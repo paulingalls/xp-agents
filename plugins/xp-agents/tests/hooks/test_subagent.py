@@ -431,21 +431,24 @@ class TestSprintReviewerDone(_HookTestCase):
     def _seed_sprint(self, content: str = _SPRINT_REVIEW_MIXED) -> None:
         (self.smm_dir / "sprint.md").write_text(content)
 
-    def test_returns_retro_nudge(self):
-        """After sprint-reviewer finishes, returns a retro nudge."""
+    def test_returns_none_no_nudge(self):
+        """M6: After sprint-reviewer finishes, returns None — sprint retro
+        now runs at next session start, not end of session."""
         self._seed_sprint()
         result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("sprint-retro", result.lower())
+        self.assertIsNone(result)
 
     def test_matches_qualified_agent_type(self):
-        """Should match agent_type 'xp-agents:xp-sprint-reviewer' too."""
+        """Should match agent_type 'xp-agents:xp-sprint-reviewer' too —
+        writes the sprint_end event even if return value is None."""
         self._seed_sprint()
-        result = subagent_stop.run(
+        subagent_stop.run(
             self._reviewer_input(agent_type="xp-agents:xp-sprint-reviewer"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        self.assertEqual(len(sprint_events), 1)
 
     def test_logs_sprint_end_event(self):
         """Sprint end event has type=sprint, action=end, velocity metadata."""
@@ -480,9 +483,9 @@ class TestSprintReviewerDone(_HookTestCase):
         self.assertFalse((self.smm_dir / ".sprint-review-input.json").exists())
 
     def test_no_sprint_graceful(self):
-        """No sprint.md → still returns nudge, no crash."""
+        """M6: No sprint.md → still returns None (no nudge), no crash."""
         result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        self.assertIsNone(result)
 
 
 class TestSprintRetroDone(_HookTestCase):

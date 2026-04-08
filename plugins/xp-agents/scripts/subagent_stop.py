@@ -38,11 +38,6 @@ _SPRINT_NUDGE = (
     "stories for this iteration."
 )
 
-_SPRINT_RETRO_NUDGE = (
-    "\n\n---\n**Sprint review complete.** "
-    "Run `/xp-run-sprint-retro` to reflect on the sprint."
-)
-
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
     """Set review cycle flags for review-related subagent completions.
@@ -112,10 +107,10 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
 def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
     """Handle xp-sprint-reviewer subagent completion.
 
-    Records a sprint end event with velocity, cleans up the review input
-    file, and returns the sprint-retro nudge as additionalContext.
-
-    Returns the nudge string or None if this isn't the sprint-reviewer.
+    Records a sprint end event with velocity and cleans up the review
+    input file. Returns None — sprint retro now runs at the start of
+    the next session (via retrospective.py's sprint-retro branch),
+    not at end of session.
     """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
@@ -144,7 +139,7 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
 
     (smm_dir / ".sprint-review-input.json").unlink(missing_ok=True)
 
-    return _SPRINT_RETRO_NUDGE
+    return None
 
 
 def _handle_sprint_retro_done(smm_dir: Path, input_data: dict) -> str | None:

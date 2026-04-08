@@ -152,7 +152,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         self.assertIn("xp-sprint-review", result)
 
     def test_sprint_complete_with_end_event_falls_through(self):
-        """Sprint with end event falls through to retro step."""
+        """M6: Sprint with end event allows stop — cascade ends at review."""
         import _common
         import sprint_stop_gate
 
@@ -165,9 +165,9 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, event)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        # Should now block on retro (end event exists, retro_done does not)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-run-sprint-retro", result)
+        # Cascade ends at sprint-review. Sprint retro runs at next session
+        # start via retrospective.py, not as a Stop gate.
+        self.assertIsNone(result)
 
     def test_sprint_complete_no_sprint_id_allows_stop(self):
         """Malformed sprint.md with no sprint_id — can't match events, allow stop."""
@@ -195,8 +195,9 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         self.assertIn("xp-sprint-review", result)
 
 
-class TestSprintStopGateRetroCascade(_HookTestCase):
-    """Cascade step 3: sprint retro gating."""
+class TestSprintStopGatePostReview(_HookTestCase):
+    """M6: after sprint-review writes sprint_end, cascade is done. No retro
+    gating at Stop — sprint retro runs at next session start."""
 
     def _seed_sprint_end(self, sprint_id: str = "sprint-001"):
         import _common
@@ -209,31 +210,13 @@ class TestSprintStopGateRetroCascade(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, event)
 
-    def test_end_event_no_retro_blocks(self):
-        """sprint_end exists but no retro_done → nudge for retro."""
+    def test_end_event_no_retro_does_not_block(self):
+        """M6: sprint_end without sprint_retro_done no longer blocks — the
+        cascade ends at sprint-review. User can stop freely."""
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
         self._seed_sprint_end()
-        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-run-sprint-retro", result)
-
-    def test_end_event_with_retro_done_allows_stop(self):
-        """Both end and retro_done events exist → no block."""
-        import _common
-        import sprint_stop_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
-        self._seed_sprint_end()
-        retro_event = make_event(
-            "status",
-            agent_id="xp-sprint-retro",
-            content="Sprint retrospective complete.",
-            working_on=[],
-            metadata={"action": "sprint_retro_done"},
-        )
-        _common.append_safe(self.smm_dir, retro_event)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
