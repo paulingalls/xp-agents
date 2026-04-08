@@ -857,6 +857,218 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         self.assertEqual(resolutions[goal["id"][:8]]["type"], "goal")
 
 
+class TestGatherRetroHistoryTryShape(_HookTestCase):
+    """try items in previous_retros preserve {content, event_refs} shape."""
+
+    def setUp(self):
+        super().setUp()
+        self.retro_dir = self.smm_dir / "retrospectives"
+        self.retro_dir.mkdir()
+
+    def test_gather_retro_history_preserves_try_event_refs(self):
+        import retro_history
+
+        retro_data = {
+            "keep": [{"content": "TDD held", "event_refs": ["aaa11111"]}],
+            "fix": [{"content": "no status events"}],
+            "try": [
+                {
+                    "content": "close debt 9cdd4617",
+                    "event_refs": ["9cdd4617-aaaa-bbbb-cccc-dddddddddddd"],
+                }
+            ],
+        }
+        (self.retro_dir / "2026-03-10T00-00-00.json").write_text(json.dumps(retro_data))
+        result = retro_history.gather_retro_history(self.smm_dir)
+        self.assertEqual(len(result), 1)
+        # keep and fix stay content-only
+        self.assertEqual(result[0]["keep"], ["TDD held"])
+        self.assertEqual(result[0]["fix"], ["no status events"])
+        # try becomes list of {content, event_refs}
+        self.assertEqual(len(result[0]["try"]), 1)
+        self.assertEqual(result[0]["try"][0]["content"], "close debt 9cdd4617")
+        self.assertEqual(
+            result[0]["try"][0]["event_refs"],
+            ["9cdd4617-aaaa-bbbb-cccc-dddddddddddd"],
+        )
+
+    def test_gather_retro_history_handles_legacy_string_try(self):
+        import retro_history
+
+        # Old shape: try is a list of strings (pre-Commit-2 format).
+        retro_data = {
+            "keep": [{"content": "good session"}],
+            "fix": [],
+            "try": ["be more careful"],
+        }
+        (self.retro_dir / "2026-03-10T00-00-00.json").write_text(json.dumps(retro_data))
+        result = retro_history.gather_retro_history(self.smm_dir)
+        self.assertEqual(len(result[0]["try"]), 1)
+        self.assertEqual(result[0]["try"][0]["content"], "be more careful")
+        self.assertEqual(result[0]["try"][0]["event_refs"], [])
+
+
+class TestAnnotateTryStatus(_HookTestCase):
+    """_annotate_try_status flags Try items whose IDs were resolved this session."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def _run_and_load_with_retro(self, retro_data, events):
+        import retrospective
+
+        (self.smm_dir / "retrospectives" / "2026-03-10T00-00-00.json").write_text(
+            json.dumps(retro_data)
+        )
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            return json.load(f)
+
+    def test_annotate_try_with_resolved_debt_id_in_content(self):
+        debt = make_event("debt", content="Fix later")
+        resolver = make_event(
+            "status",
+            content="Debt closed",
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        short = debt["id"][:8]
+        retro_data = {
+            "keep": [],
+            "fix": [],
+            "try": [{"content": f"close debt {short} in first commit"}],
+        }
+        data = self._run_and_load_with_retro(
+            retro_data,
+            [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)],
+        )
+        try_status = data["previous_retros"][0]["try_status"]
+        self.assertEqual(len(try_status), 1)
+        self.assertTrue(try_status[0]["resolved_this_session"])
+        self.assertEqual(try_status[0]["resolver_id"], resolver["id"][:8])
+
+    def test_annotate_try_with_event_refs_only(self):
+        debt = make_event("debt", content="Fix later")
+        resolver = make_event(
+            "status",
+            content="Debt closed",
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        retro_data = {
+            "keep": [],
+            "fix": [],
+            "try": [
+                {
+                    "content": "be more careful",  # no hex tokens in content
+                    "event_refs": [debt["id"]],
+                }
+            ],
+        }
+        data = self._run_and_load_with_retro(
+            retro_data,
+            [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)],
+        )
+        self.assertTrue(
+            data["previous_retros"][0]["try_status"][0]["resolved_this_session"]
+        )
+
+    def test_annotate_try_with_unresolved_id_not_flagged(self):
+        retro_data = {
+            "keep": [],
+            "fix": [],
+            "try": [{"content": "close debt deadbeef12"}],  # ID not in session
+        }
+        data = self._run_and_load_with_retro(
+            retro_data, [make_event(content=f"e{i}") for i in range(6)]
+        )
+        self.assertFalse(
+            data["previous_retros"][0]["try_status"][0]["resolved_this_session"]
+        )
+
+    def test_annotate_try_with_no_hex_tokens(self):
+        retro_data = {
+            "keep": [],
+            "fix": [],
+            "try": [{"content": "be more careful next session"}],
+        }
+        data = self._run_and_load_with_retro(
+            retro_data, [make_event(content=f"e{i}") for i in range(6)]
+        )
+        self.assertFalse(
+            data["previous_retros"][0]["try_status"][0]["resolved_this_session"]
+        )
+
+    def test_annotate_only_most_recent_retro(self):
+        debt = make_event("debt", content="Fix later")
+        resolver = make_event(
+            "status",
+            content="Debt closed",
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        short = debt["id"][:8]
+        # Two previous retros — only the most recent gets try_status
+        old_retro = {
+            "keep": [],
+            "fix": [],
+            "try": [{"content": f"old mention {short}"}],
+        }
+        new_retro = {
+            "keep": [],
+            "fix": [],
+            "try": [{"content": f"new mention {short}"}],
+        }
+        (self.smm_dir / "retrospectives" / "2026-03-09T00-00-00.json").write_text(
+            json.dumps(old_retro)
+        )
+        (self.smm_dir / "retrospectives" / "2026-03-10T00-00-00.json").write_text(
+            json.dumps(new_retro)
+        )
+        import retrospective
+
+        self._write_events(
+            [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        # Most recent retro (index 0) has try_status
+        self.assertIn("try_status", data["previous_retros"][0])
+        # Older retros do not
+        self.assertNotIn("try_status", data["previous_retros"][1])
+
+    def test_annotate_empty_previous_retros(self):
+        data = self._run_and_load_with_retro(
+            {"keep": [], "fix": [], "try": []},
+            [make_event(content=f"e{i}") for i in range(6)],
+        )
+        # Empty try → empty try_status
+        self.assertEqual(data["previous_retros"][0]["try_status"], [])
+
+    def test_annotate_no_previous_retros(self):
+        import retrospective
+
+        # No retros directory content
+        self._write_events([make_event(content=f"e{i}") for i in range(6)])
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        # No crash; previous_retros is empty
+        self.assertEqual(data["previous_retros"], [])
+
+
 class TestRetrospectiveNudge(_HookTestCase):
     """M6.5: retrospective.py should nudge invoking xp-retrospective."""
 

@@ -18,7 +18,7 @@ import _common
 import security
 import sprint_retro_detection
 from event_schema import RETRO_ACTION_SESSION_DONE
-from retro_history import gather_retro_history
+from retro_history import annotate_try_status, gather_retro_history
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -351,6 +351,7 @@ def _build_retro_input(
     session_stats = _compute_session_stats(unanalyzed)
     resolutions = resolution.compute_resolutions(unanalyzed)
     digest = _build_retro_digest(events, start_idx, resolutions)
+    annotate_try_status(retro_history, digest["resolutions"])
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id
