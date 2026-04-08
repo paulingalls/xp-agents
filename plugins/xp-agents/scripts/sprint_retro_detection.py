@@ -15,6 +15,7 @@ will cover the events and the user has taken manual control.
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 from event_schema import (
@@ -71,3 +72,34 @@ def _needs_sprint_retro(events: list[dict]) -> str | None:
             return None
 
     return end_sprint_id
+
+
+def maybe_run_sprint_retro_branch(smm_dir: Path, events: list[dict]) -> str | None:
+    """Prepare sprint retro input and return a context summary, or None.
+
+    If detection fires and the prep succeeds, writes .sprint-retro-input.json,
+    removes any stale .retro-input.json (exclusive-file invariant), and
+    returns the context summary for the main agent. Any prep failure
+    (sprint.md missing, malformed, or exception) returns None so the
+    caller falls back to the session-retro path.
+    """
+    sprint_id = _needs_sprint_retro(events)
+    if sprint_id is None:
+        return None
+
+    try:
+        import prepare_sprint_retro_data
+
+        result = prepare_sprint_retro_data.run(smm_dir)
+    except Exception:
+        return None
+
+    if result is None:
+        return None
+
+    (smm_dir / ".retro-input.json").unlink(missing_ok=True)
+    return (
+        f"Previous session ended sprint {sprint_id} without retrospecting "
+        "it. Run /xp-kickoff — the sprint retrospective will run at "
+        "kickoff (instead of the regular session retro)."
+    )

@@ -153,6 +153,107 @@ class TestRetrospective(_HookTestCase):
         start = retrospective._find_unanalyzed_start(events)
         self.assertEqual(start, 4)
 
+    def _sprint_md(self, sprint_id: str = "sprint-042") -> None:
+        (self.smm_dir / "sprint.md").write_text(
+            f"# Sprint\n\n- **Sprint ID:** {sprint_id}\n- **Started:** 2026-04-08\n"
+            "\n## Stories\n\n### story-001: foo\n- **Size:** S\n- **Status:** done\n"
+            "- **Dependencies:** none\n"
+        )
+
+    def test_sprint_retro_branch_writes_sprint_input(self):
+        """M4b: dangling sprint_end triggers sprint-retro branch: writes
+        .sprint-retro-input.json, does NOT write .retro-input.json."""
+        import retrospective
+
+        self._sprint_md()
+        events = [make_event(content=f"event {i}") for i in range(8)]
+        events.append(
+            make_event(
+                "sprint",
+                content="Sprint ended",
+                metadata={"sprint_id": "sprint-042", "action": "end"},
+            )
+        )
+        self._write_events(events)
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".sprint-retro-input.json").exists())
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+        self.assertIn("sprint", result.lower())
+
+    def test_sprint_retro_fires_below_retro_threshold(self):
+        """M4b: sprint-retro detection runs BEFORE the RETRO_THRESHOLD
+        short-circuit. A sprint_end with fewer than 5 unanalyzed events
+        still triggers sprint retro."""
+        import retrospective
+
+        self._sprint_md()
+        events = [
+            make_event(
+                "sprint",
+                content="Sprint started",
+                metadata={"sprint_id": "sprint-042", "action": "start"},
+            ),
+            make_event(
+                "sprint",
+                content="Sprint ended",
+                metadata={"sprint_id": "sprint-042", "action": "end"},
+            ),
+        ]
+        self._write_events(events)
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".sprint-retro-input.json").exists())
+
+    def test_session_retro_removes_stale_sprint_retro_input(self):
+        """M4b: exclusive-file invariant — session retro path unlinks
+        .sprint-retro-input.json if present."""
+        import retrospective
+
+        (self.smm_dir / ".sprint-retro-input.json").write_text('{"stale": true}')
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+        self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
+
+    def test_sprint_retro_fallback_to_session_when_prep_fails(self):
+        """M4b: if prepare_sprint_retro_data.run returns None (sprint.md
+        missing or malformed), fall through to session retro path."""
+        import retrospective
+
+        # No sprint.md — prep will return None.
+        events = [make_event(content=f"event {i}") for i in range(5)]
+        events.append(
+            make_event(
+                "sprint",
+                content="Sprint ended",
+                metadata={"sprint_id": "sprint-042", "action": "end"},
+            )
+        )
+        self._write_events(events)
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+        self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
+
     def test_find_unanalyzed_start_sprint_retro_after_session_retro(self):
         """M1b: scanner walks backwards past a sprint retro and still finds
         the session retro watermark correctly.
