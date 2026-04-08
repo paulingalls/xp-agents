@@ -52,6 +52,8 @@ NEEDS_SPRINT = MarkerDef(".needs-sprint", "text")
 ACCEPT = MarkerDef(".accept", "text")
 SECURITY_TRIAGED = MarkerDef(".security-triaged", "json")
 PLAN_AWAITING_REVIEW = MarkerDef(".plan-awaiting-review", "text")
+# Gate file written by smm/_append_impl.py — keep filename in sync
+QUESTION_GATE = MarkerDef(".question-gate", "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 

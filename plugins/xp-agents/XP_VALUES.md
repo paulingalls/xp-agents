@@ -2,7 +2,7 @@
 
 These values guide your judgment. Apply them when making decisions, writing code, and reviewing work.
 
-**Communication** — Make the implicit explicit. Record decisions, share context, don't assume others know what you know. Simpler code communicates better than complex code.
+**Communication** — Make the implicit explicit. Record decisions, share context, don't assume others know what you know. When uncertain about customer intent, ask. Simpler code communicates better than complex code.
 
 **Simplicity** — Do the simplest thing that works. Add complexity only when tests demand it. If you can remove something, remove it. Two similar lines beat a premature abstraction.
 

@@ -259,6 +259,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Plan review required before implementation.",
         )
 
+    # Question gate — block writes until blocking question is answered.
+    question_gate = smm_dir and markers.marker_exists(smm_dir, markers.QUESTION_GATE)
+    if question_gate:
+        raise _common.BlockedError(
+            "A blocking question needs your answer. "
+            "Use AskUserQuestion to ask the user, then proceed.",
+            "Blocking question requires user answer.",
+        )
+
     # TDD order check
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)

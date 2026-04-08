@@ -450,6 +450,30 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             self.assertNotIn("xp-review-plan", result)
 
 
+class TestQuestionGate(_HookTestCase):
+    """PreToolUse blocks writes when a blocking question is unanswered."""
+
+    def test_question_gate_blocks_write(self):
+        """Write with .question-gate should block."""
+        gate = self.smm_dir / ".question-gate"
+        gate.write_text("test-question-id")
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("AskUserQuestion", str(ctx.exception))
+
+    def test_no_question_gate_no_block(self):
+        """Write without .question-gate should not block."""
+        result = pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("AskUserQuestion", result)
+
+
 class TestAcceptMarker(_HookTestCase):
     """pre_tool_write sets accept marker when in-progress stories exist."""
 

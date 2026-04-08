@@ -299,6 +299,11 @@ def append_event(smm_dir: Path, event: dict) -> None:
     # Notify on blocking questions — after write succeeds, never fails the write
     _notify_blocking_question(event)
 
+    # Write question gate for 🔴 questions — stores event ID for resolution
+    # Must match QUESTION_GATE in scripts/markers.py
+    if event.get("type") == "question" and event.get("priority") == "\U0001f534":
+        (smm_dir / ".question-gate").write_text(event.get("id", ""))
+
 
 def bulk_append(smm_dir: Path, events: list[dict]) -> None:
     """Append multiple events atomically with a single lock acquisition.

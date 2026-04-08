@@ -73,34 +73,25 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Assumption: description of what is assumed"
 ```
 
-### 7. Questions for the User
-When the plan contains ambiguity that only the user or customer can resolve — and getting it wrong means significant rework — write a `question` event instead of an assumption:
+### 7. Blocking Questions
+When the plan contains ambiguity that only the user can resolve — use one of two paths:
+
+**Assumption** (section 6): You have a reasonable answer. Record it, call it out in your output. Use this when course-correction would be modest if you're wrong.
+
+**Blocking question**: You genuinely can't decide, or the plan's approach might not match what the user actually wants. Record a 🔴 question event — this triggers a desktop notification and blocks implementation until the user answers.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "question" \
   --agent "xp-plan-reviewer" \
-  --content "Question text — include current assumption if priority is assumed" \
-  --priority "🟡"
+  --content "Clear description of what you need the user to decide" \
+  --priority "🔴"
 ```
 
-**Question vs. assumption:**
-- **Assumption** (section 5): You can state a reasonable default. If wrong, course-correction is modest.
-- **Question**: The answer depends on user/customer knowledge not in the codebase or SMM. Both plausible paths create significant rework if wrong.
+Use blocking questions whenever you're uncertain about customer intent — don't reserve them only for catastrophic scenarios. A quick question now prevents hours of wrong-direction work.
 
-**Priority:**
-- `🔴` — Both paths create significant rework. Plan cannot safely proceed. Use sparingly.
-- `🟡` — **Default.** State the assumption in the content and proceed. Escalate to `🔴` only if the wrong path costs days.
-- `🟢` — Nice to know, won't change approach.
-
-For assumed-priority questions, include the current assumption so question triage can present it:
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "question" \
-  --agent "xp-plan-reviewer" \
-  --content "Should auth tokens be stored in cookies or localStorage? Assuming cookies (more secure), but the existing codebase may have a localStorage dependency." \
-  --priority "🟡"
-```
+In your output, flag blocking questions prominently:
+> **BLOCKING QUESTION — the main agent must use AskUserQuestion to get the user's answer before proceeding.**
 
 ### 8. Architectural Decisions (Constraints Pillar)
 Record only **new** decisions — don't re-record decisions already in the SMM's Constraints pillar. For new decisions embedded in the plan:
@@ -133,10 +124,9 @@ Include your recommendation in the output under an "Execution mode" heading. If 
 
 Your response is returned to the main agent, which **must show it to the user in full** — do not write a summary, write the complete review. Structure it so the most actionable items come first.
 
-**Questions first.** If you recorded any `question` events, list them at the top under a "Questions for the user" heading:
-- State the question clearly
-- Note the current assumption (for `🟡` priority)
-- Flag `🔴` blocking questions explicitly — these may need an answer before implementation starts
+**Blocking questions first.** If you recorded any blocking questions, list them at the top under a "Blocking questions" heading:
+- State each question clearly
+- Include: **BLOCKING QUESTION — the main agent must use AskUserQuestion to get the user's answer before proceeding.**
 
 **Then plan issues:**
 - "Plan has 15 steps — split into two phases: [suggestion]"
