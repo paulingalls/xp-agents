@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import compact
 import concerns
 import coordination
 import markers
@@ -63,24 +62,12 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
 
     markers.marker_consume(smm_dir, markers.KICKOFF)
 
-    compact_result = None
-    try:
-        compact_result = compact.compact_after_curation(smm_dir)
-    except Exception as e:
-        concern = _common.make_event(
-            _common.CONCERN,
-            _HOUSEKEEPING_DONE_AGENT_ID,
-            f"Event log compaction failed: {e}",
-            severity="low",
-        )
-        _common.append_safe(smm_dir, concern)
-
-    archived = compact_result["archived"] if compact_result else 0
-    retained = compact_result["retained"] if compact_result else 0
+    # Compaction now runs inside save_smm.py so it covers both forked and
+    # inline housekeeping paths — no need to do it here.
     status = _common.make_event(
         _common.STATUS,
         _HOUSEKEEPING_DONE_AGENT_ID,
-        f"Kickoff complete. Compacted: {archived} archived, {retained} retained.",
+        "Kickoff complete — housekeeping subagent finished.",
         working_on=[],
     )
     _common.append_safe(smm_dir, status)

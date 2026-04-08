@@ -2,26 +2,32 @@
 """Save curated SMM: write four-pillar markdown atomically + update watermark.
 
 Accepts markdown on stdin, writes SHARED_MENTAL_MODEL.md atomically,
-and updates the curation watermark with the current event count.
+updates the curation watermark with the current event count, and
+compacts the event log.
+
+Compaction runs here (not in a hook) so it happens whether housekeeping
+ran as a forked subagent or inline — both paths call save_smm.py.
 
 Usage:
     echo '<markdown>' | python3 save_smm.py --smm-dir DIR
 """
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
-# Add smm/ to path so we can import materialize and _append_impl
+# Add smm/ to path so we can import materialize, compact, _append_impl
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
+import compact  # noqa: E402
 import materialize  # noqa: E402
 from _append_impl import write_text_atomic  # noqa: E402
 
 
 def run(content: str, smm_dir: Path) -> None:
-    """Write curated SMM and update curation watermark.
+    """Write curated SMM, update watermark, and compact the event log.
 
     Args:
         content: Four-pillar markdown to write.
@@ -38,6 +44,10 @@ def run(content: str, smm_dir: Path) -> None:
     # Update curation watermark with current event count
     events, _ = materialize.parse_events(smm_dir)
     materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
+
+    # Compact the event log — failures never fail the write
+    with contextlib.suppress(Exception):
+        compact.compact_after_curation(smm_dir)
 
 
 def main() -> None:

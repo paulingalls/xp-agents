@@ -343,9 +343,33 @@ class TestSaveSMM(_HookTestCase):
         self.assertTrue(smm_file.exists())
         self.assertEqual(smm_file.read_text(), "")
 
-    # TestCompactLog removed — compact_log.py deleted in M5 cleanup.
-    # Compaction is tested via compact.compact_after_curation() in
-    # tests/engine/test_compact_curation.py.
+    def test_triggers_compaction(self):
+        """save_smm.run() compacts the event log after writing and updating watermark.
+
+        Ensures compaction happens regardless of whether housekeeping runs
+        forked or inline — save_smm.py is the single place state changes.
+        """
+        from unittest.mock import patch
+
+        import save_smm
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        target = "save_smm.compact.compact_after_curation"
+        with patch(target) as mock_compact:
+            save_smm.run("# SMM\n", smm_dir=self.smm_dir)
+        mock_compact.assert_called_once_with(self.smm_dir)
+
+    def test_compaction_failure_does_not_fail_write(self):
+        """If compaction fails, save_smm should still succeed (write is primary)."""
+        from unittest.mock import patch
+
+        import save_smm
+
+        target = "save_smm.compact.compact_after_curation"
+        with patch(target, side_effect=OSError("boom")):
+            save_smm.run("# SMM\n", smm_dir=self.smm_dir)
+        # Write should have succeeded
+        self.assertTrue((self.smm_dir / "SHARED_MENTAL_MODEL.md").exists())
 
 
 class TestSaveRetrospectiveParams(_HookTestCase):
