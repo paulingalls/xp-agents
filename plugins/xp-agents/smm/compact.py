@@ -35,8 +35,10 @@ from event_schema import (
     EVENT_TYPE_RETROSPECTIVE,
     EVENT_TYPE_SESSION_END,
     EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
+    STATUS_ACTION_SPRINT_RETRO_DONE,
     sessions_since_event,
 )
 from materialize import read_curation_watermark, write_curation_watermark
@@ -197,8 +199,10 @@ def _classify_pre_watermark(
     1. Last 3 session_end events (for aging calculations)
     2. Last 2 retrospective events (for trend detection)
     3. Last 1 sprint end event (for velocity data)
-    4. SMM-referenced events (unresolved goals, active decisions, etc.)
-    5. Everything else → archived
+    4. sprint_retro_done status events paired with retained sprint_end
+       (so _needs_sprint_retro detection stays correct after compaction)
+    5. SMM-referenced events (unresolved goals, active decisions, etc.)
+    6. Everything else → archived
 
     Returns (retained, archived, smm_ref_count).
     """
@@ -239,6 +243,30 @@ def _classify_pre_watermark(
         if _is_sprint_end(e) and e.get("id", "") in keep_sprint_end_ids
     }
 
+    # Keep sprint_retro_done events whose sprint_id matches a retained
+    # sprint_end. Sprint-id-paired rule keeps detection correct after
+    # compaction — _needs_sprint_retro would otherwise re-fire on a
+    # retained sprint_end whose paired retro_done was archived.
+    retained_sprint_ids: set[str] = set()
+    for e in all_events:
+        if _is_sprint_end(e) and e.get("id", "") in keep_sprint_end_ids:
+            sid = e.get("metadata", {}).get("sprint_id")
+            if sid:
+                retained_sprint_ids.add(sid)
+
+    def _is_paired_retro_done(e: dict) -> bool:
+        if e.get("type") != EVENT_TYPE_STATUS:
+            return False
+        metadata = e.get("metadata") or {}
+        return (
+            metadata.get("action") == STATUS_ACTION_SPRINT_RETRO_DONE
+            and metadata.get("sprint_id") in retained_sprint_ids
+        )
+
+    pre_retro_done_indices = {
+        i for i, e in enumerate(pre_watermark) if _is_paired_retro_done(e)
+    }
+
     retained: list[dict] = []
     archived: list[dict] = []
     smm_ref_count = 0
@@ -250,6 +278,7 @@ def _classify_pre_watermark(
             i in keep_session_end_indices
             or i in pre_retro_indices
             or i in pre_sprint_end_indices
+            or i in pre_retro_done_indices
         ):
             retained.append(event)
             continue
