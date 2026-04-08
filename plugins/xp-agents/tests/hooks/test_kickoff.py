@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for kickoff hooks: kickoff_gate and kickoff_done.
+"""Tests for kickoff_gate hook.
 
-Split from test_session_lifecycle.py.
+Kickoff-done tests migrated to test_subagent.py::TestHousekeepingDone as
+part of the PostToolUse:Skill replacement plan — the housekeeping handler
+now lives in subagent_stop.py.
 """
 
 import sys
@@ -12,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _make_skill_input, make_event
+from conftest import _HookTestCase
 
 # ===========================================================================
 # kickoff_gate.py tests
@@ -197,171 +199,6 @@ class TestKickoffGateSprintInfo(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertEqual(result, "nudge")
-
-
-# ===========================================================================
-# PostToolUse:Skill — kickoff_done.py
-# ===========================================================================
-
-import kickoff_done  # noqa: E402
-
-
-class TestKickoffDone(_HookTestCase):
-    """PostToolUse:Skill hook injects SMM + behavioral guide after kickoff."""
-
-    def test_injects_smm_file_content(self):
-        """Should inject SHARED_MENTAL_MODEL.md content after housekeeping."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        )
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-
-    def test_injects_process_guide(self):
-        """Should inject PROCESS_GUIDE.md after xp-housekeeping."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("EnterPlanMode", result)
-
-    def test_no_xp_values_in_kickoff_done(self):
-        """Values injected at session start, not kickoff done."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertNotIn("XP Values", result)
-
-    def test_ignores_other_skills(self):
-        """Should return None for non-housekeeping skills."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_xp_agent_skips(self):
-        """Should skip for xp-agent types."""
-        result = kickoff_done.run(
-            _make_skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
-        )
-        self.assertIsNone(result)
-
-    def test_injects_smm_and_process(self):
-        """Output has SMM content and process guide."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        )
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("EnterPlanMode", result)
-
-    def test_graceful_without_smm_file(self):
-        """No SMM file — still returns process guide."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").unlink(missing_ok=True)
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("EnterPlanMode", result)
-
-    def test_deletes_needs_session_review_marker(self):
-        """Should delete .needs-kickoff marker after injection."""
-        marker = self.smm_dir / ".needs-kickoff"
-        marker.touch()
-        self._write_events([make_event("goal", content="Ship v1")])
-        kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertFalse(marker.exists())
-
-
-# ===========================================================================
-# M8a: kickoff_done sprint nudge tests
-# ===========================================================================
-
-_SPRINT_READY_ONLY = """\
-# Sprint: Build auth
-## Stories
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** ready
-"""
-
-_SPRINT_IN_PROGRESS = """\
-# Sprint: Build auth
-## Stories
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** in-progress
-"""
-
-
-class TestKickoffDoneSprintNudge(_HookTestCase):
-    """M8a: kickoff_done nudges when no in-progress stories."""
-
-    def test_nudges_when_no_in_progress_stories(self):
-        self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.md").write_text(_SPRINT_READY_ONLY)
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("No stories marked", result)
-
-    def test_no_nudge_when_in_progress_exists(self):
-        self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.md").write_text(_SPRINT_IN_PROGRESS)
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertNotIn("No stories marked", result)
-
-    def test_no_nudge_when_no_sprint_file(self):
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertNotIn("No stories marked", result)
-
-    def test_clears_sprint_markers(self):
-        self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / ".needs-product-spec").write_text("startup")
-        (self.smm_dir / ".needs-sprint").write_text("startup")
-        kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
-        self.assertFalse((self.smm_dir / ".needs-sprint").exists())
-
-    def test_nudge_appended_to_guide(self):
-        self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.md").write_text(_SPRINT_READY_ONLY)
-        result = kickoff_done.run(
-            _make_skill_input("xp-housekeeping"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIn("EnterPlanMode", result)
-        self.assertIn("No stories marked", result)
 
 
 if __name__ == "__main__":

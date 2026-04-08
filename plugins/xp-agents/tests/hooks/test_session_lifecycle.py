@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for session lifecycle hooks: session_end and pre_compact.
 
-Kickoff tests (kickoff_gate, kickoff_done) in test_kickoff.py.
+Kickoff gate tests in test_kickoff.py; housekeeping handler tests in
+test_subagent.py::TestHousekeepingDone.
 """
 
 import sys
