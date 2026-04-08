@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.0.12 — Replace PostToolUse:Skill with Reliable Signals
+
+### Fixed
+- **Sprint lifecycle nudges now fire reliably.** `PostToolUse:Skill` fires at unpredictable times — sometimes when the Skill tool loads its content (before any work happens), sometimes after. For inline skills like `/xp-accept` this meant the old `accept_done.py` nudge fired ~5 minutes BEFORE stories were actually marked done, so it never saw the completed sprint and never suggested `/xp-sprint-review`. Every critical state transition now uses a reliable trigger.
+- **SessionEnd hook race condition** — Changed `session_end.py` to `async: false` so the event write completes before the process exits. Fixes the oscillating `final_status_recorded` flag that had persisted for 9+ sessions.
+
+### Architecture
+- **Unified Stop gate cascade** — New `sprint_stop_gate.py` replaces `accept_gate.py` with a single Stop hook that handles the full sprint lifecycle: in-progress + accept marker → run `/xp-accept`, sprint complete + no sprint_end → run `/xp-sprint-review`, sprint_end + no retro_done → run `/xp-run-sprint-retro`. Common deferral logic (review cycle active, teammates active) shared across all three states.
+- **Forked subagent completion via SubagentStop** — New handlers in `subagent_stop.py` (`_handle_housekeeping_done`, `_handle_sprint_review_done`, `_handle_sprint_retro_done`) run BEFORE the is_xp_agent skip, same pattern as `_update_review_cycle_flags`. Replaces `kickoff_done.py` and `sprint_review_done.py`.
+- **File-write triggers for inline skills** — `save_smm.py` now calls `compact.compact_after_curation()` directly; `save_sprint.py` handles the acceptance flow (clear `.accept` marker, record `iteration_complete` event, nudge sprint-review); `save_product_spec.py` clears `.needs-product-spec`. Covers both forked and inline execution paths.
+- **Shared marker name constants** — New `smm/marker_names.py` module with zero imports, importable from both `scripts/` and `skills/*/scripts/` across the sys.path boundary. Eliminates filename drift.
+- **Status event action discriminators** — `STATUS_ACTION_ITERATION_COMPLETE` and `STATUS_ACTION_SPRINT_RETRO_DONE` in `event_schema.py` alongside `SPRINT_ACTION_END`. New events use canonical agent_ids + `metadata.action` instead of non-standard agent_id substrings.
+
+### Removed
+- `scripts/kickoff_done.py` — logic moved to `subagent_stop._handle_housekeeping_done` + `save_smm.py` compaction
+- `scripts/accept_done.py` — logic moved to `save_sprint.py` acceptance flow
+- `scripts/accept_gate.py` — replaced by `sprint_stop_gate.py`
+- `scripts/sprint_review_done.py` — logic moved to `subagent_stop._handle_sprint_review_done`
+
+### Stats
+- 1401 tests (all passing) — 15 new cascade tests, 18 handler tests, 8 accept-flow tests, 2 compaction tests
+
 ## v2.0.11 — Security Reviewer Simplification & Skill Guard Consistency
 
 ### Fixed
