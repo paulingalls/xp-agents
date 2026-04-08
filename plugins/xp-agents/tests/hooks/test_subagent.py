@@ -391,5 +391,99 @@ class TestHousekeepingDone(_HookTestCase):
         self.assertNotIn("No stories marked", result)
 
 
+_SPRINT_REVIEW_MIXED = """\
+# Sprint: Build auth system
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-15
+
+## Stories
+
+### story-001: Login
+- **Size:** M
+- **Status:** done
+
+### story-002: Register
+- **Size:** S
+- **Status:** done
+
+### story-003: Logout
+- **Size:** S
+- **Status:** deferred
+
+### story-004: Profile
+- **Size:** L
+- **Status:** ready
+"""
+
+
+class TestSprintReviewerDone(_HookTestCase):
+    """subagent_stop._handle_sprint_review_done runs after xp-sprint-reviewer."""
+
+    def _reviewer_input(self, agent_type: str = "xp-sprint-reviewer") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "reviewer-1",
+            "agent_type": agent_type,
+            "last_assistant_message": "Review complete.",
+        }
+
+    def _seed_sprint(self, content: str = _SPRINT_REVIEW_MIXED) -> None:
+        (self.smm_dir / "sprint.md").write_text(content)
+
+    def test_returns_retro_nudge(self):
+        """After sprint-reviewer finishes, returns a retro nudge."""
+        self._seed_sprint()
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("sprint-retro", result.lower())
+
+    def test_matches_qualified_agent_type(self):
+        """Should match agent_type 'xp-agents:xp-sprint-reviewer' too."""
+        self._seed_sprint()
+        result = subagent_stop.run(
+            self._reviewer_input(agent_type="xp-agents:xp-sprint-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+
+    def test_logs_sprint_end_event(self):
+        """Sprint end event has type=sprint, action=end, velocity metadata."""
+        self._seed_sprint()
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        self.assertEqual(len(sprint_events), 1)
+        meta = sprint_events[0].get("metadata", {})
+        self.assertEqual(meta["action"], "end")
+        self.assertEqual(meta["sprint_id"], "sprint-001")
+        self.assertIn("stories_planned", meta)
+        self.assertIn("stories_delivered", meta)
+        self.assertIn("stories_carried", meta)
+
+    def test_sprint_end_velocity_values(self):
+        """Velocity in sprint end event matches sprint.md data."""
+        self._seed_sprint()
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        meta = sprint_events[0]["metadata"]
+        self.assertEqual(meta["stories_planned"], 4)
+        self.assertEqual(meta["stories_delivered"], 2)
+        self.assertEqual(meta["stories_carried"], 1)
+
+    def test_cleans_up_input_file(self):
+        """Removes .sprint-review-input.json after handling."""
+        self._seed_sprint()
+        (self.smm_dir / ".sprint-review-input.json").write_text("{}")
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".sprint-review-input.json").exists())
+
+    def test_no_sprint_graceful(self):
+        """No sprint.md → still returns nudge, no crash."""
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

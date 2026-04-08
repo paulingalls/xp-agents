@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for prepare_review_data.py, sprint_review_done.py, and preload."""
+"""Tests for prepare_review_data.py and the sprint-review preload.
+
+sprint_review_done tests migrated to test_subagent.py::TestSprintReviewerDone
+as part of the PostToolUse:Skill replacement plan — the handler now
+lives in subagent_stop.py.
+"""
 
 import sys
 import unittest
@@ -15,7 +20,7 @@ sys.path.insert(
     ),
 )
 
-from conftest import _HookTestCase, _IntegrationTestCase, _make_skill_input
+from conftest import _HookTestCase, _IntegrationTestCase
 
 # ---------------------------------------------------------------------------
 # Sprint fixtures
@@ -247,122 +252,6 @@ class TestPrepareReviewData(_HookTestCase):
 # ===========================================================================
 # sprint_review_done.py
 # ===========================================================================
-
-
-class TestSprintReviewDone(_HookTestCase):
-    """M11: sprint_review_done records sprint end event and nudges retro."""
-
-    def _seed_sprint(self, content: str = SPRINT_MIXED) -> None:
-        (self.smm_dir / "sprint.md").write_text(content)
-
-    def test_xp_agent_skips(self):
-        import sprint_review_done
-
-        result = sprint_review_done.run(
-            _make_skill_input(agent_type="xp-nav"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_ignores_other_skills(self):
-        import sprint_review_done
-
-        result = sprint_review_done.run(
-            _make_skill_input("simplify"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_matches_qualified_name(self):
-        import sprint_review_done
-
-        self._seed_sprint()
-        result = sprint_review_done.run(
-            _make_skill_input("xp-agents:xp-sprint-review"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-
-    def test_matches_unqualified_name(self):
-        import sprint_review_done
-
-        self._seed_sprint()
-        result = sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-
-    def test_returns_retro_nudge(self):
-        import sprint_review_done
-
-        self._seed_sprint()
-        result = sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
-        )
-        self.assertIn("sprint-retro", result.lower())
-
-    def test_logs_sprint_end_event(self):
-        """Sprint end event with type=sprint, action=end, velocity."""
-        import sprint_review_done
-
-        self._seed_sprint()
-        sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
-        )
-        events = self._read_events()
-        sprint_events = [e for e in events if e.get("type") == "sprint"]
-        self.assertEqual(len(sprint_events), 1)
-        meta = sprint_events[0].get("metadata", {})
-        self.assertEqual(meta["action"], "end")
-        self.assertEqual(meta["sprint_id"], "sprint-001")
-        self.assertIn("stories_planned", meta)
-        self.assertIn("stories_delivered", meta)
-        self.assertIn("stories_carried", meta)
-
-    def test_sprint_end_velocity_values(self):
-        """Velocity in sprint end event matches sprint.md data."""
-        import sprint_review_done
-
-        self._seed_sprint(SPRINT_MIXED)
-        sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
-        )
-        events = self._read_events()
-        sprint_events = [e for e in events if e.get("type") == "sprint"]
-        meta = sprint_events[0]["metadata"]
-        self.assertEqual(meta["stories_planned"], 4)
-        self.assertEqual(meta["stories_delivered"], 2)
-        self.assertEqual(meta["stories_carried"], 1)
-
-    def test_cleans_up_input_file(self):
-        import sprint_review_done
-
-        self._seed_sprint()
-        (self.smm_dir / ".sprint-review-input.json").write_text("{}")
-        sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
-        )
-        self.assertFalse((self.smm_dir / ".sprint-review-input.json").exists())
-
-    def test_no_sprint_graceful(self):
-        """No sprint.md -> still returns nudge, no crash."""
-        import sprint_review_done
-
-        result = sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
-        )
-        # Should return nudge even without sprint data
-        self.assertIsNotNone(result)
-
-    def test_no_smm_dir_returns_none(self):
-        import sprint_review_done
-
-        result = sprint_review_done.run(
-            _make_skill_input("xp-sprint-review"),
-            smm_dir=Path("/nonexistent/path"),
-        )
-        self.assertIsNone(result)
 
 
 # ===========================================================================

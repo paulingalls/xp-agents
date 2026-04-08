@@ -359,12 +359,6 @@ class TestPluginIntegrity(unittest.TestCase):
         content = hooks_path.read_text()
         self.assertIn("sprint_stop_gate.py", content)
 
-    def test_hooks_json_has_sprint_review_done(self):
-        """M11: hooks.json PostToolUse Skill must include sprint_review_done.py."""
-        hooks_path = self.plugin_root / "hooks" / "hooks.json"
-        content = hooks_path.read_text()
-        self.assertIn("sprint_review_done.py", content)
-
     def test_hooks_json_has_teammate_idle(self):
         """M13: hooks.json TeammateIdle must include teammate_idle.py."""
         hooks_path = self.plugin_root / "hooks" / "hooks.json"

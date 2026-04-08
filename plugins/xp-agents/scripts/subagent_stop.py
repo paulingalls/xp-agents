@@ -16,15 +16,24 @@ import _common
 import concerns
 import coordination
 import markers
+import sprint_parser
 import sprint_state
+from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
 
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
+_SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
+_SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
 
 _SPRINT_NUDGE = (
     "\n\n---\n**Sprint notice:** No stories marked "
     "`in-progress`. Run story selection to pick "
     "stories for this iteration."
+)
+
+_SPRINT_RETRO_NUDGE = (
+    "\n\n---\n**Sprint review complete.** "
+    "Run `/xp-run-sprint-retro` to reflect on the sprint."
 )
 
 
@@ -93,6 +102,44 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
     return "\n\n".join(parts) if parts else None
 
 
+def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
+    """Handle xp-sprint-reviewer subagent completion.
+
+    Records a sprint end event with velocity, cleans up the review input
+    file, and returns the sprint-retro nudge as additionalContext.
+
+    Returns the nudge string or None if this isn't the sprint-reviewer.
+    """
+    agent_type = input_data.get("agent_type", "")
+    if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
+        return None
+
+    sprint_content = sprint_state.read_sprint_content(smm_dir)
+    if sprint_content:
+        sprint_data = sprint_parser.parse_sprint_data(sprint_content)
+        velocity = sprint_parser.compute_velocity(sprint_data)
+        sprint_id = sprint_data["sprint_id"] or "unknown"
+        goal = sprint_data["goal"] or "Sprint review"
+
+        event = _common.make_event(
+            EVENT_TYPE_SPRINT,
+            _SPRINT_REVIEWER_AGENT_ID,
+            f"Sprint end: {goal}. "
+            f"{velocity['stories_delivered']}/{velocity['stories_planned']}"
+            " stories delivered.",
+            metadata={
+                "sprint_id": sprint_id,
+                "action": SPRINT_ACTION_END,
+                **velocity,
+            },
+        )
+        _common.append_safe(smm_dir, event)
+
+    (smm_dir / ".sprint-review-input.json").unlink(missing_ok=True)
+
+    return _SPRINT_RETRO_NUDGE
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core SubagentStop logic. Returns context or None."""
     # Review cycle flags must run before is_xp_agent skip because
@@ -106,6 +153,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         housekeeping_result = _handle_housekeeping_done(smm_dir, input_data)
         if housekeeping_result is not None:
             return housekeeping_result
+
+        # Sprint reviewer is also xp-* — its completion advances the
+        # sprint lifecycle and nudges sprint retro.
+        review_result = _handle_sprint_review_done(smm_dir, input_data)
+        if review_result is not None:
+            return review_result
 
     if _common.is_xp_agent(input_data):
         return None

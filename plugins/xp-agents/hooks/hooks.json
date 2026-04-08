@@ -166,12 +166,6 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_cycle_done.py",
             "timeout": 5000,
             "statusMessage": "Updating review cycle..."
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sprint_review_done.py",
-            "timeout": 5000,
-            "statusMessage": "Recording sprint review results..."
           }
         ]
       },
