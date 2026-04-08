@@ -76,7 +76,7 @@ Produce sprint-level (not session-level) retrospective:
 ## Step 4: Save the Retrospective
 
 ```bash
-cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py --smm-dir <SMM_DIR> --agent xp-sprint-retro --prefix "Sprint retrospective" --cleanup-file .sprint-retro-input.json
+cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py --smm-dir <SMM_DIR> --agent xp-sprint-retro --prefix "Sprint retrospective" --cleanup-file .sprint-retro-input.json --retro-kind sprint
 {
   "keep": [{"content": "description", "event_refs": [], "values": ["Courage"]}],
   "fix": [{"content": "description", "event_refs": [], "xp_value": "Simplicity"}],

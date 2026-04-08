@@ -13,9 +13,11 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import security
+from event_schema import RETRO_ACTION_SESSION_DONE
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -244,12 +246,21 @@ def _build_retro_digest(
 
 
 def _find_unanalyzed_start(events: list[dict]) -> int:
-    """Find the index of the first unanalyzed event (after last retro).
+    """Find the index of the first unanalyzed event (after last session retro).
+
+    Only session retrospectives advance the watermark. Sprint retros are
+    transparent — they don't mean "we reviewed these events for trends".
+    Legacy retros without metadata.action default to session (backwards
+    compat for pre-M1 event logs).
 
     Returns the start index. Unanalyzed count is len(events) - start.
     """
     for i in range(len(events) - 1, -1, -1):
-        if events[i].get("type") == _common.RETROSPECTIVE:
+        event = events[i]
+        if event.get("type") != _common.RETROSPECTIVE:
+            continue
+        action = event.get("metadata", {}).get("action")
+        if action is None or action == RETRO_ACTION_SESSION_DONE:
             return i + 1
     return 0
 

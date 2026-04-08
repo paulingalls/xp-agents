@@ -107,6 +107,71 @@ class TestRetrospective(_HookTestCase):
         self.assertIsNone(result)
         self.assertFalse((self.smm_dir / ".retro-input.json").exists())
 
+    def test_find_unanalyzed_start_ignores_sprint_retro(self):
+        """M1b: sprint retro events do not advance the session retro watermark.
+
+        Scenario: sprint retro ran at end of last session, now a new session
+        starts. The session retro scanner should count events BEFORE the
+        sprint retro, not stop at it.
+        """
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        sprint_retro = make_event("retrospective", content="sprint retro")
+        sprint_retro["metadata"] = {"action": "sprint_retro_done"}
+        events.append(sprint_retro)
+        events.extend([make_event(content=f"post {i}") for i in range(3)])
+        start = retrospective._find_unanalyzed_start(events)
+        # Sprint retro is transparent — all 7 events are unanalyzed from the
+        # session retro's perspective.
+        self.assertEqual(start, 0)
+
+    def test_find_unanalyzed_start_stops_at_session_retro(self):
+        """M1b: session retro events still advance the watermark as before."""
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        session_retro = make_event("retrospective", content="session retro")
+        session_retro["metadata"] = {"action": "session_retro_done"}
+        events.append(session_retro)
+        events.extend([make_event(content=f"post {i}") for i in range(3)])
+        start = retrospective._find_unanalyzed_start(events)
+        # Stops just after the session retro at index 3.
+        self.assertEqual(start, 4)
+
+    def test_find_unanalyzed_start_legacy_retro_without_action(self):
+        """M1b: legacy retrospective events with no metadata.action must still
+        act as watermarks (backwards compat for pre-M1 event logs like the
+        xp-agents-inline test project).
+        """
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        # Legacy retro: no metadata at all
+        events.append(make_event("retrospective", content="legacy retro"))
+        events.extend([make_event(content=f"post {i}") for i in range(3)])
+        start = retrospective._find_unanalyzed_start(events)
+        self.assertEqual(start, 4)
+
+    def test_find_unanalyzed_start_sprint_retro_after_session_retro(self):
+        """M1b: scanner walks backwards past a sprint retro and still finds
+        the session retro watermark correctly.
+        """
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        session_retro = make_event("retrospective", content="session")
+        session_retro["metadata"] = {"action": "session_retro_done"}
+        events.append(session_retro)  # index 3
+        events.extend([make_event(content=f"mid {i}") for i in range(2)])
+        sprint_retro = make_event("retrospective", content="sprint")
+        sprint_retro["metadata"] = {"action": "sprint_retro_done"}
+        events.append(sprint_retro)  # index 6 — ignored
+        events.extend([make_event(content=f"post {i}") for i in range(2)])
+        start = retrospective._find_unanalyzed_start(events)
+        # Stops at session retro index 3, returns 4
+        self.assertEqual(start, 4)
+
     def test_retro_history_gathered(self):
         import retrospective
 
