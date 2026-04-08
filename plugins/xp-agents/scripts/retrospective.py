@@ -6,7 +6,6 @@ have accumulated (≥5), writes .retro-input.json for the retrospective
 analyst agent hook to consume. Always exits 0.
 """
 
-import json
 import re
 import sys
 from collections import Counter
@@ -19,15 +18,14 @@ import _common
 import security
 import sprint_retro_detection
 from event_schema import RETRO_ACTION_SESSION_DONE
+from retro_history import gather_retro_history
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 RETRO_THRESHOLD = 5
-MAX_RETRO_HISTORY = 2
 MAX_EVENTS_IN_RETRO = 200
-_MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
 
 
 # ---------------------------------------------------------------------------
@@ -266,40 +264,6 @@ def _find_unanalyzed_start(events: list[dict]) -> int:
     return 0
 
 
-def _gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[dict]:
-    """Read the last N retrospective JSON files, slimmed to content only.
-
-    Strips event_refs, values, xp_value — the retro agent only needs
-    the content strings for trend detection (recurring fixes, adopted tries).
-    """
-    retro_dir = smm_dir / "retrospectives"
-    if not retro_dir.is_dir():
-        return []
-
-    files = sorted(retro_dir.glob("*.json"), reverse=True)
-    result: list[dict] = []
-    for f in files[:limit]:
-        try:
-            if f.stat().st_size > _MAX_RETRO_FILE_SIZE:
-                continue
-            data = json.loads(f.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                # Slim: keep only content strings from each item
-                slimmed: dict = {}
-                if "timestamp" in data:
-                    slimmed["timestamp"] = data["timestamp"]
-                for field in ("keep", "fix", "try"):
-                    items = data.get(field, [])
-                    slimmed[field] = [
-                        item.get("content", item) if isinstance(item, dict) else item
-                        for item in items
-                    ]
-                result.append(slimmed)
-        except (json.JSONDecodeError, OSError):
-            continue
-    return result
-
-
 def _compute_session_stats(events: list[dict]) -> dict:
     """Compute session statistics using shared resolution tracking."""
     import resolution
@@ -465,7 +429,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if unanalyzed_count < RETRO_THRESHOLD:
         return None
 
-    retro_history = _gather_retro_history(smm_dir)
+    retro_history = gather_retro_history(smm_dir)
     retro_input = _build_retro_input(events, start_idx, retro_history)
     _write_retro_input(smm_dir, retro_input)
 
