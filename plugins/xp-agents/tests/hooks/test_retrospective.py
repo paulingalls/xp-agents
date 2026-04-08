@@ -729,6 +729,134 @@ class TestRetrospectiveResolvedConcerns(_HookTestCase):
         self.assertNotIn("Lint error in foo.py", group_keys)
 
 
+class TestRetrospectiveDigestResolutions(_HookTestCase):
+    """digest.resolutions exposes all 6 resolution types to the retro analyst."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def _run_and_load(self, events):
+        import retrospective
+
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            return json.load(f)
+
+    def test_digest_includes_debt_resolutions(self):
+        debt = make_event("debt", content="Fix the thing later")
+        resolver = make_event(
+            "status",
+            content="Debt closed: fixed it",
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        data = self._run_and_load(
+            [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        resolutions = data["digest"]["resolutions"]
+        self.assertIn(debt["id"][:8], resolutions)
+        entry = resolutions[debt["id"][:8]]
+        self.assertEqual(entry["type"], "debt")
+        self.assertEqual(entry["resolver_id"], resolver["id"][:8])
+        self.assertIn("Debt closed", entry["resolver_content"])
+
+    def test_digest_includes_question_answers(self):
+        q = make_event("question", content="What do?")
+        resolver = make_event(
+            "status",
+            content="Answered via resolve",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        data = self._run_and_load(
+            [q, resolver] + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        self.assertIn(q["id"][:8], data["digest"]["resolutions"])
+        self.assertEqual(data["digest"]["resolutions"][q["id"][:8]]["type"], "question")
+
+    def test_digest_includes_all_resolution_types(self):
+        goal = make_event("goal", content="Ship feature X")
+        assumption = make_event("assumption", content="Assuming X works like Y")
+        concern = make_event("concern", content="A worry")
+        decision = make_event("decision", content="Use X", topic="x-topic")
+        resolver = make_event(
+            "status",
+            content="Everything resolved",
+            working_on=[],
+            metadata={
+                "resolves": [
+                    goal["id"],
+                    assumption["id"],
+                    concern["id"],
+                    decision["id"],
+                ]
+            },
+        )
+        data = self._run_and_load(
+            [goal, assumption, concern, decision, resolver]
+            + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        resolutions = data["digest"]["resolutions"]
+        self.assertEqual(resolutions[goal["id"][:8]]["type"], "goal")
+        self.assertEqual(resolutions[assumption["id"][:8]]["type"], "assumption")
+        self.assertEqual(resolutions[concern["id"][:8]]["type"], "concern")
+        self.assertEqual(resolutions[decision["id"][:8]]["type"], "decision")
+
+    def test_resolutions_resolver_content_truncated_to_200(self):
+        debt = make_event("debt", content="Thing")
+        long_content = "x" * 500
+        resolver = make_event(
+            "status",
+            content=long_content,
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        data = self._run_and_load(
+            [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        self.assertEqual(
+            len(data["digest"]["resolutions"][debt["id"][:8]]["resolver_content"]),
+            200,
+        )
+
+    def test_resolutions_use_short_ids(self):
+        debt = make_event("debt", content="Thing")
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        data = self._run_and_load(
+            [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        for key in data["digest"]["resolutions"]:
+            self.assertEqual(len(key), 8, f"key {key!r} is not 8 chars")
+
+    def test_resolutions_single_bucket_invariant(self):
+        debt = make_event("debt", content="Thing 1")
+        goal = make_event("goal", content="Thing 2")
+        resolver = make_event(
+            "status",
+            content="Both fixed",
+            working_on=[],
+            metadata={"resolves": [debt["id"], goal["id"]]},
+        )
+        data = self._run_and_load(
+            [debt, goal, resolver] + [make_event(content=f"e{i}") for i in range(4)]
+        )
+        resolutions = data["digest"]["resolutions"]
+        # Each target ID lands in exactly one bucket — no duplication across types.
+        self.assertEqual(len(resolutions), 2)
+        self.assertEqual(resolutions[debt["id"][:8]]["type"], "debt")
+        self.assertEqual(resolutions[goal["id"][:8]]["type"], "goal")
+
+
 class TestRetrospectiveNudge(_HookTestCase):
     """M6.5: retrospective.py should nudge invoking xp-retrospective."""
 

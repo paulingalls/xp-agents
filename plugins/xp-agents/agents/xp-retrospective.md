@@ -22,6 +22,7 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
      - `status_summary` — `{total, file_writes, test_runs, security_triages, commits, quality_reviews, lint_events, other}` counts
      - `concern_groups` — deduplicated concerns grouped by content
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
+     - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, and decision resolved this session via `metadata.resolves`. Use this to detect whether previous Try items were honored — a Try mentioning a short ID present in this map was resolved.
    - `previous_retros` — last 2-3 retrospective summaries for trend detection
    - `event_type_counts` — breakdown by event type
    - `session_stats` — concern resolution ratio, decision counts, etc.

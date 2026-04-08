@@ -213,15 +213,47 @@ def _build_honesty_signals(events: list[dict]) -> dict:
     return signals
 
 
-def _build_retro_digest(
-    events: list[dict], start_idx: int, resolved_concern_ids: set[str]
-) -> dict:
+_MAX_RESOLVER_CONTENT = 200
+
+# (event type, resolutions dict key) — ordered for deterministic output
+_RESOLUTION_BUCKETS = (
+    (_common.CONCERN, "concern_resolutions"),
+    (_common.DEBT, "debt_resolutions"),
+    (_common.GOAL, "goal_resolutions"),
+    (_common.QUESTION, "question_answers"),
+    (_common.ASSUMPTION, "assumption_resolutions"),
+    (_common.DECISION, "decision_resolutions"),
+)
+
+
+def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
+    """Map short target IDs to resolver event info for the retro digest.
+
+    Each target ID lands in exactly one bucket — compute_resolutions uses
+    a match/case on event type so a single ID cannot appear under multiple
+    types.
+    """
+    result: dict[str, dict] = {}
+    for type_name, bucket_key in _RESOLUTION_BUCKETS:
+        for target_id, resolver in resolutions.get(bucket_key, {}).items():
+            result[target_id[:8]] = {
+                "type": type_name,
+                "resolver_id": resolver.get("id", "")[:8],
+                "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
+            }
+    return result
+
+
+def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -> dict:
     """Build structured digest from unanalyzed events.
 
     Resolved concerns are excluded from signal_events and concern_groups
     and rolled up to a count — the retro doesn't need their full text.
+    The full resolutions map (all 6 types) is exposed so the retro analyst
+    can cross-reference previous Try items against this session's activity.
     """
     unanalyzed = events[start_idx:]
+    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
 
     signal_events = [
         e
@@ -241,6 +273,7 @@ def _build_retro_digest(
         "concern_groups": concern_groups,
         "honesty_signals": honesty_signals,
         "resolved_concern_count": len(resolved_concern_ids),
+        "resolutions": _build_resolutions_map(resolutions),
     }
 
 
@@ -317,8 +350,7 @@ def _build_retro_input(
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
     resolutions = resolution.compute_resolutions(unanalyzed)
-    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
-    digest = _build_retro_digest(events, start_idx, resolved_concern_ids)
+    digest = _build_retro_digest(events, start_idx, resolutions)
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id
