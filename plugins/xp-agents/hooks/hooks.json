@@ -169,12 +169,6 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/accept_done.py",
-            "timeout": 5000,
-            "statusMessage": "Recording acceptance results..."
-          },
-          {
-            "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sprint_review_done.py",
             "timeout": 5000,
             "statusMessage": "Recording sprint review results..."

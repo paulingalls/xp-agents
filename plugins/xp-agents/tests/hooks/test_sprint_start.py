@@ -92,6 +92,132 @@ class TestSaveSprint(_HookTestCase):
         self.assertEqual((self.smm_dir / "sprint.md").read_text(), content)
 
 
+_SPRINT_COMPLETE = (
+    "# Sprint: Build auth\n\n"
+    "- **Sprint ID:** sprint-001\n"
+    "- **Started:** 2026-04-01\n\n"
+    "## Stories\n\n"
+    "### story-001: login\n"
+    "- **Status:** done\n"
+)
+
+_SPRINT_IN_PROGRESS_BODY = (
+    "# Sprint: Build auth\n\n"
+    "- **Sprint ID:** sprint-001\n"
+    "- **Started:** 2026-04-01\n\n"
+    "## Stories\n\n"
+    "### story-001: login\n"
+    "- **Status:** in-progress\n"
+)
+
+_SPRINT_READY_ONLY_BODY = (
+    "# Sprint: Build auth\n\n"
+    "- **Sprint ID:** sprint-001\n"
+    "- **Started:** 2026-04-01\n\n"
+    "## Stories\n\n"
+    "### story-001: login\n"
+    "- **Status:** ready\n"
+)
+
+
+class TestSaveSprintAcceptanceFlow(_HookTestCase):
+    """save_sprint.py handles .accept marker clearing and iteration_complete.
+
+    This replaces the old accept_done.py behavior — save_sprint.py is the
+    reliable signal (file write) for acceptance completion.
+    """
+
+    def _run_save(self, content: str) -> None:
+        if not _SAVE_SCRIPT.is_file():
+            self.skipTest("save_sprint.py not yet created")
+        sys.path.insert(0, str(_SAVE_SCRIPT.parent))
+        import importlib
+
+        mod = importlib.import_module("save_sprint")
+        importlib.reload(mod)
+        mod.run(content, self.smm_dir)
+
+    def _read_events(self) -> list[dict]:
+        events_file = self.smm_dir / "events.jsonl"
+        if not events_file.exists():
+            return []
+        text = events_file.read_text().strip()
+        if not text:
+            return []
+        return [json.loads(line) for line in text.split("\n") if line.strip()]
+
+    def test_clears_accept_marker_when_no_in_progress(self):
+        """.accept present and no in-progress stories → marker cleared."""
+        (self.smm_dir / ".accept").write_text("done")
+        self._run_save(_SPRINT_COMPLETE)
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_keeps_accept_marker_when_in_progress_remains(self):
+        """.accept present with in-progress stories → marker preserved."""
+        (self.smm_dir / ".accept").write_text("done")
+        self._run_save(_SPRINT_IN_PROGRESS_BODY)
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_no_iteration_complete_without_accept_marker(self):
+        """Without .accept marker, no iteration_complete event is recorded."""
+        self._run_save(_SPRINT_COMPLETE)
+        events = self._read_events()
+        iter_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "iteration_complete"
+        ]
+        self.assertEqual(len(iter_events), 0)
+
+    def test_iteration_complete_recorded_on_accept_flow(self):
+        """.accept present → iteration_complete status event recorded."""
+        (self.smm_dir / ".accept").write_text("done")
+        self._run_save(_SPRINT_COMPLETE)
+        events = self._read_events()
+        iter_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "iteration_complete"
+        ]
+        self.assertEqual(len(iter_events), 1)
+
+    def test_sprint_complete_nudge_printed(self):
+        """Sprint becomes complete in accept flow → stdout contains review nudge."""
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        (self.smm_dir / ".accept").write_text("done")
+        buf = StringIO()
+        with redirect_stdout(buf):
+            self._run_save(_SPRINT_COMPLETE)
+        self.assertIn("Sprint complete", buf.getvalue())
+        self.assertIn("xp-sprint-review", buf.getvalue())
+
+    def test_no_nudge_when_sprint_not_complete(self):
+        """Acceptance flow but sprint still has ready stories → no nudge."""
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        (self.smm_dir / ".accept").write_text("done")
+        buf = StringIO()
+        with redirect_stdout(buf):
+            self._run_save(_SPRINT_READY_ONLY_BODY)
+        # .accept clears (no in-progress), but sprint isn't complete
+        self.assertNotIn("Sprint complete", buf.getvalue())
+
+    def test_clears_needs_sprint_marker_with_active_stories(self):
+        """NEEDS_SPRINT marker clears when sprint has active stories."""
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        self._run_save(_SPRINT_READY_ONLY_BODY)
+        self.assertFalse((self.smm_dir / ".needs-sprint").exists())
+
+    def test_keeps_needs_sprint_marker_with_no_active_stories(self):
+        """NEEDS_SPRINT marker is preserved when no active stories exist."""
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        self._run_save(_SPRINT_COMPLETE)
+        self.assertTrue((self.smm_dir / ".needs-sprint").exists())
+
+
 # ===========================================================================
 # preload.sh — Sprint start preload script
 # ===========================================================================
