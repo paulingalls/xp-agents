@@ -49,7 +49,7 @@ These are **LLM-readable markdown** (no Python parser). Skills read/write them d
 | `answer` | Agent | Response to a question event |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
-| `sprint` | Hook (sprint_review_done.py) | Sprint lifecycle events (start/end with velocity data) |
+| `sprint` | Hook (subagent_stop._handle_sprint_review_done) | Sprint lifecycle events (start/end with velocity data) |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
 | `retrospective` | Subagent (retrospective) | Keep/Fix/Try analysis |
 
@@ -97,16 +97,14 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset, security marker consume), test result parsing. `async: true` |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + behavioral guide) + watermark |
-| **SubagentStop** | | `subagent_stop.py` | Record completion, conflict detection, write `.plan-awaiting-review` marker file for Plan |
+| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (inject SMM after xp-housekeeper), `_handle_sprint_review_done` (record sprint end + retro nudge), `_handle_sprint_retro_done` (record retro_done event). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done, security_review_done) when review skills complete. Nudges next step via `additionalContext` |
-| **PostToolUse** | `Skill` | `kickoff_done.py` | Inject behavioral guide after `/xp-housekeeping` completes, clear `.needs-kickoff` marker, compact event log |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
+| **Stop** | | `sprint_stop_gate.py` | Unified sprint lifecycle cascade: blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review; sprint_end + no sprint_retro_done → run /xp-run-sprint-retro |
 | **Stop** | | `session_end_warning.py` | Soft warning: unresolved concerns, missing final status |
 | **TeammateIdle** | | `teammate_idle.py` | TDD enforcement for teammates (exit 2 if tests failing) |
 | **TaskCompleted** | | `task_completed.py` | TDD enforcement for task completion (exit 2 if tests failing) |
-| **PostToolUse** | `Skill` | `accept_done.py` | Record accept event when `/xp-accept` completes |
-| **PostToolUse** | `Skill` | `sprint_review_done.py` | Record sprint end event with velocity when `/xp-sprint-review` completes |
 | **PostCompact** | | `compact.py` | Compact event log (watermark-based, retains recent + session_end + referenced events) |
 | **SessionEnd** | | `session_end.py` | Append session_end event. `async: true` |
 | **SessionEnd** | | `compact.py` | Compact event log at session end. `async: true` |
@@ -153,7 +151,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 |---|---|
 | Session start | GUPP + skills only (NO SMM, NO behavioral guide — deferred to kickoff) |
 | After housekeeping | Agent Reads curated SMM file directly (housekeeping step 8) |
-| After housekeeping | Behavioral guide via PostToolUse:Skill hook (`kickoff_done.py`) |
+| After housekeeping | Behavioral guide via SubagentStop handler (`subagent_stop._handle_housekeeping_done`) |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Commit-gated review cycle (blocks until simplify/quality-review/security-triage done), file-modification conflict heuristic (advisory) |
@@ -164,8 +162,10 @@ Injection order in SessionStart `additionalContext`:
 1. GUPP ("Resume immediately")
 2. Skills list
 
-After `/xp-housekeeping` completes, `kickoff_done.py` (PostToolUse:Skill) injects:
+After the forked `xp-housekeeper` subagent finishes, `subagent_stop._handle_housekeeping_done` injects:
 1. BEHAVIORAL_GUIDE.md (SMM already in context from housekeeping file Read)
+
+SubagentStop is used instead of PostToolUse:Skill because PostToolUse:Skill fires unreliably for both forked and inline skills — SubagentStop is the only reliable signal for "forked subagent finished."
 
 All injection via `additionalContext` except SMM (Read by agent during housekeeping).
 
@@ -295,11 +295,8 @@ plugins/xp-agents/
 │   ├── tdd_stop_gate.py
 │   ├── review_cycle_done.py      ← PostToolUse:Skill — set review cycle flags
 │   ├── kickoff_gate.py
-│   ├── kickoff_done.py
 │   ├── post_tool_exit_plan.py       ← PostToolUse:ExitPlanMode nudge + marker
-│   ├── accept_gate.py               ← Stop gate for /xp-accept (exit 2 + stderr)
-│   ├── accept_done.py               ← PostToolUse:Skill for /xp-accept
-│   ├── sprint_review_done.py        ← PostToolUse:Skill — sprint end event + velocity
+│   ├── sprint_stop_gate.py          ← Stop gate — unified sprint lifecycle cascade (accept → review → retro)
 │   ├── session_end_warning.py       ← Stop soft warning — unresolved concerns, missing final status
 │   ├── teammate_idle.py             ← TeammateIdle TDD gate (exit 2 if tests failing)
 │   ├── task_completed.py            ← TaskCompleted TDD gate (exit 2 if tests failing)
@@ -362,7 +359,7 @@ Age computed at materialize time by counting `session_end` events after debt tim
 
 ## Event Log Compaction
 
-Compaction runs at three points: after kickoff (`kickoff_done.py`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
+Compaction runs at three points: after the curated SMM is written (`save_smm.py`, covering both forked and inline housekeeping), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
 
 | Event Type | Retention Rule |
 |---|---|
