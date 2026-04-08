@@ -485,5 +485,55 @@ class TestSprintReviewerDone(_HookTestCase):
         self.assertIsNotNone(result)
 
 
+class TestSprintRetroDone(_HookTestCase):
+    """subagent_stop._handle_sprint_retro_done runs after xp-sprint-retro."""
+
+    def _retro_input(self, agent_type: str = "xp-sprint-retro") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "retro-1",
+            "agent_type": agent_type,
+            "last_assistant_message": "Retro complete.",
+        }
+
+    def test_records_sprint_retro_done_event(self):
+        """Status event with metadata.action=sprint_retro_done."""
+        subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        retro_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "sprint_retro_done"
+        ]
+        self.assertEqual(len(retro_events), 1)
+        self.assertEqual(retro_events[0]["agent_id"], "xp-sprint-retro")
+
+    def test_matches_qualified_agent_type(self):
+        """Should match agent_type 'xp-agents:xp-sprint-retro' too."""
+        subagent_stop.run(
+            self._retro_input(agent_type="xp-agents:xp-sprint-retro"),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        retro_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "sprint_retro_done"
+        ]
+        self.assertEqual(len(retro_events), 1)
+
+    def test_cleans_up_input_file(self):
+        """Removes .sprint-retro-input.json after handling."""
+        (self.smm_dir / ".sprint-retro-input.json").write_text("{}")
+        subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
+
+    def test_returns_none_end_of_chain(self):
+        """Retro done is the end of the cascade — no nudge."""
+        result = subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
+        # Handler should not return a nudge (end of the chain)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
