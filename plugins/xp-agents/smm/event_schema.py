@@ -74,6 +74,11 @@ SPRINT_ACTION_END = "end"
 VALID_SPRINT_ACTIONS = frozenset({SPRINT_ACTION_START, SPRINT_ACTION_END})
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
+# Status event metadata.action discriminators — used by cascading gates
+# to identify specific lifecycle events without scanning content strings.
+STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
+STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
+
 
 MAX_JSON_ARG_SIZE = 65536
 MAX_CONTENT_LENGTH = 50_000

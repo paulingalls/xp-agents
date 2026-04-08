@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Tests for sprint_stop_gate.py — unified sprint lifecycle Stop gate.
+
+Replaces TestAcceptGate. Covers the full cascade:
+  1. in-progress + ACCEPT marker → block "run /xp-accept"
+  2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
+  3. sprint_end event, no sprint_retro_done → block "run /xp-run-sprint-retro"
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_IN_PROGRESS,
+    SPRINT_READY_ONLY,
+    _HookTestCase,
+    _make_stop_input,
+    make_event,
+)
+
+# Sprint with a sprint ID — needed for sprint_end event matching
+SPRINT_COMPLETE_WITH_ID = """\
+# Sprint: Build auth
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-04-01
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** done
+
+### story-002: As a user I can register
+- **Size:** S
+- **Status:** deferred
+"""
+
+
+class TestSprintStopGateEarlyExits(_HookTestCase):
+    """Common early exits and deferrals."""
+
+    def test_xp_agent_skips(self):
+        import sprint_stop_gate
+
+        result = sprint_stop_gate.run(
+            _make_stop_input(agent_type="xp-nav"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_stop_hook_active_skips(self):
+        import sprint_stop_gate
+
+        result = sprint_stop_gate.run(
+            _make_stop_input(stop_hook_active=True),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_no_smm_dir_allows_stop(self):
+        import sprint_stop_gate
+
+        fake_dir = Path("/nonexistent/smm")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=fake_dir)
+        self.assertIsNone(result)
+
+    def test_no_sprint_file_allows_stop(self):
+        import sprint_stop_gate
+
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_review_cycle_active_allows_stop(self):
+        """Defer when review cycle is in progress."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        markers.write_review_cycle(
+            self.smm_dir,
+            "main",
+            {
+                "simplify_done": True,
+                "quality_review_done": False,
+                "security_review_done": False,
+                "last_review_commit": "abc123",
+            },
+        )
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_teammates_active_allows_stop(self):
+        """Defer when teammates are running."""
+        import coordination
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        coordination.update_coordination(self.smm_dir, "worker-1", [])
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+
+class TestSprintStopGateAcceptCascade(_HookTestCase):
+    """Cascade step 1: accept gating."""
+
+    def test_in_progress_with_accept_marker_blocks(self):
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-accept", result)
+
+    def test_in_progress_without_accept_marker_allows_stop(self):
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_orphan_accept_marker_allows_stop(self):
+        """Marker with no in-progress stories — falls through to next cascade step."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        # No in-progress stories; ready stories means sprint not complete
+        self.assertIsNone(result)
+
+
+class TestSprintStopGateReviewCascade(_HookTestCase):
+    """Cascade step 2: sprint review gating."""
+
+    def test_sprint_complete_no_end_event_blocks(self):
+        """Complete sprint with no sprint_end event → nudge for review."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-sprint-review", result)
+
+    def test_sprint_complete_with_end_event_falls_through(self):
+        """Sprint with end event falls through to retro step."""
+        import _common
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        event = make_event(
+            "sprint",
+            agent_id="xp-sprint-reviewer",
+            content="Sprint end",
+            metadata={"sprint_id": "sprint-001", "action": "end"},
+        )
+        _common.append_safe(self.smm_dir, event)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        # Should now block on retro (end event exists, retro_done does not)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-run-sprint-retro", result)
+
+    def test_sprint_complete_no_sprint_id_allows_stop(self):
+        """Malformed sprint.md with no sprint_id — can't match events, allow stop."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_end_event_for_other_sprint_still_blocks(self):
+        """sprint_end for a DIFFERENT sprint_id doesn't satisfy the current sprint."""
+        import _common
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        event = make_event(
+            "sprint",
+            agent_id="xp-sprint-reviewer",
+            content="Sprint end",
+            metadata={"sprint_id": "sprint-999", "action": "end"},
+        )
+        _common.append_safe(self.smm_dir, event)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-sprint-review", result)
+
+
+class TestSprintStopGateRetroCascade(_HookTestCase):
+    """Cascade step 3: sprint retro gating."""
+
+    def _seed_sprint_end(self, sprint_id: str = "sprint-001"):
+        import _common
+
+        event = make_event(
+            "sprint",
+            agent_id="xp-sprint-reviewer",
+            content="Sprint end",
+            metadata={"sprint_id": sprint_id, "action": "end"},
+        )
+        _common.append_safe(self.smm_dir, event)
+
+    def test_end_event_no_retro_blocks(self):
+        """sprint_end exists but no retro_done → nudge for retro."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        self._seed_sprint_end()
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("xp-run-sprint-retro", result)
+
+    def test_end_event_with_retro_done_allows_stop(self):
+        """Both end and retro_done events exist → no block."""
+        import _common
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        self._seed_sprint_end()
+        retro_event = make_event(
+            "status",
+            agent_id="xp-sprint-retro",
+            content="Sprint retrospective complete.",
+            working_on=[],
+            metadata={"action": "sprint_retro_done"},
+        )
+        _common.append_safe(self.smm_dir, retro_event)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+
+if __name__ == "__main__":
+    unittest.main()

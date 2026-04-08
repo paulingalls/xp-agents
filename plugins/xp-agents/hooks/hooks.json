@@ -232,8 +232,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/accept_gate.py",
-            "statusMessage": "Checking acceptance status..."
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sprint_stop_gate.py",
+            "statusMessage": "Checking sprint lifecycle gate..."
           },
           {
             "type": "command",

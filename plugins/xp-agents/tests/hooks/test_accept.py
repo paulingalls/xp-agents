@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for accept_gate.py, accept_done.py, and accept preload."""
+"""Tests for accept_done.py and accept preload.
+
+Stop-gate tests migrated to test_sprint_stop_gate.py (M1 of the
+PostToolUse:Skill replacement plan).
+"""
 
 import sys
 import unittest
@@ -16,153 +20,8 @@ from conftest import (
     _HookTestCase,
     _IntegrationTestCase,
     _make_skill_input,
-    _make_stop_input,
     make_event,
 )
-
-# ===========================================================================
-# accept_gate.py — Stop hook
-# ===========================================================================
-
-
-class TestAcceptGate(_HookTestCase):
-    """M8c: accept_gate blocks stop when in-progress stories without accept."""
-
-    def test_xp_agent_skips(self):
-        import accept_gate
-
-        result = accept_gate.run(
-            _make_stop_input(agent_type="xp-nav"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_stop_hook_active_skips(self):
-        import accept_gate
-
-        result = accept_gate.run(
-            _make_stop_input(stop_hook_active=True),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_no_smm_dir_allows_stop(self):
-        import accept_gate
-
-        fake_dir = Path("/nonexistent/smm")
-        result = accept_gate.run(_make_stop_input(), smm_dir=fake_dir)
-        self.assertIsNone(result)
-
-    def test_no_sprint_file_allows_stop(self):
-        import accept_gate
-
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_no_in_progress_allows_stop(self):
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_in_progress_with_accept_marker_blocks(self):
-        """Marker means 'needs acceptance' — should block."""
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        (self.smm_dir / ".accept").write_text("done")
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-accept", result)
-
-    def test_in_progress_without_accept_marker_allows_stop(self):
-        """No marker means no work needing acceptance — should pass."""
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_marker_present_but_no_in_progress_allows_stop(self):
-        """Orphaned marker with no in-progress stories — should pass."""
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
-        (self.smm_dir / ".accept").write_text("done")
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_corrupt_sprint_allows_stop(self):
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text("")
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_all_done_allows_stop(self):
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_review_cycle_active_allows_stop(self):
-        """Accept gate defers when review cycle is in progress."""
-        import accept_gate
-        import markers
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        (self.smm_dir / ".accept").write_text("done")
-        # Review cycle marker exists — agent is mid-workflow
-        markers.write_review_cycle(
-            self.smm_dir,
-            "main",
-            {
-                "simplify_done": True,
-                "quality_review_done": False,
-                "security_review_done": False,
-                "last_review_commit": "abc123",
-            },
-        )
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_review_cycle_reset_blocks(self):
-        """Post-commit review cycle (all flags false) does not defer."""
-        import accept_gate
-        import markers
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        (self.smm_dir / ".accept").write_text("done")
-        # Review cycle marker exists but all flags reset (post-commit state)
-        markers.reset_review_cycle(self.smm_dir, "main", "abc123")
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("xp-accept", result)
-
-    def test_active_teammates_allows_stop(self):
-        """Accept gate defers when teammates are running."""
-        import accept_gate
-        import coordination
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        (self.smm_dir / ".accept").write_text("done")
-        # Teammate registered in coordination
-        coordination.update_coordination(self.smm_dir, "worker-1", [])
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_no_active_teammates_blocks(self):
-        """Accept gate blocks when no teammates are running."""
-        import accept_gate
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
-        (self.smm_dir / ".accept").write_text("done")
-        # No coordination entries
-        result = accept_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-
 
 # ===========================================================================
 # accept_done.py — PostToolUse:Skill hook

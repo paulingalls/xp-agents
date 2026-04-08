@@ -353,11 +353,11 @@ class TestPluginIntegrity(unittest.TestCase):
         self.assertIn("done", content.lower())
         self.assertIn("deferred", content.lower())
 
-    def test_hooks_json_has_accept_gate(self):
-        """M8c: hooks.json Stop array must include accept_gate.py."""
+    def test_hooks_json_has_sprint_stop_gate(self):
+        """hooks.json Stop array must include sprint_stop_gate.py."""
         hooks_path = self.plugin_root / "hooks" / "hooks.json"
         content = hooks_path.read_text()
-        self.assertIn("accept_gate.py", content)
+        self.assertIn("sprint_stop_gate.py", content)
 
     def test_hooks_json_has_accept_done(self):
         """M8c: hooks.json PostToolUse Skill must include accept_done.py."""
