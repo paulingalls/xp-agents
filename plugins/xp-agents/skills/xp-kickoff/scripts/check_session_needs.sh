@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(dirname "$0")/../../_preload_base.sh"
 
 RETRO_INPUT="${SMM_DIR}/.retro-input.json"
+SPRINT_RETRO_INPUT="${SMM_DIR}/.sprint-retro-input.json"
 MARKER="${SMM_DIR}/.needs-kickoff"
 
 echo "SMM_DIR=${SMM_DIR}"
@@ -12,8 +13,14 @@ echo ""
 echo "## Session Review Status"
 echo ""
 
-# 1. Check for retrospective data
-if [ -f "$RETRO_INPUT" ]; then
+# 1. Check for retrospective data. Sprint retro takes precedence over
+# session retro when both files exist — retrospective.py enforces the
+# exclusive-file invariant, but report sprint if anything is off.
+if [ -f "$SPRINT_RETRO_INPUT" ]; then
+    echo "### SPRINT_RETRO_NEEDED"
+    echo "Previous session ended a sprint. Run /xp-run-sprint-retro instead of the regular retro."
+    echo ""
+elif [ -f "$RETRO_INPUT" ]; then
     echo "### RETRO_NEEDED"
     echo "Unanalyzed events from previous session found."
     echo ""

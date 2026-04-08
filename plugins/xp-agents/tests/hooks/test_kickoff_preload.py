@@ -80,6 +80,39 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertIn("story-003", result.stdout)
         self.assertIn("2 ready stories", result.stdout)
 
+    def test_outputs_sprint_retro_needed_when_input_exists(self):
+        """M5: .sprint-retro-input.json triggers SPRINT_RETRO_NEEDED flag."""
+        (self.smm_dir / ".sprint-retro-input.json").write_text('{"sprint_id": "s-1"}')
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("SPRINT_RETRO_NEEDED", result.stdout)
+
+    def test_outputs_retro_needed_when_session_input_exists(self):
+        """M5: .retro-input.json triggers RETRO_NEEDED flag."""
+        (self.smm_dir / ".retro-input.json").write_text('{"unanalyzed_count": 6}')
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RETRO_NEEDED", result.stdout)
+        self.assertNotIn("SPRINT_RETRO_NEEDED", result.stdout)
+
+    def test_sprint_retro_takes_precedence_when_both_exist(self):
+        """M5: if both input files exist (shouldn't happen but safety),
+        SPRINT_RETRO_NEEDED takes precedence and RETRO_NEEDED is suppressed."""
+        (self.smm_dir / ".retro-input.json").write_text('{"unanalyzed_count": 6}')
+        (self.smm_dir / ".sprint-retro-input.json").write_text('{"sprint_id": "s-1"}')
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("SPRINT_RETRO_NEEDED", result.stdout)
+        # RETRO_NEEDED header should NOT appear as a section heading
+        self.assertNotIn("### RETRO_NEEDED", result.stdout)
+
+    def test_no_retro_flag_when_no_input_files(self):
+        """M5: with neither input file, no retro flag fires."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("SPRINT_RETRO_NEEDED", result.stdout)
+        self.assertNotIn("RETRO_NEEDED", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
