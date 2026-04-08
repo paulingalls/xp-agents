@@ -17,6 +17,7 @@ from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import marker_names
 from _append_impl import _validate_agent_id, write_json_atomic, write_text_atomic
 
 # ---------------------------------------------------------------------------
@@ -46,14 +47,13 @@ class MarkerDef:
 # Marker constants
 # ---------------------------------------------------------------------------
 
-KICKOFF = MarkerDef(".needs-kickoff", "text")
-NEEDS_PRODUCT_SPEC = MarkerDef(".needs-product-spec", "text")
-NEEDS_SPRINT = MarkerDef(".needs-sprint", "text")
-ACCEPT = MarkerDef(".accept", "text")
-SECURITY_TRIAGED = MarkerDef(".security-triaged", "json")
-PLAN_AWAITING_REVIEW = MarkerDef(".plan-awaiting-review", "text")
-# Gate file written by smm/_append_impl.py — keep filename in sync
-QUESTION_GATE = MarkerDef(".question-gate", "text")
+KICKOFF = MarkerDef(marker_names.KICKOFF, "text")
+NEEDS_PRODUCT_SPEC = MarkerDef(marker_names.NEEDS_PRODUCT_SPEC, "text")
+NEEDS_SPRINT = MarkerDef(marker_names.NEEDS_SPRINT, "text")
+ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
+SECURITY_TRIAGED = MarkerDef(marker_names.SECURITY_TRIAGED, "json")
+PLAN_AWAITING_REVIEW = MarkerDef(marker_names.PLAN_AWAITING_REVIEW, "text")
+QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 
