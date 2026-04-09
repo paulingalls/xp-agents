@@ -30,6 +30,7 @@ def sessions_since_event(se_timestamps: list[str], event_ts: str) -> int:
 
 EVENT_TYPE_ANSWER = "answer"
 EVENT_TYPE_ASSUMPTION = "assumption"
+EVENT_TYPE_COMMIT = "commit"
 EVENT_TYPE_CONCERN = "concern"
 EVENT_TYPE_CONVENTION = "convention"
 EVENT_TYPE_CUSTOMER_INPUT = "customer_input"
@@ -48,6 +49,7 @@ VALID_TYPES = sorted(
     [
         EVENT_TYPE_ANSWER,
         EVENT_TYPE_ASSUMPTION,
+        EVENT_TYPE_COMMIT,
         EVENT_TYPE_CONCERN,
         EVENT_TYPE_CONVENTION,
         EVENT_TYPE_CUSTOMER_INPUT,
@@ -191,6 +193,10 @@ def validate_event(event: dict) -> list[str]:
                     f"Invalid priority: {event['priority']}"
                     " (must be \U0001f534/\U0001f7e1/\U0001f7e2)"
                 )
+
+        case "commit":
+            if "files" in event and not isinstance(event["files"], list):
+                errors.append("Field 'files' must be an array")
 
         case "session_end":
             _check = {

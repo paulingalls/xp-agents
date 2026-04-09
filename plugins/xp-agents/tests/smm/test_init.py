@@ -216,6 +216,23 @@ class TestValidateEvent(unittest.TestCase):
         )
         self.assertEqual(_append_impl.validate_event(event), [])
 
+    def test_valid_commit_minimal(self):
+        event = self._base_event(type="commit")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_valid_commit_full(self):
+        event = self._base_event(
+            type="commit",
+            files=["src/app.py", "tests/test_app.py"],
+            metadata={"commit_hash": "abc1234def5678", "code_commit": True},
+        )
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_commit_files_must_be_list(self):
+        event = self._base_event(type="commit", files="not-a-list")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("files" in e for e in errors))
+
     def test_valid_retrospective(self):
         event = self._base_event(
             type="retrospective",

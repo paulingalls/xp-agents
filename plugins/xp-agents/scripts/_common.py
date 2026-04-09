@@ -51,6 +51,7 @@ class BlockedError(Exception):
 # ---------------------------------------------------------------------------
 
 # Event types — mirrors smm/schema.json enum
+COMMIT = "commit"
 CUSTOMER_INPUT = "customer_input"
 CUSTOMER_INTENT = "customer_intent"
 DEBT = "debt"
