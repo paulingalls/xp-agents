@@ -16,7 +16,7 @@ allowed-tools:
 
 The session status above was preloaded automatically.
 
-**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 5) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
+**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 6) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
 ## Step 1: Retrospective (if SPRINT_RETRO_NEEDED or RETRO_NEEDED)
 
@@ -31,44 +31,57 @@ The preload reports exactly one of these flags (or neither):
 
 Proceed to step 2.
 
-## Step 2: Product Spec (if NEEDS_PRODUCT_SPEC)
+## Step 2: Session mode (ALWAYS)
+
+Ask the user via AskUserQuestion: **"Free session or Sprint session?"**
+
+- **Free session** — for brainstorming, Q&A, bug fixes, or any work that doesn't need sprint scaffolding.
+- **Sprint session** — for planned work with product spec, sprint stories, and acceptance criteria.
+
+If the user chooses **free session**: skip steps 3 and 4, jump directly to step 5 (Work Selection). In step 5, work selection should collect freeform session goals only — do NOT show sprint stories or prompt for story selection, even if a sprint exists.
+
+If the user chooses **sprint session**: proceed to step 3.
+
+## Step 3: Product Spec (if NEEDS_PRODUCT_SPEC)
 
 If the preload shows "NEEDS_PRODUCT_SPEC", first `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` for context (constraints, wisdom, and risks guide spec creation). Then invoke `/xp-product-spec`. Wait for it to complete before proceeding.
 
-If not shown, skip to step 3.
-
-## Step 3: Sprint Start (if NEEDS_SPRINT)
-
-If the preload shows "NEEDS_SPRINT" and you haven't already read the SMM in step 2, `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` first. Then invoke `/xp-sprint-start`. Wait for it to complete before proceeding.
-
 If not shown, skip to step 4.
 
-## Step 4: Work Selection (ALWAYS RUNS)
+## Step 4: Sprint Start (if NEEDS_SPRINT)
+
+If the preload shows "NEEDS_SPRINT" and you haven't already read the SMM in step 3, `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` first. Then invoke `/xp-sprint-start`. Wait for it to complete before proceeding.
+
+If not shown, skip to step 5.
+
+## Step 5: Work Selection (ALWAYS RUNS)
 
 Run `/xp-work-selection`. This handles all user interaction for the session:
 - Retro Try item review (adopt/defer/drop)
 - Open question triage
 - Sprint story selection (or session goal collection if no sprint)
 
+**If the user chose free session in step 2**, tell the work-selection skill to collect session goals only — skip story selection even if a sprint is active.
+
 Wait for it to complete before proceeding.
 
-## Step 5: Housekeeping (ALWAYS RUNS)
+## Step 6: Housekeeping (ALWAYS RUNS)
 
 Run `/xp-housekeeping`. This is mandatory — it curates the five-pillar SMM (Intent, Constraints, Risks, Wisdom, Sprint) via a forked subagent. The curated SMM, XP values, and process guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
 
-**Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 6. The subagent returns a summary of what it changed — you must show this summary to the user so they know what was added, removed, or resolved in the SMM.
+**Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 7. The subagent returns a summary of what it changed — you must show this summary to the user so they know what was added, removed, or resolved in the SMM.
 
 If the user says "skip" at any earlier step, still run housekeeping.
 
-## Step 6: Complete
+## Step 7: Complete
 
 **Show the housekeeping summary to the user.** The housekeeper subagent returns a concise summary of SMM changes (items added, removed, promoted, resolved, health warnings). Display this so the user can see what changed. Do not skip or summarize it further.
 
 Kickoff is complete. **Do NOT stop.**
 
-**If stories were selected in step 4**, decide how to proceed:
+**If stories were selected in step 5**, decide how to proceed:
 - **1 story** → Enter plan mode and begin planning it immediately.
 - **2+ independent stories** (no dependencies between them) → Enter plan mode to plan the work, then run `/xp-spawn-team` to get team sizing and spawn instructions for parallel execution.
 - **2+ stories with dependencies** → Enter plan mode and plan the first story (by dependency order). The dependent stories will be picked up after.
 
-**If no sprint is active**, begin working on the session goals.
+**If no sprint is active or the user chose free session**, begin working on the session goals.
