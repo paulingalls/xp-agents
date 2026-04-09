@@ -11,7 +11,7 @@ Ground truth lives in the SMM. Record every architectural decision with topic an
 Decisions in your head don't exist for the team — record them. Share *why*, not just *what*. Answer open questions in the SMM promptly.
 
 **Feedback through review cycles:**
-When `/simplify` or `/xp-quality-review` flags something, fix it. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items.
+When `/simplify` or `/xp-quality-review` flags something, fix it. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items. Tests are production code — they go through the same review cycle. Never skip or abbreviate reviews for test-only changes.
 
 **Collaboration discipline:**
 Honor collective decisions — don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.

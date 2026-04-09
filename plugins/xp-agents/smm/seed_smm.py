@@ -360,6 +360,12 @@ def generate_smm(root: Path) -> dict:
             "Use git commit hooks — run lint and tests before every commit",
             type="convention",
         ),
+        _seed_entry(
+            "constraints",
+            "Tests are production code — same review cycle, same quality bar. "
+            "Never skip or abbreviate reviews for test-only changes",
+            type="convention",
+        ),
     ]
 
     risks: list[dict] = []
