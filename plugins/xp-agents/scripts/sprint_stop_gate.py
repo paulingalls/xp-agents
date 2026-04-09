@@ -41,6 +41,9 @@ _REVIEW_FLAGS = ("simplify_done", "quality_review_done", "security_review_done")
 
 def _deferred(smm_dir: Path, agent_id: str) -> bool:
     """Return True if we should defer blocking (mid-workflow, teammates active)."""
+    # Mid-AskUserQuestion dialogue — cheapest check, most common interactive hit
+    if markers.marker_exists(smm_dir, markers.ASKING_USER):
+        return True
     cycle = markers.read_review_cycle(smm_dir, agent_id)
     if any(cycle.get(f) for f in _REVIEW_FLAGS):
         return True

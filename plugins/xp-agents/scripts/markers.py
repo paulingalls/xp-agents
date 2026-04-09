@@ -54,6 +54,7 @@ ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
 SECURITY_TRIAGED = MarkerDef(marker_names.SECURITY_TRIAGED, "json")
 PLAN_AWAITING_REVIEW = MarkerDef(marker_names.PLAN_AWAITING_REVIEW, "text")
 QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
+ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 

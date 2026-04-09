@@ -108,6 +108,21 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_asking_user_marker_allows_stop(self):
+        """Defer when the main agent is mid-AskUserQuestion dialogue."""
+        import markers
+        import sprint_stop_gate
+
+        # Sprint-review blocking condition: sprint complete, no sprint_end event
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        # Sanity check: without the marker, this would block with _REVIEW_MESSAGE
+        baseline = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(baseline)
+        # With the marker set, the gate defers
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
 
 class TestSprintStopGateAcceptCascade(_HookTestCase):
     """Cascade step 1: accept gating."""

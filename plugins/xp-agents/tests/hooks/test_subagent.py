@@ -100,6 +100,39 @@ class TestUserPromptLog(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_clears_asking_user_marker(self):
+        """UserPromptSubmit clears .asking-user so Stop gate resumes normal blocking."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "continue"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
+
+    def test_clears_asking_user_marker_on_empty_prompt(self):
+        """Even empty/whitespace prompts clear the marker — user is still engaged."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "   "},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
+
+    def test_xp_agent_prompt_does_not_clear_marker(self):
+        """xp-agent prompts must not clear the main agent's dialogue marker."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "hi", "agent_type": "xp-housekeeping"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
+
 
 # ===========================================================================
 # subagent_stop.py tests — Milestone 3.4

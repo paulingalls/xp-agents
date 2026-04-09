@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import markers
 
 _MAX_PROMPT_LENGTH = 10_000
 
@@ -23,6 +24,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
+
+    # User submitted a new prompt — any in-progress AskUserQuestion dialogue
+    # is now resolved. Clear the marker so sprint_stop_gate resumes normal
+    # blocking on the next Stop.
+    markers.marker_consume(smm_dir, markers.ASKING_USER)
 
     prompt = input_data.get("prompt", "")
     if not isinstance(prompt, str) or not prompt.strip():

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import markers
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -24,6 +25,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
+
+    # Main agent just got a tool_result from AskUserQuestion — they're in
+    # an interactive dialogue. Mark so sprint_stop_gate defers the next Stop.
+    markers.marker_write(smm_dir, markers.ASKING_USER, "1")
 
     gate_file = smm_dir / ".question-gate"
     try:
