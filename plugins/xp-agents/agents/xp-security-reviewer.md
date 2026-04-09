@@ -3,6 +3,7 @@ name: xp-security-reviewer
 description: >-
   Runs /security-review on pending changes. The built-in command does its
   own diff analysis — this agent just invokes it and records the result.
+  Invoke via /xp-security-triage skill, not directly.
 tools: Bash, Skill
 model: inherit
 ---

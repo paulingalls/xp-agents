@@ -2,8 +2,8 @@
 name: xp-sprint-reviewer
 description: >-
   Sprint review analyst. Reviews what shipped vs planned, updates
-  product_spec.md with delivery markers.
-  Use when all stories are done or deferred.
+  product_spec.md with delivery markers. Use when all stories are done
+  or deferred. Invoke via /xp-sprint-review skill, not directly.
 tools: Read, Write, Edit, Bash
 model: inherit
 ---

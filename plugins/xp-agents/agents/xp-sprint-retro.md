@@ -4,6 +4,7 @@ description: >-
   Sprint retrospective analyst. Analyzes cross-session patterns,
   sizing accuracy, and process improvements across the sprint.
   Use after sprint review completes.
+  Invoke via /xp-run-sprint-retro skill, not directly.
 tools: Read, Bash
 model: inherit
 ---

@@ -3,6 +3,7 @@ name: xp-retrospective
 description: >-
   XP retrospective analyst. Keep/Fix/Try analysis with XP values as lenses.
   Use at session start when retrospective data is available.
+  Invoke via /xp-run-retrospective skill, not directly.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---

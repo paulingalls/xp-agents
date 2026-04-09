@@ -4,6 +4,7 @@ description: >-
   SMM curator. Reads structured curation data and applies LLM judgment to
   curate Intent, Constraints, Risks, Wisdom, and Sprint pillars.
   Use after work selection completes during kickoff.
+  Invoke via /xp-housekeeping skill, not directly.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---

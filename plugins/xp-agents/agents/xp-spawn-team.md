@@ -3,6 +3,7 @@ name: xp-spawn-team
 description: >-
   Team spawn analyst. Analyzes plan and sprint to produce structured
   instructions for creating an Agent Team with optimal task distribution.
+  Invoke via /xp-spawn-team skill, not directly.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
