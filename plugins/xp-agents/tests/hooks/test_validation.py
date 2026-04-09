@@ -313,6 +313,24 @@ class TestHooksJsonGapFixes(_HooksJsonTestCase):
             "bash_failure.py missing from PostToolUseFailure",
         )
 
+    def test_post_tool_use_failure_has_ask_user_question_matcher(self):
+        entries = self.data["hooks"]["PostToolUseFailure"]
+        matchers = [e.get("matcher") for e in entries]
+        self.assertIn(
+            "AskUserQuestion",
+            matchers,
+            "AskUserQuestion missing from PostToolUseFailure",
+        )
+
+    def test_post_tool_use_failure_ask_user_has_question_answered(self):
+        entries = self.data["hooks"]["PostToolUseFailure"]
+        ask_entry = next(e for e in entries if e.get("matcher") == "AskUserQuestion")
+        commands = [h["command"] for h in ask_entry.get("hooks", [])]
+        self.assertTrue(
+            any("question_answered.py" in c for c in commands),
+            "question_answered.py missing from PostToolUseFailure",
+        )
+
     def test_session_start_includes_clear_matcher(self):
         entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
         self.assertIsNotNone(entry, "SessionStart matcher should include 'clear'")

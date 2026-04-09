@@ -132,7 +132,8 @@ class TestQuestionAnsweredIntegration(_IntegrationTestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.smm_dir / ".question-gate").exists())
-        self.assertTrue((self.smm_dir / ".asking-user").exists())
+        # Success path does NOT set .asking-user (only failures do)
+        self.assertFalse((self.smm_dir / ".asking-user").exists())
 
         events = self._read_events()
         answers = [e for e in events if e.get("type") == "answer"]
@@ -140,13 +141,8 @@ class TestQuestionAnsweredIntegration(_IntegrationTestCase):
         self.assertIn("Yes, use A", answers[0]["content"])
         self.assertEqual(answers[0].get("references"), [question_id])
 
-    def test_no_gate_still_writes_asking_user_marker(self):
-        """Missing .question-gate is fine — marker still gets written.
-
-        question_answered writes .asking-user BEFORE reading the gate file,
-        so the marker lifecycle is independent of whether a blocking
-        question was actually pending.
-        """
+    def test_no_gate_logs_customer_input(self):
+        """No gate — answers logged as customer_input, no .asking-user."""
         result = self._run_script(
             "question_answered.py",
             {
@@ -159,9 +155,27 @@ class TestQuestionAnsweredIntegration(_IntegrationTestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.smm_dir / ".asking-user").exists())
+        self.assertFalse((self.smm_dir / ".asking-user").exists())
         events = self._read_events()
         self.assertEqual([e for e in events if e.get("type") == "answer"], [])
+        inputs = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual(len(inputs), 1)
+
+    def test_failure_sets_asking_user_marker(self):
+        """PostToolUseFailure: 'Chat about this...' sets .asking-user."""
+        result = self._run_script(
+            "question_answered.py",
+            {
+                "session_id": "it",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {"question": "anything?"},
+                "error": "The user wants to clarify.",
+                "agent_id": "main",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.smm_dir / ".asking-user").exists())
 
 
 # ---------------------------------------------------------------------------

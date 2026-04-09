@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""PostToolUse:AskUserQuestion hook: clear question gate and record answer.
+"""PostToolUse/PostToolUseFailure:AskUserQuestion hook.
 
-When a blocking question (🔴) was raised, the .question-gate file blocks
-implementation until the user answers. This hook fires after AskUserQuestion
-completes, clears the gate, and records an answer event resolving the
-original question.
+Handles both success and failure paths:
+- Success with question gate: clears gate, records answer event
+- Success without gate: logs customer_input with answer text
+- Failure ("Chat about this..."): sets ASKING_USER marker so the stop
+  gate defers, logs customer_input with partial answers
 """
 
 import sys
@@ -17,8 +18,27 @@ import _common
 import markers
 
 
+def _truncate(text: str, limit: int = 500) -> str:
+    """Truncate text with ellipsis if over limit."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def _extract_response_text(input_data: dict) -> str:
+    """Extract displayable text from tool_response or error."""
+    for field in ("error", "tool_response"):
+        value = input_data.get(field)
+        if not value:
+            continue
+        if isinstance(value, dict):
+            return value.get("response", str(value))
+        return str(value)
+    return ""
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Clear question gate and record answer event."""
+    """Handle AskUserQuestion success or failure."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -26,40 +46,40 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if smm_dir is None:
         return None
 
-    # Main agent just got a tool_result from AskUserQuestion — they're in
-    # an interactive dialogue. Mark so sprint_stop_gate defers the next Stop.
-    markers.marker_write(smm_dir, markers.ASKING_USER, "1")
+    agent_id = input_data.get("agent_id", "main")
+    error = input_data.get("error")
+
+    if error:
+        markers.marker_write(smm_dir, markers.ASKING_USER, "1")
+        if error.strip():
+            event = _common.make_event(
+                _common.CUSTOMER_INPUT, agent_id, _truncate(error)
+            )
+            _common.append_safe(smm_dir, event)
+        return None
 
     gate_file = smm_dir / ".question-gate"
     try:
         question_id = gate_file.read_text().strip()
         gate_file.unlink()
     except FileNotFoundError:
-        return None
+        question_id = ""
 
-    if not question_id:
-        return None
+    response_text = _extract_response_text(input_data)
 
-    # Extract answer text from tool response
-    tool_response = input_data.get("tool_response", "")
-    if isinstance(tool_response, dict):
-        answer_text = tool_response.get("response", str(tool_response))
-    else:
-        answer_text = str(tool_response)
-
-    # Truncate long answers
-    if len(answer_text) > 500:
-        answer_text = answer_text[:497] + "..."
-
-    # Record answer event resolving the original question
-    agent_id = input_data.get("agent_id", "main")
-    event = _common.make_event(
-        _common.ANSWER,
-        agent_id,
-        f"Answer: {answer_text}",
-        references=[question_id],
-    )
-    _common.append_safe(smm_dir, event)
+    if question_id:
+        event = _common.make_event(
+            _common.ANSWER,
+            agent_id,
+            f"Answer: {_truncate(response_text)}",
+            references=[question_id],
+        )
+        _common.append_safe(smm_dir, event)
+    elif response_text:
+        event = _common.make_event(
+            _common.CUSTOMER_INPUT, agent_id, _truncate(response_text)
+        )
+        _common.append_safe(smm_dir, event)
 
     return None
 

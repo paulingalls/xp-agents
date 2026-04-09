@@ -126,6 +126,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/question_answered.py",
+            "timeout": 2500,
+            "statusMessage": "Recording clarification..."
+          }
+        ]
       }
     ],
     "PostToolUse": [
