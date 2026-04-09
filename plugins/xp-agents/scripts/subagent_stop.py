@@ -5,7 +5,6 @@ Appends a minimal status event and checks for structural conflicts
 (patterns 2-5, no file_path so pattern 1 is skipped).
 """
 
-import contextlib
 import sys
 from pathlib import Path
 
@@ -16,6 +15,8 @@ import _common
 import concerns
 import coordination
 import markers
+import smm_store
+import smm_view
 import sprint_parser
 import sprint_state
 from event_schema import (
@@ -88,10 +89,8 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
     markers.marker_consume(smm_dir, markers.NEEDS_PRODUCT_SPEC)
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
-    smm_content = ""
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    with contextlib.suppress(FileNotFoundError):
-        smm_content = smm_file.read_text(encoding="utf-8").strip()
+    smm_data = smm_store.load_smm(smm_dir)
+    smm_content = smm_view.render_markdown(smm_data).strip()
 
     process = _common.load_process_guide()
 

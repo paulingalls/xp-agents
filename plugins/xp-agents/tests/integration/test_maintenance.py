@@ -299,17 +299,23 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
             cwd=self.tmpdir,
         )
 
-    def test_pipe_markdown_writes_file(self):
-        """Pipe four-pillar markdown into save_smm.py, verify file written."""
-        content = "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
+    def test_pipe_json_writes_file(self):
+        """Pipe JSON into save_smm.py, verify file written."""
+        import smm_schema
+
+        data = smm_schema.empty_smm()
+        content = json.dumps(data)
         result = self._run_save_smm(content)
         self.assertEqual(result.returncode, 0, result.stderr)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file = self.smm_dir / "shared_mental_model.json"
         self.assertTrue(smm_file.exists())
-        self.assertEqual(smm_file.read_text(), content)
+        written = json.loads(smm_file.read_text())
+        self.assertEqual(written, data)
 
     def test_watermark_updated_after_save(self):
         """Watermark reflects event count after save."""
+        import smm_schema
+
         self._seed_events(
             [
                 make_event("goal", content="Ship v1"),
@@ -317,7 +323,7 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
                 make_event("decision", topic="db", content="Use PG"),
             ]
         )
-        result = self._run_save_smm("# SMM\n")
+        result = self._run_save_smm(json.dumps(smm_schema.empty_smm()))
         self.assertEqual(result.returncode, 0, result.stderr)
         wm_file = self.smm_dir / ".curation-watermark"
         self.assertTrue(wm_file.exists())

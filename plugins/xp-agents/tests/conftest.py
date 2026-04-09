@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -184,6 +185,43 @@ class _SMMTestCase(unittest.TestCase):
 
 # Alias used by hook tests
 _HookTestCase = _SMMTestCase
+
+
+def write_smm_fixture(
+    smm_dir: Path,
+    *,
+    intent: "Sequence[tuple[str, str]] | None" = None,
+    constraints: "Sequence[tuple[str, str]] | None" = None,
+    risks: "Sequence[tuple[str, str, str]] | None" = None,
+    wisdom: "Sequence[str] | None" = None,
+) -> None:
+    """Build and save an SMM JSON fixture.
+
+    Args:
+        smm_dir: SMM directory path.
+        intent: List of (content, type) tuples — type is "goal" or "customer_intent".
+        constraints: (content, type) tuples — "decision" or "convention".
+        risks: List of (content, type, severity) tuples.
+        wisdom: List of content strings.
+    """
+    import smm_store
+
+    def _make(content: str, **extra: str) -> dict:
+        return {
+            "id": str(uuid.uuid4()),
+            "content": content,
+            "source": "seed",
+            "ts": "2026-01-01T00:00:00+00:00",
+            **extra,
+        }
+
+    data: dict = {
+        "intent": [_make(c, type=t) for c, t in (intent or [])],
+        "constraints": [_make(c, type=t) for c, t in (constraints or [])],
+        "risks": [_make(c, type=t, severity=s) for c, t, s in (risks or [])],
+        "wisdom": [_make(c) for c in (wisdom or [])],
+    }
+    smm_store.save_smm(smm_dir, data)
 
 
 # ---------------------------------------------------------------------------

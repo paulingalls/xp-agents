@@ -1,45 +1,38 @@
 #!/usr/bin/env python3
-"""Save curated SMM: write four-pillar markdown atomically + update watermark.
+"""Save curated SMM: parse JSON from stdin, validate, write atomically.
 
-Accepts markdown on stdin, writes SHARED_MENTAL_MODEL.md atomically,
-updates the curation watermark with the current event count, and
-compacts the event log.
-
-Compaction runs here (not in a hook) so it happens whether housekeeping
-ran as a forked subagent or inline — both paths call save_smm.py.
+Accepts JSON on stdin, validates against smm_schema, writes
+shared_mental_model.json atomically, updates the curation watermark
+with the current event count, and compacts the event log.
 
 Usage:
-    echo '<markdown>' | python3 save_smm.py --smm-dir DIR
+    echo '<json>' | python3 save_smm.py --smm-dir DIR
 """
 
 import argparse
 import contextlib
+import json
 import sys
 from pathlib import Path
 
-# Add smm/ to path so we can import materialize, compact, _append_impl
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
 import compact  # noqa: E402
 import materialize  # noqa: E402
-from _append_impl import write_text_atomic  # noqa: E402
+import smm_store  # noqa: E402
 
 
 def run(content: str, smm_dir: Path) -> None:
-    """Write curated SMM, update watermark, and compact the event log.
+    """Parse JSON, validate, write, update watermark, compact.
 
-    Args:
-        content: Four-pillar markdown to write.
-        smm_dir: SMM directory path.
+    Raises:
+        json.JSONDecodeError: If content is not valid JSON.
+        ValueError: If content fails SMM schema validation.
+            Existing file on disk is left untouched.
     """
-    target = smm_dir / "SHARED_MENTAL_MODEL.md"
-
-    # Reject symlinks
-    if target.is_symlink():
-        raise OSError(f"SMM path is a symlink: {target}")
-
-    write_text_atomic(target, content)
+    data = json.loads(content)
+    smm_store.save_smm(smm_dir, data)
 
     # Update curation watermark with current event count
     events, _ = materialize.parse_events(smm_dir)
@@ -52,7 +45,7 @@ def run(content: str, smm_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Save curated four-pillar SMM and update watermark"
+        description="Save curated SMM JSON and update watermark"
     )
     parser.add_argument(
         "--smm-dir",

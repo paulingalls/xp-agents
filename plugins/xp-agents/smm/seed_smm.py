@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Seed a default SHARED_MENTAL_MODEL.md for new projects.
+"""Seed a default shared_mental_model.json for new projects.
 
 Scans the project for linter config, tests, git hooks, and CI setup.
-Writes an initial SMM with XP-aligned Constraints and Risks based
-on what's detected (or missing).
+Writes an initial SMM dict with XP-aligned Constraints and Risks
+based on what's detected (or missing).
 
-Only runs if SHARED_MENTAL_MODEL.md does not already exist.
+Only runs if shared_mental_model.json does not already exist.
 """
 
 import subprocess

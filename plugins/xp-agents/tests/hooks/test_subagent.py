@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import subagent_stop
 import user_prompt_log
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
 # user_prompt_log.py tests — Milestone 3.4
@@ -354,19 +354,15 @@ class TestHousekeepingDone(_HookTestCase):
         }
 
     def test_injects_smm_file_content(self):
-        """Should inject SHARED_MENTAL_MODEL.md content after housekeeping."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        )
+        """Should inject curated SMM content after housekeeping."""
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
 
     def test_matches_qualified_agent_type(self):
         """Should match agent_type 'xp-agents:xp-housekeeper' too."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        )
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = subagent_stop.run(
             self._housekeeping_input(agent_type="xp-agents:xp-housekeeper"),
             smm_dir=self.smm_dir,
@@ -390,7 +386,7 @@ class TestHousekeepingDone(_HookTestCase):
 
     def test_graceful_without_smm_file(self):
         """No SMM file — still returns process guide."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").unlink(missing_ok=True)
+        (self.smm_dir / "shared_mental_model.json").unlink(missing_ok=True)
         result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("EnterPlanMode", result)

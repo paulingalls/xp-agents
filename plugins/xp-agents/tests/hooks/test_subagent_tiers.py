@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
 # subagent_start.py core tests (moved from test_subagent.py)
@@ -60,8 +60,7 @@ class TestSubagentStart(_HookTestCase):
         """M5: SubagentStart reads curated SMM from disk when available."""
         import subagent_start
 
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = subagent_start.run(
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
@@ -101,7 +100,7 @@ class TestSubagentStart(_HookTestCase):
         import subagent_start
 
         self._write_events([make_event("goal", content="Ship v1")])
-        # No SHARED_MENTAL_MODEL.md on disk
+        # No shared_mental_model.json on disk
         result = subagent_start.run(
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
@@ -161,13 +160,12 @@ class TestSubagentStartTieredInjection(_HookTestCase):
 
         self.subagent_start = subagent_start
         # Write a curated SMM with all four pillars
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(
-            "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
-            "## Constraints\n- Python 3.10+ only\n\n"
-            "## Risks\n- Auth module fragile\n\n"
-            "## Wisdom\n- TDD always\n"
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+            risks=[("Auth module fragile", "concern", "problem")],
+            wisdom=["TDD always"],
         )
 
     def test_explore_gets_only_intent_and_constraints(self):
@@ -287,13 +285,12 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         import subagent_start
 
         self.subagent_start = subagent_start
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(
-            "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
-            "## Constraints\n- Python 3.10+ only\n\n"
-            "## Risks\n- Auth module fragile\n\n"
-            "## Wisdom\n- TDD always\n"
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+            risks=[("Auth module fragile", "concern", "problem")],
+            wisdom=["TDD always"],
         )
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text(_SAMPLE_SPRINT)

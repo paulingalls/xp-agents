@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase
+from conftest import _IntegrationTestCase, write_smm_fixture
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -96,11 +96,10 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
 
     def test_preload_outputs_file_paths_not_content(self):
         """SMM_FILE=, SPRINT_FILE= paths, NOT pillar/sprint content."""
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(
-            "# Shared Mental Model\n\n"
-            "## Constraints\n- TDD always\n\n"
-            "## Wisdom\n- Commit after green\n"
+        write_smm_fixture(
+            self.smm_dir,
+            constraints=[("TDD always", "convention")],
+            wisdom=["Commit after green"],
         )
         (self.smm_dir / "sprint.md").write_text(_SAMPLE_SPRINT)
         result = self._run_preload(_PRELOAD_SCRIPT)

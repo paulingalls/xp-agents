@@ -248,13 +248,13 @@ class TestSprintTieredInjection(_IntegrationTestCase):
     )
 
     def _write_sprint_and_smm(self):
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(
-            "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
-            "## Constraints\n- TDD\n\n"
-            "## Risks\n- None\n\n"
-            "## Wisdom\n- Commit often\n"
+        from conftest import write_smm_fixture
+
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("TDD", "convention")],
+            wisdom=["Commit often"],
         )
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text(self._SPRINT_MD)

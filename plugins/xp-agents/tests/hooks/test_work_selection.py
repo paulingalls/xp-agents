@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import SPRINT_MIXED, _IntegrationTestCase
+from conftest import SPRINT_MIXED, _IntegrationTestCase, write_smm_fixture
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -37,30 +37,22 @@ SPRINT_IN_PROGRESS = """\
 - **Dependencies:** none
 """
 
-SMM_WITH_RISKS = """\
-# Shared Mental Model
+_SMM_WITH_RISKS = dict(
+    intent=[("Ship v2", "goal")],
+    constraints=[("TDD always", "convention")],
+    risks=[
+        ("Security gate broken - 41% coverage", "concern", "problem"),
+        ("Should we use REST or GraphQL?", "question", "uncertainty"),
+    ],
+    wisdom=["Commit after green"],
+)
 
-## Intent
-- 📋 Ship v2
-
-## Constraints
-- TDD always
-
-## Risks
-- 🔴 Security gate broken — 41% coverage
-- Should we use REST or GraphQL?
-
-## Wisdom
-- Commit after green
-"""
-
-SMM_WITH_INTENT = """\
-# Shared Mental Model
-
-## Intent
-- 📋 Build auth system
-- 📋 Add role-based access
-"""
+_SMM_WITH_INTENT = dict(
+    intent=[
+        ("Build auth system", "goal"),
+        ("Add role-based access", "goal"),
+    ],
+)
 
 
 # ===========================================================================
@@ -125,7 +117,7 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
 
     def test_shows_open_questions(self):
         """Risks pillar content appears under Open Questions."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(SMM_WITH_RISKS)
+        write_smm_fixture(self.smm_dir, **_SMM_WITH_RISKS)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("### Open Questions", result.stdout)
@@ -133,9 +125,7 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
 
     def test_no_questions_when_no_risks(self):
         """SMM without Risks section — no Open Questions."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Intent\n- goal\n"
-        )
+        write_smm_fixture(self.smm_dir, intent=[("goal", "goal")])
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("### Open Questions", result.stdout)
@@ -169,7 +159,7 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
 
     def test_shows_intent(self):
         """Intent pillar from SMM appears in output."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(SMM_WITH_INTENT)
+        write_smm_fixture(self.smm_dir, **_SMM_WITH_INTENT)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("### Customer Intent", result.stdout)
@@ -177,9 +167,10 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
         self.assertIn("Add role-based access", result.stdout)
 
     def test_no_intent_when_no_intent_section(self):
-        """SMM without Intent section — no Customer Intent."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Risks\n- a risk\n"
+        """SMM with Risks but empty Intent — no Customer Intent heading."""
+        write_smm_fixture(
+            self.smm_dir,
+            risks=[("a risk", "concern", "problem")],
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)

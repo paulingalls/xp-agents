@@ -9,6 +9,9 @@ Also provides extract_pillar / extract_pillars for subsetting
 (used by subagent_start.py for Explore-tier injection).
 """
 
+import sys
+from pathlib import Path
+
 from smm_schema import PILLARS
 
 _PILLAR_TITLES = {
@@ -114,3 +117,56 @@ def extract_pillars(smm: dict, pillars: set[str]) -> str:
     if not parts:
         return ""
     return "# Shared Mental Model\n\n" + "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# CLI for shell preloads
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """CLI entry point for shell preload scripts.
+
+    Usage:
+        python3 smm_view.py dump --smm-dir DIR
+        python3 smm_view.py section <name> --smm-dir DIR
+        python3 smm_view.py has-section <name> --smm-dir DIR
+    """
+    import argparse
+
+    from smm_store import load_smm
+
+    parser = argparse.ArgumentParser(description="SMM view CLI")
+    sub = parser.add_subparsers(dest="command")
+
+    dump_p = sub.add_parser("dump")
+    dump_p.add_argument("--smm-dir", type=Path, required=True)
+
+    sec_p = sub.add_parser("section")
+    sec_p.add_argument("name")
+    sec_p.add_argument("--smm-dir", type=Path, required=True)
+
+    has_p = sub.add_parser("has-section")
+    has_p.add_argument("name")
+    has_p.add_argument("--smm-dir", type=Path, required=True)
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    smm = load_smm(args.smm_dir)
+
+    match args.command:
+        case "dump":
+            print(render_markdown(smm))
+        case "section":
+            print(extract_pillar(smm, args.name.lower()))
+        case "has-section":
+            name = args.name.lower()
+            entries = smm.get(name, [])
+            sys.exit(0 if entries else 1)
+
+
+if __name__ == "__main__":
+    main()

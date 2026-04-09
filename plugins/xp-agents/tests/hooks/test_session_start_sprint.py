@@ -13,7 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import SPRINT_ALL_DONE, SPRINT_READY_ONLY, _HookTestCase, make_event
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_READY_ONLY,
+    _HookTestCase,
+    make_event,
+    write_smm_fixture,
+)
 
 
 class TestSessionStartSprintDetection(_HookTestCase):
@@ -129,8 +135,7 @@ class TestSessionStartCompactSprint(_HookTestCase):
 
     def setUp(self):
         super().setUp()
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text("# Sprint: Build API\n\n- **Sprint ID:** sprint-001\n")
 

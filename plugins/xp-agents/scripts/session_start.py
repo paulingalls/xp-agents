@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import markers
+import smm_store
+import smm_view
 import sprint_state
 
 # ---------------------------------------------------------------------------
@@ -102,13 +104,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # M10: Reinject SMM + sprint.md + process guide after compaction
     # so the lead's context retains project state and workflow rules.
     if source == "compact":
-        smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-        try:
-            smm_content = smm_file.read_text(encoding="utf-8")
-            if smm_content.strip():
-                parts.append("\n\n" + smm_content)
-        except FileNotFoundError:
-            pass
+        smm_data = smm_store.load_smm(smm_dir)
+        rendered = smm_view.render_markdown(smm_data)
+        if rendered.strip():
+            parts.append("\n\n" + rendered)
         process = _common.load_process_guide()
         if process:
             parts.append("\n\n" + process)

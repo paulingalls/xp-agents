@@ -44,7 +44,7 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 
 ## Project Files
 
-Project state lives in `SMM_DIR`: `SHARED_MENTAL_MODEL.md` (curated briefing), `sprint.md` (current sprint stories), `product_spec.md` (product requirements). Resolve `SMM_DIR` by running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
+Project state lives in `SMM_DIR`: `shared_mental_model.json` (curated briefing), `sprint.md` (current sprint stories), `product_spec.md` (product requirements). Resolve `SMM_DIR` by running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
 
 ## Recording Events
 

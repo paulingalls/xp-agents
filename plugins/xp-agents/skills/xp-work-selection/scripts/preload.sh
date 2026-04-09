@@ -4,8 +4,6 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
-
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
 
@@ -24,9 +22,9 @@ if [ -d "$RETRO_DIR" ]; then
 fi
 
 # 2. Open Questions from Risks pillar
-if [ -f "$SMM_FILE" ] && smm_has_section "Risks"; then
+if smm_has_section "Risks"; then
     echo "### Open Questions:"
-    smm_section "Risks" 30
+    smm_section "Risks"
     echo ""
 fi
 
@@ -50,8 +48,8 @@ else
 fi
 
 # 4. Customer Intent
-if [ -f "$SMM_FILE" ] && smm_has_section "Intent"; then
+if smm_has_section "Intent"; then
     echo "### Customer Intent:"
-    smm_section "Intent" 20
+    smm_section "Intent"
     echo ""
 fi

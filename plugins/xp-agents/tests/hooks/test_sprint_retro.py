@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _IntegrationTestCase
+from conftest import _HookTestCase, _IntegrationTestCase, write_smm_fixture
 
 # ---------------------------------------------------------------------------
 # Sprint fixture
@@ -240,10 +240,10 @@ class TestSprintRetroPreload(_IntegrationTestCase):
     def test_preload_outputs_smm_path_no_content(self):
         """SMM_FILE= path, no values or pillar content in stdout."""
         (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n"
-            "## Constraints\n- TDD always\n\n"
-            "## Wisdom\n- Commit after green\n"
+        write_smm_fixture(
+            self.smm_dir,
+            constraints=[("TDD always", "convention")],
+            wisdom=["Commit after green"],
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)

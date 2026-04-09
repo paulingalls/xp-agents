@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase
+from conftest import _IntegrationTestCase, write_smm_fixture
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -31,21 +31,15 @@ _SAMPLE_PLAN = """\
 - File: src/models/user.py
 """
 
-_SAMPLE_SMM = """\
-# Shared Mental Model
 
-## Intent
-- Ship v1
-
-## Constraints
-- TDD always
-
-## Risks
-- Auth fragile
-
-## Wisdom
-- Commit after green
-"""
+def _write_sample_smm(smm_dir):
+    write_smm_fixture(
+        smm_dir,
+        intent=[("Ship v1", "goal")],
+        constraints=[("TDD always", "convention")],
+        risks=[("Auth fragile", "concern", "problem")],
+        wisdom=["Commit after green"],
+    )
 
 
 class TestReviewPlanPreload(_IntegrationTestCase):
@@ -73,8 +67,7 @@ class TestReviewPlanPreload(_IntegrationTestCase):
 
     def test_preload_outputs_smm_file_path(self):
         """SMM_FILE= path output, NOT full SMM content."""
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(_SAMPLE_SMM)
+        _write_sample_smm(self.smm_dir)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_FILE=", result.stdout)

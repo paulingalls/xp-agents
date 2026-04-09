@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import smm_schema
+import smm_store
 from conftest import _HookTestCase, make_event
 
 # ===========================================================================
@@ -289,10 +291,9 @@ class TestPreCompact(_HookTestCase):
         import pre_compact
 
         self._write_events([make_event()])
-        smm_md = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_md.write_text("# Test SMM")
+        smm_store.save_smm(self.smm_dir, smm_schema.empty_smm())
         pre_compact.run({"session_id": "test"}, smm_dir=self.smm_dir)
-        backups = list((self.smm_dir / "backups").glob("SMM-*.md"))
+        backups = list((self.smm_dir / "backups").glob("SMM-*.json"))
         self.assertEqual(len(backups), 1)
 
     def test_backup_content_matches(self):
@@ -311,7 +312,7 @@ class TestPreCompact(_HookTestCase):
         self._write_events([make_event()])
         pre_compact.run({"session_id": "test"}, smm_dir=self.smm_dir)
         event_backups = list((self.smm_dir / "backups").glob("events-*.jsonl"))
-        smm_backups = list((self.smm_dir / "backups").glob("SMM-*.md"))
+        smm_backups = list((self.smm_dir / "backups").glob("SMM-*.json"))
         self.assertEqual(len(event_backups), 1)
         self.assertEqual(len(smm_backups), 0)
 

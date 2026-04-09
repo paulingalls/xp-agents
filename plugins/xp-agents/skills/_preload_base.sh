@@ -18,13 +18,20 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
 }
 
 dump_smm() {
-    local smm_file="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
-    if [ -f "$smm_file" ]; then
+    if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
         echo "## Current SMM State"
-        cat "$smm_file"
+        python3 "${PLUGIN_ROOT}/smm/smm_view.py" dump --smm-dir "$SMM_DIR" 2>/dev/null
     else
         echo "## SMM State: no materialized view"
     fi
+}
+
+smm_render_to_tempfile() {
+    # Unique tempfile per call — concurrent preloads must not race on a shared path.
+    local out
+    out=$(mktemp "${SMM_DIR}/.smm-rendered.XXXXXX.md")
+    python3 "${PLUGIN_ROOT}/smm/smm_view.py" dump --smm-dir "$SMM_DIR" > "$out" 2>/dev/null
+    echo "$out"
 }
 
 dump_values() {
@@ -99,12 +106,8 @@ dump_diff() {
     echo ""
 }
 
-# Check if a section heading exists in the SMM file.
-# Usage: smm_has_section "Intent"
-# Requires SMM_FILE to be set by the caller.
-# shellcheck disable=SC2153  # SMM_FILE is set by callers, not here
 smm_has_section() {
-    grep -q "^## ${1}$" "$SMM_FILE" 2>/dev/null
+    python3 "${PLUGIN_ROOT}/smm/smm_view.py" has-section "$1" --smm-dir "$SMM_DIR" 2>/dev/null
 }
 
 # Find the latest retrospective JSON file.
@@ -136,16 +139,7 @@ count_sprint_status() {
     echo "${count:-0}"
 }
 
-# Extract a markdown section from the SMM file by heading name.
-# Captures from ^## Name$ until the next ^## heading.
-# Usage: smm_section "Intent" [max_lines]
-#   smm_section "Risks" 30 | head -20   # display first 20 lines
-#   smm_section "Risks" 30 | grep -qi "question"  # search section
-# Requires SMM_FILE to be set and the file to exist.
 smm_section() {
     local name="$1"
-    local max_lines="${2:-50}"
-    local first_char="${name:0:1}"
-    grep -A "$max_lines" "^## ${name}$" "$SMM_FILE" | \
-        sed "/^## [^${first_char}]/,\$d"
+    python3 "${PLUGIN_ROOT}/smm/smm_view.py" section "$name" --smm-dir "$SMM_DIR" 2>/dev/null
 }

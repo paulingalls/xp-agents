@@ -7,10 +7,9 @@ source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
 
-# SMM file path (agent reads via Read tool)
-SMM_FILE="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
-if [ -f "$SMM_FILE" ]; then
-    echo "SMM_FILE=${SMM_FILE}"
+# SMM rendered to tempfile (agent reads via Read tool)
+if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
+    echo "SMM_FILE=$(smm_render_to_tempfile)"
 fi
 
 # Sprint file path

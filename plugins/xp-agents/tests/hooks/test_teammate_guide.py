@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase
+from conftest import _HookTestCase, write_smm_fixture
 
 _SAMPLE_SPRINT = """\
 # Sprint: Build user management REST API
@@ -78,13 +78,12 @@ class TestTeammateGuide(_HookTestCase):
         import subagent_start
 
         self.subagent_start = subagent_start
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(
-            "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
-            "## Constraints\n- Python 3.10+ only\n\n"
-            "## Risks\n- Auth module fragile\n\n"
-            "## Wisdom\n- TDD always\n"
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+            risks=[("Auth module fragile", "concern", "problem")],
+            wisdom=["TDD always"],
         )
         sprint_file = self.smm_dir / "sprint.md"
         sprint_file.write_text(_SAMPLE_SPRINT)

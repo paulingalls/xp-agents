@@ -11,7 +11,6 @@ XP values (~250 tokens) are injected universally for ALL subagents,
 appended after tier-specific context.
 """
 
-import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -21,69 +20,37 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
-
-# ---------------------------------------------------------------------------
-# SMM section extraction for Explore agents
-# ---------------------------------------------------------------------------
-
-_PILLAR_RE = re.compile(r"^## (Intent|Constraints|Risks|Wisdom)\s*$", re.MULTILINE)
+import smm_view
 
 
-def _extract_pillars(smm_content: str, pillars: set[str]) -> str:
-    """Extract specific pillar sections from the curated SMM."""
-    matches = list(_PILLAR_RE.finditer(smm_content))
-    if not matches:
-        return ""
-
-    parts: list[str] = []
-    for i, m in enumerate(matches):
-        if m.group(1) in pillars:
-            start = m.start()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(smm_content)
-            parts.append(smm_content[start:end].rstrip())
-
-    if not parts:
-        return ""
-    return "# Shared Mental Model\n\n" + "\n\n".join(parts) + "\n"
-
-
-# ---------------------------------------------------------------------------
-# Injection functions (one per tier)
-# ---------------------------------------------------------------------------
-
-
-def _inject_explore(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+def _inject_explore(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """Explore: Intent + Constraints only."""
-    if not smm:
-        return []
-    extracted = _extract_pillars(smm, {"Intent", "Constraints"})
+    extracted = smm_view.extract_pillars(smm, {"intent", "constraints"})
     return [_common.wrap_smm_context(extracted)] if extracted else []
 
 
-def _inject_full(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+def _inject_full(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """Default: full SMM (no process guide)."""
-    parts: list[str] = []
-    if smm:
-        parts.append(_common.wrap_smm_context(smm))
-    return parts
+    rendered = smm_view.render_markdown(smm)
+    return [_common.wrap_smm_context(rendered)] if rendered.strip() else []
 
 
-def _inject_teammate(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """Teammate: SMM + teammate guide. Stories via spawn prompt."""
-    # Register in coordination immediately — closes race window before first file write
     agent_id = input_data.get("agent_id", "")
     if agent_id and smm_dir:
         coordination.update_coordination(smm_dir, agent_id, [])
     parts: list[str] = []
-    if smm:
-        parts.append(_common.wrap_smm_context(smm))
+    rendered = smm_view.render_markdown(smm)
+    if rendered.strip():
+        parts.append(_common.wrap_smm_context(rendered))
     guide = _common.load_teammate_guide()
     if guide:
         parts.append(guide)
     return parts
 
 
-def _inject_xp_agent(smm: str, smm_dir: Path, input_data: dict) -> list[str]:
+def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """xp-* forked agents: values only (data comes from preloads)."""
     return []
 
@@ -146,12 +113,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = input_data.get("agent_id", "subagent")
 
-    # Read curated four-pillar SMM from disk
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    try:
-        smm_content = smm_file.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        smm_content = ""
+    # Read curated SMM from JSON
+    import smm_store
+
+    smm_data = smm_store.load_smm(smm_dir)
 
     # Record start event
     start_event = _common.make_event(
@@ -163,7 +128,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     _common.append_safe(smm_dir, start_event)
 
     # Run the selected injector (tier-specific context)
-    parts = injector(smm_content, smm_dir, input_data)
+    parts = injector(smm_data, smm_dir, input_data)
 
     # Universal: XP values injected for ALL subagents
     values = _common.load_xp_values()

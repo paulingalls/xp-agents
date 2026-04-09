@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
 # session_start.py tests — path validation
@@ -343,9 +343,7 @@ class TestSessionStartXPValues(_HookTestCase):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        )
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = session_start.run(
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
