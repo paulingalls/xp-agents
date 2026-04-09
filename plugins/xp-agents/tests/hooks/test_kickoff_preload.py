@@ -7,7 +7,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import SPRINT_ALL_DONE, SPRINT_MIXED, _IntegrationTestCase
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_MIXED,
+    _IntegrationTestCase,
+)
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -27,10 +31,18 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("NEEDS_PRODUCT_SPEC", result.stdout)
 
-    def test_no_product_spec_section_without_marker(self):
+    def test_no_product_spec_section_when_file_exists(self):
+        """No marker, but product_spec.md exists — no flag."""
+        (self.smm_dir / "product_spec.md").write_text("# Spec\n")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("NEEDS_PRODUCT_SPEC", result.stdout)
+
+    def test_outputs_needs_product_spec_when_no_file(self):
+        """No marker, no product_spec.md — emit flag from file check."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_PRODUCT_SPEC", result.stdout)
 
     def test_outputs_needs_sprint_when_marker_exists(self):
         (self.smm_dir / ".needs-sprint").write_text("startup")
@@ -38,10 +50,25 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("NEEDS_SPRINT", result.stdout)
 
-    def test_no_sprint_section_without_marker(self):
+    def test_no_sprint_section_when_active_stories(self):
+        """No marker, sprint.md with ready stories — no flag."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("NEEDS_SPRINT", result.stdout)
+
+    def test_outputs_needs_sprint_when_no_file(self):
+        """No marker, no sprint.md — emit flag from file check."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
+
+    def test_outputs_needs_sprint_when_all_done_no_marker(self):
+        """No marker, sprint.md all done — emit flag."""
+        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
 
     def test_outputs_sprint_active_when_ready_stories(self):
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
@@ -62,13 +89,13 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
 
     def test_no_markers_no_sprint(self):
-        """No markers, no sprint — clean output with SMM_DIR only."""
+        """No markers, no sprint/spec files — flags from file-existence."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SMM_DIR=", result.stdout)
-        # Should NOT have conditional sections
-        self.assertNotIn("NEEDS_PRODUCT_SPEC", result.stdout)
-        self.assertNotIn("NEEDS_SPRINT", result.stdout)
+        # File-existence checks emit flags even without markers
+        self.assertIn("NEEDS_PRODUCT_SPEC", result.stdout)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
 
     def test_sprint_active_shows_only_ready_titles(self):

@@ -26,32 +26,46 @@ elif [ -f "$RETRO_INPUT" ]; then
     echo ""
 fi
 
-# 2. Check for product spec
-if [ -f "${SMM_DIR}/.needs-product-spec" ]; then
+# 2. Check for product spec (marker OR missing file)
+PRODUCT_SPEC="${SMM_DIR}/product_spec.md"
+if [ -f "${SMM_DIR}/.needs-product-spec" ] || [ ! -f "$PRODUCT_SPEC" ]; then
     echo "### NEEDS_PRODUCT_SPEC"
     echo "No product_spec.md found. Run /xp-product-spec to create one."
     echo ""
 fi
 
-# 3. Check for sprint
+# 3. Check for sprint (marker OR no active stories)
+SPRINT_FILE="${SMM_DIR}/sprint.md"
+ready=0
+if [ -f "$SPRINT_FILE" ]; then
+    ready=$(count_sprint_status "ready" "$SPRINT_FILE")
+fi
+
 if [ -f "${SMM_DIR}/.needs-sprint" ]; then
     echo "### NEEDS_SPRINT"
     echo "No active sprint. Run /xp-sprint-start to plan a sprint."
     echo ""
+elif [ ! -f "$SPRINT_FILE" ]; then
+    echo "### NEEDS_SPRINT"
+    echo "No active sprint. Run /xp-sprint-start to plan a sprint."
+    echo ""
+elif [ "$ready" -eq 0 ]; then
+    in_prog=$(count_sprint_status "in-progress" "$SPRINT_FILE")
+    if [ "$in_prog" -eq 0 ]; then
+        echo "### NEEDS_SPRINT"
+        echo "No active sprint. Run /xp-sprint-start to plan a sprint."
+        echo ""
+    fi
 fi
 
 # 4. Sprint status (for work selection context)
-SPRINT_FILE="${SMM_DIR}/sprint.md"
-if [ -f "$SPRINT_FILE" ]; then
-    ready=$(count_sprint_status "ready" "$SPRINT_FILE")
-    if [ "$ready" -gt 0 ]; then
-        echo "### SPRINT_ACTIVE"
-        echo "Sprint has ${ready} ready stories:"
-        echo ""
-        grep -B2 -F '**Status:** ready' "$SPRINT_FILE" \
-            | grep '###' || true
-        echo ""
-    fi
+if [ "$ready" -gt 0 ]; then
+    echo "### SPRINT_ACTIVE"
+    echo "Sprint has ${ready} ready stories:"
+    echo ""
+    grep -B2 -F '**Status:** ready' "$SPRINT_FILE" \
+        | grep '###' || true
+    echo ""
 fi
 
 # Always clear the marker here. This preload runs as a !`command` before
