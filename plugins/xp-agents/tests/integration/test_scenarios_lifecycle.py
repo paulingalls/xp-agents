@@ -6,6 +6,7 @@ TestPlanReviewFlow, TestThreeSessionAccumulation.
 """
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -286,6 +287,151 @@ class TestSprintTieredInjection(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Ship v1", ctx)  # SMM content
         self.assertNotIn("sprint-001", ctx)  # sprint.md not injected
+
+
+# ===========================================================================
+# sprint_retro_detection.py — detection + file I/O
+# ===========================================================================
+
+
+class TestSprintRetroDetectionIntegration(_IntegrationTestCase):
+    """Integration test for sprint retro detection with real file I/O."""
+
+    def test_detects_dangling_sprint_end(self):
+        """Sprint end without retro_done → creates .sprint-retro-input.json."""
+        from conftest import SPRINT_COMPLETE_WITH_ID
+        from event_schema import SPRINT_ACTION_END
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+
+        self._seed_events(
+            [
+                make_event("status", content="Working"),
+                make_event(
+                    "sprint",
+                    content="Sprint complete",
+                    metadata={
+                        "action": SPRINT_ACTION_END,
+                        "sprint_id": "sprint-001",
+                    },
+                ),
+            ]
+        )
+        (self.smm_dir / ".retro-input.json").write_text("{}")
+
+        import sprint_retro_detection
+
+        events = self._read_events()
+        result = sprint_retro_detection.maybe_run_sprint_retro_branch(
+            self.smm_dir, events
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn("sprint-001", result)
+        self.assertTrue((self.smm_dir / ".sprint-retro-input.json").exists())
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+    def test_no_detection_when_retro_done(self):
+        """Sprint end followed by retro_done → no detection."""
+        from event_schema import (
+            SPRINT_ACTION_END,
+            STATUS_ACTION_SPRINT_RETRO_DONE,
+        )
+
+        self._seed_events(
+            [
+                make_event(
+                    "sprint",
+                    content="Sprint complete",
+                    metadata={
+                        "action": SPRINT_ACTION_END,
+                        "sprint_id": "sprint-001",
+                    },
+                ),
+                make_event(
+                    "status",
+                    content="Sprint retro done",
+                    metadata={
+                        "action": STATUS_ACTION_SPRINT_RETRO_DONE,
+                        "sprint_id": "sprint-001",
+                    },
+                ),
+            ]
+        )
+
+        import sprint_retro_detection
+
+        events = self._read_events()
+        result = sprint_retro_detection.maybe_run_sprint_retro_branch(
+            self.smm_dir, events
+        )
+        self.assertIsNone(result)
+
+
+# ===========================================================================
+# prepare_sprint_retro_data.py — CLI subprocess
+# ===========================================================================
+
+
+class TestPrepareSprintRetroDataIntegration(_IntegrationTestCase):
+    """Subprocess tests for prepare_sprint_retro_data.py CLI."""
+
+    def test_writes_sprint_retro_input(self):
+        from conftest import SPRINT_COMPLETE_WITH_ID
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+
+        # Create a session retro in the sprint period
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_dir.mkdir(exist_ok=True)
+        (retro_dir / "2026-04-02T10-00-00.json").write_text(
+            json.dumps(
+                {
+                    "timestamp": "2026-04-02T10:00:00+00:00",
+                    "keep": [{"content": "Good TDD"}],
+                    "fix": [],
+                    "try": [],
+                }
+            )
+        )
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(self.scripts_dir / "prepare_sprint_retro_data.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=self._test_env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RETRO_INPUT=", result.stdout)
+
+        retro_input = json.loads(
+            (self.smm_dir / ".sprint-retro-input.json").read_text()
+        )
+        self.assertEqual(retro_input["sprint_id"], "sprint-001")
+        self.assertEqual(len(retro_input["session_retros"]), 1)
+        self.assertIn("velocity", retro_input)
+
+    def test_missing_sprint_exits_gracefully(self):
+        result = subprocess.run(
+            [
+                "python3",
+                str(self.scripts_dir / "prepare_sprint_retro_data.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=self._test_env,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("No sprint data", result.stderr)
 
 
 if __name__ == "__main__":

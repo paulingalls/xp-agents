@@ -315,5 +315,122 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         self.assertIn("concerns_raised", data["session_stats"])
 
 
+# ===========================================================================
+# save_retrospective.py — subprocess integration
+# ===========================================================================
+
+
+class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
+    """Subprocess tests for save_retrospective.py CLI."""
+
+    _SCRIPT = "save_retrospective.py"
+
+    def _run_save_retro(self, kft_json: str, extra_args: list[str] | None = None):
+        cmd = [
+            "python3",
+            str(self.scripts_dir / self._SCRIPT),
+            "--smm-dir",
+            str(self.smm_dir),
+        ]
+        if extra_args:
+            cmd.extend(extra_args)
+        return subprocess.run(
+            cmd,
+            input=kft_json,
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=self._test_env,
+        )
+
+    def test_session_retro_writes_event_and_file(self):
+        kft = {
+            "keep": [{"content": "TDD discipline"}],
+            "fix": [{"content": "Slow CI"}],
+            "try": [{"content": "Pair more"}],
+        }
+        result = self._run_save_retro(json.dumps(kft))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("EVENT_ID=", result.stdout)
+        self.assertIn("RETRO_FILE=", result.stdout)
+
+        events = self._read_events()
+        retros = [e for e in events if e.get("type") == "retrospective"]
+        self.assertEqual(len(retros), 1)
+        self.assertIn("1 keeps, 1 fixes, 1 tries", retros[0]["content"])
+
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_files = list(retro_dir.glob("*.json"))
+        self.assertEqual(len(retro_files), 1)
+
+    def test_sprint_retro_kind(self):
+        kft = {"keep": [], "fix": [], "try": []}
+        result = self._run_save_retro(json.dumps(kft), ["--retro-kind", "sprint"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
+
+    def test_cleans_up_input_file(self):
+        (self.smm_dir / ".retro-input.json").write_text("{}")
+        kft = {"keep": [], "fix": [], "try": []}
+        result = self._run_save_retro(json.dumps(kft))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+    def test_invalid_input_exits_1(self):
+        result = self._run_save_retro("not json at all")
+        self.assertEqual(result.returncode, 1)
+
+
+# ===========================================================================
+# session_end_warning.py — Stop hook integration
+# ===========================================================================
+
+
+class TestSessionEndWarningIntegration(_IntegrationTestCase):
+    """Subprocess tests for session_end_warning.py Stop hook."""
+
+    def test_returns_warning_with_unresolved_concerns(self):
+        self._seed_events(
+            [
+                make_event("concern", content="Flaky test", severity="medium"),
+            ]
+        )
+        result = self._run_script(
+            "session_end_warning.py",
+            {"session_id": "t", "agent_id": "main"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("unresolved concern", result.stdout)
+
+    def test_returns_summary_nudge_without_concerns(self):
+        self._seed_events(
+            [
+                make_event("status", content="Working on auth"),
+            ]
+        )
+        result = self._run_script(
+            "session_end_warning.py",
+            {"session_id": "t", "agent_id": "main"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Summarize", result.stdout)
+
+    def test_xp_agent_skips(self):
+        self._seed_events(
+            [
+                make_event("concern", content="Bug", severity="high"),
+            ]
+        )
+        result = self._run_script(
+            "session_end_warning.py",
+            {"session_id": "t", "agent_id": "main", "agent_type": "xp-nav"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()
