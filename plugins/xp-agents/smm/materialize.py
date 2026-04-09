@@ -7,7 +7,7 @@ prepares structured curation data for the housekeeping skill.
 
 import json
 import logging
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,11 +19,7 @@ from _append_impl import (
 from _append_impl import (
     read_with_lock as _read_with_lock,
 )
-from event_schema import (
-    EVENT_TYPE_ASSUMPTION,
-    EVENT_TYPE_QUESTION,
-    sessions_since_event,
-)
+from event_schema import sessions_since_event
 from resolution import compute_resolutions
 from sprint_parser import parse_sprint_data
 
@@ -106,94 +102,11 @@ def parse_events(smm_dir: Path) -> tuple[list[dict], int]:
     return events, skipped
 
 
-# ---------------------------------------------------------------------------
-# Index building
-# ---------------------------------------------------------------------------
-
-
-def build_indices(events: list[dict]) -> dict:
-    """Single-pass grouping of events into lookup structures."""
-    indices: dict = {
-        "by_type": defaultdict(list),
-        "by_id": {},
-        "event_positions": {},
-        "latest_status": {},
-        "question_answers": {},
-        "question_assumptions": {},
-        "decisions_by_topic": defaultdict(list),
-        "conventions_by_topic": defaultdict(list),
-        "assumption_contradictions": {},
-        "agent_ids": set(),
-        "session_end_positions": [],
-        "last_session_end_pos": -1,
-        "intent_by_status": defaultdict(list),
-    }
-
-    for i, event in enumerate(events):
-        event_type = event.get("type", "")
-        event_id = event.get("id", "")
-
-        indices["by_type"][event_type].append(event)
-        agent_id = event.get("agent_id", "")
-        if agent_id:
-            indices["agent_ids"].add(agent_id)
-        if event_id:
-            indices["by_id"][event_id] = event
-            indices["event_positions"][event_id] = i
-
-        match event_type:
-            case "status":
-                indices["latest_status"][event.get("agent_id", "")] = event
-
-            case "session_end":
-                indices["session_end_positions"].append((i, event.get("ts", "")))
-                indices["last_session_end_pos"] = i
-
-            case "customer_intent":
-                intent_status = event.get("intent_status", "")
-                if intent_status:
-                    indices["intent_by_status"][intent_status].append(event)
-
-            case "decision":
-                topic = event.get("topic", "")
-                if topic:
-                    indices["decisions_by_topic"][topic].append(event)
-
-            case "convention":
-                topic = event.get("topic", "")
-                if topic:
-                    indices["conventions_by_topic"][topic].append(event)
-
-            case "assumption":
-                for ref_id in event.get("references", []):
-                    ref_event = indices["by_id"].get(ref_id)
-                    if ref_event and ref_event.get("type") == EVENT_TYPE_QUESTION:
-                        indices["question_assumptions"][ref_id] = event
-
-            case "discovery":
-                for ref_id in event.get("references", []):
-                    ref_event = indices["by_id"].get(ref_id)
-                    if ref_event and ref_event.get("type") == EVENT_TYPE_ASSUMPTION:
-                        indices["assumption_contradictions"][ref_id] = event
-
-    # Resolution tracking via shared utility
-    resolutions = compute_resolutions(events)
-    indices["question_answers"] = resolutions["question_answers"]
-    indices["concern_resolutions"] = resolutions["concern_resolutions"]
-    indices["goal_resolutions"] = resolutions["goal_resolutions"]
-    indices["debt_resolutions"] = resolutions["debt_resolutions"]
-    indices["decision_resolutions"] = resolutions["decision_resolutions"]
-    indices["assumption_resolutions"] = resolutions["assumption_resolutions"]
-
-    return indices
-
-
 def _extract_retro_history(retro_events: list[dict]) -> dict:
     """Extract retrospective history from retrospective events.
 
     Args:
-        retro_events: Pre-filtered list of retrospective events
-            (from indices["by_type"]["retrospective"]).
+        retro_events: Pre-filtered list of retrospective events.
 
     Returns dict with latest_tries, recurring_fixes, adopted_tries.
     """
@@ -259,62 +172,9 @@ def _read_sprint_data(smm_dir: Path) -> dict:
     return parse_sprint_data(content)
 
 
-def prepare_curation_data(smm_dir: Path) -> dict:
-    """Prepare structured data for housekeeping curation.
-
-    `current_smm` is loaded from shared_mental_model.json (the persistent
-    store). `new_since_last_curation` is derived from events after the
-    watermark. This is the commit that closes the seed-wipe regression —
-    pillars no longer re-derive from events on every pass.
-    """
-    current_smm = smm_store.load_smm(smm_dir)
-
-    events, _ = parse_events(smm_dir)
-    if not events:
-        return {
-            "current_smm": current_smm,
-            "new_since_last_curation": {
-                "customer_inputs": [],
-                "decisions": [],
-                "concerns": [],
-                "assumptions": [],
-                "debt": [],
-                "questions": [],
-                "resolutions": {},
-                "resolved_concern_count": 0,
-            },
-            "retro_history": {
-                "latest_tries": [],
-                "recurring_fixes": [],
-                "adopted_tries": [],
-            },
-            "aging": {},
-            "health": {
-                "intent_count": len(current_smm.get("intent", [])),
-                "constraints_count": len(current_smm.get("constraints", [])),
-                "risks_count": len(current_smm.get("risks", [])),
-                "wisdom_count": len(current_smm.get("wisdom", [])),
-            },
-            "sprint": _read_sprint_data(smm_dir),
-        }
-
-    indices = build_indices(events)
-    watermark = read_curation_watermark(smm_dir)
-    wm_count = watermark["event_count"]
-
-    retro_history = _extract_retro_history(indices["by_type"].get("retrospective", []))
-
-    # --- new_since_last_curation (events after watermark) ---
-
-    new_events = events[wm_count:]
-
-    # Compute resolutions for new events to filter resolved concerns
-    from resolution import compute_resolutions as _compute_resolutions
-
-    new_resolutions = _compute_resolutions(new_events)
-    resolved_concern_ids = new_resolutions.get("resolved_concern_ids", set())
-
-    new_since: dict = {
+def _empty_new_since() -> dict:
+    """Canonical empty new_since_last_curation shape."""
+    return {
         "customer_inputs": [],
         "decisions": [],
         "concerns": [],
@@ -322,8 +182,33 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         "debt": [],
         "questions": [],
         "resolutions": {},
-        "resolved_concern_count": len(resolved_concern_ids),
+        "resolved_concern_count": 0,
     }
+
+
+def _empty_retro_history() -> dict:
+    """Canonical empty retro_history shape."""
+    return {"latest_tries": [], "recurring_fixes": [], "adopted_tries": []}
+
+
+def _health_from_smm(current_smm: dict) -> dict:
+    """Pillar counts for the health check."""
+    return {
+        "intent_count": len(current_smm.get("intent", [])),
+        "constraints_count": len(current_smm.get("constraints", [])),
+        "risks_count": len(current_smm.get("risks", [])),
+        "wisdom_count": len(current_smm.get("wisdom", [])),
+    }
+
+
+def _bucket_new_events(
+    new_events: list[dict],
+    resolved_concern_ids: set,
+) -> dict:
+    """Bucket new events into new_since_last_curation pillars."""
+    new_since: dict = _empty_new_since()
+    new_since["resolved_concern_count"] = len(resolved_concern_ids)
+
     for e in new_events:
         etype = e.get("type", "")
         summary = {
@@ -351,25 +236,60 @@ def prepare_curation_data(smm_dir: Path) -> dict:
                 new_since["questions"].append(summary)
 
         # Track resolutions in new events
-        resolves = e.get("metadata", {}).get("resolves", [])
-        for target_id in resolves:
+        for target_id in e.get("metadata", {}).get("resolves", []):
             new_since["resolutions"][target_id] = e.get("content", "")
+
+    return new_since
+
+
+def prepare_curation_data(smm_dir: Path) -> dict:
+    """Prepare structured data for housekeeping curation.
+
+    `current_smm` is loaded from shared_mental_model.json (the persistent
+    store). `new_since_last_curation` is derived from events after the
+    watermark. This is the commit that closes the seed-wipe regression —
+    pillars no longer re-derive from events on every pass.
+    """
+    current_smm = smm_store.load_smm(smm_dir)
+
+    events, _ = parse_events(smm_dir)
+    if not events:
+        return {
+            "current_smm": current_smm,
+            "new_since_last_curation": _empty_new_since(),
+            "retro_history": _empty_retro_history(),
+            "aging": {},
+            "health": _health_from_smm(current_smm),
+            "sprint": _read_sprint_data(smm_dir),
+        }
+
+    watermark = read_curation_watermark(smm_dir)
+    wm_count = watermark["event_count"]
+
+    # Single pass — collect the two things prepare_curation_data still needs.
+    retros: list[dict] = []
+    session_end_timestamps: list[str] = []
+    for e in events:
+        etype = e.get("type", "")
+        if etype == "retrospective":
+            retros.append(e)
+        elif etype == "session_end":
+            session_end_timestamps.append(e.get("ts", ""))
+
+    retro_history = _extract_retro_history(retros)
+
+    # --- new_since_last_curation (events after watermark) ---
+
+    new_events = events[wm_count:]
+    new_resolutions = compute_resolutions(new_events)
+    resolved_concern_ids = new_resolutions.get("resolved_concern_ids", set())
+    new_since = _bucket_new_events(new_events, resolved_concern_ids)
 
     # --- aging (sessions since each risk item in current_smm) ---
 
-    se_timestamps = [ts for _, ts in indices["session_end_positions"]]
     aging: dict[str, int] = {
-        risk["id"]: sessions_since_event(se_timestamps, risk.get("ts", ""))
+        risk["id"]: sessions_since_event(session_end_timestamps, risk.get("ts", ""))
         for risk in current_smm.get("risks", [])
-    }
-
-    # --- health ---
-
-    health = {
-        "intent_count": len(current_smm.get("intent", [])),
-        "constraints_count": len(current_smm.get("constraints", [])),
-        "risks_count": len(current_smm.get("risks", [])),
-        "wisdom_count": len(current_smm.get("wisdom", [])),
     }
 
     return {
@@ -377,6 +297,6 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         "new_since_last_curation": new_since,
         "retro_history": retro_history,
         "aging": aging,
-        "health": health,
+        "health": _health_from_smm(current_smm),
         "sprint": _read_sprint_data(smm_dir),
     }

@@ -13,7 +13,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
-import materialize
 import read_delta
 from conftest import _SMMTestCase, make_event
 
@@ -211,55 +210,6 @@ class TestMetadataResolves(unittest.TestCase):
         result = _append_impl.compute_resolutions([c1, c2, resolver])
         # Ambiguous — neither should be resolved
         self.assertEqual(len(result["concern_resolutions"]), 0)
-
-
-class TestBuildIndicesResolutions(_SMMTestCase):
-    """Tests that build_indices() populates goal/debt resolution indices."""
-
-    def test_goal_resolutions_in_indices(self):
-        goal = make_event("goal", content="Ship v1.0")
-        resolver = make_event(
-            "status",
-            content="Done",
-            working_on=["app.py"],
-            metadata={"resolves": [goal["id"]]},
-        )
-        indices = materialize.build_indices([goal, resolver])
-        self.assertIn(goal["id"], indices["goal_resolutions"])
-
-    def test_decision_resolutions_in_indices(self):
-        decision = make_event("decision", content="Use Redis", topic="caching")
-        resolver = make_event(
-            "status",
-            content="Confirmed",
-            working_on=[],
-            metadata={"resolves": [decision["id"]]},
-        )
-        indices = materialize.build_indices([decision, resolver])
-        self.assertIn(decision["id"], indices["decision_resolutions"])
-
-    def test_debt_resolutions_in_indices(self):
-        debt = make_event("debt", content="Legacy code", files=["old.py"])
-        resolver = make_event(
-            "status",
-            content="Refactored",
-            working_on=["old.py"],
-            metadata={"resolves": [debt["id"]]},
-        )
-        indices = materialize.build_indices([debt, resolver])
-        self.assertIn(debt["id"], indices["debt_resolutions"])
-
-    def test_concern_resolution_uses_metadata_resolves(self):
-        """build_indices concern_resolutions uses metadata.resolves, not references."""
-        concern = make_event("concern", content="Bug found")
-        resolver = make_event(
-            "status",
-            content="Fixed",
-            working_on=["fix.py"],
-            metadata={"resolves": [concern["id"]]},
-        )
-        indices = materialize.build_indices([concern, resolver])
-        self.assertIn(concern["id"], indices["concern_resolutions"])
 
 
 class TestReadEventsFrom(_SMMTestCase):
