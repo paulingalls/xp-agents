@@ -17,6 +17,41 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+_HOUSEKEEPING_DIR = (
+    Path(__file__).parent.parent.parent / "skills" / "xp-housekeeping" / "scripts"
+)
+
+
+def _run_prepare_curation(smm_dir: Path, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "python3",
+            str(_HOUSEKEEPING_DIR / "prepare_curation.py"),
+            "--smm-dir",
+            str(smm_dir),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+
+
+def _run_save_smm(
+    smm_dir: Path, cwd: Path, content: str
+) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "python3",
+            str(_HOUSEKEEPING_DIR / "save_smm.py"),
+            "--smm-dir",
+            str(smm_dir),
+        ],
+        input=content,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+
 
 class TestCompactIntegration(_IntegrationTestCase):
     """Subprocess-level tests for compact.py."""
@@ -235,19 +270,7 @@ class TestPrepareCurationIntegration(_IntegrationTestCase):
     """Integration test for prepare_curation.py preload script."""
 
     def _run_prepare_curation(self) -> subprocess.CompletedProcess:
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "prepare_curation.py"
-        )
-        return subprocess.run(
-            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-        )
+        return _run_prepare_curation(self.smm_dir, self.tmpdir)
 
     def test_empty_project_returns_valid_json(self):
         """Script outputs valid JSON with expected schema on empty project."""
@@ -294,20 +317,7 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
     """Integration test for save_smm.py helper script."""
 
     def _run_save_smm(self, content: str) -> subprocess.CompletedProcess:
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "save_smm.py"
-        )
-        return subprocess.run(
-            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
-            input=content,
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-        )
+        return _run_save_smm(self.smm_dir, self.tmpdir, content)
 
     def test_pipe_json_writes_file(self):
         """Pipe JSON into save_smm.py, verify file written."""
@@ -339,6 +349,84 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
         self.assertTrue(wm_file.exists())
         wm = json.loads(wm_file.read_text())
         self.assertEqual(wm["event_count"], 3)
+
+
+class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
+    """prepare_curation → hand-crafted merge → save_smm → re-prepare flow.
+
+    Exercises the full housekeeping data path that `TestPrepareCurationIntegration`
+    (static prepare) and `TestSaveSMMIntegration` (static save) don't chain
+    together. Closes the gap that motivated story-003: verifying the
+    watermark-driven delta actually resets after save.
+    """
+
+    def test_prepare_curation_pipe_save_smm_round_trip(self):
+        """prepare → merge → save → re-prepare reflects the saved SMM.
+
+        init.sh seeds the SMM with 7 constraints + 8 wisdom entries. A
+        realistic housekeeper merge must preserve those seed entries and
+        add new curated content on top — anything else would reproduce
+        the exact seed-wipe bug story-003 fixed. This test verifies both
+        sides of the contract: save preserves existing pillars AND
+        re-prepare reflects the new additions.
+        """
+        import uuid
+
+        self._seed_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+                make_event("decision", topic="db", content="Use PG"),
+            ]
+        )
+
+        result = _run_prepare_curation(self.smm_dir, self.tmpdir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        initial_constraints = data["health"]["constraints_count"]
+        initial_wisdom = data["health"]["wisdom_count"]
+        self.assertGreater(initial_constraints, 0, "seed should populate constraints")
+        self.assertGreater(initial_wisdom, 0, "seed should populate wisdom")
+        self.assertEqual(data["health"]["intent_count"], 0)
+
+        smm = data["current_smm"]
+        new_intent_id = str(uuid.uuid4())
+        smm["intent"].append(
+            {
+                "id": new_intent_id,
+                "content": "Curated: Ship v1",
+                "source": "curated",
+                "ts": "2026-04-01T00:00:00+00:00",
+                "type": "goal",
+            }
+        )
+
+        save_result = _run_save_smm(self.smm_dir, self.tmpdir, json.dumps(smm))
+        self.assertEqual(save_result.returncode, 0, save_result.stderr)
+        smm_file = self.smm_dir / "shared_mental_model.json"
+        self.assertTrue(smm_file.exists())
+        written = json.loads(smm_file.read_text())
+        self.assertEqual(len(written["intent"]), 1)
+        self.assertEqual(written["intent"][0]["content"], "Curated: Ship v1")
+        # Round-trip safety: the id we appended survives the save path unchanged.
+        self.assertEqual(written["intent"][0]["id"], new_intent_id)
+        # Seed pillars preserved through the save — the invariant story-003 enforces.
+        self.assertEqual(len(written["constraints"]), initial_constraints)
+        self.assertEqual(len(written["wisdom"]), initial_wisdom)
+
+        wm_file = self.smm_dir / ".curation-watermark"
+        self.assertTrue(wm_file.exists())
+        wm = json.loads(wm_file.read_text())
+        self.assertEqual(wm["event_count"], 3)
+
+        result_b = _run_prepare_curation(self.smm_dir, self.tmpdir)
+        self.assertEqual(result_b.returncode, 0, result_b.stderr)
+        data_b = json.loads(result_b.stdout)
+        self.assertEqual(data_b["health"]["intent_count"], 1)
+        self.assertEqual(data_b["health"]["constraints_count"], initial_constraints)
+        self.assertEqual(data_b["health"]["wisdom_count"], initial_wisdom)
+        intent_contents = [e["content"] for e in data_b["current_smm"]["intent"]]
+        self.assertIn("Curated: Ship v1", intent_contents)
 
 
 class TestCoordinationIntegration(_IntegrationTestCase):
