@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import materialize
-from conftest import _SMMTestCase, make_event
+from conftest import _SMMTestCase, make_event, write_smm_fixture
 
 
 class TestPrepareCurationData(_SMMTestCase):
@@ -79,25 +79,29 @@ class TestPrepareCurationData(_SMMTestCase):
         # Old decisions should NOT be in new
         self.assertEqual(len(new["decisions"]), 0)
 
-    def test_current_smm_intent(self):
-        """current_smm.intent contains unresolved goals and open intents."""
-        events = [
-            make_event("goal", content="Ship v1"),
-            make_event("customer_intent", content="Add RBAC", intent_status="open"),
-        ]
-        self._write_events(events)
+    def test_current_smm_from_json_file(self):
+        """current_smm is loaded verbatim from shared_mental_model.json."""
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal"), ("Add RBAC", "customer_intent")],
+        )
         result = materialize.prepare_curation_data(self.smm_dir)
         intents = result["current_smm"]["intent"]
         self.assertEqual(len(intents), 2)
+        contents = [e["content"] for e in intents]
+        self.assertIn("Ship v1", contents)
+        self.assertIn("Add RBAC", contents)
 
-    def test_current_smm_constraints(self):
-        """current_smm.constraints = all unresolved decisions + conventions."""
-        events = [
-            make_event("decision", topic="db", content="Use Postgres"),
-            make_event("decision", topic="hash", content="Use bcrypt"),
-            make_event("convention", topic="api", content="REST only"),
-        ]
-        self._write_events(events)
+    def test_current_smm_constraints_from_file(self):
+        """current_smm.constraints loaded verbatim from JSON."""
+        write_smm_fixture(
+            self.smm_dir,
+            constraints=[
+                ("Use Postgres", "decision"),
+                ("Use bcrypt", "decision"),
+                ("REST only", "convention"),
+            ],
+        )
         result = materialize.prepare_curation_data(self.smm_dir)
         constraints = result["current_smm"]["constraints"]
         self.assertEqual(len(constraints), 3)
@@ -106,56 +110,45 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertIn("Use bcrypt", contents)
         self.assertIn("REST only", contents)
 
-    def test_current_smm_risks(self):
-        """current_smm.risks = unresolved concerns + assumptions + debt + questions."""
-        events = [
-            make_event("concern", content="No tests"),
-            make_event("assumption", content="Users prefer REST"),
-            make_event("debt", content="Legacy code", files=["old.py"]),
-            make_event("question", content="Which DB?", priority="\U0001f534"),
-        ]
-        self._write_events(events)
+    def test_current_smm_risks_from_file(self):
+        """current_smm.risks loaded verbatim from JSON."""
+        write_smm_fixture(
+            self.smm_dir,
+            risks=[
+                ("No tests", "concern", "problem"),
+                ("Users prefer REST", "assumption", "uncertainty"),
+                ("Legacy code", "debt", "debt"),
+                ("Which DB?", "question", "uncertainty"),
+            ],
+        )
         result = materialize.prepare_curation_data(self.smm_dir)
         risks = result["current_smm"]["risks"]
         self.assertEqual(len(risks), 4)
 
-    def test_resolved_items_excluded_from_current_smm(self):
-        """Resolved goals/concerns/debt excluded from current_smm."""
-        goal = make_event("goal", content="Ship v1")
+    def test_resolutions_surfaced_in_new_since(self):
+        """Resolutions appear in new_since_last_curation for housekeeper to act on.
+
+        The deterministic filtering that previously lived in prepare_curation_data
+        moves to the housekeeper LLM — we assert the data it needs is available.
+        """
         concern = make_event("concern", content="Old bug")
-        resolver_g = make_event(
-            "status", content="Done", working_on=[], metadata={"resolves": [goal["id"]]}
-        )
-        resolver_c = make_event(
+        resolver = make_event(
             "status",
             content="Fixed",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
         )
-        self._write_events([goal, concern, resolver_g, resolver_c])
+        self._write_events([concern, resolver])
         result = materialize.prepare_curation_data(self.smm_dir)
-        self.assertEqual(len(result["current_smm"]["intent"]), 0)
-        self.assertEqual(len(result["current_smm"]["risks"]), 0)
+        self.assertIn(concern["id"], result["new_since_last_curation"]["resolutions"])
 
-    def test_resolved_assumption_excluded_from_risks(self):
-        """Resolved assumptions are excluded from current_smm.risks."""
-        assumption = make_event("assumption", content="API returns JSON")
-        resolver = make_event(
-            "status",
-            content="Verified",
-            working_on=[],
-            metadata={"resolves": [assumption["id"]]},
+    def test_aging_keyed_on_entry_ts(self):
+        """Aging uses entry.ts from the JSON file, not source event ts."""
+        write_smm_fixture(
+            self.smm_dir,
+            risks=[("Old concern", "concern", "problem")],
         )
-        self._write_events([assumption, resolver])
-        result = materialize.prepare_curation_data(self.smm_dir)
-        risk_ids = {r["id"] for r in result["current_smm"]["risks"]}
-        self.assertNotIn(assumption["id"], risk_ids)
-
-    def test_aging_counts_sessions(self):
-        """Aging dict maps risk IDs to session count since creation."""
-        concern = make_event(
-            "concern", content="No tests", ts="2026-01-01T00:00:00+00:00"
-        )
+        # The fixture uses ts "2026-01-01T00:00:00+00:00" — add 4 session_ends after it
         sessions = [
             make_event(
                 "session_end",
@@ -164,9 +157,15 @@ class TestPrepareCurationData(_SMMTestCase):
             )
             for i in range(4)
         ]
-        self._write_events([concern, *sessions])
+        self._write_events(sessions)
         result = materialize.prepare_curation_data(self.smm_dir)
-        self.assertEqual(result["aging"][concern["id"]], 4)
+        # The fixture generated a random UUID, so look up by content
+        risk_id = next(
+            r["id"]
+            for r in result["current_smm"]["risks"]
+            if r["content"] == "Old concern"
+        )
+        self.assertEqual(result["aging"][risk_id], 4)
 
     def test_resolutions_after_watermark(self):
         """Resolutions after watermark appear in new_since_last_curation."""
@@ -183,17 +182,23 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertIn(concern["id"], result["new_since_last_curation"]["resolutions"])
 
     def test_health_counts(self):
-        """Health section counts items in each pillar."""
-        events = [
-            make_event("goal", content="G1"),
-            make_event("goal", content="G2"),
-            make_event("customer_intent", content="I1", intent_status="open"),
-            make_event("decision", topic="db", content="Use PG"),
-            make_event("convention", topic="api", content="REST"),
-            make_event("concern", content="C1"),
-            make_event("assumption", content="A1"),
-        ]
-        self._write_events(events)
+        """Health section counts items in each pillar of current_smm."""
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[
+                ("G1", "goal"),
+                ("G2", "goal"),
+                ("I1", "customer_intent"),
+            ],
+            constraints=[
+                ("Use PG", "decision"),
+                ("REST", "convention"),
+            ],
+            risks=[
+                ("C1", "concern", "problem"),
+                ("A1", "assumption", "uncertainty"),
+            ],
+        )
         result = materialize.prepare_curation_data(self.smm_dir)
         self.assertEqual(result["health"]["intent_count"], 3)
         self.assertEqual(result["health"]["constraints_count"], 2)

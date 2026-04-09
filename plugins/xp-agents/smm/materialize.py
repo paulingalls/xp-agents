@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+import smm_store
 from _append_impl import (
     parse_jsonl,
     write_json_atomic,
@@ -261,19 +262,17 @@ def _read_sprint_data(smm_dir: Path) -> dict:
 def prepare_curation_data(smm_dir: Path) -> dict:
     """Prepare structured data for housekeeping curation.
 
-    Reuses parse_events() and build_indices() to extract four-pillar
-    data from the event log. Returns a dict matching the schema in
-    docs/SMM_DESIGN.md.
+    `current_smm` is loaded from shared_mental_model.json (the persistent
+    store). `new_since_last_curation` is derived from events after the
+    watermark. This is the commit that closes the seed-wipe regression —
+    pillars no longer re-derive from events on every pass.
     """
+    current_smm = smm_store.load_smm(smm_dir)
+
     events, _ = parse_events(smm_dir)
     if not events:
         return {
-            "current_smm": {
-                "intent": [],
-                "constraints": [],
-                "risks": [],
-                "wisdom": [],
-            },
+            "current_smm": current_smm,
             "new_since_last_curation": {
                 "customer_inputs": [],
                 "decisions": [],
@@ -282,6 +281,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
                 "debt": [],
                 "questions": [],
                 "resolutions": {},
+                "resolved_concern_count": 0,
             },
             "retro_history": {
                 "latest_tries": [],
@@ -290,10 +290,10 @@ def prepare_curation_data(smm_dir: Path) -> dict:
             },
             "aging": {},
             "health": {
-                "intent_count": 0,
-                "constraints_count": 0,
-                "risks_count": 0,
-                "wisdom_count": 0,
+                "intent_count": len(current_smm.get("intent", [])),
+                "constraints_count": len(current_smm.get("constraints", [])),
+                "risks_count": len(current_smm.get("risks", [])),
+                "wisdom_count": len(current_smm.get("wisdom", [])),
             },
             "sprint": _read_sprint_data(smm_dir),
         }
@@ -302,113 +302,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     watermark = read_curation_watermark(smm_dir)
     wm_count = watermark["event_count"]
 
-    # --- current_smm (derived from ALL events) ---
-
-    # Intent: unresolved goals + open customer_intents
-    goal_resolutions = indices["goal_resolutions"]
-    intent_items: list[dict] = []
-    for g in indices["by_type"].get("goal", []):
-        if g["id"] not in goal_resolutions:
-            intent_items.append(
-                {"id": g["id"], "content": g.get("content", ""), "type": "goal"}
-            )
-    for ci in indices["intent_by_status"].get("open", []):
-        intent_items.append(
-            {
-                "id": ci["id"],
-                "content": ci.get("content", ""),
-                "type": "customer_intent",
-            }
-        )
-
-    # Constraints: unresolved decisions + conventions
-    decision_resolutions = indices["decision_resolutions"]
-    constraint_items: list[dict] = []
-    for d in indices["by_type"].get("decision", []):
-        if d["id"] in decision_resolutions:
-            continue
-        constraint_items.append(
-            {
-                "id": d["id"],
-                "content": d.get("content", ""),
-                "topic": d.get("topic", ""),
-                "type": "decision",
-            }
-        )
-    for c in indices["by_type"].get("convention", []):
-        constraint_items.append(
-            {
-                "id": c["id"],
-                "content": c.get("content", ""),
-                "topic": c.get("topic", ""),
-                "type": "convention",
-            }
-        )
-
-    # Risks: unresolved concerns + unresolved assumptions + unresolved debt
-    #         + unanswered questions
-    concern_resolutions = indices["concern_resolutions"]
-    debt_resolutions = indices["debt_resolutions"]
-    assumption_resolutions = indices["assumption_resolutions"]
-    risk_items: list[dict] = []
-    for c in indices["by_type"].get("concern", []):
-        if c["id"] not in concern_resolutions:
-            risk_items.append(
-                {
-                    "id": c["id"],
-                    "content": c.get("content", ""),
-                    "severity": "problem",
-                    "type": "concern",
-                }
-            )
-    for a in indices["by_type"].get("assumption", []):
-        contradicted = a["id"] in indices["assumption_contradictions"]
-        resolved = a["id"] in assumption_resolutions
-        if not contradicted and not resolved:
-            risk_items.append(
-                {
-                    "id": a["id"],
-                    "content": a.get("content", ""),
-                    "severity": "uncertainty",
-                    "type": "assumption",
-                }
-            )
-    for d in indices["by_type"].get("debt", []):
-        if d["id"] not in debt_resolutions:
-            risk_items.append(
-                {
-                    "id": d["id"],
-                    "content": d.get("content", ""),
-                    "severity": "debt",
-                    "type": "debt",
-                }
-            )
-    for q in indices["by_type"].get("question", []):
-        if (
-            q["id"] not in indices["question_answers"]
-            and q["id"] not in indices["question_assumptions"]
-        ):
-            risk_items.append(
-                {
-                    "id": q["id"],
-                    "content": q.get("content", ""),
-                    "severity": "uncertainty",
-                    "type": "question",
-                }
-            )
-
-    # Wisdom: populated from retro_history
     retro_history = _extract_retro_history(indices["by_type"].get("retrospective", []))
-    wisdom_items = [
-        {"content": t, "type": "adopted_try"} for t in retro_history["adopted_tries"]
-    ]
-
-    current_smm = {
-        "intent": intent_items,
-        "constraints": constraint_items,
-        "risks": risk_items,
-        "wisdom": wisdom_items,
-    }
 
     # --- new_since_last_curation (events after watermark) ---
 
@@ -461,25 +355,21 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         for target_id in resolves:
             new_since["resolutions"][target_id] = e.get("content", "")
 
-    # --- aging (sessions since each risk item) ---
+    # --- aging (sessions since each risk item in current_smm) ---
 
     se_timestamps = [ts for _, ts in indices["session_end_positions"]]
-    aging: dict[str, int] = {}
-    for risk in risk_items:
-        risk_id = risk["id"]
-        risk_event = indices["by_id"].get(risk_id)
-        if risk_event:
-            risk_ts = risk_event.get("ts", "")
-            sessions_after = sessions_since_event(se_timestamps, risk_ts)
-            aging[risk_id] = sessions_after
+    aging: dict[str, int] = {
+        risk["id"]: sessions_since_event(se_timestamps, risk.get("ts", ""))
+        for risk in current_smm.get("risks", [])
+    }
 
     # --- health ---
 
     health = {
-        "intent_count": len(intent_items),
-        "constraints_count": len(constraint_items),
-        "risks_count": len(risk_items),
-        "wisdom_count": len(wisdom_items),
+        "intent_count": len(current_smm.get("intent", [])),
+        "constraints_count": len(current_smm.get("constraints", [])),
+        "risks_count": len(current_smm.get("risks", [])),
+        "wisdom_count": len(current_smm.get("wisdom", [])),
     }
 
     return {

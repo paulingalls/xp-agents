@@ -264,11 +264,21 @@ class TestPrepareCurationIntegration(_IntegrationTestCase):
             self.assertIn(key, data)
 
     def test_with_events_returns_populated_data(self):
-        """Script returns populated curation data when events exist."""
+        """Script returns populated curation data when events exist.
+
+        After the JSON refactor, health counts come from the persisted
+        SMM file (not derived from events). Events show up in
+        new_since_last_curation for the housekeeper to merge.
+        """
+        from conftest import write_smm_fixture
+
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            risks=[("No tests", "concern", "problem")],
+        )
         self._seed_events(
             [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
                 make_event("customer_input", content="Add auth"),
             ]
         )

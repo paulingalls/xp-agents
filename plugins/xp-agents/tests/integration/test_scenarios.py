@@ -230,7 +230,8 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         )
 
     def test_append_goal_and_curation_data(self):
-        """Goal event appears in curation data under intent."""
+        """Goal event is recorded in the event log (current_smm stays empty
+        until housekeeper merges it)."""
         r = self._run_append(
             "--type", "goal", "--agent", "main", "--content", "Ship v2.0"
         )
@@ -243,11 +244,14 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         import materialize as mat
 
         data = mat.prepare_curation_data(self.smm_dir)
-        intent_contents = [i["content"] for i in data["current_smm"]["intent"]]
-        self.assertIn("Ship v2.0", intent_contents)
+        # current_smm is sourced from shared_mental_model.json, not events.
+        # An appended goal event does NOT automatically promote into
+        # current_smm until the housekeeper merges it.
+        self.assertEqual(data["health"]["intent_count"], 0)
+        self.assertEqual(data["current_smm"]["intent"], [])
 
     def test_append_debt_and_curation_data(self):
-        """Debt event appears in curation data under risks."""
+        """Debt event appears in new_since_last_curation.debt for housekeeper."""
         r = self._run_append(
             "--type",
             "debt",
@@ -268,11 +272,11 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         import materialize as mat
 
         data = mat.prepare_curation_data(self.smm_dir)
-        risk_contents = [r["content"] for r in data["current_smm"]["risks"]]
-        self.assertIn("Legacy auth module", risk_contents)
+        debt_contents = [d["content"] for d in data["new_since_last_curation"]["debt"]]
+        self.assertIn("Legacy auth module", debt_contents)
 
     def test_append_customer_intent_and_curation_data(self):
-        """Customer intent event appears in curation data under intent."""
+        """Customer intent event recorded (current_smm empty until curated)."""
         r = self._run_append(
             "--type",
             "customer_intent",
@@ -293,8 +297,8 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         import materialize as mat
 
         data = mat.prepare_curation_data(self.smm_dir)
-        intent_contents = [i["content"] for i in data["current_smm"]["intent"]]
-        self.assertIn("Need OAuth integration", intent_contents)
+        self.assertEqual(data["health"]["intent_count"], 0)
+        self.assertEqual(data["current_smm"]["intent"], [])
 
     def test_retro_includes_session_stats(self):
         """Retrospective .retro-input.json includes session_stats."""
