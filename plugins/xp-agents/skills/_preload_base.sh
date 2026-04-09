@@ -28,8 +28,10 @@ dump_smm() {
 
 smm_render_to_tempfile() {
     # Unique tempfile per call — concurrent preloads must not race on a shared path.
+    # BSD mktemp (macOS) requires the X's at the end of the template, so no suffix.
+    # Agents Read the file via the Read tool, which is extension-agnostic.
     local out
-    out=$(mktemp "${SMM_DIR}/.smm-rendered.XXXXXX.md")
+    out=$(mktemp "${SMM_DIR}/.smm-rendered.XXXXXX")
     python3 "${PLUGIN_ROOT}/smm/smm_view.py" dump --smm-dir "$SMM_DIR" > "$out" 2>/dev/null
     echo "$out"
 }
