@@ -169,6 +169,29 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
     return event
 
 
+# Canonical test-signal factories shared across integration tests that
+# exercise tdd_check.find_last_test_signal. Content strings match
+# scripts/concerns.py::TEST_CONCERN_RE and scripts/tdd_check.py::TEST_PASS_RE.
+def failing_tests_concern(**kwargs) -> dict:
+    """Concern event that find_last_test_signal classifies as 'fail'."""
+    return make_event(
+        "concern",
+        content="Test failures detected: 2 failed (pytest)",
+        severity="high",
+        **kwargs,
+    )
+
+
+def passing_tests_status(**kwargs) -> dict:
+    """Status event that find_last_test_signal classifies as 'pass'."""
+    return make_event(
+        "status",
+        content="Tests: 5 passed, 0 failed (pytest)",
+        working_on=[],
+        **kwargs,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Base test cases
 # ---------------------------------------------------------------------------

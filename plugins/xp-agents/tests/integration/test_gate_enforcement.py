@@ -23,7 +23,8 @@ from conftest import (
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     _IntegrationTestCase,
-    make_event,
+    failing_tests_concern,
+    passing_tests_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -120,11 +121,7 @@ class TestTddStopGateIntegration(_IntegrationTestCase):
 
     def test_failing_then_passing_unblocks_flow(self):
         # Red: seed failing test concern.
-        concern = make_event(
-            "concern",
-            content="Test failures detected: 2 failed (pytest)",
-            severity="high",
-        )
+        concern = failing_tests_concern()
         self._seed_events([concern])
 
         result = self._run_script(
@@ -140,12 +137,7 @@ class TestTddStopGateIntegration(_IntegrationTestCase):
         # _seed_events overwrites events.jsonl, so we pass both events in
         # the desired order. find_last_test_signal scans newest-first and
         # returns "pass" as soon as it sees the status event.
-        passing = make_event(
-            "status",
-            content="Tests: 5 passed, 0 failed (pytest)",
-            working_on=[],
-        )
-        self._seed_events([concern, passing])
+        self._seed_events([concern, passing_tests_status()])
 
         result = self._run_script(
             "tdd_stop_gate.py",
@@ -156,15 +148,7 @@ class TestTddStopGateIntegration(_IntegrationTestCase):
 
     def test_stop_hook_active_allows_failing_tests(self):
         """Recursion guard: stop_hook_active=True bypasses the gate."""
-        self._seed_events(
-            [
-                make_event(
-                    "concern",
-                    content="Test failures detected: 2 failed",
-                    severity="high",
-                )
-            ]
-        )
+        self._seed_events([failing_tests_concern()])
 
         result = self._run_script(
             "tdd_stop_gate.py",
