@@ -213,7 +213,6 @@ class TestValidateEvent(unittest.TestCase):
             event_count=42,
             unresolved_items=["q1"],
             working_on=["file.py"],
-            final_status_recorded=True,
         )
         self.assertEqual(_append_impl.validate_event(event), [])
 

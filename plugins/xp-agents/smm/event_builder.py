@@ -92,9 +92,6 @@ def build_event(args: argparse.Namespace) -> dict:
                 )
             if args.working_on:
                 event["working_on"] = parse_json_arg(args.working_on, "working-on")
-            if args.final_status_recorded is not None:
-                event["final_status_recorded"] = args.final_status_recorded
-
         case "retrospective":
             if args.keep:
                 event["keep"] = parse_json_arg(args.keep, "keep")
@@ -161,12 +158,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--unresolved-items",
         help="JSON array of unresolved IDs",
     )
-    parser.add_argument(
-        "--final-status-recorded",
-        type=lambda v: v.lower() == "true",
-        help="Whether final status was recorded (session_end)",
-    )
-
     # retrospective specific
     parser.add_argument("--keep", help="JSON array of keep items (retrospective)")
     parser.add_argument("--fix", help="JSON array of fix items (retrospective)")

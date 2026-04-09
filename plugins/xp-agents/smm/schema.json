@@ -101,10 +101,6 @@
       "items": { "type": "string" },
       "description": "IDs of unresolved questions/concerns (session_end)"
     },
-    "final_status_recorded": {
-      "type": "boolean",
-      "description": "Whether the agent recorded a final status before session end"
-    },
     "keep": {
       "type": "array",
       "items": {

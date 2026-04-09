@@ -78,7 +78,6 @@ def _compute_summary(events: list[dict]) -> dict:
         "event_count": event_count,
         "unresolved_items": unresolved,
         "working_on": all_working_on,
-        "final_status_recorded": True,
     }
 
 
@@ -109,7 +108,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         "event_count": summary["event_count"],
         "unresolved_items": summary["unresolved_items"],
         "working_on": summary["working_on"],
-        "final_status_recorded": summary["final_status_recorded"],
     }
 
     # Validate

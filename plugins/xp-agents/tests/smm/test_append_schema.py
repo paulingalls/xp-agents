@@ -69,7 +69,6 @@ class TestSchemaJson(unittest.TestCase):
             "duration_seconds",
             "event_count",
             "unresolved_items",
-            "final_status_recorded",
             "keep",
             "fix",
             "try",

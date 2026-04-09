@@ -200,16 +200,6 @@ def _build_honesty_signals(events: list[dict]) -> dict:
     signals["concerns_raised"] = concern_count
     signals["assumptions_stated"] = assumption_count
 
-    # Final status check — was the last status event before session_end?
-    has_final_status = False
-    for e in reversed(events):
-        if e.get("type") == "session_end":
-            continue
-        if e.get("type") == _common.STATUS:
-            has_final_status = True
-        break
-    signals["final_status_recorded"] = has_final_status
-
     return signals
 
 

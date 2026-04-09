@@ -198,13 +198,11 @@ def validate_event(event: dict) -> list[str]:
                 "event_count": int,
                 "unresolved_items": list,
                 "working_on": list,
-                "final_status_recorded": bool,
             }
             _labels = {
                 (int, float): "a number",
                 int: "an integer",
                 list: "an array",
-                bool: "a boolean",
             }
             for _f, _t in _check.items():
                 if _f in event and not isinstance(event[_f], _t):

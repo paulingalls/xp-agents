@@ -24,7 +24,7 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         Verifies the full hook chain produces coherent state:
         - session_start returns SMM context
         - post_tool_use appends status with working_on
-        - session_end captures that working_on and marks final_status_recorded
+        - session_end captures that working_on
         """
         # 1. Session start
         r1 = self._run_script(
@@ -67,7 +67,6 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertEqual(len(se), 1)
 
         self.assertIn("src/feature.ts", se[0]["working_on"][0])
-        self.assertTrue(se[0]["final_status_recorded"])
         self.assertIn("task_complete", se[0]["content"])
 
     def test_prompt_subagent_roundtrip(self):

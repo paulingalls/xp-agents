@@ -207,8 +207,6 @@ class TestAppendIntegration(_TempRepoTestCase):
             "42",
             "--working-on",
             '["f.py"]',
-            "--final-status-recorded",
-            "true",
             "--unresolved-items",
             '["q1"]',
         )
@@ -218,7 +216,6 @@ class TestAppendIntegration(_TempRepoTestCase):
         self.assertEqual(e["duration_seconds"], 3600.5)
         self.assertEqual(e["event_count"], 42)
         self.assertEqual(e["working_on"], ["f.py"])
-        self.assertTrue(e["final_status_recorded"])
         self.assertEqual(e["unresolved_items"], ["q1"])
 
     def test_retrospective_nested_objects(self):
