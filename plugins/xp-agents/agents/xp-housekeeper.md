@@ -144,6 +144,18 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"resolves": ["<event-id>"]}'
 ```
 
+For a decision that explicitly overrides a prior decision on the same topic (the
+"never silently override" rule), set `metadata.supersedes` on the new decision
+instead of raising a concern first:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "decision" \
+  --agent "main" \
+  --content "New decision rationale" \
+  --topic "some-topic" \
+  --metadata '{"supersedes": ["<prior-decision-id>"]}'
+```
+
 ### 2. Write the curated SMM (MANDATORY)
 
 Assemble the five-pillar markdown and pipe it to save_smm.py:

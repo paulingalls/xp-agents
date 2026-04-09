@@ -315,6 +315,140 @@ class TestDetectConflictsCommon(_HookTestCase):
         convention_concerns = [c for c in found if "convention" in c["content"].lower()]
         self.assertEqual(len(convention_concerns), 0)
 
+    def test_supersedes_metadata_skips_concern(self):
+        """metadata.supersedes referencing the prior decision suppresses pattern #5."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": [d1["id"]]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_supersedes_metadata_short_prefix_matches(self):
+        """8-char prefix in supersedes is enough — matches resolve_prefix convention."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": [d1["id"][:8]]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_supersedes_metadata_wrong_id_still_fires(self):
+        """Bogus nonexistent ID in supersedes does NOT silence the check."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": ["deadbeef12345678"]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_supersedes_metadata_empty_array_still_fires(self):
+        """Empty supersedes array means no explicit override — concern still raised."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": []},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_supersedes_metadata_different_topic_still_fires(self):
+        """supersedes must reference the same-topic predecessor, not any decision."""
+        d_other = make_event(
+            "decision", topic="api", content="Use REST"
+        )  # different topic
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": [d_other["id"]]},  # wrong topic reference
+        )
+        found = concerns.detect_conflicts([d_other, d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_resolved_superseded_concern_marks_topic_accepted(self):
+        """Resolving a superseded-decision concern marks its topic as additive."""
+        topic = "retro-try-answer-recording"
+        # Resolved concern sits at the start of the log — NOT between the
+        # most-recent decision pair. This isolates the "accepted topic" rule
+        # from the existing "intervening concern" check.
+        old_concern = make_event(
+            "concern",
+            content=f"Superseded decision: topic '{topic}' has multiple "
+            "decisions without an intervening concern.",
+        )
+        resolution = make_event(
+            "status",
+            content="Accepted as additive",
+            metadata={"resolves": [old_concern["id"]]},
+        )
+        d1 = make_event("decision", topic=topic, content="First")
+        d2 = make_event("decision", topic=topic, content="Second")
+        d3 = make_event("decision", topic=topic, content="Third")
+        events = [old_concern, resolution, d1, d2, d3]
+        found = concerns.detect_conflicts(events, "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_resolved_superseded_different_topic_does_not_cross_contaminate(self):
+        """Accepted topic acceptance is topic-scoped, not global."""
+        # Topic A: resolved superseded concern
+        accepted_concern = make_event(
+            "concern",
+            content="Superseded decision: topic 'topic-a' has multiple "
+            "decisions without an intervening concern.",
+        )
+        resolution = make_event(
+            "status",
+            content="Accepted",
+            metadata={"resolves": [accepted_concern["id"]]},
+        )
+        # Topic B: fresh pair, should still fire
+        d1 = make_event("decision", topic="topic-b", content="Use X")
+        d2 = make_event("decision", topic="topic-b", content="Use Y")
+        events = [accepted_concern, resolution, d1, d2]
+        found = concerns.detect_conflicts(events, "main")
+        b_concerns = [c for c in found if "topic 'topic-b'" in c["content"]]
+        self.assertEqual(len(b_concerns), 1)
+
+    def test_resolved_superseded_still_triggers_other_patterns(self):
+        """Accepted-topic skip is pattern-#5-only — other patterns still fire."""
+        # Resolved superseded concern for topic 'naming'
+        accepted = make_event(
+            "concern",
+            content="Superseded decision: topic 'naming' has multiple "
+            "decisions without an intervening concern.",
+        )
+        resolution = make_event(
+            "status",
+            content="Accepted",
+            metadata={"resolves": [accepted["id"]]},
+        )
+        # Convention violation on topic 'naming' — pattern #3 should still fire
+        conv = make_event("convention", topic="naming", content="Use camelCase")
+        dec = make_event("decision", topic="naming", content="Use snake_case")
+        events = [accepted, resolution, conv, dec]
+        found = concerns.detect_conflicts(events, "main")
+        convention_concerns = [c for c in found if "convention" in c["content"].lower()]
+        self.assertEqual(len(convention_concerns), 1)
+
     def test_no_duplicate_superseded_decision(self):
         """Should not re-generate concern if one already exists for same conflict."""
         d1 = make_event("decision", topic="db", content="Use Postgres")

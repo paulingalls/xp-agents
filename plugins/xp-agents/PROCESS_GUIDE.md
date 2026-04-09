@@ -5,7 +5,7 @@
 How we execute XP values in this plugin:
 
 **Honesty through the Shared Mental Model:**
-Ground truth lives in the SMM. Record every architectural decision with topic and rationale. Never silently override — record a concern before changing an existing decision. State assumptions explicitly when proceeding with uncertainty. Raise problems early: bad pattern → concern, need input → question, unexpected finding → discovery, tradeoff → debt. Trace work to customer needs — if you can't connect it to a goal, question whether it should be done.
+Ground truth lives in the SMM. Record every architectural decision with topic and rationale. Never silently override — either record a concern before changing an existing decision, or set `metadata.supersedes: [<prior_decision_id>]` on the new decision to acknowledge the override explicitly. State assumptions explicitly when proceeding with uncertainty. Raise problems early: bad pattern → concern, need input → question, unexpected finding → discovery, tradeoff → debt. Trace work to customer needs — if you can't connect it to a goal, question whether it should be done.
 
 **Communication through events:**
 Decisions in your head don't exist for the team — record them. Share *why*, not just *what*. Answer open questions in the SMM promptly.

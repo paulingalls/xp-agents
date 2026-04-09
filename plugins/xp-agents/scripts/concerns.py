@@ -39,6 +39,11 @@ TEST_CONCERN_RE = re.compile(
     r"Test (?:failures? detected|run failed|command failed)", re.IGNORECASE
 )
 
+# Extracts the topic from a superseded-decision concern. Must stay in
+# lockstep with the concern content emitted by pattern #5 below —
+# "Superseded decision: topic 'X' has multiple decisions..."
+_SUPERSEDED_TOPIC_RE = re.compile(r"^Superseded decision: topic '([^']+)'")
+
 LINT_CONCERN_PREFIX = "Lint errors in "
 LINT_RESOLVED_PREFIX = "Lint concern resolved"
 TEST_COMMAND_FAILED_PREFIX = "Test command failed"
@@ -232,22 +237,44 @@ def detect_conflicts(
             )
 
     # 5. Superseded decision — two decisions on same topic with no concern between
+    # Topics whose prior superseded-decision concerns have been resolved
+    # are treated as "accepted as additive" — pattern #5 honors the
+    # human's explicit acceptance and doesn't re-fire for new pairs.
     decisions_by_topic: dict[str, list[tuple[int, dict]]] = {}
     concern_pos_list: list[int] = []
+    already_accepted_topics: set[str] = set()
     for i, e in enumerate(events):
         if e.get("type") == DECISION:
             topic = e.get("topic", "")
             decisions_by_topic.setdefault(topic, []).append((i, e))
         elif e.get("type") == CONCERN:
             concern_pos_list.append(i)
+            if e.get("id", "") in resolved_ids:
+                m = _SUPERSEDED_TOPIC_RE.match(e.get("content", ""))
+                if m:
+                    already_accepted_topics.add(m.group(1))
 
     # concern_pos_list is already sorted (built in event order)
     # Only flag the most recent pair per topic — not every historical pair
     for topic, decs in decisions_by_topic.items():
         if len(decs) < 2:
             continue
-        prev_pos = decs[-2][0]
-        curr_pos = decs[-1][0]
+        if topic in already_accepted_topics:
+            continue
+        prev_pos, prev_dec = decs[-2]
+        curr_pos, curr_dec = decs[-1]
+
+        # Explicit override: curr decision's metadata.supersedes references
+        # the prior decision (full ID or 8+ char prefix match, mirroring
+        # resolution.resolve_prefix's short-ID convention).
+        supersedes = curr_dec.get("metadata", {}).get("supersedes") or []
+        prev_id = prev_dec.get("id", "")
+        if prev_id and any(
+            prev_id == s or prev_id.startswith(s) or s.startswith(prev_id[:8])
+            for s in supersedes
+        ):
+            continue
+
         # Binary search: any concern position in (prev_pos, curr_pos)?
         lo = bisect.bisect_right(concern_pos_list, prev_pos)
         has_concern_between = (
