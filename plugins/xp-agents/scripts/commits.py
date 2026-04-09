@@ -25,38 +25,35 @@ def parse_commit_message(tool_response: str) -> str | None:
     return None
 
 
-def get_committed_files(cwd: str) -> list[str]:
-    """Get list of files changed in the last commit."""
+def _run_git(args: list[str], cwd: str) -> str | None:
+    """Run a git command, return stripped stdout or None on failure."""
     try:
         result = subprocess.run(
-            ["git", "diff", "HEAD~1", "--name-only"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
-        )
-        if result.returncode == 0:
-            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        pass
-    return []
-
-
-def get_head_commit_hash(cwd: str) -> str | None:
-    """Get current HEAD commit hash. Returns None on failure."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
+            args, capture_output=True, text=True, timeout=5, cwd=cwd
         )
         if result.returncode == 0:
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
         pass
     return None
+
+
+def get_committed_files(cwd: str) -> list[str]:
+    """Get list of files changed in the last commit."""
+    out = _run_git(["git", "diff", "HEAD~1", "--name-only"], cwd)
+    if out is None:
+        return []
+    return [f.strip() for f in out.splitlines() if f.strip()]
+
+
+def get_commit_message_body(cwd: str) -> str | None:
+    """Get full commit message body of HEAD. Returns None on failure."""
+    return _run_git(["git", "log", "-1", "--format=%B"], cwd)
+
+
+def get_head_commit_hash(cwd: str) -> str | None:
+    """Get current HEAD commit hash. Returns None on failure."""
+    return _run_git(["git", "rev-parse", "HEAD"], cwd)
 
 
 def get_code_files_for_review(
