@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.1.0 — Curated SMM as Structured JSON
+
+### Fixed
+- **Seed-wipe regression: housekeeping silently destroyed seeded Constraints and Wisdom on first run.** `seed_smm.py` wrote 7 default constraints + 8 wisdom entries directly to `SHARED_MENTAL_MODEL.md`, but `materialize.prepare_curation_data()` derived `current_smm` purely from events — the seeded content had no matching events, so the housekeeper saw `current_smm == empty`, emitted an empty-pillar SMM, and wiped everything. Every fresh install lost its seeded defaults on the first kickoff.
+
+### Architecture
+- **Curated SMM persisted as `shared_mental_model.json`** (was `SHARED_MENTAL_MODEL.md`). Schema-validated four-pillar JSON document with per-entry stable UUIDs, typed metadata (`source: seed|event|curated`, `type`, `topic`, `severity`, `source_event_id`), and cross-pillar id uniqueness enforced at write time. The old markdown file is never written by any script.
+- **New `smm/smm_schema.{json,py}` — schema + hand-rolled validator.** Mirrors the `event_schema.py` pattern: pillar/source/type/severity constants, `validate_smm(data) -> list[str]` returning an error list. No external `jsonschema` dep. Accepts UUID v4 (runtime) and v5 (deterministic seed).
+- **New `smm/smm_store.py` — load/save I/O.** `load_smm(smm_dir)` returns `empty_smm()` on missing file, raises `ValueError` on corrupt or schema-invalid JSON (fail-loud by design — silent degradation would reproduce the seed-wipe bug). `save_smm(smm_dir, data)` validates then atomic-writes via `write_text_atomic`.
+- **New `smm/smm_view.py` — pure dict→markdown rendering + shell CLI.** `render_markdown(smm, sprint=...)` generates four-pillar markdown for LLM context injection. `extract_pillar` / `extract_pillars` subset the view for Explore-tier injection. CLI subcommands `dump` / `section <name>` / `has-section <name>` consumed by `_preload_base.sh` helpers.
+- **`prepare_curation_data` reads `current_smm` from the JSON file.** The ~100 lines that derived intent/constraints/risks/wisdom from events are gone. `new_since_last_curation` still comes from events after the watermark — the housekeeper's job shifts from "re-derive pillars from raw events" to "merge new events into current pillars, preserve by id, drop resolved items."
+- **`seed_smm.py` emits a dict.** Deterministic UUID v5 per entry (`uuid5(namespace, f"seed:{pillar}:{content}")` — stable across test runs). Each seed entry has `source: "seed"` and sentinel `ts: "1970-01-01T00:00:00+00:00"` so aging never fires on them.
+- **`save_smm.py` (housekeeping writer) accepts JSON on stdin.** Parses, validates via `smm_store.save_smm`, updates watermark, compacts event log. Malformed JSON or schema-invalid data raises `ValueError` — tempfile never renamed, existing file survives.
+- **`xp-housekeeper.md` prompt rewritten for JSON output with merge rules.** Preserve existing entries unchanged unless (a) `source_event_id` in resolutions, (b) superseded by same-topic decision, (c) judgment pruning. Seeded entries removable only by judgment, never by resolution. First-ever curation path documented.
+- **Readers switch to JSON + render-on-read.** `session_start.py` (compact branch), `subagent_start.py` (tier dispatch), `subagent_stop.py` (housekeeping-done), `pre_compact.py` (backup filename), and 5 shell preloads all go through `smm_store.load_smm` + `smm_view.render_markdown`. The regex-based `_extract_pillars()` in `subagent_start.py` is deleted — `smm_view.extract_pillars` handles it.
+- **Shell preload helpers delegate to `smm_view.py` CLI.** `dump_smm`, `smm_has_section`, `smm_section` in `_preload_base.sh` now shell out to the Python CLI. `smm_render_to_tempfile` (new) writes a rendered markdown tempfile via `mktemp -p` for forked agents that `Read` the SMM file via the Read tool — unique path per call avoids concurrent-preload races.
+
+### Migration
+- No automated migration. `seed_smm.py`'s "don't seed if exists" guard now checks for `shared_mental_model.json` specifically. A stale `SHARED_MENTAL_MODEL.md` left on disk from a prior install is a harmless orphan — seeding still fires, and the old file is never read. Users who want to migrate historical markdown content can ask the agent manually.
+- **First housekeeping pass after upgrade loses any pre-watermark events that were contributing to `current_smm` under the old derivation.** Events after the watermark will be merged by the housekeeper as normal. Acceptable for test installs. Production migrations (if any) should manually curate historical events into the JSON file first.
+
+### Developer-facing changes
+- New `tests/conftest.py::write_smm_fixture(smm_dir, intent=..., constraints=..., risks=..., wisdom=...)` helper — use this instead of `.write_text("# Shared Mental Model\n...")` in test fixtures.
+- `save_smm.py` test contract: `run(content, smm_dir)` now takes JSON on stdin (was markdown).
+- UUID regex in `smm_schema` accepts both v4 and v5 (was v4 only).
+
 ## v2.0.14 — Retro Digest Visibility, Explicit Overrides, Interactive Dialogue
 
 ### Fixed
