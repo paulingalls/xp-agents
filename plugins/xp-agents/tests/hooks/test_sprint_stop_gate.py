@@ -17,30 +17,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
     SPRINT_ALL_DONE,
+    SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
     _HookTestCase,
     _make_stop_input,
     make_event,
 )
-
-# Sprint with a sprint ID — needed for sprint_end event matching
-SPRINT_COMPLETE_WITH_ID = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** deferred
-"""
 
 
 class TestSprintStopGateEarlyExits(_HookTestCase):

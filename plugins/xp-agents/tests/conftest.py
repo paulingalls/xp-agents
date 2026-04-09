@@ -69,6 +69,26 @@ SPRINT_ALL_DONE = """\
 - **Status:** deferred
 """
 
+# Variant of SPRINT_ALL_DONE that includes a **Sprint ID:** line. Needed by
+# sprint_stop_gate's review cascade to resolve a matching sprint_end event —
+# SPRINT_ALL_DONE itself is kept for tests that intentionally omit the id.
+SPRINT_COMPLETE_WITH_ID = """\
+# Sprint: Build auth
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-04-01
+
+## Stories
+
+### story-001: As a user I can log in
+- **Size:** M
+- **Status:** done
+
+### story-002: As a user I can register
+- **Size:** S
+- **Status:** deferred
+"""
+
 SPRINT_MIXED = """\
 # Sprint: Build auth
 
