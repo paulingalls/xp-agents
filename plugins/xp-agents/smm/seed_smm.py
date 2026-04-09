@@ -10,7 +10,15 @@ Only runs if SHARED_MENTAL_MODEL.md does not already exist.
 
 import subprocess
 import sys
+import uuid
 from pathlib import Path
+
+from smm_schema import SOURCE_SEED, empty_smm
+from smm_store import SMM_FILENAME, save_smm
+
+# Fixed namespace for deterministic seed UUIDs (uuid5).
+_SEED_NS = uuid.UUID("a1b2c3d4-e5f6-4789-abcd-ef0123456789")
+_SEED_TS = "1970-01-01T00:00:00+00:00"
 
 # ---------------------------------------------------------------------------
 # Detection helpers
@@ -295,120 +303,171 @@ def has_ci(root: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def generate_smm(root: Path) -> str:
-    """Generate seed SMM content based on project analysis."""
+def _seed_entry(pillar: str, content: str, **extra: str) -> dict:
+    """Build a seed entry with a deterministic UUID from content."""
+    entry = {
+        "id": str(uuid.uuid5(_SEED_NS, f"seed:{pillar}:{content}")),
+        "content": content,
+        "source": SOURCE_SEED,
+        "ts": _SEED_TS,
+    }
+    entry.update(extra)
+    return entry
+
+
+def generate_smm(root: Path) -> dict:
+    """Generate seed SMM as a structured dict based on project analysis."""
     linter = has_linter(root)
     formatter = has_formatter(root)
     tests = has_tests(root)
     hooks = has_git_hooks(root)
     ci = has_ci(root)
 
-    # Constraints — XP defaults
     constraints = [
-        "Write tests before implementation (TDD) — red, green, commit, refactor",
-        "Plan before building new features — use plan mode for design",
-        "Small commits — one logical change per commit",
-        "Small files — target 300 lines, max 500. "
-        "Large files eat agent context on every read",
-        "Use strict linting — catch bugs and anti-patterns automatically",
-        "Use a code formatter — consistent style keeps diffs clean",
-        "Use git commit hooks — run lint and tests before every commit",
+        _seed_entry(
+            "constraints",
+            "Write tests before implementation (TDD) — red, green, commit, refactor",
+            type="convention",
+        ),
+        _seed_entry(
+            "constraints",
+            "Plan before building new features — use plan mode for design",
+            type="convention",
+        ),
+        _seed_entry(
+            "constraints",
+            "Small commits — one logical change per commit",
+            type="convention",
+        ),
+        _seed_entry(
+            "constraints",
+            "Small files — target 300 lines, max 500. "
+            "Large files eat agent context on every read",
+            type="convention",
+        ),
+        _seed_entry(
+            "constraints",
+            "Use strict linting — catch bugs and anti-patterns automatically",
+            type="convention",
+        ),
+        _seed_entry(
+            "constraints",
+            "Use a code formatter — consistent style keeps diffs clean",
+            type="convention",
+        ),
+        _seed_entry(
+            "constraints",
+            "Use git commit hooks — run lint and tests before every commit",
+            type="convention",
+        ),
     ]
 
-    # Risks — based on what's missing
-    risks: list[str] = []
+    risks: list[dict] = []
     if not linter:
         risks.append(
-            "No linter configured — add one to catch bugs automatically "
-            "(e.g., ruff for Python, eslint for JS/TS, clippy for Rust, "
-            "golangci-lint for Go)"
+            _seed_entry(
+                "risks",
+                "No linter configured — add one to catch bugs automatically "
+                "(e.g., ruff for Python, eslint for JS/TS, clippy for Rust, "
+                "golangci-lint for Go)",
+                type="concern",
+                severity="problem",
+            )
         )
     if not formatter:
         risks.append(
-            "No code formatter configured — add one for consistent style "
-            "(e.g., ruff format for Python, prettier for JS/TS, gofmt for Go, "
-            "rustfmt for Rust)"
+            _seed_entry(
+                "risks",
+                "No code formatter configured — add one for consistent style "
+                "(e.g., ruff format for Python, prettier for JS/TS, gofmt "
+                "for Go, rustfmt for Rust)",
+                type="concern",
+                severity="problem",
+            )
         )
     if not tests:
         risks.append(
-            "No test files detected — create a test directory and write "
-            "tests before implementation"
+            _seed_entry(
+                "risks",
+                "No test files detected — create a test directory and write "
+                "tests before implementation",
+                type="concern",
+                severity="problem",
+            )
         )
     if not hooks:
         risks.append(
-            "No git commit hooks configured — add lefthook or husky to run "
-            "lint and tests on every commit"
+            _seed_entry(
+                "risks",
+                "No git commit hooks configured — add lefthook or husky to "
+                "run lint and tests on every commit",
+                type="concern",
+                severity="problem",
+            )
         )
     if not ci:
-        risks.append("No CI/CD configured — add a workflow to run tests on push")
-
-    # Build the SMM
-    lines = ["# Shared Mental Model", ""]
-    lines.append("## Intent")
-    lines.append("- (no goals set yet — run /xp-kickoff to get started)")
-    lines.append("")
-
-    lines.append("## Constraints")
-    for c in constraints:
-        lines.append(f"- {c}")
-    lines.append("")
-
-    lines.append("## Risks")
-    if risks:
-        for r in risks:
-            lines.append(f"- {r}")
-    else:
-        lines.append(
-            "- (none detected — project has linter, formatter, tests, hooks, and CI)"
+        risks.append(
+            _seed_entry(
+                "risks",
+                "No CI/CD configured — add a workflow to run tests on push",
+                type="concern",
+                severity="problem",
+            )
         )
-    lines.append("")
 
-    lines.append("## Wisdom")
-    lines.append(
-        "- Run /xp-kickoff at every session start — "
-        "it handles retrospective, goals, and housekeeping"
-    )
-    lines.append(
-        "- Commit after every green test run — "
-        "the commit gate enforces the review cycle "
-        "(/simplify, /xp-quality-review, /xp-security-triage) "
-        "so frequent commits keep reviews small and fast"
-    )
-    lines.append(
-        "- Complete the review cycle before committing code changes — "
-        "/simplify → /xp-quality-review → /xp-security-triage → commit"
-    )
-    lines.append(
-        "- After exiting plan mode, run /xp-review-plan before writing code — "
-        "it extracts assumptions, decisions, and risks into the SMM"
-    )
-    lines.append(
-        "- Keep files small with single responsibility and DRY — "
-        "one concern per file, extract when you see duplication "
-        "or mixed responsibilities"
-    )
-    lines.append(
-        "- Fail fast, fail loud — raise exceptions rather than "
-        "returning None or empty results when something is wrong"
-    )
-    lines.append(
-        "- Name things well — use descriptive names over comments. "
-        "If you need a comment to explain what, rename instead"
-    )
-    lines.append(
-        "- Test at boundaries — validate at system edges "
-        "(external input, APIs, I/O), trust internal logic. "
-        "Don't write tests for trivially correct code — "
-        "test behavior, not implementation"
-    )
-    lines.append("")
+    wisdom = [
+        _seed_entry(
+            "wisdom",
+            "Run /xp-kickoff at every session start — "
+            "it handles retrospective, goals, and housekeeping",
+        ),
+        _seed_entry(
+            "wisdom",
+            "Commit after every green test run — "
+            "the commit gate enforces the review cycle "
+            "(/simplify, /xp-quality-review, /xp-security-triage) "
+            "so frequent commits keep reviews small and fast",
+        ),
+        _seed_entry(
+            "wisdom",
+            "Complete the review cycle before committing code changes "
+            "— /simplify → /xp-quality-review → /xp-security-triage → commit",
+        ),
+        _seed_entry(
+            "wisdom",
+            "After exiting plan mode, run /xp-review-plan before writing "
+            "code — it extracts assumptions, decisions, and risks into the SMM",
+        ),
+        _seed_entry(
+            "wisdom",
+            "Keep files small with single responsibility and DRY — "
+            "one concern per file, extract when you see duplication "
+            "or mixed responsibilities",
+        ),
+        _seed_entry(
+            "wisdom",
+            "Fail fast, fail loud — raise exceptions rather than "
+            "returning None or empty results when something is wrong",
+        ),
+        _seed_entry(
+            "wisdom",
+            "Name things well — use descriptive names over comments. "
+            "If you need a comment to explain what, rename instead",
+        ),
+        _seed_entry(
+            "wisdom",
+            "Test at boundaries — validate at system edges "
+            "(external input, APIs, I/O), trust internal logic. "
+            "Don't write tests for trivially correct code — "
+            "test behavior, not implementation",
+        ),
+    ]
 
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+    smm = empty_smm()
+    smm["constraints"] = constraints
+    smm["risks"] = risks
+    smm["wisdom"] = wisdom
+    return smm
 
 
 def main() -> None:
@@ -418,9 +477,10 @@ def main() -> None:
         sys.exit(1)
 
     smm_dir = Path(sys.argv[1])
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
+    smm_file = smm_dir / SMM_FILENAME
 
-    # Only seed if SMM doesn't exist
+    # Only seed if the JSON file doesn't exist.
+    # A stale SHARED_MENTAL_MODEL.md may be present — leave it alone.
     if smm_file.exists():
         sys.exit(0)
 
@@ -428,8 +488,8 @@ def main() -> None:
     if root is None:
         sys.exit(0)
 
-    content = generate_smm(root)
-    smm_file.write_text(content, encoding="utf-8")
+    data = generate_smm(root)
+    save_smm(smm_dir, data)
 
 
 if __name__ == "__main__":

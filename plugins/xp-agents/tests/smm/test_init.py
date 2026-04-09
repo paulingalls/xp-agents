@@ -87,40 +87,64 @@ class TestSeedSMM(_TempRepoTestCase):
         super().setUpClass()
         cls.smm_dir = cls._get_smm_dir()
 
+    def _load_smm(self) -> dict:
+        import json
+
+        path = self.smm_dir / "shared_mental_model.json"
+        return json.loads(path.read_text())
+
     def test_seed_creates_smm_file(self):
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        self.assertTrue(smm_file.exists(), "init.sh should seed SHARED_MENTAL_MODEL.md")
+        smm_file = self.smm_dir / "shared_mental_model.json"
+        self.assertTrue(
+            smm_file.exists(),
+            "init.sh should seed shared_mental_model.json",
+        )
 
     def test_seed_has_four_pillars(self):
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        content = smm_file.read_text()
-        self.assertIn("## Intent", content)
-        self.assertIn("## Constraints", content)
-        self.assertIn("## Risks", content)
-        self.assertIn("## Wisdom", content)
+        smm = self._load_smm()
+        for pillar in ("intent", "constraints", "risks", "wisdom"):
+            self.assertIn(pillar, smm)
+            self.assertIsInstance(smm[pillar], list)
 
     def test_seed_has_xp_constraints(self):
-        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
-        self.assertIn("TDD", content)
-        self.assertIn("plan", content.lower())
-        self.assertIn("Small commits", content)
+        smm = self._load_smm()
+        contents = [e["content"] for e in smm["constraints"]]
+        joined = " ".join(contents)
+        self.assertIn("TDD", joined)
+        self.assertIn("Small commits", joined)
 
     def test_seed_detects_missing_linter(self):
         """Fresh git repo has no linter — should be flagged as risk."""
-        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
-        self.assertIn("No linter configured", content)
+        smm = self._load_smm()
+        contents = [e["content"] for e in smm["risks"]]
+        joined = " ".join(contents)
+        self.assertIn("No linter configured", joined)
 
     def test_seed_detects_missing_hooks(self):
         """Fresh git repo has no hooks — should be flagged as risk."""
-        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
-        self.assertIn("No git commit hooks", content)
+        smm = self._load_smm()
+        contents = [e["content"] for e in smm["risks"]]
+        joined = " ".join(contents)
+        self.assertIn("No git commit hooks", joined)
 
     def test_seed_idempotent(self):
         """Running init.sh again does not overwrite existing SMM."""
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Custom SMM\n")
+        smm_file = self.smm_dir / "shared_mental_model.json"
+        smm_file.write_text('{"custom": true}')
         self._run_init()
-        self.assertEqual(smm_file.read_text(), "# Custom SMM\n")
+        self.assertEqual(smm_file.read_text(), '{"custom": true}')
+
+    def test_seed_fires_when_only_old_md_exists(self):
+        """Old .md present but no JSON → seed fires, .md untouched."""
+        json_file = self.smm_dir / "shared_mental_model.json"
+        md_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        # Remove the JSON that setUpClass created, leave old .md
+        json_file.unlink(missing_ok=True)
+        md_file.write_text("# Old markdown SMM\n")
+        self._run_init()
+        self.assertTrue(json_file.exists(), "JSON should be seeded")
+        self.assertTrue(md_file.exists(), "Old .md should be untouched")
+        self.assertEqual(md_file.read_text(), "# Old markdown SMM\n")
 
 
 class TestValidateEvent(unittest.TestCase):
