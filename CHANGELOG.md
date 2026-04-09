@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.2.0 — Free-Mode Sessions & AskUserQuestion Fix
+
+### Added
+- **Free-mode session choice in `/xp-kickoff`.** After retro, kickoff always asks "Free session or Sprint session?" via AskUserQuestion. Free mode skips product-spec creation and sprint-start, falling through to work-selection's goal-collection path. Sprint mode proceeds through product-spec/sprint-start as needed. The choice is stateless — re-running kickoff presents it again.
+- **Kickoff preload file-existence detection.** `check_session_needs.sh` now checks for `product_spec.md` and `sprint.md` file existence in addition to marker files. NEEDS_PRODUCT_SPEC and NEEDS_SPRINT flags appear even after markers are consumed by housekeeping, supporting re-runs of `/xp-kickoff` in the same session.
+- **`customer_input` logging for AskUserQuestion responses.** Non-gate answers (success without question gate, and failure with partial answers) are now logged as `customer_input` events so user responses aren't lost when no blocking question was pending.
+- **`PostToolUseFailure:AskUserQuestion` hook registration.** `question_answered.py` now fires on both success and failure paths, enabling proper handling of "Chat about this..." interactions.
+
+### Fixed
+- **Stop gate false deferral after AskUserQuestion success.** ASKING_USER marker was set on every successful AskUserQuestion, causing the sprint stop gate to defer even when the agent had its answer and was legitimately stopping. The marker now only sets on failure ("Chat about this..."), where the agent needs to engage in clarification dialogue before the stop gate should fire.
+
+### Stats
+- 1565 tests (all passing)
+
 ## v2.1.0 — Curated SMM as Structured JSON
 
 ### Fixed
