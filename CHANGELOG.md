@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.2.1 — Skill Invocation Guidance
+
+### Added
+- **"Invoke via /skill-name, not directly" in all 7 agent descriptions.** Prevents agents from bypassing the Skill tool and missing preload data + cleanup hooks.
+- **"Forked skills" section in PROCESS_GUIDE.md.** Lists all skill-to-agent mappings and explains why direct Agent launches are incorrect.
+
 ## v2.2.0 — Free-Mode Sessions & AskUserQuestion Fix
 
 ### Added
