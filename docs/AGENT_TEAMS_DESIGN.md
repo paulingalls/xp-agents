@@ -30,11 +30,11 @@ A sprint spans one or more iterations. An iteration cannot cross session boundar
 ### Sprint Start (First Iteration)
 
 ```
-Prerequisite: product_spec.md exists (created via /xp-product-spec)
+Prerequisite: execution_plan.md exists (created via /xp-plan)
 
-/xp-sprint-start reads product_spec.md
-  → Selects [planned] features by priority for this sprint
-  → Decomposes selected features into user stories
+/xp-sprint-start reads execution_plan.md
+  → Selects [planned] milestones for this sprint
+  → Decomposes selected milestone into user stories with context gradient
   → Each story gets acceptance criteria (including e2e test definitions)
   → T-shirt size each story:
       XL → split into smaller stories
@@ -54,7 +54,7 @@ For the very first session, `/xp-kickoff` detects no active sprint (no `sprint.m
 ```
 Kickoff (sprint-aware /xp-kickoff)
   → Session retro (reflect before planning — surfaces unanswered questions, Try items)
-  → Product spec check: product_spec.md exists? NO → /xp-product-spec
+  → Execution plan check: execution_plan.md exists? NO → /xp-plan
   → Sprint check: sprint.md exists? NO → /xp-sprint-start
   → Housekeeping with Sprint pillar (curates SMM, surfaces unverified assumptions in Risks)
   → Story selection: show ready stories, lead picks for this iteration
@@ -90,7 +90,7 @@ Stop
 Sprint review (/xp-sprint-review)
   → What shipped vs what was planned (reads sprint.md)
   → Stories completed, deferred, or added mid-sprint
-  → Updates product_spec.md: delivered features marked [delivered: sprint-XXX]
+  → Updates execution_plan.md: delivered milestones marked [delivered: sprint-XXX]
   → Writes sprint end event to events.jsonl (velocity stats)
 
 Sprint retro (/xp-sprint-retro)
@@ -101,8 +101,8 @@ Sprint retro (/xp-sprint-retro)
   → Process improvements for next sprint
 
 Prepare next sprint
-  → Deferred stories carry forward (remain in product_spec.md as [planned])
-  → /xp-sprint-start reads updated product_spec.md for next sprint
+  → Deferred stories carry forward to the next sprint
+  → /xp-sprint-start reads updated execution_plan.md for next sprint
 ```
 
 ### Failed Stories
@@ -113,7 +113,7 @@ A story that fails acceptance goes back to `ready` with failure notes. If time a
 
 | What | Where | Purpose |
 |---|---|---|
-| Product requirements | `product_spec.md` | Full product vision with feature status — feeds sprint planning |
+| Execution plan | `execution_plan.md` | Full product vision with feature status — feeds sprint planning |
 | Sprint goal + stories | `sprint.md` | Current sprint backlog with status, acceptance criteria, priority |
 | Velocity data | SMM (`sprint` end event) | Stories planned vs delivered, for future sizing |
 | Constraints, risks, wisdom | SMM (curated four-pillar view) | Accumulated project knowledge |
@@ -123,7 +123,7 @@ A story that fails acceptance goes back to `ready` with failure notes. If time a
 
 | Level | When | Produces | Granularity | Persists? |
 |---|---|---|---|---|
-| **Product spec** | Project start | Features with requirements, priorities | Product-level | Yes — `product_spec.md` |
+| **Execution plan** | Project start | Milestones with change/impact zones | Project-level | Yes — `execution_plan.md` |
 | **Sprint planning** | Sprint start | User stories with acceptance criteria, T-shirt sizes, priority order | Customer-meaningful | Yes — `sprint.md` |
 | **Iteration planning** | Each session | Tasks with file domains, TDD ordering, parallelization analysis | Implementation-level | No — ephemeral to session |
 
@@ -132,7 +132,7 @@ Sprint planning answers: **which** features are we building now and **how do we 
 Iteration planning answers: **how** do we build it and **who** does what?
 
 Three levels of persistence:
-- **`product_spec.md`** — full product requirements with delivery status. Persists across sprints.
+- **`execution_plan.md`** — ordered milestones with change zones and delivery status. Persists across sprints.
 - **`sprint.md`** — current sprint's stories with acceptance criteria and status. Persists across sessions within a sprint.
 - **Platform task list** — `~/.claude/tasks/{team-name}/`. Ephemeral, per-team.
 
@@ -583,7 +583,7 @@ Note: user stories are NOT event types — they live in `sprint.md`, not `events
 In 1.0, goal completion flows through the user — housekeeping asks "are any of these done?" For Agent Teams, the lead manages story lifecycle directly:
 
 - **User stories** have acceptance criteria defined in `sprint.md`. During Accept, the lead verifies criteria are met (runs e2e tests, reviews PRs) and updates story status directly in `sprint.md`.
-- **Sprint goals** are complete when all stories in `sprint.md` are done or deferred. The lead writes the `sprint` end event and `/xp-sprint-review` updates `product_spec.md`.
+- **Sprint goals** are complete when all stories in `sprint.md` are done or deferred. The lead writes the `sprint` end event and `/xp-sprint-review` updates `execution_plan.md`.
 - **Session goals** are resolved by agents mid-session when the work ships. In sprint mode, story selection replaces per-session goal collection.
 
 Story status lifecycle in `sprint.md`: `ready` → `in-progress` → `done` | `deferred`
@@ -835,11 +835,11 @@ Every phase of the iteration is gated: kickoff (UserPromptSubmit) → plan revie
 
 | Skill | Purpose |
 |---|---|
-| `/xp-product-spec` | Create or refine `product_spec.md` — conversation with customer to build full requirements. Can ingest existing docs (PRDs, issues). |
-| `/xp-sprint-start` | Read `product_spec.md` → select features → decompose into stories → write `sprint.md` |
+| `/xp-plan` | Create or refine `execution_plan.md` — collaborative milestone decomposition from external sources. |
+| `/xp-sprint-start` | Read `execution_plan.md` → select milestone → deep codebase dive → decompose into stories → write `sprint.md` |
 | `/xp-spawn-team` | Read plan, analyze file domains, structure tasks, instruct lead to create team |
 | `/xp-accept` | Verify acceptance criteria for in-progress stories, run e2e tests, update `sprint.md`. Gated at Stop. |
-| `/xp-sprint-review` | Compare delivered stories against sprint goal, update `product_spec.md` with delivered features |
+| `/xp-sprint-review` | Compare delivered stories against sprint goal, update `execution_plan.md` milestone status |
 | `/xp-sprint-retro` | Cross-session retrospective for the sprint |
 
 ### Teammate Behavioral Guide
@@ -862,7 +862,7 @@ Teammate guide should include:
 
 ## SMM Changes
 
-### Three-File Architecture
+### Four-File Architecture
 
 Sprint and product state live in dedicated files, not the event log. This keeps the curated SMM lightweight — subagents that don't need sprint details (simplify, lint) aren't burdened with them.
 
@@ -870,7 +870,8 @@ Sprint and product state live in dedicated files, not the event log. This keeps 
 smm/
 ├── events.jsonl              ← organic signals (status, concerns, decisions, sprint boundary markers)
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view (lightweight summary)
-├── product_spec.md           ← full product requirements with delivery status
+├── system_context.md          ← product/system description
+├── execution_plan.md          ← milestones with change zones and delivery status
 └── sprint.md                 ← current sprint: goal, stories with acceptance criteria and status
 ```
 
@@ -930,10 +931,10 @@ User stories are no longer in the event log — no compaction rules needed for t
 
 | File | Created by | Updated by | Lifecycle |
 |---|---|---|---|
-| `product_spec.md` | `/xp-product-spec` | `/xp-product-spec` (new features), `/xp-sprint-review` (marks delivered) | Persists across sprints, grows over project lifetime |
+| `execution_plan.md` | `/xp-plan` | `/xp-plan` (new milestones), `/xp-sprint-review` (marks delivered) | Persists across sprints |
 | `sprint.md` | `/xp-sprint-start` | Lead (story status during Accept) | Rewritten at each sprint start, deferred stories carry forward |
 
-### `product_spec.md` Format
+### `execution_plan.md` Format
 
 ```markdown
 # Product Spec: User Management System
@@ -977,7 +978,7 @@ and admin capabilities.
 - Rate limiting on login (5 attempts/minute)
 ```
 
-Feature status markers: `[planned]`, `[delivered: sprint-XXX]`. `/xp-sprint-start` filters on `[planned]` to know what's left to build. New features added via `/xp-product-spec` always enter as `[planned]`.
+Milestone status markers: `[planned]`, `[in-progress]`, `[delivered: sprint-XXX]`. `/xp-sprint-start` filters on `[planned]` to know what's left to build. New milestones added via `/xp-plan` always enter as `[planned]`.
 
 ### `sprint.md` Format
 
@@ -1077,7 +1078,7 @@ The 2.0 vision in ARCHITECTURE.md outlines M9 (Backlog & Planning Game), M10 (Re
 | ARCHITECTURE.md Vision | This Design |
 |---|---|
 | `user_story` event type | Stories live in `sprint.md`, not event log. Richer format with acceptance criteria, sizes, dependencies. |
-| Planning game at SessionStart | Sprint-scoped planning game driven by `product_spec.md` |
+| Planning game at SessionStart | Sprint-scoped planning game driven by `execution_plan.md` |
 | Plan reviewer validates against backlog | Unchanged — plan reviewer checks items are right-sized, TDD-ordered. Also recommends execution mode (solo/subagent/team). |
 | Burn down rendering | Sprint section in curated SMM with progress summary (reads `sprint.md`) |
 | Requirements decomposition subagent | `/xp-product-spec` skill — conversation-driven spec gathering, produces `product_spec.md` |

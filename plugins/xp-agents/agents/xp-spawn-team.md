@@ -41,7 +41,12 @@ Before analyzing, check for blockers:
 
 ### 1. File Domain Extraction
 
-For each plan step, identify which files and directories it touches. Use `Glob` and `Grep` to verify paths exist and understand project structure. Group steps by file domain.
+**Pre-computed domains (preferred):** If sprint stories include `**File Domain:**` and `**Interface Contracts:**` sections (enhanced sprint format), use those directly:
+- File domains define exclusive file ownership per story — verify no overlaps between stories
+- Interface contracts identify shared boundaries — flag conflicts
+- Skip Glob/Grep-based domain discovery when pre-computed domains exist
+
+**Computed domains (fallback):** When stories lack file domain sections, identify which files and directories each step touches. Use `Glob` and `Grep` to verify paths exist and understand project structure. Group steps by file domain.
 
 A file domain is a set of paths that one teammate owns exclusively. Good domains are:
 - Separate directories (e.g., `src/api/` vs `src/models/`)

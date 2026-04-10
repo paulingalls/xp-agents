@@ -22,16 +22,17 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 
 `CLAUDE_PLUGIN_DATA` is the plugin ecosystem's persistent data directory (defaults to `~/.claude/plugins/data/xp-agents-xp-agents/`). Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and Agent Team teammates.
 
-### Three-File Architecture (v2)
+### Four-File Architecture
 
-Beyond `events.jsonl`, two persistent markdown files live in the SMM directory:
+Beyond `events.jsonl`, three persistent markdown files live in the SMM directory:
 
 | File | Created By | Updated By | Purpose |
 |---|---|---|---|
-| `product_spec.md` | `/xp-product-spec` | `/xp-sprint-review` (delivery markers) | Persistent requirements — features, acceptance criteria, priorities |
-| `sprint.md` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint state — stories, sizes, statuses, dependencies |
+| `system_context.md` | `/xp-system-context` | `/xp-system-context` (re-run after architecture changes) | Product/system description — architecture, components, constraints |
+| `execution_plan.md` | `/xp-plan` | `/xp-sprint-review` (milestone delivery markers) | Ordered milestones with change zones, impact zones, design details |
+| `sprint.md` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint stories with context gradient — file domains, interface contracts |
 
-These are **LLM-readable markdown** (no Python parser). Skills read/write them directly. Sprint is ephemeral (one active at a time), product spec persists across sprints.
+These are **LLM-readable markdown**. `sprint_parser.py` parses `sprint.md` into structured data. System context and execution plan are stable across sprints; sprint.md is ephemeral (one active at a time).
 
 ## Event Types
 
@@ -121,7 +122,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
 | `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
 | `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
-| `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, product_spec.md updates, velocity |
+| `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.md milestone updates, velocity |
 | `xp-sprint-retro` | `/xp-sprint-retro` skill | Fork | Cross-iteration retrospective: patterns across session retros, sizing accuracy |
 | `xp-spawn-team` | `/xp-spawn-team` skill | Fork | Analyze plan for parallelizable work, produce structured spawn instructions |
 
@@ -131,8 +132,9 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash)
 - `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage + retro Try item adoption
 - `/xp-quality-review` — post-simplify courage accountability, drift management, debt awareness
-- `/xp-product-spec` — create/update product specification (`product_spec.md`)
-- `/xp-sprint-start` — create sprint from product spec stories (`sprint.md`)
+- `/xp-plan` — create/update execution plan with milestones (`execution_plan.md`)
+- `/xp-system-context` — create/update system context description (`system_context.md`)
+- `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.md`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred
 
 All subagents preload `xp-smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
@@ -266,7 +268,8 @@ plugins/xp-agents/
 │   ├── xp-housekeeping/SKILL.md    ← inline, four-pillar SMM curation
 │   ├── xp-goal-collection/SKILL.md ← inline, session goal collection
 │   ├── xp-question-triage/SKILL.md ← inline, questions + retro Try items
-│   ├── xp-product-spec/SKILL.md    ← inline, product specification
+│   ├── xp-plan/SKILL.md            ← inline, execution planning
+│   ├── xp-system-context/SKILL.md  ← forked, system context analysis
 │   ├── xp-sprint-start/SKILL.md    ← inline, sprint creation
 │   └── xp-accept/SKILL.md          ← inline, acceptance testing
 ├── hooks/hooks.json                 ← command hooks only
@@ -303,7 +306,7 @@ plugins/xp-agents/
 │   ├── teammate_idle.py             ← TeammateIdle TDD gate (exit 2 if tests failing)
 │   ├── task_completed.py            ← TaskCompleted TDD gate (exit 2 if tests failing)
 │   ├── tdd_check.py                 ← Shared TDD check (find_last_test_signal), used by 3 hooks
-│   ├── sprint_state.py              ← Sprint/product_spec state detection helpers
+│   ├── sprint_state.py              ← Sprint/planning document state detection helpers
 │   └── test_parsing.py              ← is_test_run, parse_test_results (extracted from bash_post_tool)
 └── smm/
     ├── init.sh

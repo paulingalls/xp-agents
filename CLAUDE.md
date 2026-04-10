@@ -199,8 +199,9 @@ plugins/xp-agents/
 ├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks + shared modules
-├── agents/*.md                        ← subagent definitions (6 agents: retrospective, plan-reviewer,
-│                                        security-reviewer, sprint-reviewer, sprint-retro, spawn-team)
+├── agents/*.md                        ← subagent definitions (7 agents: retrospective, plan-reviewer,
+│                                        security-reviewer, sprint-reviewer, sprint-retro, spawn-team,
+│                                        system-context)
 ├── skills/                            ← forked + inline skills
 │   ├── xp-kickoff/SKILL.md           ← session start orchestrator
 │   ├── xp-run-retrospective/SKILL.md ← forked, delegates to xp-retrospective agent
@@ -210,7 +211,8 @@ plugins/xp-agents/
 │   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
 │   ├── xp-security-triage/SKILL.md   ← forked, delegates to xp-security-reviewer agent
 │   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
-│   ├── xp-product-spec/SKILL.md      ← inline, product specification (product_spec.md)
+│   ├── xp-plan/SKILL.md              ← inline, execution planning (execution_plan.md)
+│   ├── xp-system-context/SKILL.md    ← forked, system context analysis (system_context.md)
 │   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.md)
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
 │   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
@@ -339,9 +341,9 @@ tests/
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
 - Python 3.10+, stdlib only, zero dependencies
-- Three-file architecture: events.jsonl + product_spec.md + sprint.md
+- Four-file architecture: events.jsonl + system_context.md + execution_plan.md + sprint.md (reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
-- Interactive skills (sprint-start, product-spec) inline; review/analysis skills forked
+- Interactive skills (sprint-start, plan) inline; review/analysis skills forked
 - Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
 - No prep script for spawn-team — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
