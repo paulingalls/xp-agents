@@ -116,18 +116,28 @@ def _handle_commit(
 ) -> str | None:
     """Process a successful git commit: record events, consume markers, nudge."""
     committed_files: list[str] = []
+    commit_hash: str | None = None
     msg = commits.parse_commit_message(response_text)
     if msg:
         committed_files = commits.get_committed_files(cwd)
+        commit_hash = commits.get_head_commit_hash(cwd)
         has_code = any(security.is_code_file(f) for f in committed_files)
-        status = _common.make_event(
-            _common.STATUS,
+
+        # Full message body for richer retrospective context
+        body = commits.get_commit_message_body(cwd) or msg
+
+        metadata: dict = {"code_commit": has_code}
+        if commit_hash:
+            metadata["commit_hash"] = commit_hash
+
+        event = _common.make_event(
+            _common.COMMIT,
             agent_id,
-            f"Committed: {msg}",
-            working_on=[],
-            metadata={"code_commit": has_code},
+            body,
+            files=committed_files,
+            metadata=metadata,
         )
-        _common.append_safe(smm_dir, status)
+        _common.append_safe(smm_dir, event)
 
         # Commit size check
         threshold = load_commit_threshold()
@@ -148,7 +158,8 @@ def _handle_commit(
     security.consume_security_triaged(smm_dir)
 
     # Reset review cycle marker with new commit hash
-    commit_hash = commits.get_head_commit_hash(cwd)
+    if commit_hash is None:
+        commit_hash = commits.get_head_commit_hash(cwd)
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 

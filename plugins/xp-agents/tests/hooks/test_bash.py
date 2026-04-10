@@ -24,8 +24,12 @@ from conftest import _HookTestCase, _make_bash_input, make_event
 
 
 class TestBashPostTool(_HookTestCase):
-    def test_git_commit_records_status(self):
-        with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
+    def test_git_commit_records_commit_event(self):
+        with (
+            patch("commits.get_committed_files", return_value=["a", "b", "c"]),
+            patch("commits.get_commit_message_body", return_value="Add auth"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add auth'",
@@ -34,9 +38,11 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        self.assertEqual(len(statuses), 1)
-        self.assertIn("Add auth", statuses[0]["content"])
+        commits_ev = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(commits_ev), 1)
+        self.assertIn("Add auth", commits_ev[0]["content"])
+        self.assertEqual(commits_ev[0]["files"], ["a", "b", "c"])
+        self.assertEqual(commits_ev[0]["metadata"]["commit_hash"], "abc123")
 
     def test_git_commit_small_no_concern(self):
         with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
@@ -91,10 +97,14 @@ class TestBashPostTool(_HookTestCase):
             settings_path.write_text(original)
 
     def test_commit_code_files_has_code_commit_metadata(self):
-        """Committed event has metadata.code_commit=True when code files present."""
-        with patch(
-            "commits.get_committed_files",
-            return_value=["src/app.py", "tests/test_app.py"],
+        """Commit event has metadata.code_commit=True when code files present."""
+        with (
+            patch(
+                "commits.get_committed_files",
+                return_value=["src/app.py", "tests/test_app.py"],
+            ),
+            patch("commits.get_commit_message_body", return_value="Add feature"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -104,16 +114,19 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        committed = [s for s in statuses if "Committed:" in s.get("content", "")]
+        committed = [e for e in events if e.get("type") == "commit"]
         self.assertEqual(len(committed), 1)
         self.assertTrue(committed[0].get("metadata", {}).get("code_commit"))
 
     def test_commit_no_code_files_has_code_commit_false(self):
-        """Committed event has metadata.code_commit=False for docs-only commits."""
-        with patch(
-            "commits.get_committed_files",
-            return_value=["README.md", "docs/guide.md"],
+        """Commit event has metadata.code_commit=False for docs-only commits."""
+        with (
+            patch(
+                "commits.get_committed_files",
+                return_value=["README.md", "docs/guide.md"],
+            ),
+            patch("commits.get_commit_message_body", return_value="Update docs"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -123,8 +136,7 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        committed = [s for s in statuses if "Committed:" in s.get("content", "")]
+        committed = [e for e in events if e.get("type") == "commit"]
         self.assertEqual(len(committed), 1)
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
