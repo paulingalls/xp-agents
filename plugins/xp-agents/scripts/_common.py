@@ -10,6 +10,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -67,6 +68,10 @@ ASSUMPTION = "assumption"
 SESSION_END = "session_end"
 SPRINT = "sprint"
 RETROSPECTIVE = "retrospective"
+
+# Shared status content patterns (used by retrospective and work_signals)
+TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
+LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
 
 
 def subagent_started_content(agent_id: str) -> str:

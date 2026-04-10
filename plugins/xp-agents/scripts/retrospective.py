@@ -52,11 +52,9 @@ _SIGNAL_TYPES = frozenset(
 
 # Status classification patterns
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = re.compile(
-    r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE
-)
+_TEST_RUN_RE = _common.TEST_RUN_RE
 _SECURITY_TRIAGE_RE = re.compile(r"Security triage (?:complete|started)", re.IGNORECASE)
-_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
+_COMMIT_RE = _common.LEGACY_COMMIT_RE
 _QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
 
@@ -260,11 +258,16 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = _build_honesty_signals(unanalyzed)
 
+    from work_signals import build_work_signals
+
+    work_sigs = build_work_signals(unanalyzed)
+
     return {
         "signal_events": signal_events,
         "status_summary": status_summary,
         "concern_groups": concern_groups,
         "honesty_signals": honesty_signals,
+        "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
         "resolutions": _build_resolutions_map(resolutions),
     }
