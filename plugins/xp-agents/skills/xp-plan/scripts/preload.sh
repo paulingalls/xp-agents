@@ -10,9 +10,12 @@ echo ""
 PLAN_FILE="${SMM_DIR}/execution_plan.md"
 
 if [ -f "$PLAN_FILE" ] && [ ! -L "$PLAN_FILE" ]; then
-    planned=$(grep -c '\[planned\]' "$PLAN_FILE" 2>/dev/null || echo 0)
-    in_progress=$(grep -c '\[in-progress\]' "$PLAN_FILE" 2>/dev/null || echo 0)
-    delivered=$(grep -c '\[delivered:' "$PLAN_FILE" 2>/dev/null || echo 0)
+    planned=$(grep -c '\[planned\]' "$PLAN_FILE" 2>/dev/null || true)
+    planned=${planned:-0}
+    in_progress=$(grep -c '\[in-progress\]' "$PLAN_FILE" 2>/dev/null || true)
+    in_progress=${in_progress:-0}
+    delivered=$(grep -c '\[delivered:' "$PLAN_FILE" 2>/dev/null || true)
+    delivered=${delivered:-0}
     echo "## Existing Execution Plan"
     echo "${planned} milestones planned, ${in_progress} in-progress, ${delivered} delivered"
     echo "EXECUTION_PLAN=${PLAN_FILE}"

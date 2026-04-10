@@ -84,9 +84,6 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
     )
     _common.append_safe(smm_dir, status)
 
-    # Legacy marker cleanup — proper clearing moves to save_product_spec.py
-    # and save_sprint.py in subsequent commits.
-    markers.marker_consume(smm_dir, markers.NEEDS_PRODUCT_SPEC)
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
     smm_data = smm_store.load_smm(smm_dir)

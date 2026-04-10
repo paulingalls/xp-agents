@@ -66,8 +66,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
 
     reason = _REVIEW_MESSAGE
     extras: list[str] = []
-    if markers.marker_exists(smm_dir, markers.NEEDS_PRODUCT_SPEC):
-        extras.append("Run /xp-product-spec to define product requirements.")
+    if markers.marker_exists(smm_dir, markers.NEEDS_EXECUTION_PLAN):
+        extras.append("Run /xp-plan to create an execution plan.")
     if markers.marker_exists(smm_dir, markers.NEEDS_SPRINT):
         extras.append("Run /xp-sprint-start to plan sprint stories.")
     if extras:

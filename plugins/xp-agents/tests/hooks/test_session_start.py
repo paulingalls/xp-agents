@@ -267,6 +267,105 @@ class TestSessionStart(_HookTestCase):
 
 
 # ===========================================================================
+# Execution plan / system context marker tests
+# ===========================================================================
+
+
+class TestSessionStartExecutionPlanMarker(_HookTestCase):
+    """session_start writes NEEDS_EXECUTION_PLAN marker when missing."""
+
+    def test_startup_no_execution_plan_writes_marker(self):
+        """Startup with no execution_plan.md writes NEEDS_EXECUTION_PLAN."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+    def test_startup_with_execution_plan_no_marker(self):
+        """Startup with execution_plan.md present does NOT write marker."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+    def test_resume_does_not_write_execution_plan_marker(self):
+        """Resume source does not write NEEDS_EXECUTION_PLAN."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+
+class TestSessionStartSystemContextMarker(_HookTestCase):
+    """session_start writes NEEDS_SYSTEM_CONTEXT marker when missing."""
+
+    def test_startup_no_system_context_writes_marker(self):
+        """Startup with no system_context.md writes NEEDS_SYSTEM_CONTEXT."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_SYSTEM_CONTEXT)
+        )
+
+    def test_startup_with_system_context_no_marker(self):
+        """Startup with system_context.md present does NOT write marker."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "system_context.md").write_text("# System Context\n")
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_SYSTEM_CONTEXT)
+        )
+
+    def test_resume_does_not_write_system_context_marker(self):
+        """Resume source does not write NEEDS_SYSTEM_CONTEXT."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_SYSTEM_CONTEXT)
+        )
+
+
+# ===========================================================================
 # M6.5: Customer nudge tests
 # ===========================================================================
 

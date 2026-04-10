@@ -25,7 +25,7 @@ from conftest import (
 class TestSessionStartSprintDetection(_HookTestCase):
     """M8a: session_start writes sprint state markers on startup/clear."""
 
-    def test_writes_needs_product_spec_when_missing(self):
+    def test_writes_needs_execution_plan_when_missing(self):
         import session_start
 
         self._write_events([make_event()])
@@ -33,18 +33,18 @@ class TestSessionStartSprintDetection(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertTrue((self.smm_dir / ".needs-product-spec").exists())
+        self.assertTrue((self.smm_dir / ".needs-execution-plan").exists())
 
-    def test_no_product_spec_marker_when_exists(self):
+    def test_no_execution_plan_marker_when_exists(self):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "product_spec.md").write_text("# Product Spec\n")
+        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertFalse((self.smm_dir / ".needs-product-spec").exists())
+        self.assertFalse((self.smm_dir / ".needs-execution-plan").exists())
 
     def test_writes_needs_sprint_when_missing(self):
         import session_start
@@ -82,7 +82,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "product_spec.md").write_text("# Product Spec\n")
+        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
         (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
         session_start.run(
             {"session_id": "test", "source": "startup"},

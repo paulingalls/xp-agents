@@ -98,6 +98,21 @@ SPRINT_ALL_DEFERRED = """\
 - **Dependencies:** none
 """
 
+SPRINT_WITH_MILESTONE = """\
+# Sprint: Build auth system
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-15
+- **Milestone:** Milestone 1: Auth Foundation
+
+## Stories
+
+### story-001: User login
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+"""
+
 SPRINT_NO_ID = """\
 # Sprint: Build auth system
 
@@ -130,7 +145,7 @@ PRODUCT_SPEC = """\
 
 
 class TestPrepareReviewData(_HookTestCase):
-    """M11: prepare_review_data reads sprint + product_spec, computes velocity."""
+    """M11: prepare_review_data reads sprint + execution_plan, computes velocity."""
 
     def test_basic_velocity(self):
         """2 done, 1 deferred, 1 ready -> planned=4, delivered=2, carried=1."""
@@ -156,7 +171,8 @@ class TestPrepareReviewData(_HookTestCase):
             "goal",
             "velocity",
             "sprint_md_path",
-            "product_spec_md_path",
+            "execution_plan_md_path",
+            "milestone",
         )
         for key in expected:
             self.assertIn(key, result, f"Missing key: {key}")
@@ -170,27 +186,6 @@ class TestPrepareReviewData(_HookTestCase):
 
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNone(result)
-
-    def test_missing_product_spec_empty_path(self):
-        """No product_spec.md -> product_spec_md_path=''."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertEqual(result["product_spec_md_path"], "")
-
-    def test_product_spec_path_set(self):
-        """product_spec_md_path points to existing file."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
-        (self.smm_dir / "product_spec.md").write_text(PRODUCT_SPEC)
-        result = prepare_review_data.run(self.smm_dir)
-        self.assertIsNotNone(result)
-        path = result["product_spec_md_path"]
-        self.assertTrue(path)
-        self.assertTrue(Path(path).is_file())
 
     def test_all_done_velocity(self):
         """3/3 done -> planned=3, delivered=3, carried=0."""
@@ -247,6 +242,66 @@ class TestPrepareReviewData(_HookTestCase):
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertEqual(result["goal"], "Build auth system")
+
+    def test_execution_plan_path_set(self):
+        """execution_plan.md exists -> execution_plan_md_path is non-empty."""
+        import prepare_review_data
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "execution_plan.md").write_text("# Execution Plan")
+        result = prepare_review_data.run(self.smm_dir)
+        self.assertIsNotNone(result)
+        path = result["execution_plan_md_path"]
+        self.assertTrue(path)
+        self.assertTrue(Path(path).is_file())
+
+    def test_missing_execution_plan_empty_path(self):
+        """No execution_plan.md -> execution_plan_md_path=''."""
+        import prepare_review_data
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = prepare_review_data.run(self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["execution_plan_md_path"], "")
+
+    def test_execution_plan_symlink_empty_path(self):
+        """execution_plan.md is symlink -> execution_plan_md_path=''."""
+        import prepare_review_data
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        target = self.smm_dir / "_fake_target.md"
+        target.write_text("fake")
+        (self.smm_dir / "execution_plan.md").symlink_to(target)
+        result = prepare_review_data.run(self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["execution_plan_md_path"], "")
+
+    def test_milestone_populated_from_sprint(self):
+        """Sprint with Milestone header -> milestone key populated."""
+        import prepare_review_data
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_WITH_MILESTONE)
+        result = prepare_review_data.run(self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["milestone"], "Milestone 1: Auth Foundation")
+
+    def test_milestone_empty_when_not_in_sprint(self):
+        """Sprint without Milestone header -> milestone is ''."""
+        import prepare_review_data
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = prepare_review_data.run(self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["milestone"], "")
+
+    def test_execution_plan_md_path_key_always_present(self):
+        """execution_plan_md_path always present as key in output."""
+        import prepare_review_data
+
+        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        result = prepare_review_data.run(self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("execution_plan_md_path", result)
 
 
 # ===========================================================================

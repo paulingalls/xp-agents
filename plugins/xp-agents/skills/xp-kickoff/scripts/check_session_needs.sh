@@ -34,11 +34,11 @@ if [ ! -f "$SYSTEM_CONTEXT" ] || [ -L "$SYSTEM_CONTEXT" ]; then
     echo ""
 fi
 
-# 3. Check for product spec (marker OR missing file)
-PRODUCT_SPEC="${SMM_DIR}/product_spec.md"
-if [ -f "${SMM_DIR}/.needs-product-spec" ] || [ ! -f "$PRODUCT_SPEC" ]; then
-    echo "### NEEDS_PRODUCT_SPEC"
-    echo "No product_spec.md found. Run /xp-product-spec to create one."
+# 3. Check for execution plan
+EXEC_PLAN="${SMM_DIR}/execution_plan.md"
+if [ ! -f "$EXEC_PLAN" ] || [ -L "$EXEC_PLAN" ]; then
+    echo "### NEEDS_EXECUTION_PLAN"
+    echo "No execution_plan.md found. Run /xp-plan to create one."
     echo ""
 fi
 

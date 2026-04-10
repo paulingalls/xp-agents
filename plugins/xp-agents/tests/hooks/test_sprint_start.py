@@ -236,48 +236,50 @@ class TestSprintStartPreload(_IntegrationTestCase):
 
     def test_preload_outputs_smm_dir(self):
         """Preload output includes SMM_DIR= line."""
-        # Need product_spec.md to avoid early error exit
-        (self.smm_dir / "product_spec.md").write_text(
-            "# Product Spec\n\n### Auth [planned]\n- Login\n"
+        # Need execution_plan.md to avoid early error exit
+        (self.smm_dir / "execution_plan.md").write_text(
+            "# Execution Plan\n\n### Milestone 1: Auth [planned]\n- **Goal:** Auth\n"
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SMM_DIR=", result.stdout)
 
-    def test_preload_no_product_spec(self):
-        """Outputs error when no product_spec.md exists."""
+    def test_preload_no_execution_plan(self):
+        """Outputs error when no execution_plan.md exists."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
-        self.assertIn("product_spec", result.stdout.lower())
+        self.assertIn("execution_plan", result.stdout.lower())
 
-    def test_preload_no_planned_features(self):
-        """Outputs error when product_spec has only delivered features."""
-        (self.smm_dir / "product_spec.md").write_text(
-            "# Product Spec\n\n### Auth [delivered: sprint-001]\n- Login\n"
+    def test_preload_no_planned_milestones(self):
+        """Outputs error when execution_plan has only delivered milestones."""
+        (self.smm_dir / "execution_plan.md").write_text(
+            "# Execution Plan\n\n"
+            "### Milestone 1: Auth [delivered: sprint-001]\n"
+            "- **Goal:** Auth\n"
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
 
-    def test_preload_with_planned_features(self):
-        """Outputs path and counts, not full spec content."""
-        (self.smm_dir / "product_spec.md").write_text(
-            "# Product Spec\n\n"
-            "### Auth [planned]\n- Login with email\n\n"
-            "### Search [planned]\n- Full-text search\n"
+    def test_preload_with_planned_milestones(self):
+        """Outputs path and counts, not full plan content."""
+        (self.smm_dir / "execution_plan.md").write_text(
+            "# Execution Plan\n\n"
+            "### Milestone 1: Auth [planned]\n- **Goal:** Auth\n\n"
+            "### Milestone 2: Search [planned]\n- **Goal:** Search\n"
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
-        self.assertIn("PRODUCT_SPEC=", result.stdout)
-        self.assertIn("2", result.stdout)  # 2 planned features
+        self.assertIn("EXECUTION_PLAN=", result.stdout)
+        self.assertIn("2", result.stdout)  # 2 planned milestones
         # Should NOT contain full spec content — agent reads via Read tool
-        self.assertNotIn("Auth [planned]", result.stdout)
+        self.assertNotIn("Milestone 1: Auth [planned]", result.stdout)
 
     def test_preload_existing_sprint_deferred(self):
         """Shows deferred stories from existing sprint.md."""
-        (self.smm_dir / "product_spec.md").write_text(
-            "# Product Spec\n\n### Auth [planned]\n- Login\n"
+        (self.smm_dir / "execution_plan.md").write_text(
+            "# Execution Plan\n\n### Milestone 1: Auth [planned]\n- **Goal:** Auth\n"
         )
         (self.smm_dir / "sprint.md").write_text(
             "# Sprint: Previous\n\n## Stories\n\n"
@@ -292,8 +294,8 @@ class TestSprintStartPreload(_IntegrationTestCase):
 
     def test_preload_sprint_count(self):
         """Outputs correct NEXT_SPRINT_ID based on existing sprint events."""
-        (self.smm_dir / "product_spec.md").write_text(
-            "# Product Spec\n\n### Auth [planned]\n- Login\n"
+        (self.smm_dir / "execution_plan.md").write_text(
+            "# Execution Plan\n\n### Milestone 1: Auth [planned]\n- **Goal:** Auth\n"
         )
         # Seed two sprint-start events
         events = [

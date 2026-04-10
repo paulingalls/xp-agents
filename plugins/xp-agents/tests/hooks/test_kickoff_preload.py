@@ -25,24 +25,18 @@ _PRELOAD_SCRIPT = (
 class TestKickoffPreloadSprintAware(_IntegrationTestCase):
     """M8b: check_session_needs.sh outputs sprint marker and state info."""
 
-    def test_outputs_needs_product_spec_when_marker_exists(self):
-        (self.smm_dir / ".needs-product-spec").write_text("startup")
+    def test_outputs_needs_execution_plan_when_missing(self):
+        """No execution_plan.md — emit NEEDS_EXECUTION_PLAN flag."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
-        self.assertIn("NEEDS_PRODUCT_SPEC", result.stdout)
+        self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
 
-    def test_no_product_spec_section_when_file_exists(self):
-        """No marker, but product_spec.md exists — no flag."""
-        (self.smm_dir / "product_spec.md").write_text("# Spec\n")
+    def test_no_execution_plan_flag_when_file_exists(self):
+        """execution_plan.md exists — no flag."""
+        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
-        self.assertNotIn("NEEDS_PRODUCT_SPEC", result.stdout)
-
-    def test_outputs_needs_product_spec_when_no_file(self):
-        """No marker, no product_spec.md — emit flag from file check."""
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("NEEDS_PRODUCT_SPEC", result.stdout)
+        self.assertNotIn("NEEDS_EXECUTION_PLAN", result.stdout)
 
     def test_outputs_needs_sprint_when_marker_exists(self):
         (self.smm_dir / ".needs-sprint").write_text("startup")
@@ -94,7 +88,7 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("SMM_DIR=", result.stdout)
         # File-existence checks emit flags even without markers
-        self.assertIn("NEEDS_PRODUCT_SPEC", result.stdout)
+        self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
         self.assertIn("NEEDS_SPRINT", result.stdout)
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
 

@@ -139,17 +139,17 @@ class TestKickoffGate(_HookTestCase):
 class TestKickoffGateSprintInfo(_HookTestCase):
     """M8a: kickoff_gate includes sprint marker info in block message."""
 
-    def test_block_includes_product_spec_info(self):
+    def test_block_includes_execution_plan_info(self):
         import kickoff_gate
 
         (self.smm_dir / ".needs-kickoff").write_text("startup")
-        (self.smm_dir / ".needs-product-spec").write_text("startup")
+        (self.smm_dir / ".needs-execution-plan").write_text("startup")
         result = kickoff_gate.run(
             {"session_id": "test", "prompt": "do work"},
             smm_dir=self.smm_dir,
         )
         self.assertIsInstance(result, dict)
-        self.assertIn("product", result["reason"].lower())
+        self.assertIn("xp-plan", result["reason"].lower())
 
     def test_block_includes_sprint_info(self):
         import kickoff_gate
@@ -167,14 +167,14 @@ class TestKickoffGateSprintInfo(_HookTestCase):
         import kickoff_gate
 
         (self.smm_dir / ".needs-kickoff").write_text("startup")
-        (self.smm_dir / ".needs-product-spec").write_text("startup")
+        (self.smm_dir / ".needs-execution-plan").write_text("startup")
         (self.smm_dir / ".needs-sprint").write_text("startup")
         result = kickoff_gate.run(
             {"session_id": "test", "prompt": "do work"},
             smm_dir=self.smm_dir,
         )
         self.assertIsInstance(result, dict)
-        self.assertIn("product", result["reason"].lower())
+        self.assertIn("xp-plan", result["reason"].lower())
         self.assertIn("sprint", result["reason"].lower())
 
     def test_block_no_sprint_markers(self):

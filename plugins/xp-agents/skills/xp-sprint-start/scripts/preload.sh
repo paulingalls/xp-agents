@@ -1,22 +1,22 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-sprint-start: show milestones or features and sprint state.
-# Supports both execution_plan.md (new) and product_spec.md (legacy).
+# Preload for xp-sprint-start: show milestones and sprint state.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
 
-# --- Check for execution_plan.md (preferred) or product_spec.md (legacy) ---
+# --- Check for execution_plan.md ---
 PLAN_FILE="${SMM_DIR}/execution_plan.md"
-SPEC_FILE="${SMM_DIR}/product_spec.md"
 
 if [ -f "$PLAN_FILE" ] && [ ! -L "$PLAN_FILE" ]; then
-    # New path: execution plan with milestones
-    planned=$(grep -c '\[planned\]' "$PLAN_FILE" 2>/dev/null || echo 0)
-    in_progress=$(grep -c '\[in-progress\]' "$PLAN_FILE" 2>/dev/null || echo 0)
-    delivered=$(grep -c '\[delivered:' "$PLAN_FILE" 2>/dev/null || echo 0)
+    planned=$(grep -c '\[planned\]' "$PLAN_FILE" 2>/dev/null || true)
+    planned=${planned:-0}
+    in_progress=$(grep -c '\[in-progress\]' "$PLAN_FILE" 2>/dev/null || true)
+    in_progress=${in_progress:-0}
+    delivered=$(grep -c '\[delivered:' "$PLAN_FILE" 2>/dev/null || true)
+    delivered=${delivered:-0}
 
     if [ "$planned" -eq 0 ] && [ "$in_progress" -eq 0 ]; then
         echo "## ERROR: No [planned] or [in-progress] milestones in execution_plan.md"
@@ -26,25 +26,9 @@ if [ -f "$PLAN_FILE" ] && [ ! -L "$PLAN_FILE" ]; then
 
     echo "## Execution Plan (${planned} planned, ${in_progress} in-progress, ${delivered} delivered)"
     echo "EXECUTION_PLAN=${PLAN_FILE}"
-
-elif [ -f "$SPEC_FILE" ]; then
-    # Legacy path: product spec with features
-    planned=$(grep -c '\[planned\]' "$SPEC_FILE" 2>/dev/null || true)
-    planned=${planned:-0}
-    if [ "$planned" -eq 0 ]; then
-        echo "## ERROR: No [planned] features in product_spec.md"
-        echo "All features are delivered. Add new features via /xp-product-spec."
-        exit 0
-    fi
-
-    delivered=$(grep -c '\[delivered:' "$SPEC_FILE" 2>/dev/null || true)
-    delivered=${delivered:-0}
-    echo "## Planned Features (${planned} planned, ${delivered} delivered)"
-    echo "PRODUCT_SPEC=${SPEC_FILE}"
-
 else
-    echo "## ERROR: No execution_plan.md or product_spec.md found"
-    echo "Run /xp-plan to create an execution plan, or /xp-product-spec for a product spec."
+    echo "## ERROR: No execution_plan.md found"
+    echo "Run /xp-plan to create an execution plan."
     exit 0
 fi
 

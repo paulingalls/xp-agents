@@ -232,9 +232,11 @@ class TestCheckTddOrder(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_product_spec_no_tracking(self):
-        """product_spec.md should not trigger TDD nudge."""
-        pre_tool_write.check_tdd_order(self.smm_dir, "main", "product_spec.md", "Write")
+    def test_execution_plan_no_tracking(self):
+        """execution_plan.md should not trigger TDD nudge."""
+        pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "execution_plan.md", "Write"
+        )
         result = pre_tool_write.check_tdd_order(
             self.smm_dir, "main", "sprint.md", "Write"
         )

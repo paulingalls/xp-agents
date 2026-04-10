@@ -88,8 +88,8 @@ class TestKickoffGateIntegration(_IntegrationTestCase):
         self.assertNotIn("decision", parsed)
         self.assertIn("hookSpecificOutput", parsed)
 
-    def test_sprint_hint_appended_without_product_spec(self):
-        """needs-sprint alone includes sprint-start hint; needs-product-spec absent."""
+    def test_sprint_hint_appended_without_execution_plan(self):
+        """needs-sprint alone includes sprint-start hint."""
         (self.smm_dir / ".needs-kickoff").write_text("startup")
         (self.smm_dir / ".needs-sprint").write_text("")
 

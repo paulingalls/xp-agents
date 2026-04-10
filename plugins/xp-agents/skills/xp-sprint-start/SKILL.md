@@ -20,19 +20,11 @@ allowed-tools:
 
 # Sprint Planning
 
-You are the sprint planner. Your job is to create `sprint.md` by decomposing a milestone (from `execution_plan.md`) or planned features (from `product_spec.md`) into context-rich stories the team can deliver — including in parallel via subagents.
+You are the sprint planner. Your job is to create `sprint.md` by decomposing a milestone from `execution_plan.md` into context-rich stories the team can deliver — including in parallel via subagents.
 
 ## Error Handling
 
 If the preload output above shows **ERROR**, explain the problem to the user and stop. Do not proceed with planning.
-
-## Source Detection
-
-The preload reports which planning documents exist:
-- **`EXECUTION_PLAN=<path>`** — new path: use milestone-based planning (preferred)
-- **`PRODUCT_SPEC=<path>`** — legacy path: use feature-based planning (backward-compatible)
-
-If both exist, prefer the execution plan. If neither exists, show an error.
 
 ## Deferred Story Carryover
 
@@ -167,24 +159,6 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Sprint <NEXT_SPRINT_ID> created: <N> stories (<size distribution>)" \
   --working-on '["sprint.md"]'
 ```
-
----
-
-## Feature-Based Planning (product_spec.md — legacy)
-
-Use this flow when only `PRODUCT_SPEC=<path>` exists (no execution plan). This is the backward-compatible path.
-
-### Step 1: Feature Selection
-
-Read the product spec. Show `[planned]` features. Ask which to include.
-
-### Step 2: Story Decomposition
-
-Decompose each feature into stories with: ID, title, size, dependencies, source (`product_spec.md §Feature`), and acceptance criteria with E2E.
-
-### Step 3-6: Same as milestone-based
-
-Sprint goal, confirmation, write (using the simpler format without Context/File Domain/Interface Contracts), record events.
 
 ---
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Sprint and planning document state detection helpers.
 
-Pure functions for checking sprint.md, product_spec.md, and planning
-document state. Used by session_start.py and kickoff_done.py for
-deterministic state detection.
+Pure functions for checking sprint.md, execution_plan.md, and
+system_context.md state. Used by session_start.py and kickoff_done.py
+for deterministic state detection.
 """
 
 import re
@@ -49,11 +49,6 @@ def _safe_file_exists(smm_dir: Path, filename: str) -> bool:
     """Check if a file exists in SMM dir and is not a symlink."""
     path = smm_dir / filename
     return path.exists() and not path.is_symlink()
-
-
-def product_spec_exists(smm_dir: Path) -> bool:
-    """Check if product_spec.md exists in SMM dir (not a symlink)."""
-    return _safe_file_exists(smm_dir, "product_spec.md")
 
 
 def execution_plan_exists(smm_dir: Path) -> bool:

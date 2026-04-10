@@ -30,7 +30,6 @@ _ALL_SKILL_NAMES = (
     "xp-housekeeping",
     "xp-kickoff",
     "xp-plan",
-    "xp-product-spec",
     "xp-quality-review",
     "xp-review-plan",
     "xp-run-retrospective",
@@ -45,7 +44,6 @@ _ALL_SKILL_NAMES = (
 
 # Inline skills with substantial instructional content (800-2500 token budget)
 _CONTENT_SKILL_NAMES = (
-    "xp-product-spec",
     "xp-quality-review",
     "xp-sprint-start",
 )
@@ -321,7 +319,7 @@ class TestPluginIntegrity(unittest.TestCase):
         """Kickoff SKILL.md must have the redesigned flow steps."""
         skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
         content = skill_file.read_text()
-        self.assertIn("Product Spec", content)
+        self.assertIn("Execution Plan", content)
         self.assertIn("Sprint", content)
         self.assertIn("Work Selection", content)
         self.assertIn("Housekeeping", content)

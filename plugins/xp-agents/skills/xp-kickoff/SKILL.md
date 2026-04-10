@@ -42,11 +42,13 @@ If the user chooses **free session**: skip steps 3 and 4, jump directly to step 
 
 If the user chooses **sprint session**: proceed to step 3.
 
-## Step 3: Product Spec (if NEEDS_PRODUCT_SPEC)
+## Step 3: System Context and Execution Plan (if NEEDS_SYSTEM_CONTEXT or NEEDS_EXECUTION_PLAN)
 
-If the preload shows "NEEDS_PRODUCT_SPEC", first `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` for context (constraints, wisdom, and risks guide spec creation). Then invoke `/xp-product-spec`. Wait for it to complete before proceeding.
+If the preload shows "NEEDS_SYSTEM_CONTEXT" and this is a sprint session, invoke `/xp-system-context`. Wait for it to complete before proceeding.
 
-If not shown, skip to step 4.
+If the preload shows "NEEDS_EXECUTION_PLAN", first `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` for context (constraints, wisdom, and risks guide planning). Then invoke `/xp-plan`. Wait for it to complete before proceeding.
+
+If neither is shown, skip to step 4.
 
 ## Step 4: Sprint Start (if NEEDS_SPRINT)
 

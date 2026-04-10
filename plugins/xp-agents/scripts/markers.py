@@ -48,7 +48,8 @@ class MarkerDef:
 # ---------------------------------------------------------------------------
 
 KICKOFF = MarkerDef(marker_names.KICKOFF, "text")
-NEEDS_PRODUCT_SPEC = MarkerDef(marker_names.NEEDS_PRODUCT_SPEC, "text")
+NEEDS_EXECUTION_PLAN = MarkerDef(marker_names.NEEDS_EXECUTION_PLAN, "text")
+NEEDS_SYSTEM_CONTEXT = MarkerDef(marker_names.NEEDS_SYSTEM_CONTEXT, "text")
 NEEDS_SPRINT = MarkerDef(marker_names.NEEDS_SPRINT, "text")
 ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
 SECURITY_TRIAGED = MarkerDef(marker_names.SECURITY_TRIAGED, "json")

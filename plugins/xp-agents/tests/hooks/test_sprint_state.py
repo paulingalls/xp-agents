@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for sprint_state.py: sprint/product_spec state detection helpers."""
+"""Tests for sprint_state.py: sprint and planning document state helpers."""
 
 import sys
 import unittest
@@ -93,28 +93,28 @@ class TestReadSprintContent(_HookTestCase):
         self.assertIsNone(result)
 
 
-class TestProductSpecExists(_HookTestCase):
-    """Test product_spec_exists — checks product_spec.md in SMM dir."""
+class TestExecutionPlanExists(_HookTestCase):
+    """Test execution_plan_exists — checks execution_plan.md in SMM dir."""
 
     def test_exists(self):
         import sprint_state
 
-        (self.smm_dir / "product_spec.md").write_text("# Product Spec\n")
-        self.assertTrue(sprint_state.product_spec_exists(self.smm_dir))
+        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+        self.assertTrue(sprint_state.execution_plan_exists(self.smm_dir))
 
     def test_missing(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.product_spec_exists(self.smm_dir))
+        self.assertFalse(sprint_state.execution_plan_exists(self.smm_dir))
 
     def test_symlink(self):
         import sprint_state
 
-        target = self.smm_dir / "real_spec.md"
-        target.write_text("# Product Spec\n")
-        link = self.smm_dir / "product_spec.md"
+        target = self.smm_dir / "real.md"
+        target.write_text("# Plan\n")
+        link = self.smm_dir / "execution_plan.md"
         link.symlink_to(target)
-        self.assertFalse(sprint_state.product_spec_exists(self.smm_dir))
+        self.assertFalse(sprint_state.execution_plan_exists(self.smm_dir))
 
 
 class TestHasReadyStories(unittest.TestCase):

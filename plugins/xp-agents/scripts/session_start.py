@@ -80,8 +80,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if source in ("startup", "clear"):
         markers.marker_write(smm_dir, markers.KICKOFF, source)
         markers.marker_consume(smm_dir, markers.ACCEPT)
-        if not sprint_state.product_spec_exists(smm_dir):
-            markers.marker_write(smm_dir, markers.NEEDS_PRODUCT_SPEC, source)
+        if not sprint_state.execution_plan_exists(smm_dir):
+            markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)
+        if not sprint_state.system_context_exists(smm_dir):
+            markers.marker_write(smm_dir, markers.NEEDS_SYSTEM_CONTEXT, source)
         sprint_content = sprint_state.read_sprint_content(smm_dir)
         needs_sprint = sprint_content is None or not sprint_state.has_active_stories(
             sprint_content

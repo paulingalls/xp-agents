@@ -12,7 +12,6 @@ directly via pathlib using these constants.
 """
 
 KICKOFF = ".needs-kickoff"
-NEEDS_PRODUCT_SPEC = ".needs-product-spec"
 NEEDS_SPRINT = ".needs-sprint"
 ACCEPT = ".accept"
 SECURITY_TRIAGED = ".security-triaged"
