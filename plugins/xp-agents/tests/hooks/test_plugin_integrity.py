@@ -22,6 +22,7 @@ _SUBAGENT_NAMES = (
     "xp-spawn-team",
     "xp-sprint-retro",
     "xp-sprint-reviewer",
+    "xp-system-context",
 )
 
 _ALL_SKILL_NAMES = (
@@ -37,6 +38,7 @@ _ALL_SKILL_NAMES = (
     "xp-spawn-team",
     "xp-sprint-review",
     "xp-sprint-start",
+    "xp-system-context",
     "xp-work-selection",
 )
 

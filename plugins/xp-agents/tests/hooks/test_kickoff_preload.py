@@ -140,6 +140,19 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertNotIn("SPRINT_RETRO_NEEDED", result.stdout)
         self.assertNotIn("RETRO_NEEDED", result.stdout)
 
+    def test_outputs_needs_system_context_when_missing(self):
+        """Reports NEEDS_SYSTEM_CONTEXT when system_context.md missing."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
+
+    def test_no_system_context_flag_when_exists(self):
+        """No flag when system_context.md exists."""
+        (self.smm_dir / "system_context.md").write_text("# System Context: Test")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

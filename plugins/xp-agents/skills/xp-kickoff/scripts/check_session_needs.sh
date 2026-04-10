@@ -26,7 +26,15 @@ elif [ -f "$RETRO_INPUT" ]; then
     echo ""
 fi
 
-# 2. Check for product spec (marker OR missing file)
+# 2. Check for system context
+SYSTEM_CONTEXT="${SMM_DIR}/system_context.md"
+if [ ! -f "$SYSTEM_CONTEXT" ] || [ -L "$SYSTEM_CONTEXT" ]; then
+    echo "### NEEDS_SYSTEM_CONTEXT"
+    echo "No system_context.md found. Run /xp-system-context to create one."
+    echo ""
+fi
+
+# 3. Check for product spec (marker OR missing file)
 PRODUCT_SPEC="${SMM_DIR}/product_spec.md"
 if [ -f "${SMM_DIR}/.needs-product-spec" ] || [ ! -f "$PRODUCT_SPEC" ]; then
     echo "### NEEDS_PRODUCT_SPEC"
@@ -34,7 +42,7 @@ if [ -f "${SMM_DIR}/.needs-product-spec" ] || [ ! -f "$PRODUCT_SPEC" ]; then
     echo ""
 fi
 
-# 3. Check for sprint (marker OR no active stories)
+# 4. Check for sprint (marker OR no active stories)
 SPRINT_FILE="${SMM_DIR}/sprint.md"
 ready=0
 if [ -f "$SPRINT_FILE" ]; then
@@ -58,7 +66,7 @@ elif [ "$ready" -eq 0 ]; then
     fi
 fi
 
-# 4. Sprint status (for work selection context)
+# 5. Sprint status (for work selection context)
 if [ "$ready" -gt 0 ]; then
     echo "### SPRINT_ACTIVE"
     echo "Sprint has ${ready} ready stories:"
