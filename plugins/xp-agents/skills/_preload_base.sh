@@ -145,3 +145,12 @@ smm_section() {
     local name="$1"
     python3 "${PLUGIN_ROOT}/smm/smm_view.py" section "$name" --smm-dir "$SMM_DIR" 2>/dev/null
 }
+
+# Output SYSTEM_CONTEXT=<path> if system_context.md exists (not a symlink).
+check_system_context() {
+    local ctx="${SMM_DIR}/system_context.md"
+    if [ -f "$ctx" ] && [ ! -L "$ctx" ]; then
+        echo ""
+        echo "SYSTEM_CONTEXT=${ctx}"
+    fi
+}

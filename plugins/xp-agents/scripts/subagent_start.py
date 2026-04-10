@@ -41,6 +41,15 @@ def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     if agent_id and smm_dir:
         coordination.update_coordination(smm_dir, agent_id, [])
     parts: list[str] = []
+    # Read system context if available (broad context layer)
+    ctx_path = smm_dir / "system_context.md"
+    if ctx_path.exists() and not ctx_path.is_symlink():
+        try:
+            ctx_content = ctx_path.read_text(encoding="utf-8")
+            if ctx_content.strip():
+                parts.append(f"## System Context\n{ctx_content}")
+        except OSError:
+            pass  # Graceful degradation
     rendered = smm_view.render_markdown(smm)
     if rendered.strip():
         parts.append(_common.wrap_smm_context(rendered))

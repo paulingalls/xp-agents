@@ -21,7 +21,7 @@ else
     echo "Create mode: gather sources and decompose into milestones."
 fi
 
-# Check system context availability
+# Check system context availability — xp-plan needs the NEEDS flag
 CTX_FILE="${SMM_DIR}/system_context.md"
 if [ -f "$CTX_FILE" ] && [ ! -L "$CTX_FILE" ]; then
     echo ""

@@ -451,5 +451,82 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertNotIn("sprint-001", result)
 
 
+# ===========================================================================
+# System context injection tests
+# ===========================================================================
+
+
+class TestTeammateSystemContext(_HookTestCase):
+    """System context injection for teammates via _inject_teammate."""
+
+    def setUp(self):
+        super().setUp()
+        import subagent_start
+
+        self.subagent_start = subagent_start
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+        )
+
+    def _run_teammate(self) -> str | None:
+        return self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-1",
+                "agent_type": "backend-worker",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+    def test_system_context_included_when_exists(self):
+        """When system_context.md exists, its content is injected for teammates."""
+        ctx_path = self.smm_dir / "system_context.md"
+        ctx_path.write_text("Project uses microservices architecture.\n")
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("System Context", result)
+        self.assertIn("Project uses microservices architecture.", result)
+
+    def test_system_context_appears_before_smm(self):
+        """System context appears BEFORE SMM content in the output."""
+        ctx_path = self.smm_dir / "system_context.md"
+        ctx_path.write_text("CONTEXT_MARKER_FIRST\n")
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        ctx_pos = result.index("CONTEXT_MARKER_FIRST")
+        smm_pos = result.index("Ship v1")
+        self.assertLess(ctx_pos, smm_pos, "System context should appear before SMM")
+
+    def test_no_error_when_system_context_missing(self):
+        """When system_context.md does not exist, injection works normally."""
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertNotIn("System Context", result)
+
+    def test_symlink_system_context_skipped(self):
+        """When system_context.md is a symlink, it is skipped."""
+        real_file = self.smm_dir / "real_context.md"
+        real_file.write_text("Symlink content should be skipped.\n")
+        ctx_path = self.smm_dir / "system_context.md"
+        ctx_path.symlink_to(real_file)
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        self.assertNotIn("Symlink content should be skipped", result)
+        self.assertNotIn("System Context", result)
+        self.assertIn("Ship v1", result)
+
+    def test_empty_system_context_skipped(self):
+        """When system_context.md is empty/whitespace, it is not injected."""
+        ctx_path = self.smm_dir / "system_context.md"
+        ctx_path.write_text("   \n  \n")
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        self.assertNotIn("System Context", result)
+        self.assertIn("Ship v1", result)
+
+
 if __name__ == "__main__":
     unittest.main()

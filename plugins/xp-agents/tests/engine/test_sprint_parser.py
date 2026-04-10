@@ -69,6 +69,7 @@ _EMPTY_SPRINT = {
     "sprint_id": "",
     "goal": "",
     "started": "",
+    "milestone": "",
     "stories_by_status": {
         "ready": 0,
         "in_progress": 0,

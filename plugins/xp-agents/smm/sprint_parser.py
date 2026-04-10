@@ -12,11 +12,22 @@ from typing import Any
 _GOAL_RE = re.compile(r"^# Sprint:\s*(.+)$", re.MULTILINE)
 _SPRINT_ID_RE = re.compile(r"\*\*Sprint ID:\*\*\s*(\S+)")
 _STARTED_RE = re.compile(r"\*\*Started:\*\*\s*(\S+)")
+_MILESTONE_RE = re.compile(r"\*\*Milestone:\*\*\s*(.+)")
 _STORY_HEADER_RE = re.compile(r"^### (story-\d+):", re.MULTILINE)
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(ready|in-progress|done|deferred)")
 _DEPS_RE = re.compile(r"\*\*Dependencies:\*\*\s*(.+)")
 _SIZE_RE = re.compile(r"\*\*Size:\*\*\s*(S|M|L)")
 _TITLE_RE = re.compile(r"^### story-\d+:\s*(.+)$", re.MULTILINE)
+_DESIGN_SOURCES_RE = re.compile(r"\*\*Design Sources:\*\*\s*(.+)")
+_CONTEXT_BLOCK_RE = re.compile(
+    r"\*\*Context:\*\*\s*\n(.*?)(?=\n\*\*|\n###|\Z)", re.DOTALL
+)
+_FILE_DOMAIN_BLOCK_RE = re.compile(
+    r"\*\*File Domain:\*\*\s*\n(.*?)(?=\n\*\*|\n###|\Z)", re.DOTALL
+)
+_INTERFACE_CONTRACTS_BLOCK_RE = re.compile(
+    r"\*\*Interface Contracts:\*\*\s*\n(.*?)(?=\n\*\*|\n###|\Z)", re.DOTALL
+)
 
 _STATUS_KEY_MAP = {
     "ready": "ready",
@@ -26,12 +37,24 @@ _STATUS_KEY_MAP = {
 }
 
 
+def _parse_list_block(match: re.Match | None) -> list[str]:
+    """Extract list items from a regex match of a block field."""
+    if not match:
+        return []
+    return [
+        line.strip().lstrip("- ")
+        for line in match.group(1).split("\n")
+        if line.strip().startswith("- ")
+    ]
+
+
 def _empty_sprint() -> dict[str, Any]:
     """Return the empty sprint structure."""
     return {
         "sprint_id": "",
         "goal": "",
         "started": "",
+        "milestone": "",
         "stories_by_status": {
             "ready": 0,
             "in_progress": 0,
@@ -68,6 +91,16 @@ def parse_sprint_data(content: str | None) -> dict[str, Any]:
     if started_m:
         result["started"] = started_m.group(1)
 
+    # Parse sprint-level milestone from header (before stories section)
+    stories_section_start = content.find("## Stories")
+    if stories_section_start != -1:
+        header_content = content[:stories_section_start]
+    else:
+        header_content = content
+    milestone_m = _MILESTONE_RE.search(header_content)
+    if milestone_m:
+        result["milestone"] = milestone_m.group(1).strip()
+
     # Split into story sections
     story_starts = list(_STORY_HEADER_RE.finditer(content))
     if not story_starts:
@@ -102,12 +135,29 @@ def parse_sprint_data(content: str | None) -> dict[str, Any]:
         # Per-story data with size and title
         size_m = _SIZE_RE.search(section)
         title_m = _TITLE_RE.search(section)
+
+        # Enhanced fields
+        milestone_ref_m = _MILESTONE_RE.search(section)
+        design_src_m = _DESIGN_SOURCES_RE.search(section)
+        context_m = _CONTEXT_BLOCK_RE.search(section)
+        fd_m = _FILE_DOMAIN_BLOCK_RE.search(section)
+        ic_m = _INTERFACE_CONTRACTS_BLOCK_RE.search(section)
+
         result["stories"].append(
             {
                 "id": story_id,
                 "title": title_m.group(1).strip() if title_m else "",
                 "status": raw_status,
                 "size": size_m.group(1) if size_m else "",
+                "milestone_ref": (
+                    milestone_ref_m.group(1).strip() if milestone_ref_m else ""
+                ),
+                "design_sources": (
+                    design_src_m.group(1).strip() if design_src_m else ""
+                ),
+                "context": (context_m.group(1).strip() if context_m else ""),
+                "file_domain": _parse_list_block(fd_m),
+                "interface_contracts": _parse_list_block(ic_m),
             }
         )
 
