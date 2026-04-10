@@ -586,22 +586,23 @@ class TestHonestySignals(unittest.TestCase):
 class TestTriageCounting(unittest.TestCase):
     """Tests for commits_without_triage counting in _build_honesty_signals."""
 
-    def test_code_commit_without_triage_counted(self):
-        """Code commit without preceding triage is counted as untriaged."""
+    def test_commit_event_without_triage_counted(self):
+        """Commit event without preceding triage is counted as untriaged."""
         import retrospective
 
         events = [
             make_event(
-                "status",
-                content="Committed: Add feature",
-                metadata={"code_commit": True},
+                "commit",
+                content="Add feature",
+                metadata={"code_commit": True, "commit_hash": "abc123"},
             ),
         ]
         signals = retrospective._build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 1)
+        self.assertEqual(signals["total_commits"], 1)
 
-    def test_code_commit_with_triage_not_counted(self):
-        """Code commit preceded by triage is not counted as untriaged."""
+    def test_commit_event_with_triage_not_counted(self):
+        """Commit event preceded by triage is not counted as untriaged."""
         import retrospective
 
         events = [
@@ -610,30 +611,30 @@ class TestTriageCounting(unittest.TestCase):
                 content="Security triage started — reviewing staged changes",
             ),
             make_event(
-                "status",
-                content="Committed: Add feature",
-                metadata={"code_commit": True},
+                "commit",
+                content="Add feature",
+                metadata={"code_commit": True, "commit_hash": "abc123"},
             ),
         ]
         signals = retrospective._build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 0)
 
-    def test_non_code_commit_without_triage_not_counted(self):
+    def test_non_code_commit_event_not_counted(self):
         """Non-code commit (docs-only) without triage is NOT counted as untriaged."""
         import retrospective
 
         events = [
             make_event(
-                "status",
-                content="Committed: Update docs",
+                "commit",
+                content="Update docs",
                 metadata={"code_commit": False},
             ),
         ]
         signals = retrospective._build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 0)
 
-    def test_legacy_commit_without_metadata_counted(self):
-        """Legacy commit event without metadata is counted (backward compat)."""
+    def test_legacy_status_commit_backward_compat(self):
+        """Legacy status commit events still detected (backward compat)."""
         import retrospective
 
         events = [
@@ -641,6 +642,35 @@ class TestTriageCounting(unittest.TestCase):
         ]
         signals = retrospective._build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 1)
+        self.assertEqual(signals["total_commits"], 1)
+
+
+class TestCommitAsSignalEvent(_HookTestCase):
+    """Commit events should appear in the retro digest as signal events."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def test_commit_in_signal_events(self):
+        """Commit events flow through as signal events in the digest."""
+        import retrospective
+
+        commit = make_event(
+            "commit",
+            content="Fix auth bug\n\nDetailed explanation of the fix.",
+            metadata={"commit_hash": "abc123", "code_commit": True},
+            files=["src/auth.py"],
+        )
+        self._write_events([make_event()] * 5 + [commit])
+        context = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(context)
+        data = json.loads((self.smm_dir / ".retro-input.json").read_text())
+        signal_types = [e["type"] for e in data["digest"]["signal_events"]]
+        self.assertIn("commit", signal_types)
 
 
 class TestRetrospectiveResolvedConcerns(_HookTestCase):

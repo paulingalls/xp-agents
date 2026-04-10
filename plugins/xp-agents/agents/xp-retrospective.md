@@ -19,8 +19,8 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
 2. **Read the retrospective input.** The data is at `${SMM_DIR}/.retro-input.json`. Read this file — it contains everything you need:
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — structured summary for analysis:
-     - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions
-     - `status_summary` — `{total, file_writes, test_runs, security_triages, commits, quality_reviews, lint_events, other}` counts
+     - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions, and commits (commit events include full message body, hash in metadata, and file list)
+     - `status_summary` — `{total, file_writes, test_runs, security_triages, quality_reviews, lint_events, other}` counts (commits are now signal events, not status counts)
      - `concern_groups` — deduplicated concerns grouped by content
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
      - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, and decision resolved this session via `metadata.resolves`. Use this to detect whether previous Try items were honored — a Try mentioning a short ID present in this map was resolved.

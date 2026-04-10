@@ -36,6 +36,7 @@ MAX_EVENTS_IN_RETRO = 200
 # Signal event types — full event dicts preserved in digest
 _SIGNAL_TYPES = frozenset(
     {
+        _common.COMMIT,
         _common.CUSTOMER_INPUT,
         _common.DECISION,
         _common.CONCERN,
@@ -156,7 +157,17 @@ def _build_honesty_signals(events: list[dict]) -> dict:
         etype = e.get("type", "")
         content = e.get("content", "")
 
-        if etype == _common.STATUS:
+        # Detect commits: new commit type or legacy status with "Committed:"
+        is_commit = etype == _common.COMMIT or (
+            etype == _common.STATUS and _COMMIT_RE.search(content)
+        )
+        if is_commit:
+            total_commits += 1
+            is_code = e.get("metadata", {}).get("code_commit", True)
+            if not last_triage_seen and is_code:
+                commits_without_triage += 1
+            last_triage_seen = False
+        elif etype == _common.STATUS:
             if _FILE_WRITE_RE.search(content):
                 path = content.replace("Wrote to ", "").strip()
                 if security.is_code_file(path):
@@ -173,14 +184,6 @@ def _build_honesty_signals(events: list[dict]) -> dict:
                 unique_files_since_test = set()
             elif _SECURITY_TRIAGE_RE.search(content):
                 last_triage_seen = True
-            elif _COMMIT_RE.search(content):
-                total_commits += 1
-                # Only count untriaged if this was a code commit
-                # (non-code commits like docs/config are gate-exempt)
-                is_code = e.get("metadata", {}).get("code_commit", True)
-                if not last_triage_seen and is_code:
-                    commits_without_triage += 1
-                last_triage_seen = False  # consumed by this commit
         elif etype == _common.CONCERN:
             concern_count += 1
         elif etype == _common.ASSUMPTION:
@@ -345,8 +348,9 @@ def _build_retro_input(
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id
-    # Truncate customer_input (raw user prompts) to 100 chars
+    # Truncate customer_input (raw user prompts) and commit messages
     _MAX_CUSTOMER_INPUT = 100
+    _MAX_COMMIT_CONTENT = 200
     if "signal_events" in digest:
         slimmed_signals = []
         for e in digest["signal_events"]:
@@ -354,6 +358,8 @@ def _build_retro_input(
             content = e.get("content", "")
             if etype == _common.CUSTOMER_INPUT and len(content) > _MAX_CUSTOMER_INPUT:
                 content = content[:_MAX_CUSTOMER_INPUT]
+            elif etype == _common.COMMIT and len(content) > _MAX_COMMIT_CONTENT:
+                content = content[:_MAX_COMMIT_CONTENT]
             slimmed_signals.append(
                 {"type": etype, "content": content, "id": e.get("id", "")[:8]}
             )
