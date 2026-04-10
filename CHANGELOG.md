@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.3.0 — Context Gradient Planning System
+
+### Architecture
+- **Four-file architecture replaces three-file.** `product_spec.md` replaced by `system_context.md` (stable product/system description) + `execution_plan.md` (ordered milestones with change/impact zones). Decision reversal: product_spec was too monolithic for change-request workflows.
+- **Context gradient model.** Sprint stories now carry layered context: broad (system context), medium (milestone design details), deep (per-story file domains + interface contracts). Subagents receive self-contained execution context for parallel work.
+
+### Added
+- **`/xp-system-context` forked skill + `xp-system-context` subagent.** Autonomous codebase analysis that produces `system_context.md` — thorough product description complementary to CLAUDE.md. Reads project structure, CLAUDE.md, and key source files.
+- **`/xp-plan` inline skill.** Replaces `/xp-product-spec`. Collaborative planning that transforms external design sources into ordered milestones with change zones, impact zones, and design details.
+- **`save_planning_doc.py` parameterized atomic writer.** Single script handles both `system_context.md` and `execution_plan.md` via `--type` parameter.
+- **Enhanced sprint format.** Stories include Milestone reference, Design Sources, Context (inlined design rationale), File Domain (exclusive file ownership), and Interface Contracts (shared boundaries). Enables parallel subagent execution.
+- **`sprint_parser.py` extended** for new fields: `milestone` (sprint-level), per-story `milestone_ref`, `design_sources`, `context`, `file_domain`, `interface_contracts`. Backward-compatible with old format.
+- **System context injection for teammates.** `subagent_start.py` reads `system_context.md` and injects it before SMM content for teammates.
+- **`check_system_context()` helper** in `_preload_base.sh` for shared preload use.
+- **Spawn-team pre-computed file domains.** Agent uses File Domain from enriched stories when available, falls back to plan-based analysis.
+
+### Removed
+- **`/xp-product-spec` skill deleted.** Replaced by `/xp-plan`.
+- **`save_product_spec.py` deleted.**
+- **`NEEDS_PRODUCT_SPEC` marker removed** from `marker_names.py` and `markers.py`.
+- **All `product_spec.md` references** removed from scripts, skills, tests, and docs.
+
+### Changed
+- **Kickoff flow** references `/xp-plan` and `/xp-system-context` instead of `/xp-product-spec`.
+- **Sprint review** marks `execution_plan.md` milestones as `[delivered: sprint-NNN]` instead of product_spec features.
+- **Sprint-start preload** checks for `execution_plan.md` (no legacy fallback).
+- **CLAUDE.md, ARCHITECTURE.md, AGENT_TEAMS_DESIGN.md** updated for four-file architecture.
+- **Spawn-team design doc** updated with Agent Teams session learnings: two-mode model (Solo + Worktree Subagents), subagent autonomy, updated mode selection heuristic.
+
+### Stats
+- 1663 tests (all passing)
+- 66 new tests added
+- Net -236 lines in cleanup commit (more deleted than added)
+
 ## v2.2.1 — Skill Invocation Guidance
 
 ### Added
