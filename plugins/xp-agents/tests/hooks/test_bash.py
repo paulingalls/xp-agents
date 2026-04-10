@@ -44,6 +44,28 @@ class TestBashPostTool(_HookTestCase):
         self.assertEqual(commits_ev[0]["files"], ["a", "b", "c"])
         self.assertEqual(commits_ev[0]["metadata"]["commit_hash"], "abc123")
 
+    def test_git_commit_strips_co_author_trailer(self):
+        body = (
+            "Fix the bug\n\nDetailed explanation.\n\nCo-Authored-By: Someone <x@y.com>"
+        )
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix the bug'",
+                    stdout="[main abc123] Fix the bug\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        commits_ev = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(commits_ev), 1)
+        self.assertNotIn("Co-Authored-By", commits_ev[0]["content"])
+        self.assertIn("Detailed explanation", commits_ev[0]["content"])
+
     def test_git_commit_small_no_concern(self):
         with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
             bash_post_tool.run(

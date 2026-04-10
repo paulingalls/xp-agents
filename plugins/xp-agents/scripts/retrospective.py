@@ -350,7 +350,7 @@ def _build_retro_input(
     # Signal events: keep only type, content, short id
     # Truncate customer_input (raw user prompts) and commit messages
     _MAX_CUSTOMER_INPUT = 100
-    _MAX_COMMIT_CONTENT = 200
+    _MAX_COMMIT_CONTENT = 400
     if "signal_events" in digest:
         slimmed_signals = []
         for e in digest["signal_events"]:

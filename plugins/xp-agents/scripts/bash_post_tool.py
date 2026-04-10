@@ -124,7 +124,9 @@ def _handle_commit(
         has_code = any(security.is_code_file(f) for f in committed_files)
 
         # Full message body for richer retrospective context
+        # Strip Co-Authored-By trailers — metadata, not content
         body = commits.get_commit_message_body(cwd) or msg
+        body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
         metadata: dict = {"code_commit": has_code}
         if commit_hash:
