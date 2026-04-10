@@ -4,9 +4,19 @@
 
 Agent Teams platform tells teammates "Do NOT commit." The lead ends up with one massive commit containing all stories' work. This conflicts with XP small-commit practice and means the review cycle only runs once on the combined work.
 
+## Session Learnings (2026-04-10)
+
+We tested Agent Teams during M3 of the context gradient work. Two teammates worked in parallel on independent stories (parser extensions + subagent injection) while the lead handled a SKILL.md rewrite. Key findings:
+
+- **Agent Teams commit bottleneck is the main limitation.** Teammates produced clean code but the lead became a serial bottleneck for staging, formatting, reviewing, and committing all work. The review cycle (simplify/quality/security) ran once on the combined diff.
+- **Small stories don't parallelize well.** For S-sized stories, coordination overhead (spawning, briefing, waiting, reviewing, committing) exceeds the time saved by parallelism. M/L stories are where parallelism pays off.
+- **Spawn-team analysis is valuable even for solo work.** The structured decomposition (file domains, interface contracts, prompt templates) is useful regardless of execution mode.
+- **Teammates respect domain boundaries when briefed well.** Explicit file domain lists + "message the lead if you need changes outside your domain" worked perfectly.
+- **Review cycle is serial with Agent Teams but parallel with worktree subagents.** This is the key insight driving the two-mode simplification.
+
 ## Solution
 
-Convert `/xp-spawn-team` from a forked analysis agent to an inline skill that directly spawns worktree-isolated subagents. Each teammate works in its own worktree, commits independently within TDD cycles, and the lead merges branches after.
+Convert `/xp-spawn-team` from a forked analysis agent to an inline skill that directly spawns worktree-isolated subagents. Each subagent works in its own worktree, runs the full development lifecycle (TDD + review cycle + commits) independently, and the lead merges branches after.
 
 ## Architecture
 
@@ -24,6 +34,29 @@ Convert `/xp-spawn-team` from a forked analysis agent to an inline skill that di
 4. Each teammate auto-gets its own worktree (via `isolation: worktree` frontmatter)
 5. Teammates commit independently within their TDD cycles
 6. Lead gets notified as each finishes, merges branches, runs final review cycle
+
+## Subagent Autonomy
+
+Worktree subagents run the full development lifecycle independently. The lead does NOT review, format, or commit their work — each subagent is a self-sufficient developer:
+
+1. **Own TDD cycle** — write tests first, implement, refactor
+2. **Own review cycle** — run /simplify, /xp-quality-review, /xp-security-triage
+3. **Own commits** — small, frequent, within TDD cycles (XP small-commit practice)
+4. **Own event recording** — log status, concerns, decisions to shared SMM via flock-protected append
+
+### Lead Role with Worktree Subagents
+
+The lead's job is coordination, not execution:
+1. Run `/xp-spawn-team` to analyze plan and spawn subagents with story-specific prompts
+2. Wait for completion notifications (subagents run in background)
+3. Merge branches — resolve conflicts if any (rare with good file domains; lead has full context from the plan)
+4. Run integration tests on the merged result (full test suite)
+5. Check acceptance criteria for each story
+6. Final commit on main branch if integration passes
+
+### Lead Role Solo
+
+When working solo (sequential mode), the lead executes stories directly — same as current workflow with full TDD + review cycle per story.
 
 ## Changes Required
 
@@ -94,33 +127,36 @@ Body contains generic teammate instructions. Story-specific context (file domain
 - Review cycle runs on the merge commit
 - Conflicts resolved by lead (rare if file domains are respected)
 
-## Three Spawn Modes
+## Two Spawn Modes
 
-The spawn skill should support three modes, chosen based on plan analysis:
+The spawn skill supports two modes, chosen based on plan analysis:
 
-### Sequential
-- Stories with dependencies or heavy file overlap
-- Run one at a time, each commits independently
-- Simplest, safest — no merge conflicts possible
+### Solo (Sequential)
+- Stories with dependencies, overlapping file domains, or all S-sized
+- Run one at a time, lead executes each story directly
+- Simplest, safest — no merge conflicts, no coordination overhead
+- Best for: dependent work, small stories, overlapping domains
 
-### Agent Teams
-- Tightly coupled work requiring shared repo state
-- Teammates see each other's writes in real time
-- Platform restriction: teammates cannot commit
-- Best for: coordinated changes, shared infrastructure files
-- TeammateIdle / TaskCompleted hooks available
-
-### Worktree Subagents
-- Independent stories with clear file domain boundaries
-- Each teammate gets isolated worktree, commits independently within TDD cycles
-- Lead merges branches after completion
+### Worktree Subagents (Parallel)
+- Independent M/L stories with clear file domain boundaries
+- Each subagent gets isolated worktree, runs full lifecycle independently
+- Subagents own: TDD cycle, review cycle (simplify/quality/security), commits
+- Lead merges branches after completion, runs integration tests
 - Best for: parallel story implementation with separate file domains
 
+### Why not Agent Teams?
+Agent Teams exist as a platform feature but are not recommended by spawn-team:
+- **Commit restriction** — teammates cannot commit, making the lead a serial bottleneck
+- **Review cycle runs once** on the combined diff, not per-story
+- **Worktree subagents are strictly better** when file domains are independent — they get full autonomy (TDD + review + commits) with the same parallelism benefit
+- Agent Teams remain useful for ad-hoc collaborative work outside the sprint flow
+
 ### Mode Selection Heuristic
-The spawn skill's analysis phase determines file domains and dependencies:
-- **Dependency chain** between stories → Sequential
-- **Overlapping file domains** (shared infrastructure, index files) → Agent Teams or Sequential
-- **Independent file domains** (auth vs payments, separate modules) → Worktree Subagents
+The spawn skill's analysis phase determines file domains, dependencies, and story size:
+- **Dependency chain** between stories → Solo
+- **All S-sized stories** → Solo (coordination overhead exceeds parallelism benefit)
+- **Overlapping file domains** (shared infrastructure, index files) → Solo
+- **Independent M/L stories with clear file domains** → Worktree Subagents
 
 ## Platform Constraints (from official docs)
 
@@ -148,17 +184,18 @@ The spawn skill's analysis phase determines file domains and dependencies:
 - Use `.worktreeinclude` file (`.gitignore` syntax) to auto-copy needed files
 - Subagents can define their own hooks in frontmatter (only fire during that agent's execution)
 
-### Agent Teams (existing)
+### Agent Teams (existing — not recommended for spawn-team)
 - Platform-managed lifecycle
-- "Do NOT commit" restriction on teammates
+- "Do NOT commit" restriction on teammates — lead becomes serial bottleneck
 - Teammates share repo — real-time visibility of each other's writes
 - TeammateIdle / TaskCompleted hooks for coordination
 - File conflicts possible if domains overlap
+- **Tested 2026-04-10**: works for parallel code generation but review cycle + commit overhead negates parallelism benefit for most use cases
 
 ## Risks & Concerns
 
 ### Merge Conflicts
-Stories often share infrastructure files (imports, registrations, test fixtures, conftest.py). If file domains aren't truly independent, worktree merges will conflict. The spawn skill MUST analyze file domains rigorously and fall back to Sequential or Agent Teams when overlap is detected.
+Stories often share infrastructure files (imports, registrations, test fixtures, conftest.py). If file domains aren't truly independent, worktree merges will conflict. The spawn skill MUST analyze file domains rigorously and fall back to Solo when overlap is detected. When conflicts do occur (expected to be rare with good file domain analysis), the lead resolves them during the merge step — the lead has full context from the plan and both stories' work.
 
 ### Post-Merge Test Failures
 Tests passing in isolation but failing after merge is the biggest operational risk. Each worktree has a consistent snapshot — interactions between stories only surface after merge. The lead must understand ALL the work to fix these. Mitigation: keep file domains truly independent; run full test suite after each merge.
