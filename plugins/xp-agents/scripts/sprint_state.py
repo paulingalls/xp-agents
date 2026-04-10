@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Sprint and product spec state detection helpers.
+"""Sprint and planning document state detection helpers.
 
-Pure functions for checking sprint.md and product_spec.md state.
-Used by session_start.py and kickoff_done.py for deterministic
-sprint state detection (M8a).
+Pure functions for checking sprint.md, product_spec.md, and planning
+document state. Used by session_start.py and kickoff_done.py for
+deterministic state detection.
 """
 
 import re
@@ -45,7 +45,22 @@ def is_sprint_complete(sprint_content: str) -> bool:
     return not _ACTIVE_RE.search(sprint_content)
 
 
+def _safe_file_exists(smm_dir: Path, filename: str) -> bool:
+    """Check if a file exists in SMM dir and is not a symlink."""
+    path = smm_dir / filename
+    return path.exists() and not path.is_symlink()
+
+
 def product_spec_exists(smm_dir: Path) -> bool:
     """Check if product_spec.md exists in SMM dir (not a symlink)."""
-    path = smm_dir / "product_spec.md"
-    return path.exists() and not path.is_symlink()
+    return _safe_file_exists(smm_dir, "product_spec.md")
+
+
+def execution_plan_exists(smm_dir: Path) -> bool:
+    """Check if execution_plan.md exists in SMM dir (not a symlink)."""
+    return _safe_file_exists(smm_dir, "execution_plan.md")
+
+
+def system_context_exists(smm_dir: Path) -> bool:
+    """Check if system_context.md exists in SMM dir (not a symlink)."""
+    return _safe_file_exists(smm_dir, "system_context.md")
