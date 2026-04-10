@@ -29,6 +29,7 @@ _ALL_SKILL_NAMES = (
     "xp-accept",
     "xp-housekeeping",
     "xp-kickoff",
+    "xp-plan",
     "xp-product-spec",
     "xp-quality-review",
     "xp-review-plan",
