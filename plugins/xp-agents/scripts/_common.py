@@ -65,6 +65,7 @@ QUESTION = "question"
 ANSWER = "answer"
 ASSUMPTION = "assumption"
 SESSION_END = "session_end"
+SPRINT = "sprint"
 RETROSPECTIVE = "retrospective"
 
 
