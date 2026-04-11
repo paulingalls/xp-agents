@@ -32,16 +32,19 @@ Read the sprint file using the `SPRINT_FILE` path from the preload output. For e
 
 ## Step 2: Update sprint.json
 
-After all in-progress stories have been marked:
+After all in-progress stories have been marked, update each story's status via CLI:
 
-1. The full sprint.json is already in context from Step 1's `Read`.
-2. For each story the user marked, change `**Status:** in-progress` to `**Status:** done` or `**Status:** deferred`.
-3. Write the updated content:
-   ```bash
-   cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-sprint-start/scripts/save_sprint.py --smm-dir <SMM_DIR>
-   <full updated sprint.json content>
-   SPRINTEOF
-   ```
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  update-story story-NNN done
+```
+
+Or for deferred stories:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  update-story story-NNN deferred
+```
 
 ## Step 3: Record Events
 
