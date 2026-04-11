@@ -69,7 +69,7 @@ Wait for it to complete before proceeding.
 
 ## Step 6: Housekeeping (ALWAYS RUNS)
 
-Run `/xp-housekeeping`. This is mandatory — it curates the five-pillar SMM (Intent, Constraints, Risks, Wisdom, Sprint) via a forked subagent. The curated SMM, XP values, and process guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
+Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) via a forked subagent. The curated SMM, XP values, and process guide are injected automatically when housekeeping completes. **Kickoff is not complete until housekeeping finishes.**
 
 **Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 7. The subagent returns a summary of what it changed — the subagent result is NOT visible to the user — you must output this summary as text in your response so they know what was added, removed, or resolved in the SMM.
 

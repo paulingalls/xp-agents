@@ -1,8 +1,8 @@
 ---
 name: xp-housekeeping
 description: >-
-  Five-pillar SMM curation. Reads structured curation data and existing SMM,
-  applies LLM judgment to curate Intent, Constraints, Risks, Wisdom, and Sprint.
+  Four-pillar SMM curation. Reads structured curation data and existing SMM,
+  applies LLM judgment to curate Intent, Constraints, Risks, and Wisdom.
   Writes curated SMM and updates curation watermark.
 effort: high
 context: fork
