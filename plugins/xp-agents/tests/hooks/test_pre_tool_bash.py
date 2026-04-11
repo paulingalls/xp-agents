@@ -95,13 +95,13 @@ class TestPreToolBashCommitGate(_HookTestCase):
     def test_is_git_commit_ignores_heredocs(self):
         """is_git_commit must not match 'git commit' inside heredoc content."""
         heredoc_cmd = (
-            "cat <<'SMMEOF' | python3 save_smm.py\n"
+            "cat <<'SMMEOF' | python3 smm_cli.py\n"
             "- Run swiftlint before git commit\n"
             "SMMEOF"
         )
         self.assertFalse(security.is_git_commit(heredoc_cmd))
         # Unquoted delimiter too
-        heredoc_unquoted = "cat <<EOF | python3 save_smm.py\nbefore git commit\nEOF"
+        heredoc_unquoted = "cat <<EOF | python3 smm_cli.py\nbefore git commit\nEOF"
         self.assertFalse(security.is_git_commit(heredoc_unquoted))
 
     def test_commit_blocked_without_marker(self):

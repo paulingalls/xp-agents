@@ -5,8 +5,8 @@ The curated SMM is the persistent store for pillar content. This module
 owns all I/O for that file: atomic writes, schema validation on save,
 fail-loud on corrupt reads, symlink rejection.
 
-Counterpart to smm_schema.py (pure validation) and smm_view.py (pure
-rendering). This module is stateful — it touches the filesystem.
+Counterpart to smm_schema.py (pure validation) and smm_cli.py (rendering
+and CLI). This module is stateful — it touches the filesystem.
 """
 
 import json

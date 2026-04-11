@@ -135,10 +135,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ### 2. Write the curated SMM (MANDATORY)
 
-Substitute `<SMM_DIR>` below with the actual `SMM_DIR=<path>` value from the preloaded data above. Then assemble a JSON document with exactly four pillars and pipe it to save_smm.py:
+Substitute `<SMM_DIR>` below with the actual `SMM_DIR=<path>` value from the preloaded data above. Then assemble a JSON document with exactly four pillars and pipe it to the SMM CLI:
 
 ```bash
-cat <<'JSONEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-housekeeping/scripts/save_smm.py --smm-dir <SMM_DIR>
+cat <<'JSONEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> save
 {
   "intent": [
     {"id": "<preserve-existing-or-new-uuid4>", "content": "...", "source": "seed|event|curated", "ts": "...", "type": "goal|customer_intent"}

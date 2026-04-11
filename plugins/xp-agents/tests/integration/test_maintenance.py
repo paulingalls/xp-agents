@@ -312,13 +312,13 @@ class TestPrepareCurationIntegration(_IntegrationTestCase):
 
 
 class TestSaveSMMIntegration(_IntegrationTestCase):
-    """Integration test for save_smm.py helper script."""
+    """Integration test for smm_cli.py save command."""
 
     def _run_save_smm(self, content: str) -> subprocess.CompletedProcess:
         return _run_save_smm(self.smm_dir, self.tmpdir, content)
 
     def test_pipe_json_writes_file(self):
-        """Pipe JSON into save_smm.py, verify file written."""
+        """Pipe JSON into smm_cli.py save, verify file written."""
         import smm_schema
 
         data = smm_schema.empty_smm()
@@ -350,7 +350,7 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
 
 
 class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
-    """prepare_curation → hand-crafted merge → save_smm → re-prepare flow.
+    """prepare_curation → hand-crafted merge → smm_cli save → re-prepare flow.
 
     Exercises the full housekeeping data path that `TestPrepareCurationIntegration`
     (static prepare) and `TestSaveSMMIntegration` (static save) don't chain

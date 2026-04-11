@@ -18,8 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import markers
+import smm_cli
 import smm_store
-import smm_view
 import sprint_state
 
 # ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # so the lead's context retains project state and workflow rules.
     if source == "compact":
         smm_data = smm_store.load_smm(smm_dir)
-        rendered = smm_view.render_markdown(smm_data)
+        rendered = smm_cli.render_markdown(smm_data)
         if rendered.strip():
             parts.append("\n\n" + rendered)
         process = _common.load_process_guide()

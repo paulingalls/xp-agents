@@ -20,7 +20,7 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
 dump_smm() {
     if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
         echo "## Current SMM State"
-        python3 "${PLUGIN_ROOT}/smm/smm_view.py" dump --smm-dir "$SMM_DIR" 2>/dev/null
+        python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" dump 2>/dev/null
     else
         echo "## SMM State: no materialized view"
     fi
@@ -32,7 +32,7 @@ smm_render_to_tempfile() {
     # Agents Read the file via the Read tool, which is extension-agnostic.
     local out
     out=$(mktemp "${SMM_DIR}/.smm-rendered.XXXXXX")
-    python3 "${PLUGIN_ROOT}/smm/smm_view.py" dump --smm-dir "$SMM_DIR" > "$out" 2>/dev/null
+    python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" dump > "$out" 2>/dev/null
     echo "$out"
 }
 
@@ -109,7 +109,7 @@ dump_diff() {
 }
 
 smm_has_section() {
-    python3 "${PLUGIN_ROOT}/smm/smm_view.py" has-section "$1" --smm-dir "$SMM_DIR" 2>/dev/null
+    python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" has-section "$1" 2>/dev/null
 }
 
 # Find the latest retrospective JSON file.
@@ -165,7 +165,7 @@ sprint_count() {
 
 smm_section() {
     local name="$1"
-    python3 "${PLUGIN_ROOT}/smm/smm_view.py" section "$name" --smm-dir "$SMM_DIR" 2>/dev/null
+    python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" section "$name" 2>/dev/null
 }
 
 # Output SYSTEM_CONTEXT=<path> if system_context.md exists (not a symlink).

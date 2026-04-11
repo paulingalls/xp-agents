@@ -20,18 +20,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
-import smm_view
+import smm_cli
 
 
 def _inject_explore(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """Explore: Intent + Constraints only."""
-    extracted = smm_view.extract_pillars(smm, {"intent", "constraints"})
+    extracted = smm_cli.extract_pillars(smm, {"intent", "constraints"})
     return [_common.wrap_smm_context(extracted)] if extracted else []
 
 
 def _inject_full(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """Default: full SMM (no process guide)."""
-    rendered = smm_view.render_markdown(smm)
+    rendered = smm_cli.render_markdown(smm)
     return [_common.wrap_smm_context(rendered)] if rendered.strip() else []
 
 
@@ -50,7 +50,7 @@ def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
                 parts.append(f"## System Context\n{ctx_content}")
         except OSError:
             pass  # Graceful degradation
-    rendered = smm_view.render_markdown(smm)
+    rendered = smm_cli.render_markdown(smm)
     if rendered.strip():
         parts.append(_common.wrap_smm_context(rendered))
     guide = _common.load_teammate_guide()

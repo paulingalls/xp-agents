@@ -15,8 +15,8 @@ import _common
 import concerns
 import coordination
 import markers
+import smm_cli
 import smm_store
-import smm_view
 import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -73,7 +73,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
 
     markers.marker_consume(smm_dir, markers.KICKOFF)
 
-    # Compaction now runs inside save_smm.py so it covers both forked and
+    # Compaction now runs inside smm_cli.save() so it covers both forked and
     # inline housekeeping paths — no need to do it here.
     status = _common.make_event(
         _common.STATUS,
@@ -86,7 +86,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
     smm_data = smm_store.load_smm(smm_dir)
-    smm_content = smm_view.render_markdown(smm_data).strip()
+    smm_content = smm_cli.render_markdown(smm_data).strip()
 
     process = _common.load_process_guide()
 

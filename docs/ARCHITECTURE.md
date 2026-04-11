@@ -56,7 +56,7 @@ Execution plan and sprint are JSON with schema validation and CLI tools (`plan_c
 
 ## Curated SMM (SHARED_MENTAL_MODEL.md)
 
-Four-pillar model, curated by housekeeping (LLM judgment via `save_smm.py`). Not auto-generated — housekeeping reads curation data, merges with existing SMM, and writes a concise (~300-700 token) document.
+Four-pillar model, curated by housekeeping (LLM judgment via `smm_cli.py save`). Not auto-generated — housekeeping reads curation data, merges with existing SMM, and writes a concise (~300-700 token) document.
 
 ```markdown
 # Shared Mental Model
@@ -364,7 +364,7 @@ Age computed at materialize time by counting `session_end` events after debt tim
 
 ## Event Log Compaction
 
-Compaction runs at three points: after the curated SMM is written (`save_smm.py`, covering both forked and inline housekeeping), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
+Compaction runs at three points: after the curated SMM is written (`smm_cli.py save`, covering both forked and inline housekeeping), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
 
 | Event Type | Retention Rule |
 |---|---|
