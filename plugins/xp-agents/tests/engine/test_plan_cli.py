@@ -248,5 +248,53 @@ class TestArchiveCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestEditMilestoneCommand(_SMMTestCase):
+    def test_edit_milestone_name(self):
+        """Edit a simple string field on a milestone."""
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        patch = json.dumps({"name": "Updated Name"})
+        result = _run_cli(["edit-milestone", "1"], self.smm_dir, stdin_data=patch)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["name"], "Updated Name")
+
+    def test_edit_milestone_change_zones(self):
+        """Edit a complex field (list of objects)."""
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        new_zones = [{"path": "new.py", "note": "added"}]
+        patch = json.dumps({"change_zones": new_zones})
+        result = _run_cli(["edit-milestone", "1"], self.smm_dir, stdin_data=patch)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["change_zones"], new_zones)
+
+    def test_edit_milestone_multiple_fields(self):
+        """Patch multiple fields at once."""
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        patch = json.dumps({"goal": "New goal", "done": "New done"})
+        result = _run_cli(["edit-milestone", "1"], self.smm_dir, stdin_data=patch)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["goal"], "New goal")
+        self.assertEqual(loaded["milestones"][0]["done"], "New done")
+
+    def test_edit_milestone_invalid_number(self):
+        """Non-existent milestone number fails."""
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        patch = json.dumps({"name": "X"})
+        result = _run_cli(["edit-milestone", "99"], self.smm_dir, stdin_data=patch)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_edit_milestone_preserves_other_fields(self):
+        """Fields not in the patch are preserved."""
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        patch = json.dumps({"name": "New Name"})
+        result = _run_cli(["edit-milestone", "1"], self.smm_dir, stdin_data=patch)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        # Original goal preserved
+        self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
+
+
 if __name__ == "__main__":
     unittest.main()

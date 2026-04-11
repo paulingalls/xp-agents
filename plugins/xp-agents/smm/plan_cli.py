@@ -14,6 +14,7 @@ Usage:
     plan_cli.py add-milestone --smm-dir DIR   < milestone.json
     plan_cli.py set-overview --smm-dir DIR     < overview.txt
     plan_cli.py update-status N STATUS --smm-dir DIR
+    plan_cli.py edit-milestone N --smm-dir DIR   < patch.json
     plan_cli.py archive --smm-dir DIR
 """
 
@@ -161,6 +162,34 @@ def _cmd_update_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_edit_milestone(args: argparse.Namespace) -> int:
+    plan = store.load_plan(args.smm_dir)
+    if plan is None:
+        print("No execution plan found.", file=sys.stderr)
+        return 1
+
+    milestone_num = args.milestone_number
+    matches = [m for m in plan["milestones"] if m["number"] == milestone_num]
+    if not matches:
+        print(f"No milestone with number {milestone_num}", file=sys.stderr)
+        return 1
+
+    raw = sys.stdin.read()
+    try:
+        patch = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON: {exc}", file=sys.stderr)
+        return 1
+
+    matches[0].update(patch)
+    try:
+        store.save_plan(args.smm_dir, plan)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_archive(args: argparse.Namespace) -> int:
     result = store.archive(args.smm_dir)
     if result is None:
@@ -203,6 +232,11 @@ def main() -> None:
         help="Sprint ID (required for delivered status)",
     )
 
+    edit_p = sub.add_parser(
+        "edit-milestone", help="Edit milestone fields from stdin JSON"
+    )
+    edit_p.add_argument("milestone_number", type=int, help="Milestone number")
+
     sub.add_parser("archive", help="Archive plan to plans/ folder")
 
     args = parser.parse_args()
@@ -217,6 +251,7 @@ def main() -> None:
         "add-milestone": _cmd_add_milestone,
         "set-overview": _cmd_set_overview,
         "update-status": _cmd_update_status,
+        "edit-milestone": _cmd_edit_milestone,
         "archive": _cmd_archive,
     }
 
