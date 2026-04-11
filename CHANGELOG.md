@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.3.1 — Bug Fixes, SMM CLI Consolidation, Four-Pillar Cleanup
+
+### Fixed
+- **TDD stop gate teammate bug** (debt f38222aa). Gate now defers when `coordination.has_active_teammates()` finds other agents, preventing the lead from being blocked when teammates are in TDD red phase. Extracted shared `has_active_teammates()` into `coordination.py`.
+- **Sprint stop gate false deferral.** Completed review cycles (all 3 flags True) were incorrectly suppressing sprint-complete blocks. Now only defers when mid-cycle (some flags True, not all).
+- **Auto-archive completed execution plans** (debt e304b0d2). `session_start.py` now calls `execution_plan_store.archive()` when all milestones are delivered, preventing stale file-existence checks.
+- **Plan reviewer blocking free sessions** (debt ce871882). Agent now checks Intent pillar for "Free session" goal before raising sprint-scope blocking questions.
+- **Forked skill visibility.** All 9 forked skills clarified that subagent results are NOT visible to the user — agent must output text explicitly.
+- **Test noise.** Suppressed stderr from oversized JSON rejection test that was confusing grep-based result scanning.
+
+### Added
+- **`smm_cli.py` — unified SMM CLI.** Consolidates `smm_view.py` (read-only rendering) and `save_smm.py` (housekeeping writes) into one CLI following the `sprint_cli.py`/`plan_cli.py` pattern. Dispatch table, `--smm-dir` as top-level arg, `save` command with watermark update and compaction.
+- **Session mode as Intent goal.** Kickoff Step 2 now emits a `goal` event ("Free session" or "Sprint session: <id>") after user chooses. Flows into Intent pillar via housekeeping curation.
+- **`pre-commit-autofix` decision.** Run `ruff check --fix` and `ruff format` before committing to catch errors before the pre-commit hook rejects them.
+
+### Removed
+- **Sprint pillar concept.** The "five-pillar" SMM is now consistently four pillars (Intent, Constraints, Risks, Wisdom). Sprint data lives in `sprint.json` — it was never persisted in the curated SMM. Removed `_render_sprint_section()`, sprint param from `render_markdown()`, `_read_sprint_data()` from `materialize.py`.
+- **`smm_view.py` deleted.** Replaced by `smm_cli.py`.
+- **`save_smm.py` deleted.** Absorbed into `smm_cli.py save` command.
+
+### Changed
+- **Integration tests 45% faster.** Moved git repo creation to `setUpClass` in `_IntegrationTestCase` (32.6s → 17.8s for 129 tests).
+- **PROCESS_GUIDE.md** — added test output guidance, fixed `/xp-product-spec` → `/xp-plan` reference.
+- **SMM_DESIGN.md** — updated for four-file architecture (.json extensions), renamed Sprint section to "Project Files", updated materializer role.
+- **ARCHITECTURE.md** — updated `save_smm.py` references to `smm_cli.py save`.
+
+### Stats
+- 1747 tests (all passing, down from 1754 — removed redundant Sprint/session_mode tests)
+- Pre-commit wall time: ~25s (down from ~35s)
+- 27 commits in this release
+
 ## v2.3.0 — Context Gradient Planning System
 
 ### Architecture
