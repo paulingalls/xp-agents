@@ -355,6 +355,17 @@ class TestHooksJsonM65(_HooksJsonTestCase):
                         f"Found agent hook in {event_name}: {hook}",
                     )
 
+    def test_hooks_json_has_worktree_create(self):
+        """WorktreeCreate hook must be registered."""
+        self.assertIn("WorktreeCreate", self.data["hooks"])
+
+    def test_worktree_create_command(self):
+        """WorktreeCreate must reference worktree_create.py."""
+        entry = self._find_default_entry("WorktreeCreate")
+        self.assertIsNotNone(entry, "No default WorktreeCreate entry")
+        cmds = [h["command"] for h in entry["hooks"]]
+        self.assertTrue(any("worktree_create.py" in c for c in cmds))
+
     def test_only_command_and_prompt_types(self):
         """All hooks should be type: command or type: prompt."""
         valid_types = {"command", "prompt"}

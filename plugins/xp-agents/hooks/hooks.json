@@ -257,6 +257,17 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/worktree_create.py",
+            "statusMessage": "Setting up worktree branch base..."
+          }
+        ]
+      }
     ]
   }
 }
