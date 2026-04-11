@@ -105,9 +105,9 @@ Coordination is **not a pillar of the curated SMM**. It operates at a fundamenta
 
 ---
 
-### Sprint (separate from curated SMM)
+### Project Files (separate from curated SMM)
 
-Sprint state is **not a pillar of the curated SMM**. Like Coordination, it operates at a different cadence — sprint lifecycle (days/weeks) vs session curation. It lives in `sprint.json` and `execution_plan.json` in the SMM directory.
+Sprint and planning state live in separate files, not in the curated SMM pillars. They operate at a different cadence — sprint lifecycle (days/weeks) vs session curation.
 
 | File | Created By | Lifecycle | Purpose |
 |---|---|---|---|
