@@ -51,7 +51,7 @@ Do NOT read `events.jsonl` — the SMM is the curated view, you don't need raw e
 ### 3. Milestone Boundaries
 - Check if the plan pulls work from future milestones. Each milestone should be completed before moving to the next.
 - Flag any scope creep beyond the current milestone's acceptance criteria.
-- **If the plan is standalone work outside the sprint** (bug fixes, debt, infrastructure, free-session goals), that is acceptable — do NOT raise a blocking question about sprint scope. Record an assumption noting it's standalone work and move on.
+- **Check the Intent pillar for session mode.** If Intent contains a "Free session" goal, all work is standalone — do NOT raise blocking questions about sprint scope. If Intent shows "Sprint session", check milestone alignment normally.
 
 ### 4. Decision Conflicts
 - Check if the plan contradicts any decisions or conventions in the SMM's **Constraints** pillar.
@@ -92,7 +92,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 Use blocking questions whenever you're uncertain about customer intent — don't reserve them only for catastrophic scenarios. A quick question now prevents hours of wrong-direction work.
 
-**Do NOT raise blocking questions about sprint scope.** Work outside the active sprint (bug fixes, debt, infrastructure) is a normal part of free sessions. If work doesn't align with the sprint, record it as an assumption and move on — don't block the session.
+**Do NOT raise blocking questions about sprint scope during free sessions.** Check the Intent pillar — if it contains a "Free session" goal, work outside the sprint is expected. Record an assumption and move on.
 
 In your output, flag blocking questions prominently:
 > **BLOCKING QUESTION — the main agent must use AskUserQuestion to get the user's answer before proceeding.**
