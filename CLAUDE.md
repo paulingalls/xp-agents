@@ -229,7 +229,7 @@ plugins/xp-agents/
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
 │   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
 │   ├── xp-sprint-retro/SKILL.md      ← forked, delegates to xp-sprint-retro agent
-│   └── xp-assign/SKILL.md            ← forked, delegates to xp-assign agent
+│   └── xp-assign/SKILL.md            ← inline, mode selection + worktree spawn
 └── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
          resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
          sprint_store.py,sprint_schema.py,sprint_cli.py,schema.json}
