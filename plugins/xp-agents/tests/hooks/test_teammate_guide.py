@@ -107,32 +107,44 @@ class TestTeammateGuide(_HookTestCase):
         self.assertNotIn("EnterPlanMode", result)
 
     def test_teammate_guide_has_do_items(self):
-        """Teammate guide includes DO items from design doc."""
+        """Teammate guide includes DO items."""
         result = self._run_teammate()
         self.assertIn("TDD", result)
-        self.assertIn("commit", result.lower())
+        self.assertIn("small steps", result.lower())
         self.assertIn("file domain", result.lower())
         self.assertIn("message the lead", result.lower())
-        self.assertIn("record", result.lower())  # record decisions/assumptions
 
     def test_teammate_guide_has_dont_items(self):
-        """Teammate guide excludes lead-only skill references."""
+        """Teammate guide has quality-focused DON'Ts."""
         result = self._run_teammate()
-        self.assertNotIn("/xp-kickoff", result)
-        self.assertNotIn("/xp-housekeeping", result)
-        self.assertNotIn("/xp-goal-collection", result)
-        self.assertNotIn("/xp-run-retrospective", result)
+        self.assertIn("code smells", result.lower())
+        self.assertIn("500 lines", result)
 
     def test_teammate_guide_skip_plan_mode(self):
-        """Teammate guide does not reference EnterPlanMode."""
+        """Teammate guide skips plan mode."""
         result = self._run_teammate()
         self.assertNotIn("EnterPlanMode", result)
+
+    def test_teammate_guide_has_keep_items(self):
+        """Teammate guide has KEEP items for TDD and concerns."""
+        result = self._run_teammate()
+        self.assertIn("TDD discipline", result)
+        self.assertIn("Concern recording", result)
+
+    def test_teammate_guide_has_simplify(self):
+        """Teammate guide tells teammates to run /simplify."""
+        result = self._run_teammate()
+        self.assertIn("/simplify", result)
+
+    def test_teammate_guide_has_event_recording(self):
+        """Teammate guide shows how to record events."""
+        result = self._run_teammate()
+        self.assertIn("append.sh", result)
 
     def test_teammate_no_sprint_stories_injected(self):
         """Stories come via spawn prompt, not SubagentStart injection."""
         result = self._run_teammate()
         self.assertIsNotNone(result)
-        # Sprint content should NOT appear — stories come from spawn prompt
         self.assertNotIn("sprint-001", result)
         self.assertNotIn("story-001", result)
 
@@ -151,22 +163,6 @@ class TestTeammateGuide(_HookTestCase):
                 self.assertIsNotNone(result)
                 self.assertNotIn("Teammate Guide", result)
                 self.assertIn("XP Values", result)
-
-    def test_review_cycle_referenced(self):
-        """Teammate guide references commit-gated review cycle."""
-        result = self._run_teammate()
-        self.assertIn("review", result.lower())
-        self.assertIn("/simplify", result.lower())
-
-    def test_worktree_workflow_section_present(self):
-        """Teammate guide includes worktree-specific workflow section."""
-        result = self._run_teammate()
-        self.assertIn("Worktree Teammates", result)
-
-    def test_worktree_workflow_covers_lead_merge(self):
-        """Worktree section explains lead merges branches after completion."""
-        result = self._run_teammate()
-        self.assertIn("lead merges", result.lower())
 
     def test_teammate_registered_in_coordination(self):
         """Teammate is registered in coordination.json at spawn."""
