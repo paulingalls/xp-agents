@@ -421,20 +421,20 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
-    def test_xp_teammate_gets_teammate_injection(self):
-        """xp-teammate routes to _inject_teammate, not _inject_xp_agent."""
+    def test_xp_teammate_gets_smm_and_values(self):
+        """xp-teammate gets SMM + values but NOT teammate guide."""
         result = self._run_xp_teammate()
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
         self.assertIn("Intent", result)
         self.assertIn("Constraints", result)
-        self.assertIn("Teammate Guide", result)
         self.assertIn("XP Values", result)
 
-    def test_xp_teammate_no_process_guide_or_sprint(self):
-        """xp-teammate does NOT get process guide or sprint stories."""
+    def test_xp_teammate_no_guide_or_process_or_sprint(self):
+        """xp-teammate skips guide, process guide, and sprint."""
         result = self._run_xp_teammate()
         self.assertIsNotNone(result)
+        self.assertNotIn("Teammate Guide", result)
         self.assertNotIn("PROCESS_GUIDE", result)
         self.assertNotIn("sprint-001", result)
 

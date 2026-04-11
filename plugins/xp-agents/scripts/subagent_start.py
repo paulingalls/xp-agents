@@ -35,13 +35,12 @@ def _inject_full(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     return [_common.wrap_smm_context(rendered)] if rendered.strip() else []
 
 
-def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """Teammate: SMM + teammate guide. Stories via spawn prompt."""
+def _inject_teammate_core(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """Shared teammate injection: coordination + system context + SMM."""
     agent_id = input_data.get("agent_id", "")
     if agent_id and smm_dir:
         coordination.update_coordination(smm_dir, agent_id, [])
     parts: list[str] = []
-    # Read system context if available (broad context layer)
     ctx_path = smm_dir / "system_context.md"
     if ctx_path.exists() and not ctx_path.is_symlink():
         try:
@@ -53,10 +52,21 @@ def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     rendered = smm_cli.render_markdown(smm)
     if rendered.strip():
         parts.append(_common.wrap_smm_context(rendered))
+    return parts
+
+
+def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """Agent Teams teammate: SMM + teammate guide."""
+    parts = _inject_teammate_core(smm, smm_dir, input_data)
     guide = _common.load_teammate_guide()
     if guide:
         parts.append(guide)
     return parts
+
+
+def _inject_xp_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-teammate: SMM + system context (instructions in agent .md)."""
+    return _inject_teammate_core(smm, smm_dir, input_data)
 
 
 def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
@@ -91,7 +101,7 @@ def is_teammate_by_agent_type(input_data: dict) -> bool:
 
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
-    "xp-teammate": _inject_teammate,
+    "xp-teammate": _inject_xp_teammate,
 }
 
 
