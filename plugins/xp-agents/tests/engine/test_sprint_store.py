@@ -394,7 +394,7 @@ class TestCountByStatus(unittest.TestCase):
         )
         counts = sprint_store.count_by_status(sprint)
         self.assertEqual(counts["ready"], 1)
-        self.assertEqual(counts["in_progress"], 1)
+        self.assertEqual(counts["in-progress"], 1)
         self.assertEqual(counts["done"], 1)
         self.assertEqual(counts["deferred"], 1)
 

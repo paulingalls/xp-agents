@@ -124,7 +124,7 @@ class TestExecutionPlanPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("planned=1", result.stdout)
-        self.assertIn("in_progress=1", result.stdout)
+        self.assertIn("in-progress=1", result.stdout)
         self.assertIn("delivered=1", result.stdout)
 
     def test_symlink_treated_as_missing(self):

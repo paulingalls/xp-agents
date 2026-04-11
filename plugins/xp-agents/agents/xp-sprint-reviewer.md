@@ -25,7 +25,7 @@ Read `.sprint-review-input.json` from the `REVIEW_INPUT` path. It contains:
 - `sprint_id` — the sprint identifier (e.g., "sprint-001")
 - `goal` — the sprint goal
 - `started` — sprint start date
-- `stories_by_status` — counts: ready, in_progress, done, deferred
+- `stories_by_status` — counts: ready, in-progress, done, deferred
 - `velocity` — stories_planned, stories_delivered, stories_carried
 - `milestone` — the milestone this sprint is targeting (may be empty)
 - `sprint_md_path` — path to sprint.md (Read this for full story details)

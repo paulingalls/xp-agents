@@ -30,12 +30,12 @@ def _cmd_is_complete(args: argparse.Namespace) -> int:
 def _cmd_count(args: argparse.Namespace) -> int:
     sprint = store.load_sprint(args.smm_dir)
     if sprint is None:
-        print("ready=0 in_progress=0 done=0 deferred=0")
+        print("ready=0 in-progress=0 done=0 deferred=0")
         return 0
     counts = store.count_by_status(sprint)
     print(
         f"ready={counts['ready']} "
-        f"in_progress={counts['in_progress']} "
+        f"in-progress={counts['in-progress']} "
         f"done={counts['done']} "
         f"deferred={counts['deferred']}"
     )
@@ -80,8 +80,7 @@ def _cmd_count_status(args: argparse.Namespace) -> int:
         print("0")
         return 0
     counts = store.count_by_status(sprint)
-    key = args.status.replace("-", "_")
-    print(counts.get(key, 0))
+    print(counts.get(args.status, 0))
     return 0
 
 

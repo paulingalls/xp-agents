@@ -40,7 +40,7 @@ def _cmd_count(args: argparse.Namespace) -> int:
     counts = store.count_milestones(args.smm_dir)
     print(
         f"planned={counts['planned']} "
-        f"in_progress={counts['in_progress']} "
+        f"in-progress={counts['in-progress']} "
         f"delivered={counts['delivered']}"
     )
     return 0
