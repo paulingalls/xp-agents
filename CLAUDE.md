@@ -128,6 +128,18 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --working-on '["src/api/users.ts"]'
 ```
 
+### Type-Specific Fields
+
+Some event types require additional fields:
+
+| Type | Required Field | Flag | Example |
+|------|---------------|------|---------|
+| `debt` | files | `--files` | `--files '["src/auth.py"]'` |
+| `decision` | topic | `--topic` | `--topic "error-handling"` |
+| `concern` | severity | `--severity` | `--severity "medium"` |
+
+See PROCESS_GUIDE.md for full event type reference and examples.
+
 ### Resolving Events
 
 To resolve a goal, concern, or debt item, include `metadata.resolves`:
