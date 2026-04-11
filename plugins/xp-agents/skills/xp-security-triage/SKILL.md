@@ -16,4 +16,4 @@ allowed-tools:
 
 This skill should run as a forked subagent (xp-security-reviewer). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
 
-If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-security-reviewer subagent. Show the full output to the user.
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-security-reviewer subagent. The subagent result is returned as a tool result which is NOT visible to the user — you must output the key findings as text in your response.

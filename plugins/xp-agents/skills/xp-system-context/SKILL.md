@@ -21,4 +21,4 @@ allowed-tools:
 
 This skill should run as a forked subagent (xp-system-context). Your agent definition contains all instructions — follow them, analyze the codebase, write system_context.md, and then report back your summary to the main agent.
 
-If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-system-context subagent. Show the full output to the user.
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-system-context subagent. The subagent result is returned as a tool result which is NOT visible to the user — you must output the key findings as text in your response.
