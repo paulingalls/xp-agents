@@ -8,7 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import SPRINT_MIXED, _IntegrationTestCase, write_smm_fixture
+from conftest import (
+    SPRINT_MIXED,
+    _IntegrationTestCase,
+    _s,
+    _sprint_json,
+    write_smm_fixture,
+)
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -18,24 +24,14 @@ _PRELOAD_SCRIPT = (
     / "preload.sh"
 )
 
-SPRINT_IN_PROGRESS = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** none
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** ready
-- **Dependencies:** none
-"""
+SPRINT_IN_PROGRESS = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "in-progress"),
+        _s("story-002", "As a user I can register", "S", "ready"),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
 
 _SMM_WITH_RISKS = dict(
     intent=[("Ship v2", "goal")],
@@ -148,7 +144,6 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("No Active Sprint", result.stdout)
 
-    @unittest.skip("CLI subprocess in nested preload — env issue under investigation")
     def test_shows_in_progress_count(self):
         """Sprint with in-progress stories shows count."""
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
