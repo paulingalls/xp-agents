@@ -30,9 +30,9 @@ Beyond `events.jsonl`, three persistent markdown files live in the SMM directory
 |---|---|---|---|
 | `system_context.md` | `/xp-system-context` | `/xp-system-context` (re-run after architecture changes) | Product/system description — architecture, components, constraints |
 | `execution_plan.json` | `/xp-plan` | `/xp-sprint-review` (milestone delivery markers) | Ordered milestones with change zones, impact zones, design details |
-| `sprint.md` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint stories with context gradient — file domains, interface contracts |
+| `sprint.json` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint stories with context gradient — file domains, interface contracts |
 
-These are **LLM-readable markdown**. `sprint_parser.py` parses `sprint.md` into structured data. System context and execution plan are stable across sprints; sprint.md is ephemeral (one active at a time).
+Execution plan and sprint are JSON with schema validation and CLI tools (`plan_cli.py`, `sprint_cli.py`). System context is markdown. System context and execution plan are stable across sprints; sprint.json is ephemeral (one active at a time).
 
 ## Event Types
 
@@ -78,7 +78,7 @@ Four-pillar model, curated by housekeeping (LLM judgment via `save_smm.py`). Not
 
 Context reaches the agent through two mechanisms:
 - **Prompt nuggets** (UserPromptSubmit via `prompt_nugget.py`): lightweight injection of new signal events since last prompt (~50-100 tokens). Watermark-based — only new concerns, decisions, and discoveries.
-- **Tiered context injection** (SubagentStart via `subagent_start.py`): Explore gets Intent+Constraints only; xp-plan-reviewer/xp-retrospective get full SMM + behavioral guide + sprint.md; teammates (custom agent_type) get SMM + teammate guide + filtered sprint stories; default agents get full SMM + behavioral guide.
+- **Tiered context injection** (SubagentStart via `subagent_start.py`): Explore gets Intent+Constraints only; xp-plan-reviewer/xp-retrospective get full SMM + behavioral guide + sprint.json; teammates (custom agent_type) get SMM + teammate guide + filtered sprint stories; default agents get full SMM + behavioral guide.
 
 ## Hook Map
 
@@ -134,7 +134,7 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash)
 - `/xp-quality-review` — post-simplify courage accountability, drift management, debt awareness
 - `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-system-context` — create/update system context description (`system_context.md`)
-- `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.md`)
+- `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred
 
 All subagents preload `xp-smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
@@ -157,7 +157,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Commit-gated review cycle (blocks until simplify/quality-review/security-triage done), file-modification conflict heuristic (advisory) |
-| Subagent spawn | Tiered context: Explore→Intent+Constraints; Plan/general-purpose→full SMM+behavioral guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.md |
+| Subagent spawn | Tiered context: Explore→Intent+Constraints; Plan/general-purpose→full SMM+behavioral guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.json |
 | After compaction | Full SMM re-injection |
 
 Injection order in SessionStart `additionalContext`:
@@ -231,7 +231,7 @@ Note: Review cycle enforcement (simplify, quality review, security triage) moved
 ```
 SubagentStart → subagent_start.py: tiered context injection + watermark
                 Explore: Intent+Constraints only (~200 tokens)
-                xp-plan-reviewer/xp-retrospective: full SMM + behavioral guide + sprint.md
+                xp-plan-reviewer/xp-retrospective: full SMM + behavioral guide + sprint.json
                 Teammates (custom agent_type): SMM + TEAMMATE_GUIDE.md + filtered stories
                 Default (Plan/general-purpose): full SMM + behavioral guide
                 xp-* agents not in dispatch: skipped (use own preloads)

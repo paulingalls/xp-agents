@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare sprint review data for the subagent.
 
-Reads sprint.md and execution_plan.json, computes velocity stats,
+Reads sprint.json and execution_plan.json, computes velocity stats,
 and writes .sprint-review-input.json for the xp-sprint-reviewer
 subagent to consume.
 """

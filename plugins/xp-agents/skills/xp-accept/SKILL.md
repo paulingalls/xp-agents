@@ -2,7 +2,7 @@
 name: xp-accept
 description: >-
   Verify acceptance criteria for in-progress stories. Present criteria,
-  guide e2e test execution, mark stories done or deferred, update sprint.md.
+  guide e2e test execution, mark stories done or deferred, update sprint.json.
 allowed-tools:
   - Read
   - Bash(*/append.sh *)
@@ -30,16 +30,16 @@ Read the sprint file using the `SPRINT_FILE` path from the preload output. For e
    - **deferred** — story is incomplete, carry forward to next sprint
 5. If the user has questions or wants to discuss, resolve inline before marking.
 
-## Step 2: Update sprint.md
+## Step 2: Update sprint.json
 
 After all in-progress stories have been marked:
 
-1. The full sprint.md is already in context from Step 1's `Read`.
+1. The full sprint.json is already in context from Step 1's `Read`.
 2. For each story the user marked, change `**Status:** in-progress` to `**Status:** done` or `**Status:** deferred`.
 3. Write the updated content:
    ```bash
    cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-sprint-start/scripts/save_sprint.py --smm-dir <SMM_DIR>
-   <full updated sprint.md content>
+   <full updated sprint.json content>
    SPRINTEOF
    ```
 

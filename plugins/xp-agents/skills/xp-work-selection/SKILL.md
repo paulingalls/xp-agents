@@ -62,13 +62,13 @@ If the user declines to answer, move on gracefully.
 2. Ask via AskUserQuestion: "Which stories for this iteration?"
    Options: individual story IDs, "all ready stories", or "add ad-hoc story".
 3. For ad-hoc stories: ask for title and brief description, then add the
-   story to sprint.md and mark it in-progress.
-4. For selected stories: Read sprint.md from SMM_DIR, change each selected
+   story to sprint.json and mark it in-progress.
+4. For selected stories: Read sprint.json from SMM_DIR, change each selected
    story's `**Status:** ready` to `**Status:** in-progress`.
-5. Write updated sprint.md:
+5. Write updated sprint.json:
    ```bash
    cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-sprint-start/scripts/save_sprint.py --smm-dir <SMM_DIR>
-   <full updated sprint.md content>
+   <full updated sprint.json content>
    SPRINTEOF
    ```
 6. Record status event:

@@ -1,7 +1,7 @@
 ---
 name: xp-sprint-start
 description: >-
-  Create sprint.md from an execution plan milestone or product spec.
+  Create sprint.json from an execution plan milestone or product spec.
   Decomposes milestones into context-rich stories with file domains,
   interface contracts, and inlined design context. Deep codebase dive
   identifies story boundaries. Customer confirms scope before writing.
@@ -20,7 +20,7 @@ allowed-tools:
 
 # Sprint Planning
 
-You are the sprint planner. Your job is to create `sprint.md` by decomposing a milestone from `execution_plan.json` into context-rich stories the team can deliver — including in parallel via subagents.
+You are the sprint planner. Your job is to create `sprint.json` by decomposing a milestone from `execution_plan.json` into context-rich stories the team can deliver — including in parallel via subagents.
 
 ## Error Handling
 
@@ -92,53 +92,40 @@ Options: "Confirm this sprint" or "Adjust sprint scope"
 
 Do not write files until the customer confirms.
 
-### Step 6: Write sprint.md
+### Step 6: Write sprint.json
 
-After confirmation, assemble in the enhanced format:
+After confirmation, assemble as JSON and write via the CLI:
 
 ```bash
-cat <<'SPRINTEOF' | python3 ${CLAUDE_SKILL_DIR}/scripts/save_sprint.py --smm-dir <SMM_DIR>
-# Sprint: <sprint goal>
-
-- **Sprint ID:** <NEXT_SPRINT_ID>
-- **Started:** <today's date YYYY-MM-DD>
-- **Milestone:** Milestone N: <name>
-
-## System Context
-
-See: system_context.md
-
-## Stories
-
-### story-001: <title>
-- **Size:** <S|M|L>
-- **Status:** ready
-- **Dependencies:** <story-NNN or none>
-- **Milestone:** execution_plan.md §Milestone N
-- **Design Sources:** <doc> §section, <doc> §section
-
-**Context:**
-<Inlined design context from milestone details + codebase dive.
-Multiple paragraphs for complex stories.>
-
-**File Domain:**
-- `path/to/file.py` — <what to change>
-- `tests/test_file.py` — <tests to write>
-
-**Interface Contracts:**
-- `path/to/shared.py:function_name` — shared with story-002, constraint
-
-**Acceptance Criteria:**
-- <criterion 1>
-- <criterion 2>
-- E2E: <end-to-end test scenario>
-
-### story-002: <title>
-...
+cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> create
+{
+  "sprint_id": "<NEXT_SPRINT_ID>",
+  "goal": "<sprint goal>",
+  "started": "<today YYYY-MM-DD>",
+  "milestone": "Milestone N: <name>",
+  "stories": [
+    {
+      "id": "story-001",
+      "title": "<title>",
+      "status": "ready",
+      "size": "<S|M|L>",
+      "dependencies": [],
+      "milestone_ref": "execution_plan.json §Milestone N",
+      "design_sources": "<doc> §section",
+      "context": "<inlined design context>",
+      "file_domain": ["path/to/file.py — <what to change>"],
+      "interface_contracts": ["path/to/shared.py:fn — shared with story-002"],
+      "acceptance_criteria": ["<criterion 1>", "E2E: <scenario>"]
+    }
+  ]
+}
 SPRINTEOF
 ```
 
-All stories start with **Status: ready**. After writing, **output the full sprint.md content** for review.
+All stories start with `"status": "ready"`. After writing, render and **output as text** for review:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> render
+```
 
 ### Step 7: Record Sprint Event
 
@@ -157,7 +144,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" \
   --agent "xp-sprint-start" \
   --content "Sprint <NEXT_SPRINT_ID> created: <N> stories (<size distribution>)" \
-  --working-on '["sprint.md"]'
+  --working-on '["sprint.json"]'
 ```
 
 ---

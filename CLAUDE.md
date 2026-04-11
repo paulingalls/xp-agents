@@ -213,14 +213,14 @@ plugins/xp-agents/
 │   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
 │   ├── xp-plan/SKILL.md              ← inline, execution planning (execution_plan.json)
 │   ├── xp-system-context/SKILL.md    ← forked, system context analysis (system_context.md)
-│   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.md)
+│   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.json)
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
 │   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
 │   ├── xp-sprint-retro/SKILL.md      ← forked, delegates to xp-sprint-retro agent
 │   └── xp-spawn-team/SKILL.md        ← forked, delegates to xp-spawn-team agent
 └── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
          resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
-         sprint_parser.py,schema.json}
+         sprint_store.py,sprint_schema.py,sprint_cli.py,schema.json}
 ```
 
 ## Error Handling
@@ -341,7 +341,7 @@ tests/
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
 - Python 3.10+, stdlib only, zero dependencies
-- Four-file architecture: events.jsonl + system_context.md + execution_plan.json + sprint.md (execution plan is JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
+- Four-file architecture: events.jsonl + system_context.md + execution_plan.json + sprint.json (execution plan is JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
 - Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
