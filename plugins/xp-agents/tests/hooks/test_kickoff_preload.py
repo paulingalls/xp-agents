@@ -31,12 +31,63 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
 
-    def test_no_execution_plan_flag_when_file_exists(self):
-        """execution_plan.md exists — no flag."""
-        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+    def test_no_execution_plan_flag_when_active_plan(self):
+        """execution_plan.json with remaining work — no flag."""
+        import json
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("NEEDS_EXECUTION_PLAN", result.stdout)
+
+    def test_execution_plan_flag_when_all_delivered(self):
+        """execution_plan.json with all delivered — emit flag."""
+        import json
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M",
+                    "status": "delivered",
+                    "delivered_sprint": "sprint-001",
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
 
     def test_outputs_needs_sprint_when_marker_exists(self):
         (self.smm_dir / ".needs-sprint").write_text("startup")

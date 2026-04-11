@@ -7,30 +7,24 @@ source "$(dirname "$0")/../../_preload_base.sh"
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
 
-# --- Check for execution_plan.md ---
-PLAN_FILE="${SMM_DIR}/execution_plan.md"
+# --- Check for execution_plan.json ---
+PLAN_FILE="${SMM_DIR}/execution_plan.json"
 
-if [ -f "$PLAN_FILE" ] && [ ! -L "$PLAN_FILE" ]; then
-    planned=$(grep -c '\[planned\]' "$PLAN_FILE" 2>/dev/null || true)
-    planned=${planned:-0}
-    in_progress=$(grep -c '\[in-progress\]' "$PLAN_FILE" 2>/dev/null || true)
-    in_progress=${in_progress:-0}
-    delivered=$(grep -c '\[delivered:' "$PLAN_FILE" 2>/dev/null || true)
-    delivered=${delivered:-0}
-
-    if [ "$planned" -eq 0 ] && [ "$in_progress" -eq 0 ]; then
-        echo "## ERROR: No [planned] or [in-progress] milestones in execution_plan.md"
-        echo "All milestones are delivered. Add new milestones via /xp-plan."
-        exit 0
-    fi
-
-    echo "## Execution Plan (${planned} planned, ${in_progress} in-progress, ${delivered} delivered)"
-    echo "EXECUTION_PLAN=${PLAN_FILE}"
-else
-    echo "## ERROR: No execution_plan.md found"
+if ! plan_exists; then
+    echo "## ERROR: No execution_plan.json found"
     echo "Run /xp-plan to create an execution plan."
     exit 0
 fi
+
+if ! plan_has_remaining; then
+    echo "## ERROR: No [planned] or [in-progress] milestones"
+    echo "All milestones are delivered. Add new milestones via /xp-plan."
+    exit 0
+fi
+
+counts=$(plan_count)
+echo "## Execution Plan (${counts})"
+echo "EXECUTION_PLAN=${PLAN_FILE}"
 
 # --- Check for system context ---
 check_system_context

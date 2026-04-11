@@ -154,3 +154,16 @@ check_system_context() {
         echo "SYSTEM_CONTEXT=${ctx}"
     fi
 }
+
+# Execution plan CLI helpers (thin wrappers over plan_cli.py).
+plan_exists() {
+    python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" exists 2>/dev/null
+}
+
+plan_has_remaining() {
+    python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" has-remaining 2>/dev/null
+}
+
+plan_count() {
+    python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
+}

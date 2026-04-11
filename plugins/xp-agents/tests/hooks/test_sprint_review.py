@@ -244,11 +244,11 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertEqual(result["goal"], "Build auth system")
 
     def test_execution_plan_path_set(self):
-        """execution_plan.md exists -> execution_plan_md_path is non-empty."""
+        """execution_plan.json exists -> execution_plan_md_path is non-empty."""
         import prepare_review_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
-        (self.smm_dir / "execution_plan.md").write_text("# Execution Plan")
+        (self.smm_dir / "execution_plan.json").write_text("{}")
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         path = result["execution_plan_md_path"]
@@ -256,7 +256,7 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertTrue(Path(path).is_file())
 
     def test_missing_execution_plan_empty_path(self):
-        """No execution_plan.md -> execution_plan_md_path=''."""
+        """No execution_plan.json -> execution_plan_md_path=''."""
         import prepare_review_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
@@ -265,13 +265,13 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertEqual(result["execution_plan_md_path"], "")
 
     def test_execution_plan_symlink_empty_path(self):
-        """execution_plan.md is symlink -> execution_plan_md_path=''."""
+        """execution_plan.json is symlink -> execution_plan_md_path=''."""
         import prepare_review_data
 
         (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
-        target = self.smm_dir / "_fake_target.md"
-        target.write_text("fake")
-        (self.smm_dir / "execution_plan.md").symlink_to(target)
+        target = self.smm_dir / "_fake_target.json"
+        target.write_text("{}")
+        (self.smm_dir / "execution_plan.json").symlink_to(target)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         self.assertEqual(result["execution_plan_md_path"], "")

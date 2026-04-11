@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Save planning doc: write system_context.md or execution_plan.md.
+"""Save planning doc: write system_context.md atomically.
 
-Parameterized atomic write for planning documents. Takes --type to
-determine target filename and associated marker to clear.
+Atomic write for system_context.md. Execution plans use
+execution_plan_store.py (JSON format) instead.
 
 Usage:
     echo '<markdown>' | python3 save_planning_doc.py --smm-dir DIR --type system_context
-    echo '<markdown>' | python3 save_planning_doc.py --smm-dir DIR --type execution_plan
 """
 
 import argparse
@@ -24,10 +23,6 @@ _DOC_TYPES = {
         "filename": "system_context.md",
         "marker": marker_names.NEEDS_SYSTEM_CONTEXT,
     },
-    "execution_plan": {
-        "filename": "execution_plan.md",
-        "marker": marker_names.NEEDS_EXECUTION_PLAN,
-    },
 }
 
 
@@ -37,7 +32,7 @@ def run(content: str, smm_dir: Path, *, doc_type: str) -> None:
     Args:
         content: Markdown content to write.
         smm_dir: SMM directory path.
-        doc_type: One of "system_context" or "execution_plan".
+        doc_type: Currently only "system_context".
     """
     if doc_type not in _DOC_TYPES:
         raise ValueError(

@@ -34,11 +34,10 @@ if [ ! -f "$SYSTEM_CONTEXT" ] || [ -L "$SYSTEM_CONTEXT" ]; then
     echo ""
 fi
 
-# 3. Check for execution plan
-EXEC_PLAN="${SMM_DIR}/execution_plan.md"
-if [ ! -f "$EXEC_PLAN" ] || [ -L "$EXEC_PLAN" ]; then
+# 3. Check for execution plan (JSON format, via CLI)
+if ! plan_has_remaining; then
     echo "### NEEDS_EXECUTION_PLAN"
-    echo "No execution_plan.md found. Run /xp-plan to create one."
+    echo "No execution plan with remaining work. Run /xp-plan to create one."
     echo ""
 fi
 

@@ -234,53 +234,115 @@ _PRELOAD_SCRIPT = (
 class TestSprintStartPreload(_IntegrationTestCase):
     """Tests for the sprint start preload script."""
 
+    def _write_plan(self, milestones=None):
+        """Write a valid JSON plan with given milestones."""
+        m_base = {
+            "goal": "G",
+            "done": "D",
+            "sources": "",
+            "change_zones": [],
+            "impact_zones": [],
+            "design_details": "",
+            "constraints": [],
+        }
+        if milestones is None:
+            milestones = [
+                {
+                    **m_base,
+                    "number": 1,
+                    "name": "Auth",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                }
+            ]
+        (self.smm_dir / "execution_plan.json").write_text(
+            json.dumps(
+                {
+                    "title": "T",
+                    "sources": [],
+                    "overview": "",
+                    "milestones": milestones,
+                }
+            )
+        )
+
     def test_preload_outputs_smm_dir(self):
         """Preload output includes SMM_DIR= line."""
-        # Need execution_plan.md to avoid early error exit
-        (self.smm_dir / "execution_plan.md").write_text(
-            "# Execution Plan\n\n### Milestone 1: Auth [planned]\n- **Goal:** Auth\n"
-        )
+        self._write_plan()
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_preload_no_execution_plan(self):
-        """Outputs error when no execution_plan.md exists."""
+        """Outputs error when no execution_plan.json exists."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
         self.assertIn("execution_plan", result.stdout.lower())
 
     def test_preload_no_planned_milestones(self):
-        """Outputs error when execution_plan has only delivered milestones."""
-        (self.smm_dir / "execution_plan.md").write_text(
-            "# Execution Plan\n\n"
-            "### Milestone 1: Auth [delivered: sprint-001]\n"
-            "- **Goal:** Auth\n"
+        """Outputs error when plan has only delivered milestones."""
+        m_base = {
+            "goal": "G",
+            "done": "D",
+            "sources": "",
+            "change_zones": [],
+            "impact_zones": [],
+            "design_details": "",
+            "constraints": [],
+        }
+        self._write_plan(
+            [
+                {
+                    **m_base,
+                    "number": 1,
+                    "name": "Auth",
+                    "status": "delivered",
+                    "delivered_sprint": "sprint-001",
+                }
+            ]
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
 
     def test_preload_with_planned_milestones(self):
-        """Outputs path and counts, not full plan content."""
-        (self.smm_dir / "execution_plan.md").write_text(
-            "# Execution Plan\n\n"
-            "### Milestone 1: Auth [planned]\n- **Goal:** Auth\n\n"
-            "### Milestone 2: Search [planned]\n- **Goal:** Search\n"
+        """Outputs path and counts."""
+        m_base = {
+            "goal": "G",
+            "done": "D",
+            "sources": "",
+            "change_zones": [],
+            "impact_zones": [],
+            "design_details": "",
+            "constraints": [],
+        }
+        self._write_plan(
+            [
+                {
+                    **m_base,
+                    "number": 1,
+                    "name": "Auth",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                },
+                {
+                    **m_base,
+                    "number": 2,
+                    "name": "Search",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                },
+            ]
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("EXECUTION_PLAN=", result.stdout)
-        self.assertIn("2", result.stdout)  # 2 planned milestones
-        # Should NOT contain full spec content — agent reads via Read tool
-        self.assertNotIn("Milestone 1: Auth [planned]", result.stdout)
+        self.assertIn("planned=2", result.stdout)
 
     def test_preload_existing_sprint_deferred(self):
         """Shows deferred stories from existing sprint.md."""
-        (self.smm_dir / "execution_plan.md").write_text(
-            "# Execution Plan\n\n### Milestone 1: Auth [planned]\n- **Goal:** Auth\n"
-        )
+        self._write_plan()
         (self.smm_dir / "sprint.md").write_text(
             "# Sprint: Previous\n\n## Stories\n\n"
             "### story-001: As a user I can register\n"
@@ -294,9 +356,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
 
     def test_preload_sprint_count(self):
         """Outputs correct NEXT_SPRINT_ID based on existing sprint events."""
-        (self.smm_dir / "execution_plan.md").write_text(
-            "# Execution Plan\n\n### Milestone 1: Auth [planned]\n- **Goal:** Auth\n"
-        )
+        self._write_plan()
         # Seed two sprint-start events
         events = [
             json.dumps(

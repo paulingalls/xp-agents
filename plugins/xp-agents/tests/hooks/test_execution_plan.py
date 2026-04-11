@@ -13,32 +13,51 @@ _SKILL_DIR = Path(__file__).parent.parent.parent / "skills" / "xp-plan"
 _PRELOAD_SCRIPT = _SKILL_DIR / "scripts" / "preload.sh"
 _SKILL_MD = _SKILL_DIR / "SKILL.md"
 
-_SAMPLE_PLAN = """\
-# Execution Plan: Test
+_M_BASE = {
+    "goal": "G",
+    "done": "D",
+    "sources": "",
+    "change_zones": [],
+    "impact_zones": [],
+    "design_details": "",
+    "constraints": [],
+}
 
-## Sources
+_SRC = {
+    "label": "Design",
+    "location": "docs/design.md",
+    "type": "repo",
+    "content": None,
+}
 
-| Label | Location | Type |
-|-------|----------|------|
-| Design | docs/design.md | repo |
-
-## Change Overview
-Test change.
-
-## Milestones
-
-### Milestone 1: First [planned]
-- **Goal:** Do the first thing
-- **Definition of Done:** Tests pass
-
-### Milestone 2: Second [in-progress]
-- **Goal:** Do the second thing
-- **Definition of Done:** Integration works
-
-### Milestone 3: Third [delivered: sprint-001]
-- **Goal:** Already done
-- **Definition of Done:** Shipped
-"""
+_SAMPLE_PLAN = {
+    "title": "Test",
+    "sources": [_SRC],
+    "overview": "Test change.",
+    "milestones": [
+        {
+            **_M_BASE,
+            "number": 1,
+            "name": "First",
+            "status": "planned",
+            "delivered_sprint": None,
+        },
+        {
+            **_M_BASE,
+            "number": 2,
+            "name": "Second",
+            "status": "in-progress",
+            "delivered_sprint": None,
+        },
+        {
+            **_M_BASE,
+            "number": 3,
+            "name": "Third",
+            "status": "delivered",
+            "delivered_sprint": "sprint-001",
+        },
+    ],
+}
 
 
 class TestExecutionPlanFileStructure(unittest.TestCase):
@@ -90,24 +109,30 @@ class TestExecutionPlanPreload(_IntegrationTestCase):
         self.assertIn("No execution plan found", result.stdout)
 
     def test_update_mode_when_exists(self):
-        (self.smm_dir / "execution_plan.md").write_text(_SAMPLE_PLAN)
+        import json
+
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_SAMPLE_PLAN))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("EXECUTION_PLAN=", result.stdout)
         self.assertIn("Existing Execution Plan", result.stdout)
 
     def test_counts_milestones(self):
-        (self.smm_dir / "execution_plan.md").write_text(_SAMPLE_PLAN)
+        import json
+
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_SAMPLE_PLAN))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("1 milestones planned", result.stdout)
-        self.assertIn("1 in-progress", result.stdout)
-        self.assertIn("1 delivered", result.stdout)
+        self.assertIn("planned=1", result.stdout)
+        self.assertIn("in_progress=1", result.stdout)
+        self.assertIn("delivered=1", result.stdout)
 
     def test_symlink_treated_as_missing(self):
-        real = self.smm_dir / "real.md"
-        real.write_text(_SAMPLE_PLAN)
-        (self.smm_dir / "execution_plan.md").symlink_to(real)
+        import json
+
+        real = self.smm_dir / "real.json"
+        real.write_text(json.dumps(_SAMPLE_PLAN))
+        (self.smm_dir / "execution_plan.json").symlink_to(real)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("No execution plan found", result.stdout)

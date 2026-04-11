@@ -288,18 +288,77 @@ class TestSessionStartExecutionPlanMarker(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
         )
 
-    def test_startup_with_execution_plan_no_marker(self):
-        """Startup with execution_plan.md present does NOT write marker."""
+    def test_startup_with_active_plan_no_marker(self):
+        """Startup with execution_plan.json with remaining work — no marker."""
+        import json
+
         import markers
         import session_start
 
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M1",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
         self._write_events([make_event()])
-        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
         self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+    def test_startup_all_delivered_writes_marker(self):
+        """Plan exists but all milestones delivered — writes marker."""
+        import json
+
+        import markers
+        import session_start
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M1",
+                    "status": "delivered",
+                    "delivered_sprint": "sprint-001",
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        self._write_events([make_event()])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
         )
 

@@ -94,12 +94,12 @@ class TestReadSprintContent(_HookTestCase):
 
 
 class TestExecutionPlanExists(_HookTestCase):
-    """Test execution_plan_exists — checks execution_plan.md in SMM dir."""
+    """Test execution_plan_exists — checks execution_plan.json in SMM dir."""
 
     def test_exists(self):
         import sprint_state
 
-        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+        (self.smm_dir / "execution_plan.json").write_text("{}")
         self.assertTrue(sprint_state.execution_plan_exists(self.smm_dir))
 
     def test_missing(self):
@@ -110,9 +110,9 @@ class TestExecutionPlanExists(_HookTestCase):
     def test_symlink(self):
         import sprint_state
 
-        target = self.smm_dir / "real.md"
-        target.write_text("# Plan\n")
-        link = self.smm_dir / "execution_plan.md"
+        target = self.smm_dir / "real.json"
+        target.write_text("{}")
+        link = self.smm_dir / "execution_plan.json"
         link.symlink_to(target)
         self.assertFalse(sprint_state.execution_plan_exists(self.smm_dir))
 

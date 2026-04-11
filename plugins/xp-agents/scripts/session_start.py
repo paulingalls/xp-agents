@@ -80,7 +80,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if source in ("startup", "clear"):
         markers.marker_write(smm_dir, markers.KICKOFF, source)
         markers.marker_consume(smm_dir, markers.ACCEPT)
-        if not sprint_state.execution_plan_exists(smm_dir):
+        if not sprint_state.has_remaining_work(smm_dir):
             markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)
         if not sprint_state.system_context_exists(smm_dir):
             markers.marker_write(smm_dir, markers.NEEDS_SYSTEM_CONTEXT, source)

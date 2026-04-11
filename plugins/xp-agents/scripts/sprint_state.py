@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sprint and planning document state detection helpers.
 
-Pure functions for checking sprint.md, execution_plan.md, and
+Pure functions for checking sprint.md, execution_plan.json, and
 system_context.md state. Used by session_start.py and kickoff_done.py
 for deterministic state detection.
 """
@@ -52,8 +52,17 @@ def _safe_file_exists(smm_dir: Path, filename: str) -> bool:
 
 
 def execution_plan_exists(smm_dir: Path) -> bool:
-    """Check if execution_plan.md exists in SMM dir (not a symlink)."""
-    return _safe_file_exists(smm_dir, "execution_plan.md")
+    """Check if execution_plan.json exists in SMM dir (not a symlink)."""
+    return _safe_file_exists(smm_dir, "execution_plan.json")
+
+
+def has_remaining_work(smm_dir: Path) -> bool:
+    """True if execution plan has planned or in-progress milestones."""
+    # Lazy import: execution_plan_store lives in smm/, not scripts/.
+    # Callers (session_start.py) set up sys.path before importing us.
+    from execution_plan_store import has_remaining_work as _store_fn
+
+    return _store_fn(smm_dir)
 
 
 def system_context_exists(smm_dir: Path) -> bool:

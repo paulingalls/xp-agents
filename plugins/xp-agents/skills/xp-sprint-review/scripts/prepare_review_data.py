@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare sprint review data for the subagent.
 
-Reads sprint.md and execution_plan.md, computes velocity stats,
+Reads sprint.md and execution_plan.json, computes velocity stats,
 and writes .sprint-review-input.json for the xp-sprint-reviewer
 subagent to consume.
 """
@@ -33,8 +33,8 @@ def run(smm_dir: Path) -> dict | None:
     if not sprint_data["sprint_id"]:
         return None
 
-    # Execution plan path — agent Reads the file directly if it needs to Edit
-    plan_path = smm_dir / "execution_plan.md"
+    # Execution plan path — agent uses plan_cli.py to update status
+    plan_path = smm_dir / "execution_plan.json"
     plan_str = ""
     try:
         if plan_path.exists() and not plan_path.is_symlink():

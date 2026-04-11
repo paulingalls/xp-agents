@@ -35,11 +35,33 @@ class TestSessionStartSprintDetection(_HookTestCase):
         )
         self.assertTrue((self.smm_dir / ".needs-execution-plan").exists())
 
-    def test_no_execution_plan_marker_when_exists(self):
+    def test_no_execution_plan_marker_when_active_plan(self):
+        import json
+
         import session_start
 
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
         self._write_events([make_event()])
-        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -79,10 +101,32 @@ class TestSessionStartSprintDetection(_HookTestCase):
         self.assertFalse((self.smm_dir / ".needs-sprint").exists())
 
     def test_no_markers_when_both_exist_with_active(self):
+        import json
+
         import session_start
 
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
         self._write_events([make_event()])
-        (self.smm_dir / "execution_plan.md").write_text("# Plan\n")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
         session_start.run(
             {"session_id": "test", "source": "startup"},
