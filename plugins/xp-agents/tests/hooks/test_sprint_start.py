@@ -343,7 +343,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
         self.assertIn("Deferred", result.stdout)
 
     def test_preload_sprint_count(self):
-        """Outputs correct NEXT_SPRINT_ID based on existing sprint events."""
+        """Outputs correct NEXT_SPRINT_ID from sprint event count."""
         self._write_plan()
         # Seed two sprint-start events
         events = [

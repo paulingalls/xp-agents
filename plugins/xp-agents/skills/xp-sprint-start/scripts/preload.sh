@@ -41,13 +41,6 @@ if sprint_exists; then
 fi
 
 # --- Determine next sprint ID ---
-EVENTS_FILE="${SMM_DIR}/events.jsonl"
-sprint_count=0
-if [ -f "$EVENTS_FILE" ]; then
-    sprint_count=$(grep -c '"action": "start"' "$EVENTS_FILE" 2>/dev/null || true)
-    sprint_count=${sprint_count:-0}
-fi
-next_num=$((sprint_count + 1))
-printf -v NEXT_SPRINT_ID "sprint-%03d" "$next_num"
+NEXT_SPRINT_ID=$(sprint_next_id)
 echo ""
 echo "NEXT_SPRINT_ID=${NEXT_SPRINT_ID}"

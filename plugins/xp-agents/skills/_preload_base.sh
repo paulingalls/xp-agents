@@ -154,6 +154,11 @@ sprint_list_stories() {
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-stories "$@" 2>/dev/null
 }
 
+# Next sprint ID (increments current, falls back to sprint-001).
+sprint_next_id() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" next-id 2>/dev/null || echo "sprint-001"
+}
+
 sprint_count() {
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
 }

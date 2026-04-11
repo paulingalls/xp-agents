@@ -209,6 +209,46 @@ def list_stories(sprint: dict, *, status: str | None = None) -> list[dict]:
     return stories
 
 
+def next_sprint_id(smm_dir: Path) -> str:
+    """Determine the next sprint ID.
+
+    Fast path: increments the number in the current sprint_id.
+    Fallback: counts sprint start events in events.jsonl.
+    Default: 'sprint-001' if no history exists.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is not None and sprint["sprint_id"]:
+        sid = sprint["sprint_id"]
+        parts = sid.rsplit("-", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            num = int(parts[1]) + 1
+            return f"{parts[0]}-{num:03d}"
+
+    # Fallback: count sprint start events in the event log
+    count = _count_sprint_starts(smm_dir)
+    return f"sprint-{count + 1:03d}"
+
+
+def _count_sprint_starts(smm_dir: Path) -> int:
+    """Count sprint start events in events.jsonl."""
+    from _append_impl import parse_jsonl
+
+    path = smm_dir / "events.jsonl"
+    if path.is_symlink():
+        return 0
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return 0
+    events, _ = parse_jsonl(raw)
+    return sum(
+        1
+        for e in events
+        if e.get("type") == "sprint"
+        and (e.get("metadata") or {}).get("action") == "start"
+    )
+
+
 # -------------------------------------------------------------------
 # Render
 # -------------------------------------------------------------------
