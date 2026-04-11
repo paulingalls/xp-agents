@@ -411,6 +411,33 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("XP Values", result)
 
+    def _run_xp_teammate(self) -> str | None:
+        return self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-1",
+                "agent_type": "xp-teammate",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+    def test_xp_teammate_gets_teammate_injection(self):
+        """xp-teammate routes to _inject_teammate, not _inject_xp_agent."""
+        result = self._run_xp_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("Intent", result)
+        self.assertIn("Constraints", result)
+        self.assertIn("Teammate Guide", result)
+        self.assertIn("XP Values", result)
+
+    def test_xp_teammate_no_process_guide_or_sprint(self):
+        """xp-teammate does NOT get process guide or sprint stories."""
+        result = self._run_xp_teammate()
+        self.assertIsNotNone(result)
+        self.assertNotIn("PROCESS_GUIDE", result)
+        self.assertNotIn("sprint-001", result)
+
     def test_other_xp_agents_get_values(self):
         """xp-* agents not in dispatch table still get XP values."""
         result = self.subagent_start.run(
@@ -526,6 +553,25 @@ class TestTeammateSystemContext(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertNotIn("System Context", result)
         self.assertIn("Ship v1", result)
+
+    def _run_xp_teammate(self) -> str | None:
+        return self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-1",
+                "agent_type": "xp-teammate",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+    def test_xp_teammate_gets_system_context(self):
+        """xp-teammate gets system_context.md like other teammates."""
+        ctx_path = self.smm_dir / "system_context.md"
+        ctx_path.write_text("Microservices architecture.\n")
+        result = self._run_xp_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("System Context", result)
+        self.assertIn("Microservices architecture.", result)
 
 
 if __name__ == "__main__":
