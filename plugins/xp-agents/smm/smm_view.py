@@ -72,7 +72,7 @@ def render_markdown(
 
     Args:
         smm: Parsed SMM dict with intent/constraints/risks/wisdom pillars.
-        sprint: Optional sprint data (from sprint_parser.parse_sprint_data).
+        sprint: Optional sprint data (from sprint_store.load_sprint).
             If provided, a Sprint section is prepended.
 
     Returns:
