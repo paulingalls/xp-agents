@@ -158,6 +158,16 @@ class TestTeammateGuide(_HookTestCase):
         self.assertIn("review", result.lower())
         self.assertIn("/simplify", result.lower())
 
+    def test_worktree_workflow_section_present(self):
+        """Teammate guide includes worktree-specific workflow section."""
+        result = self._run_teammate()
+        self.assertIn("Worktree Teammates", result)
+
+    def test_worktree_workflow_covers_lead_merge(self):
+        """Worktree section explains lead merges branches after completion."""
+        result = self._run_teammate()
+        self.assertIn("lead merges", result.lower())
+
     def test_teammate_registered_in_coordination(self):
         """Teammate is registered in coordination.json at spawn."""
         import coordination

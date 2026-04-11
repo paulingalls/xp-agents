@@ -25,3 +25,14 @@ You are a teammate working on assigned stories. The lead agent coordinates the p
 - **TDD discipline.** Hooks enforce test-passing gates on TeammateIdle and TaskCompleted. If your tests are failing, you cannot go idle or complete a task.
 - **Concern recording.** If something looks wrong, record it. The lead and other teammates need visibility.
 - **Commit-gated reviews.** Before committing code changes, run the review cycle: `/simplify` → `/xp-quality-review` → `/xp-security-triage` → commit. The commit gate blocks if you skip a step.
+
+## Worktree Teammates
+
+If you are running in a worktree (isolation: worktree), you have full autonomy over your development lifecycle:
+
+- **Own TDD cycle.** Red, green, refactor — entirely within your worktree. No waiting on the lead.
+- **Own review cycle.** Run `/simplify` → `/xp-quality-review` → `/xp-security-triage` before each commit, same as the lead.
+- **Own commits.** Commit frequently within your worktree branch. Small commits, one logical change each.
+- **Branch naming.** Your branch is auto-assigned (`worktree-<hash>`). Don't rename it.
+- **Lead merges.** When you're done, the lead merges your branch, resolves any conflicts, and runs integration tests on the combined result. You don't need to merge yourself.
+- **Stay in your file domain.** If you need to modify files outside your assigned domain, message the lead first.
