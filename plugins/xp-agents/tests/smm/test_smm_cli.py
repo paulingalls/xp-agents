@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Tests for smm_cli: SMM CLI with rendering and write operations."""
 
+import json
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
 import smm_cli
 import smm_schema
+from conftest import _HookTestCase, make_event
 
 
 def _entry(content, source="seed", **extra):
@@ -157,6 +161,91 @@ class TestExtractPillars(unittest.TestCase):
         smm = smm_schema.empty_smm()
         result = smm_cli.extract_pillars(smm, {"intent"})
         self.assertIn("# Shared Mental Model", result)
+
+
+def _valid_smm_json(**overrides) -> str:
+    """Build a valid SMM JSON string."""
+    data = smm_schema.empty_smm()
+    data.update(overrides)
+    return json.dumps(data)
+
+
+def _smm_with_intent(content: str = "Ship v1") -> str:
+    """Build an SMM JSON with one intent entry."""
+    import uuid
+
+    data = smm_schema.empty_smm()
+    data["intent"] = [
+        {
+            "id": str(uuid.uuid4()),
+            "content": content,
+            "source": "seed",
+            "ts": "2026-01-01T00:00:00+00:00",
+            "type": "goal",
+        }
+    ]
+    return json.dumps(data)
+
+
+class TestSaveCommand(_HookTestCase):
+    """Tests for smm_cli.save() — validate + write + watermark + compact."""
+
+    def test_writes_smm_file(self):
+        content = _smm_with_intent("Ship v1")
+        smm_cli.save(content, smm_dir=self.smm_dir)
+        import smm_store
+
+        smm_file = self.smm_dir / smm_store.SMM_FILENAME
+        self.assertTrue(smm_file.exists())
+        data = json.loads(smm_file.read_text())
+        self.assertEqual(data["intent"][0]["content"], "Ship v1")
+
+    def test_updates_curation_watermark(self):
+        self._write_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+            ]
+        )
+        smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
+        import materialize as _mat
+
+        wm = _mat.read_curation_watermark(self.smm_dir)
+        self.assertEqual(wm["event_count"], 2)
+        self.assertEqual(wm["agent_id"], "xp-housekeeping")
+
+    def test_overwrites_existing_smm(self):
+        import smm_store
+
+        smm_store.save_smm(self.smm_dir, smm_schema.empty_smm())
+        smm_cli.save(_smm_with_intent("new goal"), smm_dir=self.smm_dir)
+        data = smm_store.load_smm(self.smm_dir)
+        self.assertEqual(data["intent"][0]["content"], "new goal")
+
+    def test_rejects_invalid_json(self):
+        with self.assertRaises(json.JSONDecodeError):
+            smm_cli.save("not json", smm_dir=self.smm_dir)
+
+    def test_rejects_invalid_schema(self):
+        with self.assertRaises(ValueError):
+            smm_cli.save('{"bad": "schema"}', smm_dir=self.smm_dir)
+
+    def test_triggers_compaction(self):
+        from unittest.mock import patch
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        with patch("compact.compact_after_curation") as mock:
+            smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
+        mock.assert_called_once_with(self.smm_dir)
+
+    def test_compaction_failure_does_not_fail_write(self):
+        from unittest.mock import patch
+
+        import smm_store
+
+        with patch("compact.compact_after_curation", side_effect=OSError("boom")):
+            smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
+        self.assertTrue((self.smm_dir / smm_store.SMM_FILENAME).exists())
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import smm_store
 from smm_schema import PILLARS
 
 _PILLAR_TITLES = {
@@ -124,29 +125,63 @@ def extract_pillars(smm: dict, pillars: set[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _cmd_dump(args: "argparse.Namespace") -> int:
-    from smm_store import load_smm
-
-    smm = load_smm(args.smm_dir)
+def _cmd_dump(args: argparse.Namespace) -> int:
+    smm = smm_store.load_smm(args.smm_dir)
     print(render_markdown(smm))
     return 0
 
 
-def _cmd_section(args: "argparse.Namespace") -> int:
-    from smm_store import load_smm
-
-    smm = load_smm(args.smm_dir)
+def _cmd_section(args: argparse.Namespace) -> int:
+    smm = smm_store.load_smm(args.smm_dir)
     print(extract_pillar(smm, args.name.lower()))
     return 0
 
 
-def _cmd_has_section(args: "argparse.Namespace") -> int:
-    from smm_store import load_smm
-
-    smm = load_smm(args.smm_dir)
+def _cmd_has_section(args: argparse.Namespace) -> int:
+    smm = smm_store.load_smm(args.smm_dir)
     name = args.name.lower()
     entries = smm.get(name, [])
     return 0 if entries else 1
+
+
+def _cmd_save(args: argparse.Namespace) -> int:
+    import json
+
+    content = sys.stdin.read()
+    try:
+        save(content, smm_dir=args.smm_dir)
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Library function for save (callable from Python or CLI)
+# ---------------------------------------------------------------------------
+
+
+def save(content: str, *, smm_dir: Path) -> None:
+    """Parse JSON, validate, write, update watermark, compact.
+
+    Raises:
+        json.JSONDecodeError: If content is not valid JSON.
+        ValueError: If content fails SMM schema validation.
+    """
+    import contextlib
+    import json
+
+    import compact
+    import materialize
+
+    data = json.loads(content)
+    smm_store.save_smm(smm_dir, data)
+
+    events, _ = materialize.parse_events(smm_dir)
+    materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
+
+    with contextlib.suppress(OSError, ValueError):
+        compact.compact_after_curation(smm_dir)
 
 
 def main() -> None:
@@ -164,12 +199,15 @@ def main() -> None:
     has_p = sub.add_parser("has-section", help="Check if a pillar has entries")
     has_p.add_argument("name", help="Pillar name (intent/constraints/risks/wisdom)")
 
+    sub.add_parser("save", help="Save SMM from stdin JSON")
+
     args = parser.parse_args()
 
     dispatch = {
         "dump": _cmd_dump,
         "section": _cmd_section,
         "has-section": _cmd_has_section,
+        "save": _cmd_save,
     }
 
     sys.exit(dispatch[args.command](args))

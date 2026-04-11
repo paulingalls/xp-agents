@@ -36,16 +36,14 @@ def _run_prepare_curation(smm_dir: Path, cwd: Path) -> subprocess.CompletedProce
     )
 
 
+_SMM_CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
+
+
 def _run_save_smm(
     smm_dir: Path, cwd: Path, content: str
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [
-            "python3",
-            str(_HOUSEKEEPING_DIR / "save_smm.py"),
-            "--smm-dir",
-            str(smm_dir),
-        ],
+        ["python3", str(_SMM_CLI), "--smm-dir", str(smm_dir), "save"],
         input=content,
         capture_output=True,
         text=True,
