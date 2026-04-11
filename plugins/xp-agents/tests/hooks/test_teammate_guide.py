@@ -13,31 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from conftest import SAMPLE_SPRINT_MD as _SAMPLE_SPRINT
 from conftest import _HookTestCase, write_smm_fixture
-
-_SAMPLE_SPRINT = """\
-# Sprint: Build user management REST API
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-26
-
-## Stories
-
-### story-001: User registration
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: JWT authentication
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** story-001
-
-### story-003: Admin user list
-- **Size:** S
-- **Status:** ready
-- **Dependencies:** story-001
-"""
 
 
 class TestTeammateDetection(unittest.TestCase):

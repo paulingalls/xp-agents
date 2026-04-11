@@ -19,7 +19,6 @@ _SUBAGENT_NAMES = (
     "xp-plan-reviewer",
     "xp-retrospective",
     "xp-security-reviewer",
-    "xp-assign",
     "xp-sprint-retro",
     "xp-sprint-reviewer",
     "xp-system-context",
@@ -250,6 +249,25 @@ class TestAgentFilesM65(unittest.TestCase):
         self.assertIn("/simplify", body)
         self.assertIn("/xp-quality-review", body)
         self.assertIn("/xp-security-triage", body)
+
+    def test_xp_assign_has_no_agent_file(self):
+        """xp-assign is an inline skill — no agent file should exist."""
+        path = self.agents_dir / "xp-assign.md"
+        self.assertFalse(
+            path.exists(), f"xp-assign agent file should not exist: {path}"
+        )
+
+    def test_xp_assign_skill_is_inline(self):
+        """xp-assign SKILL.md must not have context: fork or agent: field."""
+        skill_file = (
+            Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"
+        )
+        content = skill_file.read_text()
+        match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        self.assertIsNotNone(match)
+        fm = match.group(1)
+        self.assertNotIn("context: fork", fm)
+        self.assertNotIn("agent:", fm)
 
 
 # ===========================================================================

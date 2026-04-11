@@ -130,6 +130,33 @@ SPRINT_MIXED_IN_PROGRESS = _sprint_json(
     started="2026-04-01",
 )
 
+# Rendered markdown sprint — used by preload-based tests (test_assign,
+# test_subagent_tiers, test_teammate_guide) that write to sprint.json
+# in rendered markdown format rather than raw JSON.
+SAMPLE_SPRINT_MD = """\
+# Sprint: Build user management REST API
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-26
+
+## Stories
+
+### story-001: User registration
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+
+### story-002: JWT authentication
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** story-001
+
+### story-003: Admin user list
+- **Size:** S
+- **Status:** ready
+- **Dependencies:** story-001
+"""
+
 
 # ---------------------------------------------------------------------------
 # Event factory
