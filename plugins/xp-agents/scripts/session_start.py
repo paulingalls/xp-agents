@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import execution_plan_store
 import markers
 import smm_cli
 import smm_store
@@ -81,6 +82,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         markers.marker_write(smm_dir, markers.KICKOFF, source)
         markers.marker_consume(smm_dir, markers.ACCEPT)
         if not sprint_state.has_remaining_work(smm_dir):
+            execution_plan_store.archive(smm_dir)
             markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)
         if not sprint_state.system_context_exists(smm_dir):
             markers.marker_write(smm_dir, markers.NEEDS_SYSTEM_CONTEXT, source)

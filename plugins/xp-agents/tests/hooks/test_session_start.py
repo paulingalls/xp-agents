@@ -325,8 +325,8 @@ class TestSessionStartExecutionPlanMarker(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
         )
 
-    def test_startup_all_delivered_writes_marker(self):
-        """Plan exists but all milestones delivered — writes marker."""
+    def test_startup_all_delivered_writes_marker_and_archives(self):
+        """All milestones delivered — writes marker and archives plan."""
         import json
 
         import markers
@@ -361,6 +361,11 @@ class TestSessionStartExecutionPlanMarker(_HookTestCase):
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
         )
+        self.assertFalse((self.smm_dir / "execution_plan.json").exists())
+        plans_dir = self.smm_dir / "plans"
+        self.assertTrue(plans_dir.is_dir())
+        archived = list(plans_dir.glob("execution_plan_*.json"))
+        self.assertEqual(len(archived), 1)
 
     def test_resume_does_not_write_execution_plan_marker(self):
         """Resume source does not write NEEDS_EXECUTION_PLAN."""
