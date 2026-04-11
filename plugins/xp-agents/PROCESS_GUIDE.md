@@ -31,7 +31,7 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 - Run `/xp-review-plan` before writing any code.
 
 **Sprint iteration flow:**
-- `/xp-product-spec` → `/xp-sprint-start` → implement → `/xp-accept`
+- `/xp-plan` → `/xp-sprint-start` → implement → `/xp-accept`
 - When done: `/xp-sprint-review` → `/xp-run-sprint-retro`
 
 **Forked skills (all XP agents):**
@@ -41,6 +41,9 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 **Agent Teams:**
 - `/xp-spawn-team` for plan analysis and team sizing.
 - Teammates receive TEAMMATE_GUIDE.md — they focus on implementation.
+
+**When running tests:**
+- Check for FAIL/ERROR in the output first. Never re-run the full suite just to find failure names — capture them from the first run.
 
 **When a Stop hook blocks you:**
 - TDD gate: fix failing tests. Accept gate: run `/xp-accept` first.
