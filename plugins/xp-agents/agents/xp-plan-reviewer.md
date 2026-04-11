@@ -110,7 +110,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ### 9. Execution Mode Recommendation
 
-When sprint.md is available in your context, assess how the plan should be executed:
+When sprint data is available in your context, assess how the plan should be executed:
 
 - **Solo** (single agent): The plan has 1 story or all tasks are sequential with overlapping file domains. Most plans fall here.
 - **Subagents** (Agent tool): The plan has 2-3 independent stories with non-overlapping file domains. Tasks can run in parallel via the Agent tool.
@@ -122,7 +122,7 @@ When sprint.md is available in your context, assess how the plan should be execu
 - Are there dependency chains? (sequential deps = solo, parallel-safe = subagents/team)
 - Is the work large enough to justify coordination overhead? (small tasks = solo even if parallelizable)
 
-Include your recommendation in the output under an "Execution mode" heading. If no sprint.md is present, skip this section.
+Include your recommendation in the output under an "Execution mode" heading. If no sprint data is present, skip this section.
 
 ## Output — Guidance for the Main Agent
 

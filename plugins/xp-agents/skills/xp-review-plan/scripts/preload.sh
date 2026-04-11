@@ -12,10 +12,9 @@ if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
     echo "SMM_FILE=$(smm_render_to_tempfile)"
 fi
 
-# Sprint file path
-SPRINT_FILE="${SMM_DIR}/sprint.json"
-if [ -f "$SPRINT_FILE" ]; then
-    echo "SPRINT_FILE=${SPRINT_FILE}"
+# Sprint rendered to tempfile (read-only consumer — rendered markdown saves tokens)
+if [ -f "${SMM_DIR}/sprint.json" ]; then
+    echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
 # Read plan file path from marker, fall back to most recent .claude/plans/*.md
