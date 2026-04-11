@@ -29,7 +29,7 @@ Beyond `events.jsonl`, three persistent markdown files live in the SMM directory
 | File | Created By | Updated By | Purpose |
 |---|---|---|---|
 | `system_context.md` | `/xp-system-context` | `/xp-system-context` (re-run after architecture changes) | Product/system description — architecture, components, constraints |
-| `execution_plan.md` | `/xp-plan` | `/xp-sprint-review` (milestone delivery markers) | Ordered milestones with change zones, impact zones, design details |
+| `execution_plan.json` | `/xp-plan` | `/xp-sprint-review` (milestone delivery markers) | Ordered milestones with change zones, impact zones, design details |
 | `sprint.md` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint stories with context gradient — file domains, interface contracts |
 
 These are **LLM-readable markdown**. `sprint_parser.py` parses `sprint.md` into structured data. System context and execution plan are stable across sprints; sprint.md is ephemeral (one active at a time).
@@ -122,7 +122,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
 | `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
 | `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
-| `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.md milestone updates, velocity |
+| `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
 | `xp-sprint-retro` | `/xp-sprint-retro` skill | Fork | Cross-iteration retrospective: patterns across session retros, sizing accuracy |
 | `xp-spawn-team` | `/xp-spawn-team` skill | Fork | Analyze plan for parallelizable work, produce structured spawn instructions |
 
@@ -132,7 +132,7 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash)
 - `/xp-goal-collection` — session goal collection
 - `/xp-question-triage` — ongoing question triage + retro Try item adoption
 - `/xp-quality-review` — post-simplify courage accountability, drift management, debt awareness
-- `/xp-plan` — create/update execution plan with milestones (`execution_plan.md`)
+- `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-system-context` — create/update system context description (`system_context.md`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.md`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred

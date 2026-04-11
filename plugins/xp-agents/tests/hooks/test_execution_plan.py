@@ -80,11 +80,11 @@ class TestExecutionPlanFileStructure(unittest.TestCase):
         self.assertIn("name: xp-plan", content)
 
     def test_skill_md_allowed_tools(self):
-        """Must include Read, AskUserQuestion, and save script."""
+        """Must include Read, AskUserQuestion, and plan CLI."""
         content = _SKILL_MD.read_text()
         self.assertIn("Read", content)
         self.assertIn("AskUserQuestion", content)
-        self.assertIn("save_planning_doc.py", content)
+        self.assertIn("plan_cli.py", content)
 
     def test_skill_md_references_system_context(self):
         """Must mention /xp-system-context for when it's missing."""

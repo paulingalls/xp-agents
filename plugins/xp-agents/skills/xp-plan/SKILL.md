@@ -1,7 +1,7 @@
 ---
 name: xp-plan
 description: >-
-  Create or update execution_plan.md — collaborative planning that transforms
+  Create or update execution_plan.json — collaborative planning that transforms
   external design sources into ordered development milestones with change zones,
   impact zones, and design details. Replaces /xp-product-spec for sprint-mode
   work. Use when starting a new change request or refining an existing plan.
@@ -14,7 +14,7 @@ allowed-tools:
   - Skill
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(*/scripts/save_planning_doc.py *)
+  - Bash(*/smm/plan_cli.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -87,54 +87,41 @@ Use `AskUserQuestion`: "Does this plan look right? Any milestones to adjust?"
 
 Iterate until the user confirms.
 
-### Step 5: Write execution_plan.md
+### Step 5: Write execution_plan.json
 
-Assemble in this format:
+Assemble the plan as JSON and write via the CLI:
 
-```markdown
-# Execution Plan: <title>
-
-## Sources
-
-| Label | Location | Type |
-|-------|----------|------|
-| <name> | <path or "inline"> | repo / url / pasted |
-
-<details><summary>Source: <label></summary>
-<pasted content>
-</details>
-
-## Change Overview
-<What's changing across all milestones. Current state to desired state.>
-
-## Milestones
-
-### Milestone 1: <name> [planned]
-- **Goal:** <one sentence>
-- **Definition of Done:** <testable condition>
-- **Sources:** <label> §section, <label> §section
-
-**Change Zones:**
-- `path/to/file` — <what changes>
-
-**Impact Zones:**
-- `path/to/file` — <why affected>
-
-**Design Details:**
-- <decision or pattern>
-
-**Constraints:**
-- <limit or requirement>
-```
-
-Write the file:
 ```bash
-cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_planning_doc.py --smm-dir <SMM_DIR> --type execution_plan
-<assembled markdown>
+cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> create
+{
+  "title": "<title>",
+  "sources": [
+    {"label": "<name>", "location": "<path or inline>", "type": "<repo|url|pasted>", "content": null}
+  ],
+  "overview": "<current state to desired state>",
+  "milestones": [
+    {
+      "number": 1,
+      "name": "<name>",
+      "status": "planned",
+      "delivered_sprint": null,
+      "goal": "<one sentence>",
+      "done": "<testable condition>",
+      "sources": "<label> §section, <label> §section",
+      "change_zones": [{"path": "path/to/file", "note": "<what changes>"}],
+      "impact_zones": [{"path": "path/to/file", "note": "<why affected>"}],
+      "design_details": "<decisions, patterns, implementation notes>",
+      "constraints": ["<limit or requirement>"]
+    }
+  ]
+}
 PLANEOF
 ```
 
-After writing, **output the full execution_plan.md content** so the user can review it.
+After writing, render the plan as markdown and **output it as text** so the user can see it:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
+```
 
 ### Step 6: Record Event
 
@@ -142,8 +129,8 @@ After writing, **output the full execution_plan.md content** so the user can rev
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" \
   --agent "xp-plan" \
-  --content "Created execution_plan.md with N milestones" \
-  --working-on '["execution_plan.md"]'
+  --content "Created execution_plan.json with N milestones" \
+  --working-on '["execution_plan.json"]'
 ```
 
 ## Update Flow
@@ -151,11 +138,27 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 1. Read the full plan from `EXECUTION_PLAN=<path>` using `Read`.
 2. Show the user a summary (milestone counts from preload, titles from file).
 3. Ask what to change via `AskUserQuestion`: "Add milestones", "Refine existing", "Add sources", "Done".
-4. For new milestones: gather details and add after existing milestones with `[planned]` status.
-5. For refinements: only modify `[planned]` or `[in-progress]` milestones.
-6. **NEVER modify `[delivered: ...]` milestones** — only `/xp-sprint-review` does that.
-7. Write the full updated plan using `save_planning_doc.py`. Always include all existing content.
-8. **Output the full updated execution_plan.md content** for review.
+4. For new milestones, use the CLI to add:
+   ```bash
+   cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-milestone
+   {"number": N, "name": "...", "status": "planned", "delivered_sprint": null, ...}
+   EOF
+   ```
+5. For new sources:
+   ```bash
+   cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-source
+   {"label": "...", "location": "...", "type": "repo", "content": null}
+   EOF
+   ```
+6. For overview changes:
+   ```bash
+   echo "New overview text" | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> set-overview
+   ```
+7. **NEVER modify `delivered` milestones** — only `/xp-sprint-review` does that.
+8. Render and **output the plan as text** for review:
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
+   ```
 9. Record a status event describing what changed.
 
 ## Guidelines

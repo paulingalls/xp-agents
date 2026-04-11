@@ -211,7 +211,7 @@ plugins/xp-agents/
 │   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
 │   ├── xp-security-triage/SKILL.md   ← forked, delegates to xp-security-reviewer agent
 │   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
-│   ├── xp-plan/SKILL.md              ← inline, execution planning (execution_plan.md)
+│   ├── xp-plan/SKILL.md              ← inline, execution planning (execution_plan.json)
 │   ├── xp-system-context/SKILL.md    ← forked, system context analysis (system_context.md)
 │   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.md)
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
@@ -341,7 +341,7 @@ tests/
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
 - Python 3.10+, stdlib only, zero dependencies
-- Four-file architecture: events.jsonl + system_context.md + execution_plan.md + sprint.md (reversed three-file decision — product_spec was too monolithic for change-request workflows)
+- Four-file architecture: events.jsonl + system_context.md + execution_plan.json + sprint.md (execution plan is JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
 - Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion

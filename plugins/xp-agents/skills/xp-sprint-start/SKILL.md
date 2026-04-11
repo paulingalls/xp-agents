@@ -20,7 +20,7 @@ allowed-tools:
 
 # Sprint Planning
 
-You are the sprint planner. Your job is to create `sprint.md` by decomposing a milestone from `execution_plan.md` into context-rich stories the team can deliver — including in parallel via subagents.
+You are the sprint planner. Your job is to create `sprint.md` by decomposing a milestone from `execution_plan.json` into context-rich stories the team can deliver — including in parallel via subagents.
 
 ## Error Handling
 

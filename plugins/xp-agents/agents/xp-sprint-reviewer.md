@@ -45,11 +45,14 @@ Summarize the sprint outcome:
 
 If `execution_plan_md_path` is non-empty AND `milestone` is non-empty:
 
-1. Read execution_plan.md from the path provided
-2. Find the milestone heading that matches the `milestone` field (e.g., "### Milestone 1: Auth Foundation [in-progress]")
-3. Use Edit to change `[in-progress]` or `[planned]` to `[delivered: <sprint_id>]`
-4. **Never modify already `[delivered: ...]` entries**
-5. After marking delivered, check if the milestone's Change Zones included architecture-level files (e.g., files in agents/, scripts/, config files). If so, note in your summary that `/xp-system-context` should be re-run to update the system context.
+1. Read execution_plan.json from the path provided to identify the milestone number
+2. Use the plan CLI to mark the milestone as delivered:
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> \
+     update-status <MILESTONE_NUMBER> delivered --delivered-sprint <sprint_id>
+   ```
+3. **Never modify already `delivered` milestones**
+4. After marking delivered, check if the milestone's change_zones included architecture-level files (e.g., files in agents/, scripts/, config files). If so, note in your summary that `/xp-system-context` should be re-run to update the system context.
 
 If `execution_plan_md_path` is empty or `milestone` is empty, skip this step.
 
