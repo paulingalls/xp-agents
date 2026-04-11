@@ -1,5 +1,40 @@
 # Changelog
 
+## v2.4.0 — Worktree Teammates + Inline Work Assignment
+
+### Architecture
+- **xp-teammate agent.** New worktree-isolated subagent for parallel story implementation. Spawned with `isolation: worktree`, runs full TDD + review cycle independently, commits to its own branch. The lead merges branches after completion.
+- **xp-assign inline skill.** Renamed from xp-spawn-team and converted from forked agent to inline skill. Directly analyzes sprint stories, decides execution mode (Solo vs Worktree subagents), and spawns xp-teammate agents via the Agent tool. Auto-runs after plan review completes.
+- **Assign-pending gate.** When plan review completes, SubagentStop sets `.assign-pending` marker and nudges the agent to run `/xp-assign`. PreToolUse:Write blocks implementation until the marker is cleared. Mirrors the plan-review gate pattern.
+
+### Added
+- **`xp-teammate.md` agent definition.** Worktree-isolated teammate with `isolation: worktree` frontmatter, full review cycle instructions, file domain boundaries, and SMM event recording. Story-specific context comes from the spawn prompt.
+- **`worktree_create.py` WorktreeCreate hook.** Branches worktrees from the current branch (not main/master), so teammates work on top of the lead's latest code. Registered in hooks.json.
+- **xp-teammate dispatch in `subagent_start.py`.** Dedicated `_inject_xp_teammate()` handler provides SMM + system context without the teammate guide (instructions are in the agent .md).
+- **`ASSIGN_PENDING` marker** in `marker_names.py` and `markers.py`. Gate constant for the plan-review → assign flow.
+- **`_handle_plan_review_done()` in `subagent_stop.py`.** Sets assign-pending marker and returns additionalContext nudge when xp-plan-reviewer completes.
+- **`edit-milestone` command in `plan_cli.py`.** Accepts JSON on stdin to update milestone status and delivered_sprint.
+- **`SAMPLE_SPRINT_MD` shared fixture** in `conftest.py`. Eliminates duplication across test_subagent_tiers.py and test_teammate_guide.py.
+
+### Changed
+- **xp-spawn-team → xp-assign.** Skill directory, agent file, test file, and all references renamed atomically across CLAUDE.md, PROCESS_GUIDE.md, ARCHITECTURE.md, plan-reviewer, kickoff, plugin integrity tests, subagent tier tests, and 3 design docs.
+- **xp-assign converted to inline.** Removed `context: fork` and `agent:` from frontmatter. Agent file deleted. Mode selection heuristic (dependency chains → Solo, all S-sized → Solo, overlapping domains → Solo, independent M/L → Worktree) and spawn instructions now live in SKILL.md.
+- **Kickoff step 7** auto-invokes `/xp-assign` after plan review instead of listing manual options.
+- **Sprint CLI for status updates.** Work-selection and accept skills now use `sprint_cli.py update-story` instead of direct file writes.
+- **Preload rendering via CLI.** Sprint and SMM data rendered to tempfiles via CLI for read-only preload consumers, reducing token overhead.
+- **Status keys standardized to hyphenated format** across all sprint stores (in-progress, not in_progress).
+- **TEAMMATE_GUIDE.md** rewritten for Agent Teams focus (DO/DON'T/SKIP/KEEP rules).
+- **`max_events_between_commits` → `max_events_to_commit`.** Metric renamed for clarity.
+
+### Removed
+- **`agents/xp-assign.md`** (formerly xp-spawn-team). Logic moved to inline skill.
+- **`test_spawn_team.py`** renamed to `test_assign.py`.
+
+### Stats
+- 1778 tests (up from 1747), all passing
+- Pre-commit wall time: ~25s
+- 19 commits in this release (sprint-005 + sprint-006)
+
 ## v2.3.1 — Bug Fixes, SMM CLI Consolidation, Four-Pillar Cleanup
 
 ### Fixed
