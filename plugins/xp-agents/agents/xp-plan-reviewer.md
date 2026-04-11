@@ -114,7 +114,7 @@ When sprint data is available in your context, assess how the plan should be exe
 
 - **Solo** (single agent): The plan has 1 story or all tasks are sequential with overlapping file domains. Most plans fall here.
 - **Subagents** (Agent tool): The plan has 2-3 independent stories with non-overlapping file domains. Tasks can run in parallel via the Agent tool.
-- **Agent Team** (`/xp-spawn-team`): The plan has 4+ independent stories, clear file domain separation, and the coordination overhead is justified by parallelism gains.
+- **Agent Team** (`/xp-assign`): The plan has 4+ independent stories, clear file domain separation, and the coordination overhead is justified by parallelism gains.
 
 **Assessment criteria:**
 - How many stories does the sprint have? (1 = solo, 2-3 independent = consider subagents, 4+ = consider team)

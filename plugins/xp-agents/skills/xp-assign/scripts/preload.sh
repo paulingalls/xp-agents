@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-spawn-team: output file paths for agent to Read.
+# Preload for xp-assign: output file paths for agent to Read.
 # XP values injected universally via SubagentStart.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"

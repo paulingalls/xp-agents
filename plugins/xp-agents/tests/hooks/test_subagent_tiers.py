@@ -324,13 +324,13 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("XP Values", result)
         self.assertNotIn("Ship v1", result)
 
-    def test_spawn_team_gets_values_only(self):
-        """xp-spawn-team gets XP values only (data from preload)."""
+    def test_assign_gets_values_only(self):
+        """xp-assign gets XP values only (data from preload)."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
-                "agent_id": "spawn-1",
-                "agent_type": "xp-spawn-team",
+                "agent_id": "assign-1",
+                "agent_type": "xp-assign",
             },
             smm_dir=self.smm_dir,
         )

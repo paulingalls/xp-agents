@@ -117,7 +117,7 @@ Sprint and planning state live in separate files, not in the curated SMM pillars
 
 **Sprint events** (`type: sprint`) record lifecycle transitions (start, end) with metadata including velocity (stories_planned, stories_delivered, stories_carried).
 
-**Sprint-aware injection:** xp-plan-reviewer and xp-retrospective get sprint data via SubagentStart. Teammates get filtered stories (only their assigned work). `/xp-spawn-team` preload dumps both sprint and the current plan.
+**Sprint-aware injection:** xp-plan-reviewer and xp-retrospective get sprint data via SubagentStart. Teammates get filtered stories (only their assigned work). `/xp-assign` preload dumps both sprint and the current plan.
 
 ---
 

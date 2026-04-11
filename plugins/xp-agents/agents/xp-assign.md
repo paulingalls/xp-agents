@@ -1,9 +1,9 @@
 ---
-name: xp-spawn-team
+name: xp-assign
 description: >-
   Team spawn analyst. Analyzes plan and sprint to produce structured
   instructions for creating an Agent Team with optimal task distribution.
-  Invoke via /xp-spawn-team skill, not directly.
+  Invoke via /xp-assign skill, not directly.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -145,7 +145,7 @@ Record assumptions about domain boundaries:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "assumption" --agent "xp-spawn-team" \
+  --type "assumption" --agent "xp-assign" \
   --content "Domain boundary: [description of assumed separation]"
 ```
 

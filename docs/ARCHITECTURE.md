@@ -124,7 +124,7 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 | `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
 | `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
 | `xp-sprint-retro` | `/xp-sprint-retro` skill | Fork | Cross-iteration retrospective: patterns across session retros, sizing accuracy |
-| `xp-spawn-team` | `/xp-spawn-team` skill | Fork | Analyze plan for parallelizable work, produce structured spawn instructions |
+| `xp-assign` | `/xp-assign` skill | Fork | Analyze plan for parallelizable work, produce structured spawn instructions |
 
 Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
 - `/xp-kickoff` — orchestrator, sequences retro → question triage → goals → housekeeping at session start
@@ -253,7 +253,7 @@ plugins/xp-agents/
 │   ├── xp-security-reviewer.md
 │   ├── xp-sprint-reviewer.md
 │   ├── xp-sprint-retro.md
-│   └── xp-spawn-team.md
+│   └── xp-assign.md
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
 │   ├── xp-smm-protocol/SKILL.md
@@ -263,7 +263,7 @@ plugins/xp-agents/
 │   ├── xp-security-triage/SKILL.md ← forked, agent: xp-security-reviewer
 │   ├── xp-sprint-review/SKILL.md   ← forked, agent: xp-sprint-reviewer
 │   ├── xp-sprint-retro/SKILL.md    ← forked, agent: xp-sprint-retro
-│   ├── xp-spawn-team/SKILL.md      ← forked, agent: xp-spawn-team
+│   ├── xp-assign/SKILL.md      ← forked, agent: xp-assign
 │   ├── xp-kickoff/SKILL.md         ← inline, orchestrates session start lifecycle
 │   ├── xp-housekeeping/SKILL.md    ← inline, four-pillar SMM curation
 │   ├── xp-goal-collection/SKILL.md ← inline, session goal collection
@@ -400,8 +400,8 @@ TeammateIdle and TaskCompleted enforce TDD — tests must pass before going idle
 
 ### Team Spawn Flow
 
-1. Plan reviewer recommends `/xp-spawn-team` when plan has parallelizable work
-2. Lead runs `/xp-spawn-team` — subagent analyzes file domains, outputs structured instructions
+1. Plan reviewer recommends `/xp-assign` when plan has parallelizable work
+2. Lead runs `/xp-assign` — subagent analyzes file domains, outputs structured instructions
 3. Lead creates Agent Team using platform mechanism with the spawn instructions
 4. Each teammate works within assigned file domain with commit-gated review cycle
 5. Lead runs `/xp-accept` when all tasks complete

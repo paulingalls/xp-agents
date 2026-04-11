@@ -212,7 +212,7 @@ plugins/xp-agents/
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks + shared modules
 ├── agents/*.md                        ← subagent definitions (7 agents: retrospective, plan-reviewer,
-│                                        security-reviewer, sprint-reviewer, sprint-retro, spawn-team,
+│                                        security-reviewer, sprint-reviewer, sprint-retro, assign,
 │                                        system-context)
 ├── skills/                            ← forked + inline skills
 │   ├── xp-kickoff/SKILL.md           ← session start orchestrator
@@ -229,7 +229,7 @@ plugins/xp-agents/
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
 │   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
 │   ├── xp-sprint-retro/SKILL.md      ← forked, delegates to xp-sprint-retro agent
-│   └── xp-spawn-team/SKILL.md        ← forked, delegates to xp-spawn-team agent
+│   └── xp-assign/SKILL.md            ← forked, delegates to xp-assign agent
 └── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
          resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
          sprint_store.py,sprint_schema.py,sprint_cli.py,schema.json}
@@ -298,7 +298,7 @@ tests/
 │   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
 │   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
 │   ├── test_sprint_retro.py  ← sprint retro data prep, preload
-│   └── test_spawn_team.py   ← M15 spawn-team preload integration
+│   └── test_assign.py       ← xp-assign preload integration
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
@@ -357,5 +357,5 @@ tests/
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
 - Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
-- No prep script for spawn-team — domain analysis is LLM judgment
+- No prep script for xp-assign — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash

@@ -36,10 +36,10 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 
 **Forked skills (all XP agents):**
 - All XP agents are invoked via their corresponding skill, never launched directly with the Agent tool. Skills provide preload data and cleanup hooks that direct launches skip.
-- `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`, `/xp-run-sprint-retro`, `/xp-spawn-team`
+- `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`, `/xp-run-sprint-retro`, `/xp-assign`
 
 **Agent Teams:**
-- `/xp-spawn-team` for plan analysis and team sizing.
+- `/xp-assign` for plan analysis and team sizing.
 - Teammates receive TEAMMATE_GUIDE.md — they focus on implementation.
 
 **When running tests:**

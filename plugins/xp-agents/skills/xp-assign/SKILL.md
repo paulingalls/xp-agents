@@ -1,0 +1,20 @@
+---
+name: xp-assign
+description: >-
+  Analyze the current plan and sprint, then output structured instructions
+  for spawning an Agent Team. Identifies file domains, parallel task groups,
+  and team sizing. Does NOT spawn the team directly.
+effort: high
+context: fork
+agent: xp-agents:xp-assign
+allowed-tools:
+  - Bash(*/append.sh *)
+  - Bash(*/init.sh)
+  - Bash(*/skills/*/scripts/*)
+---
+
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+
+This skill should run as a forked subagent (xp-assign). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
+
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-assign subagent. The subagent result is returned as a tool result which is NOT visible to the user — you must output the key findings as text in your response.
