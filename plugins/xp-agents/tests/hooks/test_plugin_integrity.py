@@ -23,6 +23,7 @@ _SUBAGENT_NAMES = (
     "xp-sprint-retro",
     "xp-sprint-reviewer",
     "xp-system-context",
+    "xp-teammate",
 )
 
 _ALL_SKILL_NAMES = (
@@ -232,6 +233,14 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertIn(
                 "SMM Content Trust", content, f"{name} missing SMM Content Trust"
             )
+
+    def test_xp_teammate_frontmatter(self):
+        """xp-teammate must have isolation: worktree and Skill in frontmatter."""
+        content = (self.agents_dir / "xp-teammate.md").read_text()
+        parts = content.split("---", 2)
+        fm = parts[1]
+        self.assertIn("isolation: worktree", fm)
+        self.assertIn("Skill", fm)
 
 
 # ===========================================================================
