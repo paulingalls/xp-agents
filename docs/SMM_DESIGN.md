@@ -107,16 +107,17 @@ Coordination is **not a pillar of the curated SMM**. It operates at a fundamenta
 
 ### Sprint (separate from curated SMM)
 
-Sprint state is **not a pillar of the curated SMM**. Like Coordination, it operates at a different cadence — sprint lifecycle (days/weeks) vs session curation. It lives in `sprint.md` and `product_spec.md` in the SMM directory.
+Sprint state is **not a pillar of the curated SMM**. Like Coordination, it operates at a different cadence — sprint lifecycle (days/weeks) vs session curation. It lives in `sprint.json` and `execution_plan.json` in the SMM directory.
 
 | File | Created By | Lifecycle | Purpose |
 |---|---|---|---|
-| `product_spec.md` | `/xp-product-spec` | Persistent across sprints | Features, acceptance criteria, priorities |
-| `sprint.md` | `/xp-sprint-start` | One active at a time | Stories, sizes, statuses, dependencies |
+| `system_context.md` | `/xp-system-context` | Persistent, updated as system evolves | Product overview, architecture, technical constraints |
+| `execution_plan.json` | `/xp-plan` | Persistent across sprints, archived when all milestones delivered | Milestones, change zones, impact zones, design details |
+| `sprint.json` | `/xp-sprint-start` | One active at a time | Stories, sizes, statuses, acceptance criteria |
 
 **Sprint events** (`type: sprint`) record lifecycle transitions (start, end) with metadata including velocity (stories_planned, stories_delivered, stories_carried).
 
-**Sprint-aware injection:** xp-plan-reviewer and xp-retrospective get sprint.md via SubagentStart. Teammates get filtered stories (only their assigned work). `/xp-spawn-team` preload dumps both sprint.md and the current plan.
+**Sprint-aware injection:** xp-plan-reviewer and xp-retrospective get sprint data via SubagentStart. Teammates get filtered stories (only their assigned work). `/xp-spawn-team` preload dumps both sprint and the current plan.
 
 ---
 
@@ -169,7 +170,13 @@ An agent reads the entire mental model in 2 seconds. The unhealthy states themse
 
 ## Architecture
 
-### Three layers
+### Three layers (four-file architecture)
+
+The SMM directory contains four key files:
+- `events.jsonl` — append-only event log (staging buffer)
+- `shared_mental_model.json` — curated four-pillar briefing
+- `execution_plan.json` — milestones with change zones and design details
+- `sprint.json` — current sprint stories and statuses
 
 **1. Data trails (hooks, automatic)**
 
@@ -196,28 +203,28 @@ At session start, after the retrospective, housekeeping reads the raw event trai
 
 A preload script prepares data for housekeeping — aggregates events, computes aging, identifies what's new since last curation. The judgment happens in the skill, not in Python.
 
-Housekeeping writes the curated `SHARED_MENTAL_MODEL.md`. This replaces the current mechanical materializer for SMM generation.
+Housekeeping writes the curated `shared_mental_model.json` via `smm_cli.py save`.
 
 **3. Mid-session context (additionalContext, sparse)**
 
 During the session, lightweight context is injected at specific moments:
 
 - **UserPromptSubmit:** Prompt nugget — new signal events since last prompt (watermark-based, ~50-100 tokens)
-- **SubagentStart:** Tiered context injection — Explore subagents get Intent+Constraints only (~200 tokens), all others get full curated SMM + behavioral guide (~1000 tokens)
-- **After housekeeping:** Behavioral guide via PostToolUse:Skill hook
+- **SubagentStart:** Tiered context injection — Explore subagents get Intent+Constraints only (~200 tokens), all others get full curated SMM + process guide (~1000 tokens)
+- **After housekeeping:** Process guide via PostToolUse:Skill hook
 
 Conflicts are handled by PreToolUse hooks (blocking for Write, advisory for Bash) — not as context injection. No per-tool-call event log reads. The agent has the full SMM from housekeeping. Nuggets surface only what's new and actionable.
 
-### What the materializer becomes
+### The materializer's role
 
-The current `materialize.py` shifts from rendering the SMM to preparing data for housekeeping:
+`materialize.py` prepares structured curation data for housekeeping:
 
-- Aggregates events since last curation
+- Aggregates events since last curation (watermark-based)
 - Computes aging for risks and constraints
-- Identifies new customer_input, decisions, concerns
-- Outputs structured data that housekeeping can reason about
+- Identifies new customer_input, decisions, concerns, resolutions
+- Outputs structured JSON that housekeeping can reason about
 
-The SMM.md file is written by housekeeping (with judgment), not by the materializer (mechanically).
+The `shared_mental_model.json` is written by housekeeping (with judgment) via `smm_cli.py save`, not by the materializer.
 
 ---
 
@@ -227,9 +234,9 @@ The SMM.md file is written by housekeeping (with judgment), not by the materiali
 |---|---|---|
 | Session start | GUPP + skills list only (no SMM) | ~100 tokens, once |
 | After housekeeping | Agent Reads curated SMM file directly | ~500 tokens, once |
-| After housekeeping | Behavioral guide via PostToolUse:Skill hook | ~500 tokens, once |
+| After housekeeping | Process guide + XP values via PostToolUse:Skill hook | ~500 tokens, once |
 | UserPromptSubmit | Nugget: new signal events since last prompt (watermark-based) | ~50-100 tokens |
-| SubagentStart | Tiered: Explore gets Intent+Constraints only, others get full SMM + behavioral guide | ~200-1000 tokens |
+| SubagentStart | Tiered: Explore gets Intent+Constraints, Plan/default gets full SMM, Teammates get SMM + guide + sprint | ~200-1000 tokens |
 
 **No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, `.review-cycle-{agent_id}.json` for commit-gated review cycle, TDD tracker for test enforcement. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
 
@@ -246,12 +253,12 @@ Agent C starts → curates SMM (includes A's + B's contributions)
 Agent A restarts → curates SMM (includes B's + C's contributions)
 ```
 
-The event log is the shared coordination bus (append-only, flock-protected). The SMM.md is the latest curated snapshot. Every housekeeping run makes it richer because it has more events to work with.
+The event log is the shared coordination bus (append-only, flock-protected). The shared_mental_model.json is the latest curated snapshot. Every housekeeping run makes it richer because it has more events to work with.
 
 ### Merge, don't replace
 
 Housekeeping should **update the existing SMM**, not rewrite from scratch. This means:
-- Read the current SMM.md first
+- Read the current shared_mental_model.json first
 - Incorporate new events since the last curation
 - Add new Intents, Constraints, Risks from other agents' trails
 - Mark items delivered/resolved based on new evidence
@@ -259,7 +266,7 @@ Housekeeping should **update the existing SMM**, not rewrite from scratch. This 
 
 This handles concurrent curation gracefully — if Agent A and Agent B both curate near-simultaneously, each reads the current state and merges their events. Even if one write is lost to a race, the next curation picks up the missed events from the log.
 
-Flock protection on SMM.md writes (like events.jsonl) provides additional safety.
+Flock protection on shared_mental_model.json writes (like events.jsonl) provides additional safety.
 
 ### What each agent contributes
 
@@ -296,7 +303,7 @@ New since last prompt:
 
 ### SubagentStart
 
-Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. All other subagents and teammates get the full curated SMM + behavioral guide (~1000 tokens), read from `SHARED_MENTAL_MODEL.md` and `BEHAVIORAL_GUIDE.md` on disk.
+Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. Plan/general-purpose subagents get the full curated SMM (~500 tokens). Teammates get full SMM + TEAMMATE_GUIDE.md + sprint stories. All rendered from `shared_mental_model.json` via `smm_cli.py`.
 
 ### Conflict detection (not a nugget)
 
@@ -386,7 +393,7 @@ Subagent hex-ID watermarks (`.watermark-abf63d10...`) are eliminated. No per-too
 
 ### Event log compaction — housekeeping compacts after curation
 
-The event log is a staging buffer, not an archive. Compaction runs at three points: after kickoff (`kickoff_done.py`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
+The event log is a staging buffer, not an archive. Compaction runs at three points: after SMM curation (`smm_cli.py save`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
 
 1. Housekeeping curates events into the SMM
 2. Writes its curation watermark (event count)
