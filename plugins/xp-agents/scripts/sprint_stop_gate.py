@@ -35,7 +35,7 @@ _REVIEW_MESSAGE = (
     "Sprint complete. Run /xp-sprint-review to review what shipped before stopping."
 )
 
-_REVIEW_FLAGS = ("simplify_done", "quality_review_done", "security_review_done")
+_REVIEW_FLAGS = markers._REVIEW_FLAGS
 
 
 def _deferred(smm_dir: Path, agent_id: str) -> bool:
@@ -44,7 +44,8 @@ def _deferred(smm_dir: Path, agent_id: str) -> bool:
     if markers.marker_exists(smm_dir, markers.ASKING_USER):
         return True
     cycle = markers.read_review_cycle(smm_dir, agent_id)
-    if any(cycle.get(f) for f in _REVIEW_FLAGS):
+    flags = [bool(cycle.get(f)) for f in _REVIEW_FLAGS]
+    if any(flags) and not all(flags):
         return True
     return coordination.has_active_teammates(smm_dir, agent_id)
 

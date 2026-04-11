@@ -91,6 +91,28 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_completed_review_cycle_does_not_defer(self):
+        """All review flags True means cycle is done — don't defer, block."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        markers.write_review_cycle(
+            self.smm_dir,
+            "main",
+            {
+                "simplify_done": True,
+                "quality_review_done": True,
+                "security_review_done": True,
+                "last_review_commit": "abc123",
+            },
+        )
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        # All reviews done — cycle complete, should NOT defer
+        self.assertIsNotNone(result)
+        self.assertIn("xp-accept", result)
+
     def test_asking_user_marker_allows_stop(self):
         """Defer when the main agent is mid-AskUserQuestion dialogue."""
         import markers
