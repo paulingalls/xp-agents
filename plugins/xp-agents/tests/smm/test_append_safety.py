@@ -272,7 +272,11 @@ class TestJsonSizeLimit(unittest.TestCase):
 
     def test_oversized_json_rejected(self):
         huge = '["' + "x" * 70000 + '"]'
-        with self.assertRaises(SystemExit) as cm:
+        import io
+        from unittest.mock import patch
+
+        suppress_stderr = patch("sys.stderr", new_callable=io.StringIO)
+        with suppress_stderr, self.assertRaises(SystemExit) as cm:
             _append_impl.parse_json_arg(huge, "references")
         self.assertEqual(cm.exception.code, 1)
 
