@@ -53,6 +53,29 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 
 Project state lives in `SMM_DIR`: `shared_mental_model.json` (curated briefing), `sprint.json` (current sprint stories), `execution_plan.json` (milestones and change zones), `system_context.md` (product/system description). Resolve `SMM_DIR` by running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
 
+## CLI Tools
+
+Use these CLIs instead of reading/writing project files directly. All require `--smm-dir <SMM_DIR>`.
+
+**sprint_cli.py** — sprint operations:
+- `update-story STORY_ID STATUS` — change story status (ready, in-progress, done, deferred)
+- `add-story` — add story from stdin JSON
+- `list-stories [--status STATUS]` — list stories, optionally filtered
+- `render` — render sprint as markdown
+- `exists` / `has-active` / `is-complete` — status checks
+
+**plan_cli.py** — execution plan operations:
+- `edit-milestone N` — merge JSON patch from stdin into milestone N
+- `update-status N STATUS [--delivered-sprint ID]` — change milestone status
+- `add-milestone` — add milestone from stdin JSON
+- `render` — render plan as markdown
+- `exists` / `has-remaining` / `count` — status checks
+
+**smm_cli.py** — shared mental model operations:
+- `dump` — render full SMM as markdown
+- `section NAME` — render a single pillar (intent, constraints, risks, wisdom)
+- `has-section NAME` — check if pillar exists
+
 ## Recording Events
 
 Use `append.sh` for all event writes. Never write directly to `events.jsonl`.
