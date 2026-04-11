@@ -38,6 +38,13 @@ Ask the user via AskUserQuestion: **"Free session or Sprint session?"**
 - **Free session** — for brainstorming, Q&A, bug fixes, or any work that doesn't need sprint scaffolding.
 - **Sprint session** — for planned work with product spec, sprint stories, and acceptance criteria.
 
+After the user answers, record the session mode as a goal event so it flows into the Intent pillar:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "goal" --agent "xp-kickoff" \
+  --content "Free session" # or "Sprint session: <sprint-id>"
+```
+
 If the user chooses **free session**: skip steps 3 and 4, jump directly to step 5 (Work Selection). In step 5, work selection should collect freeform session goals only — do NOT show sprint stories or prompt for story selection, even if a sprint exists.
 
 If the user chooses **sprint session**: proceed to step 3.
