@@ -348,64 +348,103 @@ def _make_task_completed_input(**overrides) -> dict:
 
 
 class _IntegrationTestCase(unittest.TestCase):
-    """Base class that creates a temp git repo and inits SMM via init.sh."""
+    """Base class that creates a temp git repo and inits SMM via init.sh.
 
-    def setUp(self):
-        self.tmpdir = Path(tempfile.mkdtemp())
-        # Create a git repo
-        subprocess.run(
-            ["git", "init"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
+    The git repo and SMM directory are created once per class (setUpClass).
+    Each test method gets a clean SMM state (events, markers, etc.) via setUp.
+
+    Invariant: test methods sharing a class must not depend on git repo state
+    beyond the initial commit. Git mutations (add, commit) from one test are
+    visible to subsequent tests in the same class.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
-        # Need an initial commit so HEAD exists
-        (self.tmpdir / "README").write_text("init")
+        (cls.tmpdir / "README").write_text("init")
         subprocess.run(
             ["git", "add", "README"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "init"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
 
-        # Init SMM — use a temp plugin data dir for test isolation
-        self._plugin_data_dir = Path(tempfile.mkdtemp())
-        self._test_env = os.environ.copy()
-        self._test_env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+        cls._plugin_data_dir = Path(tempfile.mkdtemp())
+        cls._test_env = os.environ.copy()
+        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
 
         init_sh = _PLUGIN_ROOT / "smm" / "init.sh"
         result = subprocess.run(
             ["bash", str(init_sh)],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             text=True,
             check=True,
-            env=self._test_env,
+            env=cls._test_env,
         )
-        self.smm_dir = Path(result.stdout.strip())
-        self.scripts_dir = _SCRIPTS_DIR
+        cls.smm_dir = Path(result.stdout.strip())
+        cls.scripts_dir = _SCRIPTS_DIR
+        # Snapshot the initial SMM state so setUp can restore it cheaply
+        cls._smm_snapshot: dict[str, bytes] = {}
+        for f in cls.smm_dir.iterdir():
+            if f.is_file():
+                cls._smm_snapshot[f.name] = f.read_bytes()
 
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir)
-        shutil.rmtree(self._plugin_data_dir, ignore_errors=True)
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+        shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
+
+    def setUp(self):
+        # Reset SMM state to the post-init snapshot so each test starts clean.
+        # Remove files/dirs added by previous tests, restore init.sh originals.
+        # Also clean tmpdir (git repo) of files created by previous tests.
+        for f in self.tmpdir.iterdir():
+            if f.name in (".git", "README"):
+                continue
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+        keep = set(self._smm_snapshot) | {"retrospectives"}
+        for f in self.smm_dir.iterdir():
+            if f.name in keep:
+                continue
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+        # Restore snapshotted files (events.jsonl, events.lock, SMM seed, etc.)
+        for name, content in self._smm_snapshot.items():
+            target = self.smm_dir / name
+            if name == "events.jsonl":
+                target.write_bytes(b"")  # Always start with empty events
+            else:
+                target.write_bytes(content)
+        # Clear retrospective files from previous tests
+        retro_dir = self.smm_dir / "retrospectives"
+        if retro_dir.is_dir():
+            for f in retro_dir.iterdir():
+                f.unlink()
 
     def _run_preload(
         self,
