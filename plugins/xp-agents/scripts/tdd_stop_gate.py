@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import coordination
 import tdd_check
 
 
@@ -31,6 +32,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     signal = tdd_check.find_last_test_signal(events)
     if signal == "fail":
+        agent_id = input_data.get("agent_id", "")
+        if coordination.has_active_teammates(smm_dir, agent_id):
+            return None  # Teammates may own the failing tests
         return "Tests are failing. Fix failing tests before stopping."
 
     return None

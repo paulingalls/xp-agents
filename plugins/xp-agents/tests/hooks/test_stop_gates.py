@@ -4,8 +4,10 @@
 Quality review gate tests removed in M3 (commit-gated review cycle replaces Stop gates).
 """
 
+import json
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -173,6 +175,89 @@ class TestTddStopGate(_HookTestCase):
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
+
+    def test_active_teammates_defers_block(self):
+        """When teammates are active in coordination, don't block the lead."""
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 2 failed (pytest)",
+                    severity="high",
+                ),
+            ]
+        )
+        import coordination
+
+        coordination.update_coordination(self.smm_dir, "main", [])
+        coordination.update_coordination(self.smm_dir, "teammate-1", ["src/foo.py"])
+        inp = _make_stop_input(agent_id="main")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_solo_agent_still_blocked(self):
+        """When no teammates, failing tests still block stop."""
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 2 failed (pytest)",
+                    severity="high",
+                ),
+            ]
+        )
+        import coordination
+
+        coordination.update_coordination(self.smm_dir, "main", [])
+        inp = _make_stop_input(agent_id="main")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+    def test_no_coordination_file_still_blocked(self):
+        """Without coordination file, failing tests still block (solo mode)."""
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 2 failed (pytest)",
+                    severity="high",
+                ),
+            ]
+        )
+        inp = _make_stop_input()
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+
+    def test_stale_teammates_still_blocked(self):
+        """Stale teammate entries (>30min) should not defer the block."""
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test failures detected: 2 failed (pytest)",
+                    severity="high",
+                ),
+            ]
+        )
+        stale_time = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+        coord_path = self.smm_dir / ".coordination.json"
+        coord_path.write_text(
+            json.dumps(
+                {
+                    "main": {
+                        "working_on": [],
+                        "updated": datetime.now(timezone.utc).isoformat(),
+                    },
+                    "teammate-1": {
+                        "working_on": ["src/foo.py"],
+                        "updated": stale_time,
+                    },
+                }
+            )
+        )
+        inp = _make_stop_input(agent_id="main")
+        result = self.mod.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
 
     def test_ambiguous_test_result_allows_stop(self):
         """Neutral test status (counts not extracted) should not block stop."""

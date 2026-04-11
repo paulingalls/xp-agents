@@ -46,8 +46,7 @@ def _deferred(smm_dir: Path, agent_id: str) -> bool:
     cycle = markers.read_review_cycle(smm_dir, agent_id)
     if any(cycle.get(f) for f in _REVIEW_FLAGS):
         return True
-    coord = coordination.read_coordination(smm_dir)
-    return any(aid != agent_id for aid in coord)
+    return coordination.has_active_teammates(smm_dir, agent_id)
 
 
 def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:

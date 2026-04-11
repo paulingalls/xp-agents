@@ -93,6 +93,12 @@ def read_coordination(
     return result
 
 
+def has_active_teammates(smm_dir: Path, agent_id: str) -> bool:
+    """Return True if other non-stale agents are active in coordination."""
+    coord = read_coordination(smm_dir)
+    return any(aid != agent_id for aid in coord)
+
+
 def clear_coordination_agent(smm_dir: Path, agent_id: str) -> None:
     """Remove an agent's entry from .coordination.json."""
     import fcntl
