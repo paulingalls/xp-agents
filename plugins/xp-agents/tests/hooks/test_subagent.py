@@ -335,12 +335,13 @@ class TestSubagentStopNoReviewerNudge(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_xp_non_housekeeping_agent_returns_none(self):
+    def test_xp_non_special_agent_returns_none(self):
+        """xp-* agents without special handlers return None."""
         result = subagent_stop.run(
             {
                 "session_id": "t",
                 "agent_id": "task-1",
-                "agent_type": "xp-plan-reviewer",
+                "agent_type": "xp-retrospective",
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,

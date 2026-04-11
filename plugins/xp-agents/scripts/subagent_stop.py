@@ -28,9 +28,11 @@ from event_schema import (
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
 _SPRINT_RETRO_AGENT_TYPES = {"xp-sprint-retro", "xp-agents:xp-sprint-retro"}
+_PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
 _SPRINT_RETRO_AGENT_ID = "xp-sprint-retro"
+_PLAN_REVIEWER_AGENT_ID = "xp-plan-reviewer"
 
 _SPRINT_NUDGE = (
     "\n\n---\n**Sprint notice:** No stories marked "
@@ -171,6 +173,34 @@ def _handle_sprint_retro_done(smm_dir: Path, input_data: dict) -> str | None:
     return None
 
 
+def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
+    """Handle xp-plan-reviewer completion — nudge /xp-assign.
+
+    Sets .assign-pending marker and returns additionalContext telling
+    the agent to run /xp-assign for execution mode selection.
+    """
+    agent_type = input_data.get("agent_type", "")
+    if agent_type not in _PLAN_REVIEWER_AGENT_TYPES:
+        return None
+
+    agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
+    markers.marker_write(smm_dir, markers.ASSIGN_PENDING, agent_id)
+
+    gate_event = _common.make_event(
+        _common.STATUS,
+        agent_id,
+        "assign_pending: Plan reviewed, run /xp-assign",
+        working_on=[],
+    )
+    _common.append_safe(smm_dir, gate_event)
+
+    return (
+        "IMPORTANT: Run the /xp-assign skill NOW to decide execution mode "
+        "(solo vs worktree subagents). The skill analyzes sprint stories "
+        "and spawns teammates if parallel execution is appropriate."
+    )
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core SubagentStop logic. Returns context or None."""
     # Review cycle flags must run before is_xp_agent skip because
@@ -194,6 +224,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Sprint retro is the end of the cascade — records the
         # sprint_retro_done event that closes the sprint_stop_gate.
         _handle_sprint_retro_done(smm_dir, input_data)
+
+        # Plan reviewer completion nudges /xp-assign for execution mode.
+        assign_result = _handle_plan_review_done(smm_dir, input_data)
+        if assign_result is not None:
+            return assign_result
 
     if _common.is_xp_agent(input_data):
         return None

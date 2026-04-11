@@ -119,6 +119,14 @@ class TestAssignPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_preload_clears_assign_pending_marker(self):
+        """Preload clears .assign-pending marker when it exists."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.write_text("review-1")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "assign-pending marker should be cleared")
+
 
 if __name__ == "__main__":
     unittest.main()

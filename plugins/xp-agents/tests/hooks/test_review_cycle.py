@@ -215,5 +215,44 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         self.assertFalse(cycle["quality_review_done"])
 
 
+class TestPlanReviewerSetsAssignPending(_HookTestCase):
+    """SubagentStop for xp-plan-reviewer sets .assign-pending marker."""
+
+    def _stop_input(self, agent_id: str, agent_type: str = "") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+            "last_assistant_message": "Review complete",
+        }
+
+    def test_plan_reviewer_sets_assign_marker(self):
+        """xp-plan-reviewer completion creates .assign-pending marker."""
+        subagent_stop.run(
+            self._stop_input("review-1", agent_type="xp-plan-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".assign-pending"
+        self.assertTrue(marker.exists(), "assign-pending marker not created")
+
+    def test_plan_reviewer_returns_nudge(self):
+        """xp-plan-reviewer completion returns additionalContext nudge."""
+        result = subagent_stop.run(
+            self._stop_input("review-1", agent_type="xp-plan-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-assign", result)
+
+    def test_non_reviewer_no_assign_marker(self):
+        """Other xp-* agents don't set assign-pending marker."""
+        subagent_stop.run(
+            self._stop_input("retro-1", agent_type="xp-retrospective"),
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".assign-pending"
+        self.assertFalse(marker.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
