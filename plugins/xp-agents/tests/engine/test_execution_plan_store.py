@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+"""Tests for execution_plan_schema.py and execution_plan_store.py.
+
+Covers: schema validation, load/save, has_remaining_work, count_milestones,
+archive, render_markdown.
+"""
+
+import json
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+from conftest import _SMMTestCase
+
+# ---------------------------------------------------------------------------
+# Test fixtures
+# ---------------------------------------------------------------------------
+
+_VALID_SOURCE = {
+    "label": "Design doc",
+    "location": "docs/design.md",
+    "type": "repo",
+    "content": None,
+}
+
+_VALID_MILESTONE = {
+    "number": 1,
+    "name": "Foundation",
+    "status": "planned",
+    "delivered_sprint": None,
+    "goal": "Build the foundation",
+    "done": "Foundation is built and tested",
+    "sources": "Design doc §Architecture",
+    "change_zones": [{"path": "src/foo.py", "note": "new module"}],
+    "impact_zones": [{"path": "src/bar.py", "note": "imports foo"}],
+    "design_details": "Multi-paragraph details here.",
+    "constraints": ["Python 3.10+"],
+}
+
+
+def _make_plan(**overrides) -> dict:
+    """Create a valid plan dict with optional overrides."""
+    plan = {
+        "title": "Test Plan",
+        "sources": [_VALID_SOURCE.copy()],
+        "overview": "Test overview.",
+        "milestones": [_VALID_MILESTONE.copy()],
+    }
+    plan.update(overrides)
+    return plan
+
+
+def _make_milestone(**overrides) -> dict:
+    m = _VALID_MILESTONE.copy()
+    m.update(overrides)
+    return m
+
+
+# ===========================================================================
+# Schema validation tests
+# ===========================================================================
+
+
+class TestValidatePlan(unittest.TestCase):
+    """Test execution_plan_schema.validate_plan()."""
+
+    def test_valid_plan_no_errors(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan(_make_plan())
+        self.assertEqual(errors, [])
+
+    def test_not_a_dict(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan("not a dict")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("must be an object", errors[0])
+
+    def test_missing_required_fields(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan({})
+        self.assertGreaterEqual(len(errors), 4)
+        for field in ("title", "sources", "overview", "milestones"):
+            self.assertTrue(
+                any(field in e for e in errors), f"Missing error for {field}"
+            )
+
+    def test_title_must_be_string(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan(_make_plan(title=123))
+        self.assertTrue(any("title" in e for e in errors))
+
+    def test_overview_must_be_string(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan(_make_plan(overview=123))
+        self.assertTrue(any("overview" in e for e in errors))
+
+    def test_sources_must_be_list(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan(_make_plan(sources="not a list"))
+        self.assertTrue(any("sources" in e for e in errors))
+
+    def test_milestones_must_be_list(self):
+        import execution_plan_schema as schema
+
+        errors = schema.validate_plan(_make_plan(milestones="not a list"))
+        self.assertTrue(any("milestones" in e for e in errors))
+
+    def test_invalid_milestone_status(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(status="bogus")])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("status" in e for e in errors))
+
+    def test_valid_statuses_accepted(self):
+        import execution_plan_schema as schema
+
+        for status in ("planned", "in-progress"):
+            plan = _make_plan(milestones=[_make_milestone(status=status)])
+            errors = schema.validate_plan(plan)
+            self.assertEqual(errors, [], f"Status {status!r} should be valid")
+        # delivered requires delivered_sprint
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(status="delivered", delivered_sprint="sprint-001")
+            ]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertEqual(errors, [], "Status 'delivered' should be valid")
+
+    def test_milestone_missing_required_fields(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[{"number": 1}])
+        errors = schema.validate_plan(plan)
+        self.assertGreater(len(errors), 0)
+
+    def test_milestone_number_must_be_int(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(number="one")])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("number" in e for e in errors))
+
+    def test_change_zones_must_be_list(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(change_zones="not list")])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("change_zones" in e for e in errors))
+
+    def test_change_zone_entry_must_have_path(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(change_zones=[{"note": "missing path"}])]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("path" in e for e in errors))
+
+    def test_source_missing_required_fields(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(sources=[{"label": "only label"}])
+        errors = schema.validate_plan(plan)
+        self.assertGreater(len(errors), 0)
+
+    def test_source_invalid_type(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(sources=[{**_VALID_SOURCE, "type": "invalid"}])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("type" in e for e in errors))
+
+    def test_delivered_milestone_requires_delivered_sprint(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(status="delivered", delivered_sprint=None)]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("delivered_sprint" in e for e in errors))
+
+    def test_delivered_milestone_with_sprint_valid(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(status="delivered", delivered_sprint="sprint-001")
+            ]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertEqual(errors, [])
+
+
+class TestEmptyPlan(unittest.TestCase):
+    def test_empty_plan_is_valid(self):
+        import execution_plan_schema as schema
+
+        plan = schema.empty_plan()
+        errors = schema.validate_plan(plan)
+        self.assertEqual(errors, [])
+
+    def test_empty_plan_has_required_fields(self):
+        import execution_plan_schema as schema
+
+        plan = schema.empty_plan()
+        for field in ("title", "sources", "overview", "milestones"):
+            self.assertIn(field, plan)
+
+
+# ===========================================================================
+# Store tests
+# ===========================================================================
+
+
+class TestLoadPlan(_SMMTestCase):
+    def test_load_valid_plan(self):
+        import execution_plan_store as store
+
+        plan = _make_plan()
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        loaded = store.load_plan(self.smm_dir)
+        self.assertEqual(loaded["title"], "Test Plan")
+
+    def test_load_missing_returns_none(self):
+        import execution_plan_store as store
+
+        result = store.load_plan(self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_load_symlink_raises(self):
+        import execution_plan_store as store
+
+        real = self.smm_dir / "real.json"
+        real.write_text(json.dumps(_make_plan()))
+        link = self.smm_dir / "execution_plan.json"
+        link.symlink_to(real)
+        with self.assertRaises(OSError):
+            store.load_plan(self.smm_dir)
+
+    def test_load_corrupt_json_raises(self):
+        import execution_plan_store as store
+
+        (self.smm_dir / "execution_plan.json").write_text("{invalid json")
+        with self.assertRaises(ValueError):
+            store.load_plan(self.smm_dir)
+
+    def test_load_invalid_schema_raises(self):
+        import execution_plan_store as store
+
+        (self.smm_dir / "execution_plan.json").write_text('{"bad": "schema"}')
+        with self.assertRaises(ValueError):
+            store.load_plan(self.smm_dir)
+
+
+class TestSavePlan(_SMMTestCase):
+    def test_save_valid_plan(self):
+        import execution_plan_store as store
+
+        plan = _make_plan()
+        store.save_plan(self.smm_dir, plan)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["title"], "Test Plan")
+
+    def test_save_invalid_plan_raises(self):
+        import execution_plan_store as store
+
+        with self.assertRaises(ValueError):
+            store.save_plan(self.smm_dir, {"bad": "schema"})
+
+    def test_save_clears_marker(self):
+        import execution_plan_store as store
+
+        marker = self.smm_dir / ".needs-execution-plan"
+        marker.write_text("startup")
+        store.save_plan(self.smm_dir, _make_plan())
+        self.assertFalse(marker.exists())
+
+    def test_save_symlink_raises(self):
+        import execution_plan_store as store
+
+        real = self.smm_dir / "real.json"
+        real.write_text("{}")
+        link = self.smm_dir / "execution_plan.json"
+        link.symlink_to(real)
+        with self.assertRaises(OSError):
+            store.save_plan(self.smm_dir, _make_plan())
+
+
+class TestHasRemainingWork(_SMMTestCase):
+    def test_planned_milestones_have_remaining(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="planned")])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self.assertTrue(store.has_remaining_work(self.smm_dir))
+
+    def test_in_progress_milestones_have_remaining(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="in-progress")])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self.assertTrue(store.has_remaining_work(self.smm_dir))
+
+    def test_all_delivered_no_remaining(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(status="delivered", delivered_sprint="sprint-001")
+            ]
+        )
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self.assertFalse(store.has_remaining_work(self.smm_dir))
+
+    def test_missing_file_no_remaining(self):
+        import execution_plan_store as store
+
+        self.assertFalse(store.has_remaining_work(self.smm_dir))
+
+    def test_mixed_statuses_has_remaining(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(
+                    number=1, status="delivered", delivered_sprint="sprint-001"
+                ),
+                _make_milestone(number=2, status="planned"),
+            ]
+        )
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self.assertTrue(store.has_remaining_work(self.smm_dir))
+
+
+class TestCountMilestones(_SMMTestCase):
+    def test_count_all_statuses(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(number=1, status="planned"),
+                _make_milestone(number=2, status="in-progress"),
+                _make_milestone(
+                    number=3, status="delivered", delivered_sprint="sprint-001"
+                ),
+                _make_milestone(
+                    number=4, status="delivered", delivered_sprint="sprint-002"
+                ),
+            ]
+        )
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        counts = store.count_milestones(self.smm_dir)
+        self.assertEqual(counts["planned"], 1)
+        self.assertEqual(counts["in_progress"], 1)
+        self.assertEqual(counts["delivered"], 2)
+
+    def test_count_missing_file(self):
+        import execution_plan_store as store
+
+        counts = store.count_milestones(self.smm_dir)
+        self.assertEqual(counts["planned"], 0)
+        self.assertEqual(counts["in_progress"], 0)
+        self.assertEqual(counts["delivered"], 0)
+
+
+class TestArchive(_SMMTestCase):
+    def test_archive_moves_to_plans_dir(self):
+        import execution_plan_store as store
+
+        plan = _make_plan()
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        archived_path = store.archive(self.smm_dir)
+        self.assertFalse((self.smm_dir / "execution_plan.json").exists())
+        self.assertTrue(archived_path.exists())
+        self.assertTrue(archived_path.parent.name == "plans")
+
+    def test_archive_missing_file_returns_none(self):
+        import execution_plan_store as store
+
+        result = store.archive(self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_archive_preserves_content(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(title="Archived Plan")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        archived_path = store.archive(self.smm_dir)
+        loaded = json.loads(archived_path.read_text())
+        self.assertEqual(loaded["title"], "Archived Plan")
+
+
+class TestRenderMarkdown(_SMMTestCase):
+    def test_render_includes_title(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(title="My Plan")
+        md = store.render_markdown(plan)
+        self.assertIn("# Execution Plan: My Plan", md)
+
+    def test_render_includes_milestone(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[_make_milestone(name="Foundation", status="planned")]
+        )
+        md = store.render_markdown(plan)
+        self.assertIn("### Milestone 1: Foundation [planned]", md)
+
+    def test_render_includes_sources_table(self):
+        import execution_plan_store as store
+
+        plan = _make_plan()
+        md = store.render_markdown(plan)
+        self.assertIn("Design doc", md)
+        self.assertIn("docs/design.md", md)
+
+    def test_render_delivered_milestone_shows_sprint(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(status="delivered", delivered_sprint="sprint-003")
+            ]
+        )
+        md = store.render_markdown(plan)
+        self.assertIn("[delivered: sprint-003]", md)
+
+    def test_render_includes_change_zones(self):
+        import execution_plan_store as store
+
+        plan = _make_plan()
+        md = store.render_markdown(plan)
+        self.assertIn("src/foo.py", md)
+        self.assertIn("new module", md)
+
+
+class TestPlanExists(_SMMTestCase):
+    def test_exists_when_file_present(self):
+        import execution_plan_store as store
+
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        self.assertTrue(store.plan_exists(self.smm_dir))
+
+    def test_not_exists_when_missing(self):
+        import execution_plan_store as store
+
+        self.assertFalse(store.plan_exists(self.smm_dir))
+
+    def test_not_exists_when_symlink(self):
+        import execution_plan_store as store
+
+        real = self.smm_dir / "real.json"
+        real.write_text("{}")
+        link = self.smm_dir / "execution_plan.json"
+        link.symlink_to(real)
+        self.assertFalse(store.plan_exists(self.smm_dir))
+
+
+if __name__ == "__main__":
+    unittest.main()
