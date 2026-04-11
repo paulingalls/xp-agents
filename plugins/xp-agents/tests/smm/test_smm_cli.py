@@ -74,29 +74,6 @@ class TestRenderMarkdown(unittest.TestCase):
         result = smm_cli.render_markdown(smm)
         self.assertIn("- Commit after green", result)
 
-    def test_render_with_sprint_section(self):
-        smm = smm_schema.empty_smm()
-        sprint = {
-            "sprint_id": "sprint-001",
-            "goal": "Ship auth",
-            "stories_by_status": {
-                "ready": 1,
-                "in_progress": 1,
-                "done": 0,
-                "deferred": 0,
-            },
-            "blockers": [],
-            "stories": [],
-        }
-        result = smm_cli.render_markdown(smm, sprint=sprint)
-        self.assertIn("## Sprint", result)
-        self.assertIn("sprint-001", result)
-        self.assertIn("Ship auth", result)
-
-    def test_render_without_sprint_omits_section(self):
-        result = smm_cli.render_markdown(smm_schema.empty_smm())
-        self.assertNotIn("## Sprint", result)
-
     def test_multiple_entries_per_pillar(self):
         smm = smm_schema.empty_smm()
         smm["wisdom"] = [

@@ -28,17 +28,12 @@ class TestPrepareCurationData(_SMMTestCase):
             "retro_history",
             "aging",
             "health",
-            "sprint",
         ):
             self.assertIn(key, result)
         for pillar in ("intent", "constraints", "risks", "wisdom"):
             self.assertEqual(result["current_smm"][pillar], [])
         for key in ("intent_count", "constraints_count", "risks_count", "wisdom_count"):
             self.assertEqual(result["health"][key], 0)
-        # Sprint key present with empty structure
-        sprint = result["sprint"]
-        self.assertEqual(sprint["sprint_id"], "")
-        self.assertEqual(sprint["stories_by_status"]["ready"], 0)
 
     def test_no_watermark_all_events_new(self):
         """Without watermark, all events appear in new_since_last_curation."""
@@ -323,84 +318,6 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertEqual(len(new["customer_inputs"]), 1)
         self.assertEqual(len(new["decisions"]), 1)
         self.assertEqual(len(new["concerns"]), 1)
-
-    # -- Sprint data --
-
-    @staticmethod
-    def _sprint_data():
-        from conftest import _s, _sprint_json
-
-        return _sprint_json(
-            [
-                _s(
-                    "story-001",
-                    "Register",
-                    "M",
-                    "done",
-                    acceptance_criteria=["E2E: register user"],
-                ),
-                _s(
-                    "story-002",
-                    "Login",
-                    "M",
-                    "in-progress",
-                    dependencies=["story-001"],
-                    acceptance_criteria=["E2E: login flow"],
-                ),
-                _s(
-                    "story-003",
-                    "List users",
-                    "S",
-                    "ready",
-                    dependencies=["story-002"],
-                    acceptance_criteria=["E2E: list users"],
-                ),
-            ],
-            sprint_id="sprint-001",
-            started="2026-03-26",
-            goal="Build user management API",
-        )
-
-    def test_sprint_key_in_curation_data(self):
-        """sprint.json present → sprint key has parsed data."""
-        (self.smm_dir / "sprint.json").write_text(self._sprint_data())
-        events = [make_event("status", content="Work started")]
-        self._write_events(events)
-        result = materialize.prepare_curation_data(self.smm_dir)
-        sprint = result["sprint"]
-        self.assertEqual(sprint["sprint_id"], "sprint-001")
-        self.assertEqual(sprint["goal"], "Build user management API")
-        self.assertEqual(sprint["started"], "2026-03-26")
-        self.assertEqual(sprint["stories_by_status"]["done"], 1)
-        self.assertEqual(sprint["stories_by_status"]["in_progress"], 1)
-        self.assertEqual(sprint["stories_by_status"]["ready"], 1)
-
-    def test_sprint_key_missing_sprint_md(self):
-        """No sprint.json → sprint key has empty structure."""
-        events = [make_event("status", content="Work started")]
-        self._write_events(events)
-        result = materialize.prepare_curation_data(self.smm_dir)
-        sprint = result["sprint"]
-        self.assertEqual(sprint["sprint_id"], "")
-        self.assertEqual(sprint["stories_by_status"]["ready"], 0)
-
-    def test_sprint_key_empty_events(self):
-        """Empty events but sprint.json present → sprint data populated."""
-        (self.smm_dir / "sprint.json").write_text(self._sprint_data())
-        result = materialize.prepare_curation_data(self.smm_dir)
-        sprint = result["sprint"]
-        self.assertEqual(sprint["sprint_id"], "sprint-001")
-
-    def test_sprint_blockers_in_curation_data(self):
-        """Blockers in sprint.json appear in curation data."""
-        (self.smm_dir / "sprint.json").write_text(self._sprint_data())
-        events = [make_event("status", content="Work started")]
-        self._write_events(events)
-        result = materialize.prepare_curation_data(self.smm_dir)
-        blockers = result["sprint"]["blockers"]
-        # story-003 blocked by story-002 (in-progress)
-        matching = [b for b in blockers if "story-003" in b]
-        self.assertEqual(len(matching), 1)
 
 
 class TestExtractRetroHistory(_SMMTestCase):

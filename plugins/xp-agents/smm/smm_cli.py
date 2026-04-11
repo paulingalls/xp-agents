@@ -37,53 +37,16 @@ def _render_pillar_section(entries: list, pillar: str) -> str:
     return "\n".join(lines)
 
 
-def _render_sprint_section(sprint: dict) -> str:
-    """Render the Sprint section from sprint data."""
-    sprint_id = sprint.get("sprint_id", "")
-    if not sprint_id:
-        return "## Sprint\n- No active sprint"
-
-    goal = sprint.get("goal", "")
-    by_status = sprint.get("stories_by_status", {})
-    r = by_status.get("ready", 0)
-    ip = by_status.get("in_progress", 0)
-    d = by_status.get("done", 0)
-    df = by_status.get("deferred", 0)
-
-    lines = [
-        "## Sprint",
-        f"- {sprint_id}: {goal} "
-        f"[{r + ip + d + df} stories: "
-        f"{r} ready, {ip} in-progress, {d} done, {df} deferred]",
-    ]
-
-    for blocker in sprint.get("blockers", []):
-        lines.append(f"- Blocker: {blocker}")
-
-    lines.append("- Details: see sprint.md")
-    return "\n".join(lines)
-
-
-def render_markdown(
-    smm: dict,
-    *,
-    sprint: dict | None = None,
-) -> str:
+def render_markdown(smm: dict) -> str:
     """Render a full curated SMM as markdown.
 
     Args:
         smm: Parsed SMM dict with intent/constraints/risks/wisdom pillars.
-        sprint: Optional sprint data (from sprint_store.load_sprint).
-            If provided, a Sprint section is prepended.
 
     Returns:
         Complete markdown string with header and four pillar sections.
     """
     parts = ["# Shared Mental Model", ""]
-
-    if sprint is not None:
-        parts.append(_render_sprint_section(sprint))
-        parts.append("")
 
     for pillar in PILLARS:
         entries = smm.get(pillar, [])
