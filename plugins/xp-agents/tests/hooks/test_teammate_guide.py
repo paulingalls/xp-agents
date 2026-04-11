@@ -85,7 +85,7 @@ class TestTeammateGuide(_HookTestCase):
             risks=[("Auth module fragile", "concern", "problem")],
             wisdom=["TDD always"],
         )
-        sprint_file = self.smm_dir / "sprint.md"
+        sprint_file = self.smm_dir / "sprint.json"
         sprint_file.write_text(_SAMPLE_SPRINT)
 
     def _run_teammate(self, **overrides):

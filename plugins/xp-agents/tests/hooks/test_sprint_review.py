@@ -20,108 +20,62 @@ sys.path.insert(
     ),
 )
 
-from conftest import _HookTestCase, _IntegrationTestCase
+from conftest import (
+    _HookTestCase,
+    _IntegrationTestCase,
+    _s,
+    _sprint_json,
+)
 
 # ---------------------------------------------------------------------------
 # Sprint fixtures
 # ---------------------------------------------------------------------------
 
-SPRINT_MIXED = """\
-# Sprint: Build auth system
+SPRINT_MIXED = _sprint_json(
+    [
+        _s("story-001", "User login", "M", "done"),
+        _s("story-002", "User registration", "S", "done"),
+        _s("story-003", "Password reset", "M", "deferred", dependencies=["story-001"]),
+        _s("story-004", "OAuth integration", "L", "ready", dependencies=["story-001"]),
+    ],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+)
 
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-15
+SPRINT_ALL_DONE = _sprint_json(
+    [
+        _s("story-001", "User login", "M", "done"),
+        _s("story-002", "User registration", "S", "done"),
+        _s("story-003", "Password reset", "M", "done", dependencies=["story-001"]),
+    ],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+)
 
-## Stories
+SPRINT_ALL_DEFERRED = _sprint_json(
+    [
+        _s("story-001", "User login", "M", "deferred"),
+        _s("story-002", "User registration", "S", "deferred"),
+    ],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+)
 
-### story-001: User login
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
+SPRINT_WITH_MILESTONE = _sprint_json(
+    [_s("story-001", "User login", "M", "done")],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+    milestone="Milestone 1: Auth Foundation",
+)
 
-### story-002: User registration
-- **Size:** S
-- **Status:** done
-- **Dependencies:** none
-
-### story-003: Password reset
-- **Size:** M
-- **Status:** deferred
-- **Dependencies:** story-001
-
-### story-004: OAuth integration
-- **Size:** L
-- **Status:** ready
-- **Dependencies:** story-001
-"""
-
-SPRINT_ALL_DONE = """\
-# Sprint: Build auth system
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-15
-
-## Stories
-
-### story-001: User login
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: User registration
-- **Size:** S
-- **Status:** done
-- **Dependencies:** none
-
-### story-003: Password reset
-- **Size:** M
-- **Status:** done
-- **Dependencies:** story-001
-"""
-
-SPRINT_ALL_DEFERRED = """\
-# Sprint: Build auth system
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-15
-
-## Stories
-
-### story-001: User login
-- **Size:** M
-- **Status:** deferred
-- **Dependencies:** none
-
-### story-002: User registration
-- **Size:** S
-- **Status:** deferred
-- **Dependencies:** none
-"""
-
-SPRINT_WITH_MILESTONE = """\
-# Sprint: Build auth system
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-15
-- **Milestone:** Milestone 1: Auth Foundation
-
-## Stories
-
-### story-001: User login
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-"""
-
-SPRINT_NO_ID = """\
-# Sprint: Build auth system
-
-## Stories
-
-### story-001: User login
-- **Size:** M
-- **Status:** done
-"""
+SPRINT_NO_ID = _sprint_json(
+    [_s("story-001", "User login", "M", "done")],
+    goal="Build auth system",
+)
 
 PRODUCT_SPEC = """\
 # Product Spec: Auth System
@@ -151,7 +105,7 @@ class TestPrepareReviewData(_HookTestCase):
         """2 done, 1 deferred, 1 ready -> planned=4, delivered=2, carried=1."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         vel = result["velocity"]
@@ -163,7 +117,7 @@ class TestPrepareReviewData(_HookTestCase):
         """Output dict has structured keys + paths, not embedded content."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         expected = (
@@ -181,7 +135,7 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertNotIn("product_spec_md", result)
 
     def test_no_sprint_returns_none(self):
-        """No sprint.md -> None."""
+        """No sprint.json -> None."""
         import prepare_review_data
 
         result = prepare_review_data.run(self.smm_dir)
@@ -191,7 +145,7 @@ class TestPrepareReviewData(_HookTestCase):
         """3/3 done -> planned=3, delivered=3, carried=0."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         vel = result["velocity"]
@@ -203,7 +157,7 @@ class TestPrepareReviewData(_HookTestCase):
         """0/2 delivered, 2/2 carried."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DEFERRED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DEFERRED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         vel = result["velocity"]
@@ -215,7 +169,7 @@ class TestPrepareReviewData(_HookTestCase):
         """.sprint-review-input.json exists after run."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         prepare_review_data.run(self.smm_dir)
         self.assertTrue((self.smm_dir / ".sprint-review-input.json").exists())
 
@@ -223,15 +177,15 @@ class TestPrepareReviewData(_HookTestCase):
         """Sprint without sprint_id -> None."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_NO_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_NO_ID)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNone(result)
 
     def test_sprint_id_in_output(self):
-        """sprint_id matches what's in sprint.md."""
+        """sprint_id matches what's in sprint.json."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertEqual(result["sprint_id"], "sprint-001")
 
@@ -239,7 +193,7 @@ class TestPrepareReviewData(_HookTestCase):
         """goal matches sprint heading."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertEqual(result["goal"], "Build auth system")
 
@@ -247,7 +201,7 @@ class TestPrepareReviewData(_HookTestCase):
         """execution_plan.json exists -> execution_plan_md_path is non-empty."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         (self.smm_dir / "execution_plan.json").write_text("{}")
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
@@ -259,7 +213,7 @@ class TestPrepareReviewData(_HookTestCase):
         """No execution_plan.json -> execution_plan_md_path=''."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         self.assertEqual(result["execution_plan_md_path"], "")
@@ -268,7 +222,7 @@ class TestPrepareReviewData(_HookTestCase):
         """execution_plan.json is symlink -> execution_plan_md_path=''."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         target = self.smm_dir / "_fake_target.json"
         target.write_text("{}")
         (self.smm_dir / "execution_plan.json").symlink_to(target)
@@ -280,7 +234,7 @@ class TestPrepareReviewData(_HookTestCase):
         """Sprint with Milestone header -> milestone key populated."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_WITH_MILESTONE)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_MILESTONE)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         self.assertEqual(result["milestone"], "Milestone 1: Auth Foundation")
@@ -289,7 +243,7 @@ class TestPrepareReviewData(_HookTestCase):
         """Sprint without Milestone header -> milestone is ''."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         self.assertEqual(result["milestone"], "")
@@ -298,7 +252,7 @@ class TestPrepareReviewData(_HookTestCase):
         """execution_plan_md_path always present as key in output."""
         import prepare_review_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = prepare_review_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("execution_plan_md_path", result)
@@ -327,27 +281,27 @@ class TestSprintReviewPreload(_IntegrationTestCase):
 
     def test_preload_outputs_smm_dir(self):
         """Preload output includes SMM_DIR= line."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_preload_outputs_review_input(self):
         """Preload output includes REVIEW_INPUT= line."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("REVIEW_INPUT=", result.stdout)
 
     def test_preload_no_sprint_graceful(self):
-        """No sprint.md -> exits 0, no REVIEW_INPUT."""
+        """No sprint.json -> exits 0, no REVIEW_INPUT."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("REVIEW_INPUT=", result.stdout)
 
     def test_preload_no_guide_or_smm(self):
         """Preload is minimal — no guide, no SMM injection."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("XP Values", result.stdout)
@@ -355,7 +309,7 @@ class TestSprintReviewPreload(_IntegrationTestCase):
 
     def test_preload_creates_review_input_file(self):
         """Preload creates .sprint-review-input.json in SMM dir."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.smm_dir / ".sprint-review-input.json").exists())

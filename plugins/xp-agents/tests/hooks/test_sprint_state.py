@@ -18,63 +18,71 @@ from conftest import (
 )
 
 
-class TestHasActiveStories(unittest.TestCase):
-    """Test has_active_stories — checks for ready or in-progress."""
+class TestHasActiveStories(_HookTestCase):
+    """Test has_active_stories — delegates to sprint_store."""
 
     def test_ready_story(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_active_stories(SPRINT_READY_ONLY))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
+        self.assertTrue(sprint_state.has_active_stories(self.smm_dir))
 
     def test_in_progress_story(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_active_stories(SPRINT_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        self.assertTrue(sprint_state.has_active_stories(self.smm_dir))
 
     def test_done_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_active_stories(SPRINT_ALL_DONE))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        self.assertFalse(sprint_state.has_active_stories(self.smm_dir))
 
-    def test_empty_string(self):
+    def test_missing_sprint(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_active_stories(""))
+        self.assertFalse(sprint_state.has_active_stories(self.smm_dir))
 
     def test_mixed_statuses(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_active_stories(SPRINT_MIXED_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED_IN_PROGRESS)
+        self.assertTrue(sprint_state.has_active_stories(self.smm_dir))
 
 
-class TestHasInProgressStories(unittest.TestCase):
-    """Test has_in_progress_stories — checks only for in-progress."""
+class TestHasInProgressStories(_HookTestCase):
+    """Test has_in_progress_stories — delegates to sprint_store."""
 
     def test_in_progress(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_in_progress_stories(SPRINT_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
 
     def test_ready_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_in_progress_stories(SPRINT_READY_ONLY))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
+        self.assertFalse(sprint_state.has_in_progress_stories(self.smm_dir))
 
     def test_mixed_has_in_progress(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_in_progress_stories(SPRINT_MIXED_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED_IN_PROGRESS)
+        self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
 
 
 class TestReadSprintContent(_HookTestCase):
-    """Test read_sprint_content — reads sprint.md from SMM dir."""
+    """Test read_sprint_content — loads sprint.json from SMM dir."""
 
     def test_exists(self):
         import sprint_state
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         result = sprint_state.read_sprint_content(self.smm_dir)
-        self.assertEqual(result, SPRINT_READY_ONLY)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["goal"], "Build auth")
 
     def test_missing(self):
         import sprint_state
@@ -85,12 +93,12 @@ class TestReadSprintContent(_HookTestCase):
     def test_symlink(self):
         import sprint_state
 
-        target = self.smm_dir / "real_sprint.md"
+        target = self.smm_dir / "real_sprint.json"
         target.write_text(SPRINT_READY_ONLY)
-        link = self.smm_dir / "sprint.md"
+        link = self.smm_dir / "sprint.json"
         link.symlink_to(target)
-        result = sprint_state.read_sprint_content(self.smm_dir)
-        self.assertIsNone(result)
+        with self.assertRaises(OSError):
+            sprint_state.read_sprint_content(self.smm_dir)
 
 
 class TestExecutionPlanExists(_HookTestCase):
@@ -117,58 +125,65 @@ class TestExecutionPlanExists(_HookTestCase):
         self.assertFalse(sprint_state.execution_plan_exists(self.smm_dir))
 
 
-class TestHasReadyStories(unittest.TestCase):
-    """Test has_ready_stories — checks only for ready status."""
+class TestHasReadyStories(_HookTestCase):
+    """Test has_ready_stories — delegates to sprint_store."""
 
     def test_ready_story(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.has_ready_stories(SPRINT_READY_ONLY))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
+        self.assertTrue(sprint_state.has_ready_stories(self.smm_dir))
 
     def test_in_progress_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_ready_stories(SPRINT_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        self.assertFalse(sprint_state.has_ready_stories(self.smm_dir))
 
     def test_done_only(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.has_ready_stories(SPRINT_ALL_DONE))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        self.assertFalse(sprint_state.has_ready_stories(self.smm_dir))
 
     def test_mixed_no_ready(self):
         import sprint_state
 
-        # SPRINT_MIXED_IN_PROGRESS has done + in-progress, no ready
-        self.assertFalse(sprint_state.has_ready_stories(SPRINT_MIXED_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED_IN_PROGRESS)
+        self.assertFalse(sprint_state.has_ready_stories(self.smm_dir))
 
 
-class TestIsSprintComplete(unittest.TestCase):
-    """Test is_sprint_complete — True when no ready or in-progress stories."""
+class TestIsSprintComplete(_HookTestCase):
+    """Test is_sprint_complete — True when no ready/in-progress."""
 
     def test_done_and_deferred_only(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.is_sprint_complete(SPRINT_ALL_DONE))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        self.assertTrue(sprint_state.is_sprint_complete(self.smm_dir))
 
     def test_ready_not_complete(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_READY_ONLY))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
+        self.assertFalse(sprint_state.is_sprint_complete(self.smm_dir))
 
     def test_in_progress_not_complete(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        self.assertFalse(sprint_state.is_sprint_complete(self.smm_dir))
 
     def test_mixed_not_complete(self):
         import sprint_state
 
-        self.assertFalse(sprint_state.is_sprint_complete(SPRINT_MIXED_IN_PROGRESS))
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED_IN_PROGRESS)
+        self.assertFalse(sprint_state.is_sprint_complete(self.smm_dir))
 
-    def test_empty_string_is_complete(self):
+    def test_missing_sprint_is_complete(self):
         import sprint_state
 
-        self.assertTrue(sprint_state.is_sprint_complete(""))
+        self.assertTrue(sprint_state.is_sprint_complete(self.smm_dir))
 
 
 if __name__ == "__main__":

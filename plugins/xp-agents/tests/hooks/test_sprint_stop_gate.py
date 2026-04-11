@@ -65,7 +65,7 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         import markers
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
         markers.write_review_cycle(
             self.smm_dir,
@@ -85,7 +85,7 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         import coordination
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
         coordination.update_coordination(self.smm_dir, "worker-1", [])
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
@@ -97,7 +97,7 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         import sprint_stop_gate
 
         # Sprint-review blocking condition: sprint complete, no sprint_end event
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         # Sanity check: without the marker, this would block with _REVIEW_MESSAGE
         baseline = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(baseline)
@@ -113,7 +113,7 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
     def test_in_progress_with_accept_marker_blocks(self):
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
@@ -122,7 +122,7 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
     def test_in_progress_without_accept_marker_allows_stop(self):
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
@@ -130,7 +130,7 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
         """Marker with no in-progress stories — falls through to next cascade step."""
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         (self.smm_dir / ".accept").write_text("done")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         # No in-progress stories; ready stories means sprint not complete
@@ -144,7 +144,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         """Complete sprint with no sprint_end event → nudge for review."""
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertIn("xp-sprint-review", result)
@@ -154,7 +154,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         import _common
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         event = make_event(
             "sprint",
             agent_id="xp-sprint-reviewer",
@@ -168,10 +168,10 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         self.assertIsNone(result)
 
     def test_sprint_complete_no_sprint_id_allows_stop(self):
-        """Malformed sprint.md with no sprint_id — can't match events, allow stop."""
+        """Malformed sprint.json with no sprint_id — can't match events, allow stop."""
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
@@ -180,7 +180,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         import _common
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         event = make_event(
             "sprint",
             agent_id="xp-sprint-reviewer",
@@ -213,7 +213,7 @@ class TestSprintStopGatePostReview(_HookTestCase):
         cascade ends at sprint-review. User can stop freely."""
         import sprint_stop_gate
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         self._seed_sprint_end()
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)

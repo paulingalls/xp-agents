@@ -14,8 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import sprint_parser
-import sprint_state
+import sprint_store
 
 
 def _collect_session_retros(smm_dir: Path, started: str) -> list[dict]:
@@ -56,15 +55,11 @@ def run(smm_dir: Path) -> dict | None:
     Returns the retro data dict on success, None if sprint.md
     is missing or malformed.
     """
-    content = sprint_state.read_sprint_content(smm_dir)
-    if content is None:
+    sprint_data = sprint_store.load_sprint(smm_dir)
+    if sprint_data is None or not sprint_data["sprint_id"]:
         return None
 
-    sprint_data = sprint_parser.parse_sprint_data(content)
-    if not sprint_data["sprint_id"]:
-        return None
-
-    velocity = sprint_parser.compute_velocity(sprint_data)
+    velocity = sprint_store.compute_velocity(sprint_data)
     session_retros = _collect_session_retros(smm_dir, sprint_data["started"])
 
     retro_input = {
@@ -74,7 +69,7 @@ def run(smm_dir: Path) -> dict | None:
         "velocity": velocity,
         "stories": sprint_data["stories"],
         "session_retros": session_retros,
-        "sprint_md_path": str(smm_dir / "sprint.md"),
+        "sprint_md_path": str(smm_dir / "sprint.json"),
     }
 
     _common.write_json_atomic(smm_dir / ".sprint-retro-input.json", retro_input)

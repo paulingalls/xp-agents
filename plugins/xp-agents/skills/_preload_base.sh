@@ -133,12 +133,29 @@ for item in items:
 " "$1" 2>/dev/null || true
 }
 
-# Count stories with a given status in sprint.md.
-# Usage: count_sprint_status "ready" "$SPRINT_FILE"
-count_sprint_status() {
-    local count
-    count=$(grep -cF "**Status:** $1" "$2" 2>/dev/null || true)
-    echo "${count:-0}"
+# Sprint CLI helpers (thin wrappers over sprint_cli.py).
+sprint_exists() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" exists 2>/dev/null
+}
+
+sprint_has_active() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" has-active 2>/dev/null
+}
+
+# Count stories with a specific status. Returns a single number.
+# Usage: sprint_count_status ready
+sprint_count_status() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" count-status "$1" 2>/dev/null || echo "0"
+}
+
+# List stories, optionally filtered by status.
+# Usage: sprint_list_stories [--status ready]
+sprint_list_stories() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-stories "$@" 2>/dev/null
+}
+
+sprint_count() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
 }
 
 smm_section() {

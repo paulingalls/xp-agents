@@ -42,37 +42,26 @@ if ! plan_has_remaining; then
 fi
 
 # 4. Check for sprint (marker OR no active stories)
-SPRINT_FILE="${SMM_DIR}/sprint.md"
-ready=0
-if [ -f "$SPRINT_FILE" ]; then
-    ready=$(count_sprint_status "ready" "$SPRINT_FILE")
-fi
-
 if [ -f "${SMM_DIR}/.needs-sprint" ]; then
     echo "### NEEDS_SPRINT"
     echo "No active sprint. Run /xp-sprint-start to plan a sprint."
     echo ""
-elif [ ! -f "$SPRINT_FILE" ]; then
+elif ! sprint_has_active; then
     echo "### NEEDS_SPRINT"
     echo "No active sprint. Run /xp-sprint-start to plan a sprint."
     echo ""
-elif [ "$ready" -eq 0 ]; then
-    in_prog=$(count_sprint_status "in-progress" "$SPRINT_FILE")
-    if [ "$in_prog" -eq 0 ]; then
-        echo "### NEEDS_SPRINT"
-        echo "No active sprint. Run /xp-sprint-start to plan a sprint."
-        echo ""
-    fi
 fi
 
 # 5. Sprint status (for work selection context)
-if [ "$ready" -gt 0 ]; then
-    echo "### SPRINT_ACTIVE"
-    echo "Sprint has ${ready} ready stories:"
-    echo ""
-    grep -B2 -F '**Status:** ready' "$SPRINT_FILE" \
-        | grep '###' || true
-    echo ""
+if sprint_has_active; then
+    ready_count=$(sprint_count_status ready)
+    if [ "$ready_count" -gt 0 ]; then
+        echo "### SPRINT_ACTIVE"
+        echo "Sprint has ${ready_count} ready stories:"
+        echo ""
+        sprint_list_stories --status ready
+        echo ""
+    fi
 fi
 
 # Always clear the marker here. This preload runs as a !`command` before

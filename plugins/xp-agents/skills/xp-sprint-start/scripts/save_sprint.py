@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Save sprint: write sprint.md atomically + handle acceptance flow.
+"""Save sprint: write sprint.json atomically + handle acceptance flow.
 
 Called by xp-sprint-start, xp-work-selection, and xp-accept to persist
-sprint.md. After writing, it:
+sprint.json. After writing, it:
 
 - Clears the .needs-sprint marker if sprint now has active stories.
 - If the .accept marker was present and no in-progress stories remain,
@@ -10,17 +10,12 @@ sprint.md. After writing, it:
   iteration_complete status event, and — if the sprint is now complete —
   prints a sprint-review nudge to stdout for the main agent to see.
 
-The .accept marker is set by pre_tool_write when code is written during
-an in-progress sprint, so its presence is a reliable signal that the
-current write is part of an acceptance flow (not initial creation or
-story selection). This lets one script serve all three callers without
-context-specific branching.
-
 Usage:
-    echo '<markdown>' | python3 save_sprint.py --smm-dir DIR
+    echo '<json>' | python3 save_sprint.py --smm-dir DIR
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -30,8 +25,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
 import marker_names  # noqa: E402
-import sprint_state  # noqa: E402
-from _append_impl import write_text_atomic  # noqa: E402
+import sprint_store  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     STATUS_ACTION_ITERATION_COMPLETE,
@@ -43,29 +37,22 @@ _SPRINT_REVIEW_NUDGE = (
 )
 
 
-def run(content: str, smm_dir: Path) -> None:
-    """Write sprint.md and run the acceptance-flow side effects.
+def run(data: dict, smm_dir: Path) -> None:
+    """Write sprint.json and run the acceptance-flow side effects.
 
     Args:
-        content: Markdown content to write.
+        data: Sprint data dict (validated by sprint_store).
         smm_dir: SMM directory path.
     """
-    target = smm_dir / "sprint.md"
-
-    if target.is_symlink():
-        raise OSError(f"sprint.md is a symlink: {target}")
-
     accept_marker = smm_dir / marker_names.ACCEPT
     accept_marker_existed = accept_marker.exists()
 
-    write_text_atomic(target, content)
+    sprint_store.save_sprint(smm_dir, data)
 
-    # Clear NEEDS_SPRINT when the sprint now has active stories
-    if sprint_state.has_active_stories(content):
-        (smm_dir / marker_names.NEEDS_SPRINT).unlink(missing_ok=True)
-
-    # Acceptance flow: .accept was present, no in-progress stories remain
-    if accept_marker_existed and not sprint_state.has_in_progress_stories(content):
+    # Acceptance flow: .accept was present, no in-progress stories.
+    # Use in-memory data to avoid re-reading the file we just wrote.
+    has_ip = any(s["status"] == "in-progress" for s in data["stories"])
+    if accept_marker_existed and not has_ip:
         accept_marker.unlink(missing_ok=True)
 
         event = _common.make_event(
@@ -77,12 +64,13 @@ def run(content: str, smm_dir: Path) -> None:
         )
         _common.append_safe(smm_dir, event)
 
-        if sprint_state.is_sprint_complete(content):
+        is_done = not sprint_store.has_active_stories_data(data)
+        if is_done:
             print(_SPRINT_REVIEW_NUDGE)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Save sprint.md atomically")
+    parser = argparse.ArgumentParser(description="Save sprint.json atomically")
     parser.add_argument(
         "--smm-dir",
         type=Path,
@@ -91,8 +79,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    content = sys.stdin.read()
-    run(content, args.smm_dir)
+    raw = sys.stdin.read()
+    data = json.loads(raw)
+    run(data, args.smm_dir)
 
 
 if __name__ == "__main__":

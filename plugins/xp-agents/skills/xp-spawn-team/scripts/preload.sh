@@ -13,7 +13,7 @@ if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
 fi
 
 # Sprint file path
-SPRINT_FILE="${SMM_DIR}/sprint.md"
+SPRINT_FILE="${SMM_DIR}/sprint.json"
 if [ -f "$SPRINT_FILE" ]; then
     echo "SPRINT_FILE=${SPRINT_FILE}"
 fi

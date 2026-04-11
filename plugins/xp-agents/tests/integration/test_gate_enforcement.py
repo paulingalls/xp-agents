@@ -172,7 +172,7 @@ class TestSprintStopGateIntegration(_IntegrationTestCase):
     """Sprint lifecycle cascade: accept gate → review gate."""
 
     def test_accept_cascade_blocks_in_progress_with_marker(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
 
         result = self._run_script(
@@ -186,7 +186,7 @@ class TestSprintStopGateIntegration(_IntegrationTestCase):
         self.assertIn("/xp-accept", parsed["reason"])
 
     def test_review_cascade_blocks_complete_sprint(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
 
         result = self._run_script(
             "sprint_stop_gate.py",
@@ -200,7 +200,7 @@ class TestSprintStopGateIntegration(_IntegrationTestCase):
 
     def test_asking_user_marker_defers_block(self):
         """Mid-dialogue .asking-user marker defers the sprint cascade."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         (self.smm_dir / ".asking-user").write_text("1")
 
         result = self._run_script(

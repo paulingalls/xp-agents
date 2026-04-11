@@ -101,7 +101,7 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
             constraints=[("TDD always", "convention")],
             wisdom=["Commit after green"],
         )
-        (self.smm_dir / "sprint.md").write_text(_SAMPLE_SPRINT)
+        (self.smm_dir / "sprint.json").write_text(_SAMPLE_SPRINT)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_FILE=", result.stdout)

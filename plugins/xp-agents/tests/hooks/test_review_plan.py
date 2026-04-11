@@ -86,8 +86,8 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertNotIn("Add user model", result.stdout)
 
     def test_preload_outputs_sprint_file_path(self):
-        """SPRINT_FILE= path when sprint.md exists."""
-        (self.smm_dir / "sprint.md").write_text("# Sprint\n- story-001")
+        """SPRINT_FILE= path when sprint.json exists."""
+        (self.smm_dir / "sprint.json").write_text("# Sprint\n- story-001")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SPRINT_FILE=", result.stdout)
@@ -95,8 +95,8 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertNotIn("story-001", result.stdout)
 
     def test_preload_no_sprint_file_omits_path(self):
-        """No SPRINT_FILE= when sprint.md doesn't exist."""
-        sprint = self.smm_dir / "sprint.md"
+        """No SPRINT_FILE= when sprint.json doesn't exist."""
+        sprint = self.smm_dir / "sprint.json"
         if sprint.exists():
             sprint.unlink()
         result = self._run_preload(_PRELOAD_SCRIPT)

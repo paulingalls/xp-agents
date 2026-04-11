@@ -29,17 +29,17 @@ if smm_has_section "Risks"; then
 fi
 
 # 3. Sprint Status
-SPRINT_FILE="${SMM_DIR}/sprint.md"
-if [ -f "$SPRINT_FILE" ]; then
-    ready=$(count_sprint_status "ready" "$SPRINT_FILE")
-    in_prog=$(count_sprint_status "in-progress" "$SPRINT_FILE")
+if sprint_exists; then
+    ready=$(sprint_count_status ready || echo 0)
+    ready=${ready:-0}
+    in_prog=$(sprint_count_status in-progress || echo 0)
+    in_prog=${in_prog:-0}
     echo "### Sprint Status"
     echo "Ready: ${ready}, In-Progress: ${in_prog}"
     if [ "$ready" -gt 0 ]; then
         echo ""
         echo "Ready stories:"
-        grep -B2 -F '**Status:** ready' "$SPRINT_FILE" \
-            | grep '###' || true
+        sprint_list_stories --status ready
     fi
     echo ""
 else

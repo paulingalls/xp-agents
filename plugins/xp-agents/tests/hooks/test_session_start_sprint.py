@@ -82,7 +82,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -93,7 +93,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -127,7 +127,7 @@ class TestSessionStartSprintDetection(_HookTestCase):
         }
         self._write_events([make_event()])
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -175,12 +175,12 @@ class TestSessionStartSprintDetection(_HookTestCase):
 
 
 class TestSessionStartCompactSprint(_HookTestCase):
-    """M10: compact source reinjects SMM + sprint.md."""
+    """M10: compact source reinjects SMM + sprint.json."""
 
     def setUp(self):
         super().setUp()
         write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
-        sprint_file = self.smm_dir / "sprint.md"
+        sprint_file = self.smm_dir / "sprint.json"
         sprint_file.write_text("# Sprint: Build API\n\n- **Sprint ID:** sprint-001\n")
 
     def test_compact_reinjects_smm_content(self):
@@ -195,7 +195,7 @@ class TestSessionStartCompactSprint(_HookTestCase):
         self.assertIn("Ship v1", result)
 
     def test_compact_does_not_inject_sprint(self):
-        """Compact reinjects SMM + process guide, not sprint.md."""
+        """Compact reinjects SMM + process guide, not sprint.json."""
         import session_start
 
         result = session_start.run(
@@ -206,10 +206,10 @@ class TestSessionStartCompactSprint(_HookTestCase):
         self.assertNotIn("sprint-001", result)
 
     def test_compact_no_sprint_still_works(self):
-        """Compact without sprint.md still returns SMM."""
+        """Compact without sprint.json still returns SMM."""
         import session_start
 
-        (self.smm_dir / "sprint.md").unlink()
+        (self.smm_dir / "sprint.json").unlink()
         result = session_start.run(
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,

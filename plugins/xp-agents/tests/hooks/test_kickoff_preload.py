@@ -96,27 +96,27 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertIn("NEEDS_SPRINT", result.stdout)
 
     def test_no_sprint_section_when_active_stories(self):
-        """No marker, sprint.md with ready stories — no flag."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        """No marker, sprint.json with ready stories — no flag."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("NEEDS_SPRINT", result.stdout)
 
     def test_outputs_needs_sprint_when_no_file(self):
-        """No marker, no sprint.md — emit flag from file check."""
+        """No marker, no sprint.json — emit flag from file check."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("NEEDS_SPRINT", result.stdout)
 
     def test_outputs_needs_sprint_when_all_done_no_marker(self):
-        """No marker, sprint.md all done — emit flag."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        """No marker, sprint.json all done — emit flag."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("NEEDS_SPRINT", result.stdout)
 
     def test_outputs_sprint_active_when_ready_stories(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SPRINT_ACTIVE", result.stdout)
@@ -128,7 +128,7 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
 
     def test_no_sprint_active_when_all_done(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_ALL_DONE)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
@@ -144,7 +144,7 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertNotIn("SPRINT_ACTIVE", result.stdout)
 
     def test_sprint_active_shows_only_ready_titles(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         # Ready stories should appear

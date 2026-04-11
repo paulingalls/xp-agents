@@ -15,22 +15,17 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
 import _common  # noqa: E402
-import sprint_parser  # noqa: E402
-import sprint_state  # noqa: E402
+import sprint_store  # noqa: E402
 
 
 def run(smm_dir: Path) -> dict | None:
     """Prepare sprint review input data.
 
-    Returns the review data dict on success, None if sprint.md
+    Returns the review data dict on success, None if sprint.json
     is missing or malformed.
     """
-    content = sprint_state.read_sprint_content(smm_dir)
-    if content is None:
-        return None
-
-    sprint_data = sprint_parser.parse_sprint_data(content)
-    if not sprint_data["sprint_id"]:
+    sprint_data = sprint_store.load_sprint(smm_dir)
+    if sprint_data is None or not sprint_data["sprint_id"]:
         return None
 
     # Execution plan path — agent uses plan_cli.py to update status
@@ -42,16 +37,17 @@ def run(smm_dir: Path) -> dict | None:
     except OSError:
         pass
 
-    velocity = sprint_parser.compute_velocity(sprint_data)
+    counts = sprint_store.count_by_status(sprint_data)
+    velocity = sprint_store.compute_velocity(sprint_data)
 
     review_input = {
         "sprint_id": sprint_data["sprint_id"],
         "goal": sprint_data["goal"],
         "started": sprint_data["started"],
-        "stories_by_status": sprint_data["stories_by_status"],
+        "stories_by_status": counts,
         "velocity": velocity,
         "milestone": sprint_data.get("milestone", ""),
-        "sprint_md_path": str(smm_dir / "sprint.md"),
+        "sprint_md_path": str(smm_dir / "sprint.json"),
         "execution_plan_md_path": plan_str,
     }
 

@@ -17,7 +17,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import subagent_stop
 import user_prompt_log
-from conftest import _HookTestCase, make_event, write_smm_fixture
+from conftest import (
+    _HookTestCase,
+    _s,
+    _sprint_json,
+    make_event,
+    write_smm_fixture,
+)
 
 # ===========================================================================
 # user_prompt_log.py tests — Milestone 3.4
@@ -400,10 +406,10 @@ class TestHousekeepingDone(_HookTestCase):
         self.assertFalse(marker.exists())
 
     def test_nudges_when_no_in_progress_stories(self):
-        """When sprint has no in-progress stories, add story selection nudge."""
+        """When sprint has no in-progress stories, add nudge."""
         self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.md").write_text(
-            "# Sprint\n## Stories\n### story-001: x\n- **Status:** ready\n"
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-001", "x", "M", "ready")])
         )
         result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
@@ -412,38 +418,25 @@ class TestHousekeepingDone(_HookTestCase):
     def test_no_nudge_when_in_progress_exists(self):
         """No nudge when an in-progress story exists."""
         self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.md").write_text(
-            "# Sprint\n## Stories\n### story-001: x\n- **Status:** in-progress\n"
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-001", "x", "M", "in-progress")])
         )
         result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         self.assertNotIn("No stories marked", result)
 
 
-_SPRINT_REVIEW_MIXED = """\
-# Sprint: Build auth system
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-15
-
-## Stories
-
-### story-001: Login
-- **Size:** M
-- **Status:** done
-
-### story-002: Register
-- **Size:** S
-- **Status:** done
-
-### story-003: Logout
-- **Size:** S
-- **Status:** deferred
-
-### story-004: Profile
-- **Size:** L
-- **Status:** ready
-"""
+_SPRINT_REVIEW_MIXED = _sprint_json(
+    [
+        _s("story-001", "Login", "M", "done"),
+        _s("story-002", "Register", "S", "done"),
+        _s("story-003", "Logout", "S", "deferred"),
+        _s("story-004", "Profile", "L", "ready"),
+    ],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+)
 
 
 class TestSprintReviewerDone(_HookTestCase):
@@ -458,7 +451,7 @@ class TestSprintReviewerDone(_HookTestCase):
         }
 
     def _seed_sprint(self, content: str = _SPRINT_REVIEW_MIXED) -> None:
-        (self.smm_dir / "sprint.md").write_text(content)
+        (self.smm_dir / "sprint.json").write_text(content)
 
     def test_returns_none_no_nudge(self):
         """M6: After sprint-reviewer finishes, returns None — sprint retro
@@ -494,7 +487,7 @@ class TestSprintReviewerDone(_HookTestCase):
         self.assertIn("stories_carried", meta)
 
     def test_sprint_end_velocity_values(self):
-        """Velocity in sprint end event matches sprint.md data."""
+        """Velocity in sprint end event matches sprint.json data."""
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
@@ -512,7 +505,7 @@ class TestSprintReviewerDone(_HookTestCase):
         self.assertFalse((self.smm_dir / ".sprint-review-input.json").exists())
 
     def test_no_sprint_graceful(self):
-        """M6: No sprint.md → still returns None (no nudge), no crash."""
+        """M6: No sprint.json → still returns None (no nudge), no crash."""
         result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
@@ -567,15 +560,17 @@ class TestSprintRetroDone(_HookTestCase):
         self.assertIsNone(result)
 
     def test_records_sprint_id_from_sprint_md(self):
-        """M4a: sprint_retro_done metadata includes sprint_id from sprint.md.
+        """M4a: sprint_retro_done metadata includes sprint_id from sprint.json.
 
         Detection (_needs_sprint_retro) scopes by sprint_id — without it,
         the scanner can't tell which sprint was retro'd.
         """
-        (self.smm_dir / "sprint.md").write_text(
-            "# Sprint\n\n- **Sprint ID:** sprint-042\n- **Started:** 2026-04-08\n"
-            "\n## Stories\n\n### story-001: foo\n- **Size:** S\n- **Status:** done\n"
-            "- **Dependencies:** none\n"
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "foo", "S", "done")],
+                sprint_id="sprint-042",
+                started="2026-04-08",
+            )
         )
         subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
@@ -588,7 +583,7 @@ class TestSprintRetroDone(_HookTestCase):
         self.assertEqual(retro_events[0]["metadata"].get("sprint_id"), "sprint-042")
 
     def test_sprint_id_fallback_when_sprint_md_missing(self):
-        """M4a: if sprint.md is missing, sprint_id falls back to 'unknown'.
+        """M4a: if sprint.json is missing, sprint_id falls back to 'unknown'.
         Mirrors _handle_sprint_review_done fallback behavior."""
         subagent_stop.run(self._retro_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)

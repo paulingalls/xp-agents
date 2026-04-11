@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # Preload for xp-run-sprint-retro: retro data + SMM path.
-# Agent reads sprint.md directly via path in JSON.
+# Agent reads sprint.json directly via path in JSON.
 # Agent reads SMM file for Constraints/Wisdom via Read tool.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"

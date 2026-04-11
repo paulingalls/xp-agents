@@ -257,7 +257,7 @@ class TestSprintTieredInjection(_IntegrationTestCase):
             constraints=[("TDD", "convention")],
             wisdom=["Commit often"],
         )
-        sprint_file = self.smm_dir / "sprint.md"
+        sprint_file = self.smm_dir / "sprint.json"
         sprint_file.write_text(self._SPRINT_MD)
 
     def test_plan_reviewer_gets_values_subprocess(self):
@@ -275,7 +275,7 @@ class TestSprintTieredInjection(_IntegrationTestCase):
         self.assertIn("XP Values", result.stdout)
 
     def test_compact_reinjects_smm_not_sprint(self):
-        """SessionStart compact reinjects SMM but not sprint.md."""
+        """SessionStart compact reinjects SMM but not sprint.json."""
         self._write_sprint_and_smm()
         self._seed_events([make_event()])
         result = self._run_script(
@@ -286,7 +286,7 @@ class TestSprintTieredInjection(_IntegrationTestCase):
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Ship v1", ctx)  # SMM content
-        self.assertNotIn("sprint-001", ctx)  # sprint.md not injected
+        self.assertNotIn("sprint-001", ctx)  # sprint.json not injected
 
 
 # ===========================================================================
@@ -302,7 +302,7 @@ class TestSprintRetroDetectionIntegration(_IntegrationTestCase):
         from conftest import SPRINT_COMPLETE_WITH_ID
         from event_schema import SPRINT_ACTION_END
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
 
         self._seed_events(
             [
@@ -379,7 +379,7 @@ class TestPrepareSprintRetroDataIntegration(_IntegrationTestCase):
     def test_writes_sprint_retro_input(self):
         from conftest import SPRINT_COMPLETE_WITH_ID
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_COMPLETE_WITH_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
 
         # Create a session retro in the sprint period
         retro_dir = self.smm_dir / "retrospectives"

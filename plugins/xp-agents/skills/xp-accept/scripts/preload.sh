@@ -4,18 +4,18 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-SPRINT_FILE="${SMM_DIR}/sprint.md"
+SPRINT_FILE="${SMM_DIR}/sprint.json"
 
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
 
-if [ ! -f "$SPRINT_FILE" ]; then
+if ! sprint_exists; then
     echo "### ERROR"
-    echo "No sprint.md found. Nothing to accept."
+    echo "No sprint.json found. Nothing to accept."
     exit 0
 fi
 
-in_progress_count=$(count_sprint_status "in-progress" "$SPRINT_FILE")
+in_progress_count=$(sprint_count_status in-progress)
 
 if [ "$in_progress_count" -eq 0 ]; then
     echo "### NO_IN_PROGRESS"

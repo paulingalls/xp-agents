@@ -154,10 +154,14 @@ class TestRetrospective(_HookTestCase):
         self.assertEqual(start, 4)
 
     def _sprint_md(self, sprint_id: str = "sprint-042") -> None:
-        (self.smm_dir / "sprint.md").write_text(
-            f"# Sprint\n\n- **Sprint ID:** {sprint_id}\n- **Started:** 2026-04-08\n"
-            "\n## Stories\n\n### story-001: foo\n- **Size:** S\n- **Status:** done\n"
-            "- **Dependencies:** none\n"
+        from conftest import _s, _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "foo", "S", "done")],
+                sprint_id=sprint_id,
+                started="2026-04-08",
+            )
         )
 
     def test_sprint_retro_branch_writes_sprint_input(self):
@@ -231,11 +235,11 @@ class TestRetrospective(_HookTestCase):
         self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
 
     def test_sprint_retro_fallback_to_session_when_prep_fails(self):
-        """M4b: if prepare_sprint_retro_data.run returns None (sprint.md
+        """M4b: if prepare_sprint_retro_data.run returns None (sprint.json
         missing or malformed), fall through to session retro path."""
         import retrospective
 
-        # No sprint.md — prep will return None.
+        # No sprint.json — prep will return None.
         events = [make_event(content=f"event {i}") for i in range(5)]
         events.append(
             make_event(

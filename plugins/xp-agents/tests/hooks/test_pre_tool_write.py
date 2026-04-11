@@ -238,7 +238,7 @@ class TestCheckTddOrder(_HookTestCase):
             self.smm_dir, "main", "execution_plan.json", "Write"
         )
         result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "sprint.md", "Write"
+            self.smm_dir, "main", "sprint.json", "Write"
         )
         self.assertIsNone(result)
 
@@ -481,7 +481,7 @@ class TestAcceptMarker(_HookTestCase):
 
     def test_sets_accept_marker_when_in_progress_stories(self):
         """Write + in-progress stories → marker set."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
@@ -498,7 +498,7 @@ class TestAcceptMarker(_HookTestCase):
 
     def test_no_marker_when_no_in_progress(self):
         """Write + all ready stories → no marker."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
@@ -507,7 +507,7 @@ class TestAcceptMarker(_HookTestCase):
 
     def test_idempotent_marker_setting(self):
         """Marker already exists → no error, still exists."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
@@ -517,7 +517,7 @@ class TestAcceptMarker(_HookTestCase):
 
     def test_plan_file_does_not_set_marker(self):
         """Plan file writes should not trigger accept marker."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         plan_input = _make_write_input(
             session_id="t",
             cwd="/tmp",

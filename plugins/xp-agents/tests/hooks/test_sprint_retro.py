@@ -10,44 +10,39 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _IntegrationTestCase, write_smm_fixture
+from conftest import (
+    _HookTestCase,
+    _IntegrationTestCase,
+    _s,
+    _sprint_json,
+    write_smm_fixture,
+)
 
 # ---------------------------------------------------------------------------
 # Sprint fixture
 # ---------------------------------------------------------------------------
 
-SPRINT_CONTENT = """\
-# Sprint: Build auth system
+SPRINT_CONTENT = _sprint_json(
+    [
+        _s("story-001", "User login", "M", "done"),
+        _s("story-002", "User registration", "S", "done"),
+        _s(
+            "story-003",
+            "Password reset",
+            "L",
+            "deferred",
+            dependencies=["story-001"],
+        ),
+    ],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+)
 
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-15
-
-## Stories
-
-### story-001: User login
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: User registration
-- **Size:** S
-- **Status:** done
-- **Dependencies:** none
-
-### story-003: Password reset
-- **Size:** L
-- **Status:** deferred
-- **Dependencies:** story-001
-"""
-
-SPRINT_NO_ID = """\
-# Sprint: Test
-
-## Stories
-
-### story-001: Something
-- **Status:** done
-"""
+SPRINT_NO_ID = _sprint_json(
+    [_s("story-001", "Something", "M", "done")],
+    goal="Test",
+)
 
 
 def _make_retro_file(
@@ -78,7 +73,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """All required keys present, with path instead of content."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = prepare_sprint_retro_data.run(self.smm_dir)
         self.assertIsNotNone(result)
         for key in (
@@ -98,7 +93,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Velocity matches sprint data."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = prepare_sprint_retro_data.run(self.smm_dir)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 3)
@@ -109,7 +104,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Stories list populated with sizes."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = prepare_sprint_retro_data.run(self.smm_dir)
         self.assertEqual(len(result["stories"]), 3)
         sizes = {s["id"]: s["size"] for s in result["stories"]}
@@ -126,7 +121,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Retros within sprint window collected."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         # Sprint started 2026-03-15 — these retros are after
         _make_retro_file(self.smm_dir, "2026-03-16T10:00:00+00:00", keep=2)
         _make_retro_file(self.smm_dir, "2026-03-17T10:00:00+00:00", fix=1)
@@ -137,7 +132,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Retros before start date filtered out."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         # Sprint started 2026-03-15 — this retro is before
         _make_retro_file(self.smm_dir, "2026-03-14T10:00:00+00:00", keep=1)
         # This one is after
@@ -152,7 +147,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Empty retrospectives dir -> empty session_retros list."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         (self.smm_dir / "retrospectives").mkdir()
         result = prepare_sprint_retro_data.run(self.smm_dir)
         self.assertEqual(result["session_retros"], [])
@@ -161,7 +156,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Missing retrospectives dir -> empty session_retros list."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = prepare_sprint_retro_data.run(self.smm_dir)
         self.assertEqual(result["session_retros"], [])
 
@@ -169,7 +164,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """.sprint-retro-input.json exists after run."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         prepare_sprint_retro_data.run(self.smm_dir)
         self.assertTrue((self.smm_dir / ".sprint-retro-input.json").exists())
 
@@ -177,7 +172,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Sprint without sprint_id -> None."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_NO_ID)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_NO_ID)
         result = prepare_sprint_retro_data.run(self.smm_dir)
         self.assertIsNone(result)
 
@@ -185,7 +180,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """sprint_md_path points to existing file."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = prepare_sprint_retro_data.run(self.smm_dir)
         path = result["sprint_md_path"]
         self.assertTrue(path)
@@ -195,7 +190,7 @@ class TestPrepareSprintRetroData(_HookTestCase):
         """Session retros returned in chronological order."""
         import prepare_sprint_retro_data
 
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         _make_retro_file(self.smm_dir, "2026-03-18T10:00:00+00:00")
         _make_retro_file(self.smm_dir, "2026-03-16T10:00:00+00:00")
         _make_retro_file(self.smm_dir, "2026-03-17T10:00:00+00:00")
@@ -221,13 +216,13 @@ class TestSprintRetroPreload(_IntegrationTestCase):
     """M12: preload.sh runs prepare_sprint_retro_data and outputs paths."""
 
     def test_preload_outputs_smm_dir(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_preload_outputs_retro_input(self):
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("RETRO_INPUT=", result.stdout)
@@ -239,7 +234,7 @@ class TestSprintRetroPreload(_IntegrationTestCase):
 
     def test_preload_outputs_smm_path_no_content(self):
         """SMM_FILE= path, no values or pillar content in stdout."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         write_smm_fixture(
             self.smm_dir,
             constraints=[("TDD always", "convention")],
@@ -262,7 +257,7 @@ class TestSprintRetroPreload(_IntegrationTestCase):
         This preserves the schema written by the session-start path and
         avoids recomputing prep data twice.
         """
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
         sentinel_file = self.smm_dir / ".sprint-retro-input.json"
         sentinel_content = '{"sentinel": "pre-written-by-session-start"}'
         sentinel_file.write_text(sentinel_content)
@@ -280,7 +275,7 @@ class TestSprintRetroPreload(_IntegrationTestCase):
 
         Prevents schema drift between the two code paths.
         """
-        (self.smm_dir / "sprint.md").write_text(SPRINT_CONTENT)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CONTENT)
 
         # Path A: direct function call (SessionStart hook style)
         import prepare_sprint_retro_data

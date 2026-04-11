@@ -17,7 +17,6 @@ import coordination
 import markers
 import smm_store
 import smm_view
-import sprint_parser
 import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -91,10 +90,11 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
 
     process = _common.load_process_guide()
 
-    sprint_content = sprint_state.read_sprint_content(smm_dir)
     nudge = ""
-    if sprint_content and not sprint_state.has_in_progress_stories(sprint_content):
-        nudge = _SPRINT_NUDGE
+    if not sprint_state.has_in_progress_stories(smm_dir):
+        sprint_data = sprint_state.read_sprint_content(smm_dir)
+        if sprint_data is not None:
+            nudge = _SPRINT_NUDGE
 
     parts = [p for p in [smm_content, process, nudge] if p]
     return "\n\n".join(parts) if parts else None
@@ -112,10 +112,11 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
     if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
         return None
 
-    sprint_content = sprint_state.read_sprint_content(smm_dir)
-    if sprint_content:
-        sprint_data = sprint_parser.parse_sprint_data(sprint_content)
-        velocity = sprint_parser.compute_velocity(sprint_data)
+    sprint_data = sprint_state.read_sprint_content(smm_dir)
+    if sprint_data:
+        from sprint_store import compute_velocity
+
+        velocity = compute_velocity(sprint_data)
         sprint_id = sprint_data["sprint_id"] or "unknown"
         goal = sprint_data["goal"] or "Sprint review"
 
@@ -149,10 +150,9 @@ def _handle_sprint_retro_done(smm_dir: Path, input_data: dict) -> str | None:
     if agent_type not in _SPRINT_RETRO_AGENT_TYPES:
         return None
 
-    sprint_content = sprint_state.read_sprint_content(smm_dir)
+    sprint_data = sprint_state.read_sprint_content(smm_dir)
     sprint_id = "unknown"
-    if sprint_content:
-        sprint_data = sprint_parser.parse_sprint_data(sprint_content)
+    if sprint_data:
         sprint_id = sprint_data["sprint_id"] or "unknown"
 
     event = _common.make_event(

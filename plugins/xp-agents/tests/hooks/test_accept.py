@@ -38,21 +38,21 @@ class TestAcceptPreload(_IntegrationTestCase):
     """M16: preload outputs path, not full sprint content."""
 
     def test_preload_no_sprint(self):
-        """Outputs ERROR when no sprint.md exists."""
+        """Outputs ERROR when no sprint.json exists."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
 
     def test_preload_no_in_progress(self):
         """Outputs NO_IN_PROGRESS when no in-progress stories."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_READY_ONLY)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("NO_IN_PROGRESS", result.stdout)
 
     def test_preload_outputs_path_not_content(self):
         """Outputs SPRINT_FILE path, not full sprint content."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("SPRINT_FILE=", result.stdout)
@@ -61,7 +61,7 @@ class TestAcceptPreload(_IntegrationTestCase):
 
     def test_preload_shows_in_progress_count(self):
         """Outputs count of in-progress stories."""
-        (self.smm_dir / "sprint.md").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("in-progress", result.stdout.lower())

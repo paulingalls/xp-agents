@@ -326,39 +326,44 @@ class TestPrepareCurationData(_SMMTestCase):
 
     # -- Sprint data --
 
-    _SPRINT_MD = """\
-# Sprint: Build user management API
+    @staticmethod
+    def _sprint_data():
+        from conftest import _s, _sprint_json
 
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-26
-
-## Stories
-
-### story-001: As a user I can register
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-- **Acceptance Criteria:**
-  - E2E: register user
-
-### story-002: As a user I can login
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** story-001
-- **Acceptance Criteria:**
-  - E2E: login flow
-
-### story-003: As an admin I can list users
-- **Size:** S
-- **Status:** ready
-- **Dependencies:** story-002
-- **Acceptance Criteria:**
-  - E2E: list users
-"""
+        return _sprint_json(
+            [
+                _s(
+                    "story-001",
+                    "Register",
+                    "M",
+                    "done",
+                    acceptance_criteria=["E2E: register user"],
+                ),
+                _s(
+                    "story-002",
+                    "Login",
+                    "M",
+                    "in-progress",
+                    dependencies=["story-001"],
+                    acceptance_criteria=["E2E: login flow"],
+                ),
+                _s(
+                    "story-003",
+                    "List users",
+                    "S",
+                    "ready",
+                    dependencies=["story-002"],
+                    acceptance_criteria=["E2E: list users"],
+                ),
+            ],
+            sprint_id="sprint-001",
+            started="2026-03-26",
+            goal="Build user management API",
+        )
 
     def test_sprint_key_in_curation_data(self):
-        """sprint.md present → sprint key has parsed data."""
-        (self.smm_dir / "sprint.md").write_text(self._SPRINT_MD)
+        """sprint.json present → sprint key has parsed data."""
+        (self.smm_dir / "sprint.json").write_text(self._sprint_data())
         events = [make_event("status", content="Work started")]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
@@ -371,7 +376,7 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertEqual(sprint["stories_by_status"]["ready"], 1)
 
     def test_sprint_key_missing_sprint_md(self):
-        """No sprint.md → sprint key has empty structure."""
+        """No sprint.json → sprint key has empty structure."""
         events = [make_event("status", content="Work started")]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
@@ -380,15 +385,15 @@ class TestPrepareCurationData(_SMMTestCase):
         self.assertEqual(sprint["stories_by_status"]["ready"], 0)
 
     def test_sprint_key_empty_events(self):
-        """Empty events but sprint.md present → sprint data populated."""
-        (self.smm_dir / "sprint.md").write_text(self._SPRINT_MD)
+        """Empty events but sprint.json present → sprint data populated."""
+        (self.smm_dir / "sprint.json").write_text(self._sprint_data())
         result = materialize.prepare_curation_data(self.smm_dir)
         sprint = result["sprint"]
         self.assertEqual(sprint["sprint_id"], "sprint-001")
 
     def test_sprint_blockers_in_curation_data(self):
-        """Blockers in sprint.md appear in curation data."""
-        (self.smm_dir / "sprint.md").write_text(self._SPRINT_MD)
+        """Blockers in sprint.json appear in curation data."""
+        (self.smm_dir / "sprint.json").write_text(self._sprint_data())
         events = [make_event("status", content="Work started")]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)

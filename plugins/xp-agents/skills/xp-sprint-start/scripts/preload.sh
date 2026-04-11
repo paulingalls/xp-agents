@@ -30,15 +30,13 @@ echo "EXECUTION_PLAN=${PLAN_FILE}"
 check_system_context
 
 # --- Check for deferred stories in existing sprint ---
-SPRINT_FILE="${SMM_DIR}/sprint.md"
-if [ -f "$SPRINT_FILE" ]; then
-    deferred=$(grep -c 'Status:.*\bdeferred\b' "$SPRINT_FILE" 2>/dev/null || true)
-    deferred=${deferred:-0}
-    if [ "$deferred" -gt 0 ]; then
+if sprint_exists; then
+    deferred_count=$(sprint_count_status deferred)
+    if [ "$deferred_count" -gt 0 ]; then
         echo ""
-        echo "## Deferred Stories from Previous Sprint (${deferred})"
+        echo "## Deferred Stories from Previous Sprint (${deferred_count})"
         echo ""
-        grep -B2 'Status:.*\bdeferred\b' "$SPRINT_FILE" || true
+        sprint_list_stories --status deferred
     fi
 fi
 

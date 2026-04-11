@@ -292,7 +292,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             risks=[("Auth module fragile", "concern", "problem")],
             wisdom=["TDD always"],
         )
-        sprint_file = self.smm_dir / "sprint.md"
+        sprint_file = self.smm_dir / "sprint.json"
         sprint_file.write_text(_SAMPLE_SPRINT)
 
     def test_plan_reviewer_gets_values_only(self):
@@ -398,8 +398,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertNotIn("sprint-001", result)
 
     def test_plan_reviewer_no_sprint_still_gets_values(self):
-        """xp-plan-reviewer gets values even without sprint.md."""
-        (self.smm_dir / "sprint.md").unlink()
+        """xp-plan-reviewer gets values even without sprint.json."""
+        (self.smm_dir / "sprint.json").unlink()
         result = self.subagent_start.run(
             {
                 "session_id": "t",

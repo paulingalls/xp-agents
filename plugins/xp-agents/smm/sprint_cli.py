@@ -74,6 +74,29 @@ def _cmd_render_stories(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_count_status(args: argparse.Namespace) -> int:
+    sprint = store.load_sprint(args.smm_dir)
+    if sprint is None:
+        print("0")
+        return 0
+    counts = store.count_by_status(sprint)
+    key = args.status.replace("-", "_")
+    print(counts.get(key, 0))
+    return 0
+
+
+def _cmd_list_stories(args: argparse.Namespace) -> int:
+    sprint = store.load_sprint(args.smm_dir)
+    if sprint is None:
+        print("No sprint found.", file=sys.stderr)
+        return 1
+    status = getattr(args, "status", None)
+    stories = store.list_stories(sprint, status=status)
+    for s in stories:
+        print(f"{s['id']}: {s['title']} [{s['status']}]")
+    return 0
+
+
 def _cmd_create(args: argparse.Namespace) -> int:
     raw = sys.stdin.read()
     try:
@@ -134,11 +157,28 @@ def main() -> None:
     sub.add_parser("has-active", help="Check for active stories")
     sub.add_parser("is-complete", help="Check if sprint is complete")
     sub.add_parser("count", help="Count stories by status")
+
+    cs_p = sub.add_parser("count-status", help="Count stories with a specific status")
+    cs_p.add_argument(
+        "status",
+        choices=["ready", "in-progress", "done", "deferred"],
+        help="Status to count",
+    )
+
     sub.add_parser("velocity", help="Velocity metrics")
     sub.add_parser("render", help="Render as markdown")
 
     render_s = sub.add_parser("render-stories", help="Render specific stories")
     render_s.add_argument("story_ids", nargs="+", help="Story IDs to render")
+
+    list_s = sub.add_parser(
+        "list-stories", help="List stories (optional status filter)"
+    )
+    list_s.add_argument(
+        "--status",
+        choices=["ready", "in-progress", "done", "deferred"],
+        help="Filter by status",
+    )
 
     sub.add_parser("create", help="Create sprint from stdin")
     sub.add_parser("add-story", help="Add story from stdin")
@@ -158,9 +198,11 @@ def main() -> None:
         "has-active": _cmd_has_active,
         "is-complete": _cmd_is_complete,
         "count": _cmd_count,
+        "count-status": _cmd_count_status,
         "velocity": _cmd_velocity,
         "render": _cmd_render,
         "render-stories": _cmd_render_stories,
+        "list-stories": _cmd_list_stories,
         "create": _cmd_create,
         "add-story": _cmd_add_story,
         "update-story": _cmd_update_story,

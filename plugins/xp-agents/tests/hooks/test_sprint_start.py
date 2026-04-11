@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _HookTestCase, _IntegrationTestCase
 
 # ===========================================================================
-# save_sprint.py — Atomic writer for sprint.md
+# save_sprint.py — Atomic writer for sprint.json
 # ===========================================================================
 
 _SAVE_SCRIPT = (
@@ -27,7 +27,7 @@ _SAVE_SCRIPT = (
 class TestSaveSprint(_HookTestCase):
     """Tests for the save_sprint.py atomic writer."""
 
-    def _run_save(self, content: str) -> None:
+    def _run_save(self, data: dict) -> None:
         """Import and call save_sprint.run() directly."""
         if not _SAVE_SCRIPT.is_file():
             self.skipTest("save_sprint.py not yet created")
@@ -36,98 +36,83 @@ class TestSaveSprint(_HookTestCase):
 
         mod = importlib.import_module("save_sprint")
         importlib.reload(mod)  # ensure fresh import
-        mod.run(content, self.smm_dir)
+        mod.run(data, self.smm_dir)
 
-    def test_writes_sprint_md(self):
-        """Creates sprint.md with given content."""
-        content = (
-            "# Sprint: Build auth system\n\n"
-            "- **Sprint ID:** sprint-001\n"
-            "- **Started:** 2026-04-01\n\n"
-            "## Stories\n\n"
-            "### story-001: As a user I can register\n"
-            "- **Size:** M\n"
-            "- **Status:** ready\n"
-        )
-        self._run_save(content)
-        target = self.smm_dir / "sprint.md"
+    def _sample_sprint(self, **overrides) -> dict:
+        from conftest import _s
+
+        base = {
+            "sprint_id": "sprint-001",
+            "goal": "Build auth system",
+            "started": "2026-04-01",
+            "milestone": "",
+            "stories": [_s("story-001", "Register", "M", "ready")],
+        }
+        base.update(overrides)
+        return base
+
+    def test_writes_sprint_json(self):
+        """Creates sprint.json with given data."""
+        data = self._sample_sprint()
+        self._run_save(data)
+        target = self.smm_dir / "sprint.json"
         self.assertTrue(target.is_file())
-        self.assertEqual(target.read_text(), content)
+        loaded = json.loads(target.read_text())
+        self.assertEqual(loaded["sprint_id"], "sprint-001")
 
     def test_overwrites_existing(self):
-        """Replaces existing sprint.md content."""
-        target = self.smm_dir / "sprint.md"
-        target.write_text("old sprint content")
-        new_content = "# Sprint: Updated\n"
-        self._run_save(new_content)
-        self.assertEqual(target.read_text(), new_content)
+        """Replaces existing sprint.json."""
+        target = self.smm_dir / "sprint.json"
+        target.write_text(json.dumps(self._sample_sprint()))
+        updated = self._sample_sprint(goal="Updated")
+        self._run_save(updated)
+        loaded = json.loads(target.read_text())
+        self.assertEqual(loaded["goal"], "Updated")
 
     def test_rejects_symlink(self):
-        """Raises OSError when sprint.md is a symlink."""
-        target = self.smm_dir / "sprint.md"
-        real_file = self.smm_dir / "real.md"
-        real_file.write_text("real")
+        """Raises error when sprint.json is a symlink."""
+        target = self.smm_dir / "sprint.json"
+        real_file = self.smm_dir / "real.json"
+        real_file.write_text("{}")
         target.symlink_to(real_file)
-        with self.assertRaises(OSError):
-            self._run_save("new content")
+        with self.assertRaises((OSError, ValueError)):
+            self._run_save(self._sample_sprint())
 
     def test_content_passthrough(self):
-        """Deferred stories and various statuses are preserved verbatim."""
-        content = (
-            "# Sprint: Build user management\n\n"
-            "- **Sprint ID:** sprint-002\n"
-            "- **Started:** 2026-04-01\n\n"
-            "## Stories\n\n"
-            "### story-001: As a user I can register\n"
-            "- **Size:** M\n"
-            "- **Status:** done\n\n"
-            "### story-002: As a user I can login\n"
-            "- **Size:** S\n"
-            "- **Status:** deferred\n\n"
-            "### story-003: As an admin I can list users\n"
-            "- **Size:** L\n"
-            "- **Status:** ready\n"
+        """All story statuses preserved in JSON."""
+        from conftest import _s
+
+        data = self._sample_sprint(
+            sprint_id="sprint-002",
+            stories=[
+                _s("story-001", "Register", "M", "done"),
+                _s("story-002", "Login", "S", "deferred"),
+                _s("story-003", "Admin list", "L", "ready"),
+            ],
         )
-        self._run_save(content)
-        self.assertEqual((self.smm_dir / "sprint.md").read_text(), content)
+        self._run_save(data)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(len(loaded["stories"]), 3)
+        statuses = [s["status"] for s in loaded["stories"]]
+        self.assertEqual(statuses, ["done", "deferred", "ready"])
 
 
-_SPRINT_COMPLETE = (
-    "# Sprint: Build auth\n\n"
-    "- **Sprint ID:** sprint-001\n"
-    "- **Started:** 2026-04-01\n\n"
-    "## Stories\n\n"
-    "### story-001: login\n"
-    "- **Status:** done\n"
-)
+def _local_sprint(status="done"):
+    from conftest import _s
 
-_SPRINT_IN_PROGRESS_BODY = (
-    "# Sprint: Build auth\n\n"
-    "- **Sprint ID:** sprint-001\n"
-    "- **Started:** 2026-04-01\n\n"
-    "## Stories\n\n"
-    "### story-001: login\n"
-    "- **Status:** in-progress\n"
-)
-
-_SPRINT_READY_ONLY_BODY = (
-    "# Sprint: Build auth\n\n"
-    "- **Sprint ID:** sprint-001\n"
-    "- **Started:** 2026-04-01\n\n"
-    "## Stories\n\n"
-    "### story-001: login\n"
-    "- **Status:** ready\n"
-)
+    return {
+        "sprint_id": "sprint-001",
+        "goal": "Build auth",
+        "started": "2026-04-01",
+        "milestone": "",
+        "stories": [_s("story-001", "login", "M", status)],
+    }
 
 
 class TestSaveSprintAcceptanceFlow(_HookTestCase):
-    """save_sprint.py handles .accept marker clearing and iteration_complete.
+    """save_sprint.py handles .accept marker clearing and iteration_complete."""
 
-    This replaces the old accept_done.py behavior — save_sprint.py is the
-    reliable signal (file write) for acceptance completion.
-    """
-
-    def _run_save(self, content: str) -> None:
+    def _run_save(self, data: dict) -> None:
         if not _SAVE_SCRIPT.is_file():
             self.skipTest("save_sprint.py not yet created")
         sys.path.insert(0, str(_SAVE_SCRIPT.parent))
@@ -135,7 +120,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
 
         mod = importlib.import_module("save_sprint")
         importlib.reload(mod)
-        mod.run(content, self.smm_dir)
+        mod.run(data, self.smm_dir)
 
     def _read_events(self) -> list[dict]:
         events_file = self.smm_dir / "events.jsonl"
@@ -147,20 +132,20 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         return [json.loads(line) for line in text.split("\n") if line.strip()]
 
     def test_clears_accept_marker_when_no_in_progress(self):
-        """.accept present and no in-progress stories → marker cleared."""
+        """.accept present and no in-progress stories → cleared."""
         (self.smm_dir / ".accept").write_text("done")
-        self._run_save(_SPRINT_COMPLETE)
+        self._run_save(_local_sprint(status="done"))
         self.assertFalse((self.smm_dir / ".accept").exists())
 
     def test_keeps_accept_marker_when_in_progress_remains(self):
-        """.accept present with in-progress stories → marker preserved."""
+        """.accept present with in-progress stories → preserved."""
         (self.smm_dir / ".accept").write_text("done")
-        self._run_save(_SPRINT_IN_PROGRESS_BODY)
+        self._run_save(_local_sprint(status="in-progress"))
         self.assertTrue((self.smm_dir / ".accept").exists())
 
     def test_no_iteration_complete_without_accept_marker(self):
-        """Without .accept marker, no iteration_complete event is recorded."""
-        self._run_save(_SPRINT_COMPLETE)
+        """Without .accept marker, no iteration_complete event."""
+        self._run_save(_local_sprint(status="done"))
         events = self._read_events()
         iter_events = [
             e
@@ -170,9 +155,9 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         self.assertEqual(len(iter_events), 0)
 
     def test_iteration_complete_recorded_on_accept_flow(self):
-        """.accept present → iteration_complete status event recorded."""
+        """.accept present → iteration_complete status event."""
         (self.smm_dir / ".accept").write_text("done")
-        self._run_save(_SPRINT_COMPLETE)
+        self._run_save(_local_sprint(status="done"))
         events = self._read_events()
         iter_events = [
             e
@@ -182,39 +167,38 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         self.assertEqual(len(iter_events), 1)
 
     def test_sprint_complete_nudge_printed(self):
-        """Sprint becomes complete in accept flow → stdout contains review nudge."""
+        """Sprint complete in accept flow → stdout nudge."""
         from contextlib import redirect_stdout
         from io import StringIO
 
         (self.smm_dir / ".accept").write_text("done")
         buf = StringIO()
         with redirect_stdout(buf):
-            self._run_save(_SPRINT_COMPLETE)
+            self._run_save(_local_sprint(status="done"))
         self.assertIn("Sprint complete", buf.getvalue())
         self.assertIn("xp-sprint-review", buf.getvalue())
 
     def test_no_nudge_when_sprint_not_complete(self):
-        """Acceptance flow but sprint still has ready stories → no nudge."""
+        """Accept flow but sprint has ready stories → no nudge."""
         from contextlib import redirect_stdout
         from io import StringIO
 
         (self.smm_dir / ".accept").write_text("done")
         buf = StringIO()
         with redirect_stdout(buf):
-            self._run_save(_SPRINT_READY_ONLY_BODY)
-        # .accept clears (no in-progress), but sprint isn't complete
+            self._run_save(_local_sprint(status="ready"))
         self.assertNotIn("Sprint complete", buf.getvalue())
 
     def test_clears_needs_sprint_marker_with_active_stories(self):
-        """NEEDS_SPRINT marker clears when sprint has active stories."""
+        """NEEDS_SPRINT marker clears with active stories."""
         (self.smm_dir / ".needs-sprint").write_text("startup")
-        self._run_save(_SPRINT_READY_ONLY_BODY)
+        self._run_save(_local_sprint(status="ready"))
         self.assertFalse((self.smm_dir / ".needs-sprint").exists())
 
     def test_keeps_needs_sprint_marker_with_no_active_stories(self):
-        """NEEDS_SPRINT marker is preserved when no active stories exist."""
+        """NEEDS_SPRINT marker preserved with no active stories."""
         (self.smm_dir / ".needs-sprint").write_text("startup")
-        self._run_save(_SPRINT_COMPLETE)
+        self._run_save(_local_sprint(status="done"))
         self.assertTrue((self.smm_dir / ".needs-sprint").exists())
 
 
@@ -341,14 +325,18 @@ class TestSprintStartPreload(_IntegrationTestCase):
         self.assertIn("planned=2", result.stdout)
 
     def test_preload_existing_sprint_deferred(self):
-        """Shows deferred stories from existing sprint.md."""
+        """Shows deferred stories from existing sprint.json."""
+        from conftest import _s, _sprint_json
+
         self._write_plan()
-        (self.smm_dir / "sprint.md").write_text(
-            "# Sprint: Previous\n\n## Stories\n\n"
-            "### story-001: As a user I can register\n"
-            "- **Status:** done\n\n"
-            "### story-002: As a user I can login\n"
-            "- **Status:** deferred\n"
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "Register", "M", "done"),
+                    _s("story-002", "Login", "S", "deferred"),
+                ],
+                goal="Previous",
+            )
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)

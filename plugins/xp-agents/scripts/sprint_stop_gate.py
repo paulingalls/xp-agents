@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import markers
-import sprint_parser
 import sprint_state
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
 
@@ -51,11 +50,6 @@ def _deferred(smm_dir: Path, agent_id: str) -> bool:
     return any(aid != agent_id for aid in coord)
 
 
-def _sprint_id_from_content(content: str) -> str:
-    """Return sprint_id from sprint.md content, or empty string if missing."""
-    return sprint_parser.parse_sprint_data(content).get("sprint_id") or ""
-
-
 def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:
     """Return True if a sprint_end event for the given sprint_id exists."""
     for event in reversed(events):
@@ -70,21 +64,20 @@ def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:
     return False
 
 
-def _compute_block_message(smm_dir: Path, sprint_content: str) -> str | None:
+def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
     """Return the first triggered cascade block message, or None."""
     # Cascade step 1: accept gate
-    if sprint_state.has_in_progress_stories(sprint_content):
+    if sprint_state.has_in_progress_stories(smm_dir):
         if markers.marker_exists(smm_dir, markers.ACCEPT):
             return _ACCEPT_MESSAGE
         return None
 
     # Cascade step 2: sprint-review gate — requires sprint complete
-    if not sprint_state.is_sprint_complete(sprint_content):
+    if not sprint_state.is_sprint_complete(smm_dir):
         return None
 
-    sprint_id = _sprint_id_from_content(sprint_content)
+    sprint_id = sprint_data.get("sprint_id") or ""
     if not sprint_id:
-        # Can't match events without a sprint_id — don't block on malformed sprint.md
         return None
 
     events = _common.read_events_raw(smm_dir)
@@ -104,11 +97,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    sprint_content = sprint_state.read_sprint_content(smm_dir)
-    if sprint_content is None:
+    sprint_data = sprint_state.read_sprint_content(smm_dir)
+    if sprint_data is None:
         return None
 
-    block_message = _compute_block_message(smm_dir, sprint_content)
+    block_message = _compute_block_message(smm_dir, sprint_data)
     if block_message is None:
         return None
 

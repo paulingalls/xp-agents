@@ -1,48 +1,47 @@
 #!/usr/bin/env python3
 """Sprint and planning document state detection helpers.
 
-Pure functions for checking sprint.md, execution_plan.json, and
-system_context.md state. Used by session_start.py and kickoff_done.py
-for deterministic state detection.
+Delegates sprint checks to sprint_store.py (JSON format).
+Used by session_start.py, pre_tool_write.py, and gates for
+deterministic state detection.
 """
 
-import re
 from pathlib import Path
 
-_ACTIVE_RE = re.compile(r"\*\*Status:\*\*\s*(ready|in-progress)")
-_IN_PROGRESS_RE = re.compile(r"\*\*Status:\*\*\s*in-progress")
-_READY_RE = re.compile(r"\*\*Status:\*\*\s*ready")
+
+def has_active_stories(smm_dir: Path) -> bool:
+    """True if sprint has ready or in-progress stories."""
+    from sprint_store import has_active_stories as _fn
+
+    return _fn(smm_dir)
 
 
-def has_active_stories(sprint_content: str) -> bool:
-    """Return True if sprint content contains ready or in-progress stories."""
-    return bool(_ACTIVE_RE.search(sprint_content))
+def has_in_progress_stories(smm_dir: Path) -> bool:
+    """True if sprint has in-progress stories."""
+    from sprint_store import has_in_progress_stories as _fn
+
+    return _fn(smm_dir)
 
 
-def has_in_progress_stories(sprint_content: str) -> bool:
-    """Return True if sprint content contains in-progress stories."""
-    return bool(_IN_PROGRESS_RE.search(sprint_content))
+def read_sprint_content(smm_dir: Path) -> dict | None:
+    """Load sprint data from sprint.json. Returns None if missing."""
+    from sprint_store import load_sprint
+
+    return load_sprint(smm_dir)
 
 
-def read_sprint_content(smm_dir: Path) -> str | None:
-    """Read sprint.md from SMM dir. Returns None if missing or symlink."""
-    path = smm_dir / "sprint.md"
-    if path.is_symlink():
-        return None
-    try:
-        return path.read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return None
+def has_ready_stories(smm_dir: Path) -> bool:
+    """True if sprint has ready stories."""
+    from sprint_store import has_ready_stories as _fn
+
+    return _fn(smm_dir)
 
 
-def has_ready_stories(sprint_content: str) -> bool:
-    """Return True if sprint content contains ready stories."""
-    return bool(_READY_RE.search(sprint_content))
+def is_sprint_complete(smm_dir: Path) -> bool:
+    """True when no ready or in-progress stories remain."""
+    from sprint_store import is_complete
 
-
-def is_sprint_complete(sprint_content: str) -> bool:
-    """Return True when no ready or in-progress stories remain."""
-    return not _ACTIVE_RE.search(sprint_content)
+    return is_complete(smm_dir)
 
 
 def _safe_file_exists(smm_dir: Path, filename: str) -> bool:

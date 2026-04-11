@@ -33,104 +33,102 @@ sys.path.insert(0, str(_SMM_DIR))
 # Sprint fixtures — shared across test_accept.py, test_pre_tool_write.py, etc.
 # ---------------------------------------------------------------------------
 
-SPRINT_IN_PROGRESS = """\
-# Sprint: Build auth
+_STORY_BASE = {
+    "milestone_ref": "",
+    "design_sources": "",
+    "context": "",
+    "file_domain": [],
+    "interface_contracts": [],
+    "acceptance_criteria": [],
+}
 
-## Stories
 
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** none
-"""
+def _s(id: str, title: str, size: str, status: str, **kw) -> dict:
+    deps = kw.pop("dependencies", [])
+    return {
+        **_STORY_BASE,
+        "id": id,
+        "title": title,
+        "size": size,
+        "status": status,
+        "dependencies": deps,
+        **kw,
+    }
 
-SPRINT_READY_ONLY = """\
-# Sprint: Build auth
 
-## Stories
+def _sprint_json(
+    stories,
+    sprint_id="",
+    started="",
+    goal="Build auth",
+    milestone="",
+):
+    import json
 
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** ready
-- **Dependencies:** none
-"""
+    return json.dumps(
+        {
+            "sprint_id": sprint_id,
+            "goal": goal,
+            "started": started,
+            "milestone": milestone,
+            "stories": stories,
+        }
+    )
 
-SPRINT_ALL_DONE = """\
-# Sprint: Build auth
 
-## Stories
+SPRINT_IN_PROGRESS = _sprint_json(
+    [_s("story-001", "As a user I can log in", "M", "in-progress")]
+)
 
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
+SPRINT_READY_ONLY = _sprint_json(
+    [_s("story-001", "As a user I can log in", "M", "ready")]
+)
 
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** deferred
-"""
+SPRINT_ALL_DONE = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-002", "As a user I can register", "S", "deferred"),
+    ]
+)
 
-# Variant of SPRINT_ALL_DONE that includes a **Sprint ID:** line. Needed by
-# sprint_stop_gate's review cascade to resolve a matching sprint_end event —
-# SPRINT_ALL_DONE itself is kept for tests that intentionally omit the id.
-SPRINT_COMPLETE_WITH_ID = """\
-# Sprint: Build auth
+SPRINT_COMPLETE_WITH_ID = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-002", "As a user I can register", "S", "deferred"),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
 
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
+SPRINT_MIXED = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-002", "As a user I can register", "S", "ready"),
+        _s(
+            "story-003",
+            "As an admin I can list users",
+            "L",
+            "ready",
+            dependencies=["story-002"],
+        ),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
 
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** deferred
-"""
-
-SPRINT_MIXED = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** ready
-- **Dependencies:** none
-
-### story-003: As an admin I can list users
-- **Size:** L
-- **Status:** ready
-- **Dependencies:** story-002
-"""
-
-SPRINT_MIXED_IN_PROGRESS = """\
-# Sprint: Build auth
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-04-01
-
-## Stories
-
-### story-001: As a user I can log in
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: As a user I can register
-- **Size:** S
-- **Status:** in-progress
-- **Dependencies:** none
-"""
+SPRINT_MIXED_IN_PROGRESS = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s(
+            "story-002",
+            "As a user I can register",
+            "S",
+            "in-progress",
+        ),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
 
 
 # ---------------------------------------------------------------------------

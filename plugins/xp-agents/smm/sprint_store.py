@@ -201,6 +201,14 @@ def compute_blockers(sprint: dict) -> list[str]:
     return blockers
 
 
+def list_stories(sprint: dict, *, status: str | None = None) -> list[dict]:
+    """Return stories, optionally filtered by status."""
+    stories = sprint["stories"]
+    if status is not None:
+        stories = [s for s in stories if s["status"] == status]
+    return stories
+
+
 # -------------------------------------------------------------------
 # Render
 # -------------------------------------------------------------------
