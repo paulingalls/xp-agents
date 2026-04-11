@@ -242,6 +242,15 @@ class TestAgentFilesM65(unittest.TestCase):
         self.assertIn("isolation: worktree", fm)
         self.assertIn("Skill", fm)
 
+    def test_xp_teammate_has_review_cycle(self):
+        """xp-teammate body must reference the full review cycle."""
+        content = (self.agents_dir / "xp-teammate.md").read_text()
+        parts = content.split("---", 2)
+        body = parts[2]
+        self.assertIn("/simplify", body)
+        self.assertIn("/xp-quality-review", body)
+        self.assertIn("/xp-security-triage", body)
+
 
 # ===========================================================================
 # M7: Plugin Integrity
