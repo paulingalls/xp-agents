@@ -96,6 +96,55 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
         self.assertIn("Fix gate coverage", result.stdout)
         self.assertIn("Add lint auto-fix", result.stdout)
 
+    def test_try_items_include_event_refs(self):
+        """Try items with event_refs show refs in output for resolution wiring."""
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_dir.mkdir(exist_ok=True)
+        data = {
+            "timestamp": "2026-04-05T10:00:00+00:00",
+            "keep": [],
+            "fix": [],
+            "try": [
+                {
+                    "content": "Fix gate coverage",
+                    "event_refs": ["abcd1234-5678-4abc-9def-000000000001"],
+                },
+                {"content": "No refs item", "event_refs": []},
+            ],
+        }
+        (retro_dir / "2026-04-05T10-00-00.json").write_text(json.dumps(data))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("abcd1234-5678-4abc-9def-000000000001", result.stdout)
+        no_refs_line = next(
+            line for line in result.stdout.splitlines() if "No refs item" in line
+        )
+        self.assertNotIn("[refs:", no_refs_line)
+
+    def test_try_items_multiple_event_refs(self):
+        """Try items with multiple event_refs show all refs in output."""
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_dir.mkdir(exist_ok=True)
+        data = {
+            "timestamp": "2026-04-05T10:00:00+00:00",
+            "keep": [],
+            "fix": [],
+            "try": [
+                {
+                    "content": "Multi-ref item",
+                    "event_refs": [
+                        "aaaa1111-2222-4333-8444-555555555555",
+                        "bbbb6666-7777-4888-9999-aaaaaaaaaaaa",
+                    ],
+                },
+            ],
+        }
+        (retro_dir / "2026-04-05T10-00-00.json").write_text(json.dumps(data))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("aaaa1111-2222-4333-8444-555555555555", result.stdout)
+        self.assertIn("bbbb6666-7777-4888-9999-aaaaaaaaaaaa", result.stdout)
+
     def test_no_try_items_when_no_retro(self):
         """No retro dir — no Try Items section."""
         result = self._run_preload(_PRELOAD_SCRIPT)

@@ -27,7 +27,21 @@ Complete all applicable steps below in order. Skip steps where the preload shows
 If the preload shows "### Previous Try Items", present them to the user.
 Ask via AskUserQuestion for each: **adopt, defer, or drop?**
 
-For adopted items, record a decision event with a specific slugged topic:
+For adopted items, record a decision event with a specific slugged topic.
+If the Try item has a `[refs: <id1>, <id2>]` suffix, include all ref IDs in
+`--metadata '{"resolves": ["<id1>", "<id2>"]}'` to wire the resolution back
+to the original retro event. If no `[refs:]` suffix, omit `--metadata` entirely.
+
+With refs:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "decision" --agent "xp-work-selection" \
+  --content "Adopted retro Try: <item summary>" \
+  --topic "retro-try-<2-3-word-slug>" \
+  --metadata '{"resolves": ["<event-ref-id>"]}'
+```
+
+Without refs:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" --agent "xp-work-selection" \

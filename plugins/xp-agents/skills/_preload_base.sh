@@ -128,7 +128,7 @@ get_latest_retro() {
 
 # Extract Try items from a retrospective JSON file.
 # Usage: get_try_items "$RETRO_FILE"
-# Outputs "- <content>" lines, empty if none.
+# Outputs "- <content> [refs: <id1>, ...]" lines when event_refs present.
 get_try_items() {
     python3 -c "
 import json, sys
@@ -136,7 +136,11 @@ data = json.load(open(sys.argv[1]))
 items = data.get('try', [])
 for item in items:
     c = item.get('content', item) if isinstance(item, dict) else item
-    print(f'- {c}')
+    refs = item.get('event_refs', []) if isinstance(item, dict) else []
+    if refs:
+        print(f'- {c} [refs: {\", \".join(refs)}]')
+    else:
+        print(f'- {c}')
 " "$1" 2>/dev/null || true
 }
 
