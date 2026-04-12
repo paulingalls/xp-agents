@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.0 — Item-Level SMM API + Retro Try Fixes
+
+### Sprint-008: Milestone 1 (partial — 2/6 stories)
+- **`validate_entry(entry, pillar)`** in `smm_schema.py`. Per-item schema validation extracted from `_validate_pillar()`. Enables add/update operations to validate entries before insertion without full-document validation. `_PILLAR_SPEC_MAP` for O(1) pillar lookup.
+- **`complete_curation(smm_dir)`** in `smm_cli.py`. Extracted watermark update + compaction from `save()` into standalone function with CLI subcommand. The bookend call after item-level mutations finalize a curation cycle.
+- **`watermark_updated`** field in `compact_after_curation()` return dict. Eliminates redundant events.jsonl double-read: `complete_curation` now skips `parse_events` when compact already updated the watermark.
+
+### Fixed
+- **SessionStart hook "some events" fallback.** Sprint retro branch returned a string without a numeric count, so the regex fell back to "some." Now reports meaningful sprint-specific counts (stories and sessions). Regex updated to match both "events" and "stories."
+- **Try-item resolution wiring.** `get_try_items()` in `_preload_base.sh` now outputs `event_refs` as `[refs: id1, id2]` suffix. Work-selection SKILL.md instructs the LLM to include `--metadata '{"resolves": [...]}'` when adopting Try items. Closes the retro Try → adoption → resolution detection loop.
+- **Security triage exemption for non-code commits.** Gate auto-sets triage marker with `exempt_reason="no-code-files"` for doc-only/config-only commits. Prevents false "commits without triage" flags in retro honesty signals. `write_security_triaged()` gains optional `exempt_reason` parameter.
+
+### Changed
+- **Below-threshold commit gate restructured.** Single `security_triaged_exists` check with nested `if has_code` / `else` instead of two independent if-blocks (per simplify review finding).
+
 ## v2.5.0 — Worktree Integration + GIT_DIR Safety
 
 ### Milestone 3: Integration + Documentation (Sprint-007)
