@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.5.0 — Worktree Integration + GIT_DIR Safety
+
+### Milestone 3: Integration + Documentation (Sprint-007)
+- **22 integration tests** for xp-assign/teammate workflow: preload with multi-story sprints, xp-teammate agent frontmatter validation, WorktreeCreate hook subprocess, edge cases (missing file domains, all-S stories, dependency chains).
+- **ARCHITECTURE.md** updated: xp-assign moved from forked subagents to inline skills, xp-teammate.md added to agents, team spawn flow rewritten for two-mode model (solo/worktree subagents).
+- **PROCESS_GUIDE.md** updated: `/xp-assign` documented as inline skill that auto-runs after planning.
+- **README.md** updated: Agent Teams section replaced with Sprint Execution (solo + worktree subagents).
+- **AGENT_TEAMS_DESIGN.md** updated: Worktree Subagent Findings section with empirical testing results, comparison table, platform constraints.
+- **spawn-team-refactor.md**: All 6 open questions resolved with M1/M2 implementation answers.
+- **CLAUDE.md**: Added worktree subagents key decision and git env safety documentation.
+
+### Fixed
+- **WorktreeCreate hook input format.** Platform sends `{session_id, transcript_path, cwd, hook_event_name, name}` — not `{worktree_path, branch}` as originally assumed. Hook now generates path under `.claude/worktrees/<name>` and branch `worktree-<name>` from the current branch.
+- **SubagentStart dispatch for plugin-prefixed agent_type.** Platform sends `"xp-agents:xp-teammate"` but dispatch only had `"xp-teammate"`, routing teammates to the xp-agent skip path (zero context injection). Added both entries.
+- **GIT_DIR/GIT_INDEX_FILE leakage in tests.** During `git commit`, git sets `GIT_INDEX_FILE`; in worktrees, git sets `GIT_DIR`/`GIT_COMMON_DIR`. Test subprocesses that create temp git repos inherited these, operating on the parent repo instead — corrupting `.git/config`, leaking `tmp*` branches, and causing `core.bare=true` inference. Known issue: [pre-commit#3032](https://github.com/pre-commit/pre-commit/issues/3032), [lefthook#1265](https://github.com/evilmartians/lefthook/issues/1265). Fixed with two-layer defense: `env -u` in `lefthook.yml` (infrastructure) + `os.environ.pop` in `conftest.py` (defense-in-depth).
+
+### Changed
+- **`lefthook.yml`**: All test runner commands wrapped with `env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE` to prevent git environment leakage into test subprocesses.
+- **`.gitignore`**: Added `.claude/worktrees/` to prevent worktree directories from appearing in `git status`.
+
 ## v2.4.0 — Worktree Teammates + Inline Work Assignment
 
 ### Architecture
