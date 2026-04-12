@@ -18,13 +18,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 # Strip git environment variables so subprocess calls in tests operate on
-# temp repos, not the parent's repo. Lefthook and worktrees set GIT_DIR to
-# .git/worktrees/<name>/ — any subprocess inheriting this will target the
-# parent repo instead of its own temp dir. Known issue: pre-commit#3032,
-# lefthook#1265.
-os.environ.pop("GIT_DIR", None)
-os.environ.pop("GIT_WORK_TREE", None)
-os.environ.pop("GIT_COMMON_DIR", None)
+# temp repos, not the parent's repo. During git commit, git sets GIT_INDEX_FILE;
+# in worktrees, git sets GIT_DIR/GIT_COMMON_DIR. Any subprocess inheriting
+# these will target the parent repo instead of its own temp dir.
+# Known issue: pre-commit#3032, lefthook#1265.
+for _git_var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+    os.environ.pop(_git_var, None)
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules
