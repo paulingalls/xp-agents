@@ -29,6 +29,7 @@ _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
 _SPRINT_RETRO_AGENT_TYPES = {"xp-sprint-retro", "xp-agents:xp-sprint-retro"}
 _PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
+_TEAMMATE_AGENT_TYPES = {"xp-teammate", "xp-agents:xp-teammate"}
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
 _SPRINT_RETRO_AGENT_ID = "xp-sprint-retro"
@@ -229,6 +230,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         assign_result = _handle_plan_review_done(smm_dir, input_data)
         if assign_result is not None:
             return assign_result
+
+        # xp-teammate: record completion and clear coordination.
+        # Must run before the is_xp_agent skip — teammates are xp-* agents
+        # but need completion tracking for stop gate deferral.
+        agent_type = input_data.get("agent_type", "")
+        if agent_type in _TEAMMATE_AGENT_TYPES:
+            agent_id = input_data.get("agent_id", "subagent")
+            event = _common.make_event(
+                _common.STATUS,
+                agent_id,
+                _common.subagent_completed_content(agent_id),
+                working_on=[],
+            )
+            _common.append_safe(smm_dir, event)
+            coordination.clear_coordination_agent(smm_dir, agent_id)
+            markers.cleanup_agent_markers(smm_dir, agent_id)
+            return None
 
     if _common.is_xp_agent(input_data):
         return None
