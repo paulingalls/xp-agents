@@ -132,20 +132,24 @@ def _cmd_save(args: argparse.Namespace) -> int:
 def complete_curation(smm_dir: Path) -> None:
     """Finalize curation: update watermark and run compaction.
 
-    Called after item-level mutations or full-doc save. Records the
-    current event count as the curation watermark and triggers
-    compaction of old events.
+    Called after item-level mutations or full-doc save. Tries compaction
+    first — if it runs, it handles the watermark internally. Only reads
+    events for the watermark when compaction doesn't run (first curation
+    or empty event log).
     """
     import contextlib
 
     import compact
     import materialize
 
-    events, _ = materialize.parse_events(smm_dir)
-    materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
-
+    watermark_set = False
     with contextlib.suppress(OSError, ValueError):
-        compact.compact_after_curation(smm_dir)
+        result = compact.compact_after_curation(smm_dir)
+        watermark_set = result.get("watermark_updated", False)
+
+    if not watermark_set:
+        events, _ = materialize.parse_events(smm_dir)
+        materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
 
 
 def save(content: str, *, smm_dir: Path) -> None:

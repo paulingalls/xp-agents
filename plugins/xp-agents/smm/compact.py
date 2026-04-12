@@ -310,26 +310,47 @@ def compact_after_curation(smm_dir: Path) -> dict:
 
     For teams: uses min(event_count) across all curation watermarks.
 
-    Returns {archived: N, retained: N, smm_referenced: N}.
+    Returns {archived: N, retained: N, smm_referenced: N,
+            watermark_updated: bool}.
     """
     events_file = smm_dir / "events.jsonl"
     if not events_file.exists():
-        return {"archived": 0, "retained": 0, "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": 0,
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     raw = read_with_lock(events_file)
     events = _parse_events(raw)
 
     if not events:
-        return {"archived": 0, "retained": 0, "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": 0,
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     # Find the safe compaction boundary (oldest watermark for team safety)
     watermarks = _read_all_curation_watermarks(smm_dir)
     if not watermarks:
-        return {"archived": 0, "retained": len(events), "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": len(events),
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     wm_count = watermarks[0]["event_count"]  # min across all agents
     if wm_count <= 0:
-        return {"archived": 0, "retained": len(events), "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": len(events),
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     # Watermark may be ahead of actual event count if housekeeping wrote
     # events after setting the watermark. Clamp to actual count.
@@ -399,6 +420,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
         "archived": len(archived),
         "retained": new_count,
         "smm_referenced": smm_ref_count,
+        "watermark_updated": True,
     }
 
 

@@ -700,6 +700,34 @@ class TestCompactAfterCuration(_SMMTestCase):
         # Detection should return None — retro has been done for sprint-001.
         self.assertIsNone(sprint_retro_detection._needs_sprint_retro(retained))
 
+    def test_watermark_updated_true_when_compaction_runs(self):
+        """Return includes watermark_updated=True when main path runs."""
+        import compact
+
+        events = self._make_session(session_num=1)
+        self._write_events(events)
+        self._set_curation_watermark(len(events))
+
+        result = compact.compact_after_curation(self.smm_dir)
+        self.assertTrue(result["watermark_updated"])
+
+    def test_watermark_updated_false_no_events_file(self):
+        """Return includes watermark_updated=False when no events file."""
+        import compact
+
+        result = compact.compact_after_curation(self.smm_dir)
+        self.assertFalse(result["watermark_updated"])
+
+    def test_watermark_updated_false_no_watermarks(self):
+        """Return includes watermark_updated=False when no watermarks exist."""
+        import compact
+
+        events = self._make_session(session_num=1)
+        self._write_events(events)
+
+        result = compact.compact_after_curation(self.smm_dir)
+        self.assertFalse(result["watermark_updated"])
+
 
 if __name__ == "__main__":
     unittest.main()
