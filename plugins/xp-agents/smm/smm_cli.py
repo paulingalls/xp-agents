@@ -112,6 +112,69 @@ def _cmd_complete_curation(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_add_item(args: argparse.Namespace) -> int:
+    content = sys.stdin.read().strip()
+    if not content:
+        print("Error: no content provided on stdin", file=sys.stderr)
+        return 1
+    try:
+        uid = smm_store.add_item(
+            args.smm_dir,
+            args.pillar,
+            content,
+            type=args.type,
+            topic=args.topic,
+            severity=args.severity,
+            source=args.source or "curated",
+            source_event_id=args.source_event_id,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(uid)
+    return 0
+
+
+def _cmd_update_item(args: argparse.Namespace) -> int:
+    content = sys.stdin.read().strip() or None
+    try:
+        smm_store.update_item(
+            args.smm_dir,
+            args.item_id,
+            content=content,
+            type=args.type,
+            topic=args.topic,
+            severity=args.severity,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_promote_event(args: argparse.Namespace) -> int:
+    try:
+        uid = smm_store.promote_event(
+            args.smm_dir,
+            args.event_id,
+            pillar=args.pillar,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(uid)
+    return 0
+
+
+def _cmd_remove_item(args: argparse.Namespace) -> int:
+    try:
+        smm_store.remove_item(args.smm_dir, args.item_id)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_save(args: argparse.Namespace) -> int:
     import json
 
@@ -185,6 +248,32 @@ def main() -> None:
 
     sub.add_parser("complete-curation", help="Finalize curation (watermark + compact)")
 
+    add_p = sub.add_parser("add-item", help="Add item to a pillar (content from stdin)")
+    add_p.add_argument("pillar", choices=list(PILLARS), help="Target pillar")
+    add_p.add_argument("--type", default=None, help="Entry type")
+    add_p.add_argument("--topic", default=None, help="Topic (constraints)")
+    add_p.add_argument("--severity", default=None, help="Severity (risks)")
+    add_p.add_argument("--source", default=None, help="Source (default: curated)")
+    add_p.add_argument("--source-event-id", default=None, help="Source event UUID")
+
+    upd_p = sub.add_parser("update-item", help="Update item fields")
+    upd_p.add_argument("item_id", help="Item UUID to update")
+    upd_p.add_argument("--type", default=None, help="New entry type")
+    upd_p.add_argument("--topic", default=None, help="New topic")
+    upd_p.add_argument("--severity", default=None, help="New severity")
+
+    rm_p = sub.add_parser("remove-item", help="Remove item by ID")
+    rm_p.add_argument("item_id", help="Item UUID to remove")
+
+    prm_p = sub.add_parser("promote-event", help="Promote event to SMM")
+    prm_p.add_argument("event_id", help="Event UUID or prefix")
+    prm_p.add_argument(
+        "--pillar",
+        default=None,
+        choices=list(PILLARS),
+        help="Target pillar (default: derived from event type)",
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -193,6 +282,10 @@ def main() -> None:
         "has-section": _cmd_has_section,
         "save": _cmd_save,
         "complete-curation": _cmd_complete_curation,
+        "add-item": _cmd_add_item,
+        "update-item": _cmd_update_item,
+        "remove-item": _cmd_remove_item,
+        "promote-event": _cmd_promote_event,
     }
 
     sys.exit(dispatch[args.command](args))
