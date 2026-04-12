@@ -20,20 +20,16 @@ import smm_store
 import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
-    EVENT_TYPE_STATUS,
     SPRINT_ACTION_END,
-    STATUS_ACTION_SPRINT_RETRO_DONE,
 )
 
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
-_SPRINT_RETRO_AGENT_TYPES = {"xp-sprint-retro", "xp-agents:xp-sprint-retro"}
 _PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
 _TEAMMATE_AGENT_TYPES = {"xp-teammate", "xp-agents:xp-teammate"}
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
-_SPRINT_RETRO_AGENT_ID = "xp-sprint-retro"
 _PLAN_REVIEWER_AGENT_ID = "xp-plan-reviewer"
 
 _SPRINT_NUDGE = (
@@ -108,9 +104,8 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
     """Handle xp-sprint-reviewer subagent completion.
 
     Records a sprint end event with velocity and cleans up the review
-    input file. Returns None — sprint retro now runs at the start of
-    the next session (via retrospective.py's sprint-retro branch),
-    not at end of session.
+    input file. Returns None — sprint sizing analysis runs at the
+    start of the next session via retrospective.py.
     """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
@@ -140,38 +135,6 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
 
     (smm_dir / ".sprint-review-input.json").unlink(missing_ok=True)
 
-    return None
-
-
-def _handle_sprint_retro_done(smm_dir: Path, input_data: dict) -> str | None:
-    """Handle xp-sprint-retro subagent completion.
-
-    Records a sprint_retro_done status event (with sprint_id for detection
-    scoping) and cleans up the retro input file. Returns None — this is
-    the end of the sprint cascade, no further nudge needed.
-    """
-    agent_type = input_data.get("agent_type", "")
-    if agent_type not in _SPRINT_RETRO_AGENT_TYPES:
-        return None
-
-    sprint_data = sprint_state.read_sprint_content(smm_dir)
-    sprint_id = "unknown"
-    if sprint_data:
-        sprint_id = sprint_data["sprint_id"] or "unknown"
-
-    event = _common.make_event(
-        EVENT_TYPE_STATUS,
-        _SPRINT_RETRO_AGENT_ID,
-        "Sprint retrospective complete.",
-        working_on=[],
-        metadata={
-            "sprint_id": sprint_id,
-            "action": STATUS_ACTION_SPRINT_RETRO_DONE,
-        },
-    )
-    _common.append_safe(smm_dir, event)
-
-    (smm_dir / ".sprint-retro-input.json").unlink(missing_ok=True)
     return None
 
 
@@ -230,15 +193,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if housekeeping_result is not None:
             return housekeeping_result
 
-        # Sprint reviewer is also xp-* — its completion advances the
-        # sprint lifecycle and nudges sprint retro.
+        # Sprint reviewer is also xp-* — its completion records sprint end.
         review_result = _handle_sprint_review_done(smm_dir, input_data)
         if review_result is not None:
             return review_result
-
-        # Sprint retro is the end of the cascade — records the
-        # sprint_retro_done event that closes the sprint_stop_gate.
-        _handle_sprint_retro_done(smm_dir, input_data)
 
         # Plan reviewer completion nudges /xp-assign for execution mode.
         assign_result = _handle_plan_review_done(smm_dir, input_data)

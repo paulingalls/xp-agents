@@ -315,20 +315,6 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("XP Values", result)
         self.assertNotIn("Ship v1", result)
 
-    def test_sprint_retro_gets_values_only(self):
-        """xp-sprint-retro gets XP values only (data from preload)."""
-        result = self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "retro-1",
-                "agent_type": "xp-sprint-retro",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
-        self.assertNotIn("Ship v1", result)
-
     def test_teammate_gets_smm_and_guide(self):
         """Teammate gets SMM + teammate guide (stories via spawn prompt)."""
         result = self.subagent_start.run(

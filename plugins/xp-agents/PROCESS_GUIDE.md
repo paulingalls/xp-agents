@@ -32,11 +32,11 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 
 **Sprint iteration flow:**
 - `/xp-plan` → `/xp-sprint-start` → implement → `/xp-accept`
-- When done: `/xp-sprint-review` → `/xp-run-sprint-retro`
+- When done: `/xp-sprint-review` (sprint sizing flows into next session's retro automatically)
 
 **Forked skills (all XP agents):**
 - All XP agents are invoked via their corresponding skill, never launched directly with the Agent tool. Skills provide preload data and cleanup hooks that direct launches skip.
-- `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`, `/xp-run-sprint-retro`
+- `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`
 
 **Agent Teams (inline skill):**
 - `/xp-assign` is an inline skill that auto-runs after planning completes (`/xp-review-plan`). It analyzes sprint stories and decides execution mode:

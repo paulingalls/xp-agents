@@ -210,9 +210,8 @@ plugins/xp-agents/
 ├── TEAMMATE_GUIDE.md                  ← DO/DON'T/SKIP/KEEP rules for Agent Team teammates
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks + shared modules
-├── agents/*.md                        ← subagent definitions (7 agents: retrospective, plan-reviewer,
-│                                        security-reviewer, sprint-reviewer, sprint-retro, assign,
-│                                        system-context)
+├── agents/*.md                        ← subagent definitions (6 agents: retrospective, plan-reviewer,
+│                                        security-reviewer, sprint-reviewer, assign, system-context)
 ├── skills/                            ← forked + inline skills
 │   ├── xp-kickoff/SKILL.md           ← session start orchestrator
 │   ├── xp-run-retrospective/SKILL.md ← forked, delegates to xp-retrospective agent
@@ -227,7 +226,6 @@ plugins/xp-agents/
 │   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.json)
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
 │   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
-│   ├── xp-sprint-retro/SKILL.md      ← forked, delegates to xp-sprint-retro agent
 │   └── xp-assign/SKILL.md            ← inline, mode selection + worktree spawn
 └── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
          resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
@@ -296,7 +294,7 @@ tests/
 │   ├── test_teammate_guide.py ← M14 teammate detection + guide injection
 │   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
 │   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
-│   ├── test_sprint_retro.py  ← sprint retro data prep, preload
+│   ├── test_sizing_metrics.py ← commit-to-story attribution, sizing aggregation
 │   └── test_assign.py       ← xp-assign preload integration
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration

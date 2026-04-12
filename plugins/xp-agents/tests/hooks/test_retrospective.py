@@ -249,9 +249,9 @@ class TestRetrospective(_HookTestCase):
         self.assertTrue((self.smm_dir / ".retro-input.json").exists())
         self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
 
-    def test_sprint_retro_fallback_to_session_when_prep_fails(self):
-        """M4b: if prepare_sprint_retro_data.run returns None (sprint.json
-        missing or malformed), fall through to session retro path."""
+    def test_sprint_retro_fallback_to_session_when_sprint_missing(self):
+        """M3: if sprint.json is missing, sizing_analysis is absent but
+        session retro still runs normally."""
         import retrospective
 
         # No sprint.json — prep will return None.
@@ -667,7 +667,7 @@ class TestSprintSizingInRetro(_HookTestCase):
 
 
 # ===========================================================================
-# M3: Sprint detection (inlined from sprint_retro_detection.py)
+# M3: Sprint detection
 # ===========================================================================
 
 

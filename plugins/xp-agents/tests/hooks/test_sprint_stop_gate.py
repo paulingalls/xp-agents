@@ -4,7 +4,6 @@
 Replaces TestAcceptGate. Covers the full cascade:
   1. in-progress + ACCEPT marker → block "run /xp-accept"
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
-  3. sprint_end event, no sprint_retro_done → block "run /xp-run-sprint-retro"
 """
 
 import sys
