@@ -575,11 +575,10 @@ class TestPluginConfig(unittest.TestCase):
         # All command paths must use ${CLAUDE_PLUGIN_ROOT}
         self.assertNotIn("scripts/", raw.replace("${CLAUDE_PLUGIN_ROOT}/scripts/", ""))
 
-    def test_settings_json_valid(self):
+    def test_no_settings_json(self):
+        """settings.json should not exist — all config is hardcoded."""
         settings_path = Path(__file__).parent.parent.parent / "settings.json"
-        with open(settings_path) as f:
-            data = json.load(f)
-        self.assertIsInstance(data, dict)
+        self.assertFalse(settings_path.is_file())
 
 
 if __name__ == "__main__":

@@ -241,13 +241,6 @@ class TestPostToolUseHooksConfig(unittest.TestCase):
         matchers = [entry.get("matcher") for entry in data["hooks"]["PostToolUse"]]
         self.assertIn("Bash", matchers)
 
-    def test_settings_has_commit_threshold(self):
-        settings_path = Path(__file__).parent.parent.parent / "settings.json"
-        with open(settings_path) as f:
-            data = json.load(f)
-        self.assertIn("commit_size_threshold", data)
-        self.assertEqual(data["commit_size_threshold"], 12)
-
 
 import post_tool_exit_plan  # noqa: E402
 

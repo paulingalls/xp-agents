@@ -427,12 +427,10 @@ class TestPluginIntegrity(unittest.TestCase):
                     f"{name} should not declare dependencies",
                 )
 
-    def test_settings_json_exists(self):
-        """settings.json exists with expected keys."""
+    def test_no_settings_json(self):
+        """settings.json should not exist — all config is hardcoded."""
         path = self.plugin_root / "settings.json"
-        self.assertTrue(path.is_file())
-        data = json.loads(path.read_text())
-        self.assertIn("commit_size_threshold", data)
+        self.assertFalse(path.is_file())
 
     def test_guide_files_exist(self):
         """XP_VALUES.md and PROCESS_GUIDE.md exist and are non-trivial."""

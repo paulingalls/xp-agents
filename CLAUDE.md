@@ -208,7 +208,6 @@ plugins/xp-agents/
 ├── XP_VALUES.md                       ← XP values (Honesty, Communication, Simplicity, Feedback, Courage, Respect)
 ├── PROCESS_GUIDE.md                   ← Process rules for lead/solo agents (skills, commit gates, sprint flow)
 ├── TEAMMATE_GUIDE.md                  ← DO/DON'T/SKIP/KEEP rules for Agent Team teammates
-├── settings.json                      ← runtime config
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks + shared modules
 ├── agents/*.md                        ← subagent definitions (7 agents: retrospective, plan-reviewer,
@@ -343,7 +342,6 @@ tests/
 - `_TempRepoTestCase` — temp git repo for subprocess tests (init.sh, append.sh)
 - `_make_write_input(**overrides)` — canonical Write tool hook input
 - `_make_bash_input(command, stdout, **overrides)` — canonical Bash tool hook input
-- `_override_settings(overrides)` — context manager for settings.json isolation
 
 ## Key Decisions (Don't Revisit)
 

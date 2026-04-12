@@ -4,7 +4,6 @@
 Split from the original test_post_tool.py.
 """
 
-import json
 import sys
 import tempfile
 import unittest
@@ -96,28 +95,6 @@ class TestBashPostTool(_HookTestCase):
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("12 files" in c["content"] for c in concerns))
 
-    def test_commit_threshold_from_settings(self):
-        settings_path = Path(__file__).parent.parent.parent / "settings.json"
-        original = settings_path.read_text()
-        try:
-            settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
-            with patch(
-                "commits.get_committed_files",
-                return_value=[f"f{i}" for i in range(6)],
-            ):
-                bash_post_tool.run(
-                    _make_bash_input(
-                        command="git commit -m 'x'",
-                        stdout="[main a] x\n 6 files changed",
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == "concern"]
-            self.assertTrue(len(concerns) >= 1)
-        finally:
-            settings_path.write_text(original)
-
     def test_commit_code_files_has_code_commit_metadata(self):
         """Commit event has metadata.code_commit=True when code files present."""
         with (
@@ -162,8 +139,8 @@ class TestBashPostTool(_HookTestCase):
         self.assertEqual(len(committed), 1)
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
-    def test_commit_threshold_default(self):
-        self.assertEqual(bash_post_tool.load_commit_threshold(), 12)
+    def test_commit_threshold_value(self):
+        self.assertEqual(bash_post_tool.COMMIT_SIZE_THRESHOLD, 12)
 
     def test_pytest_pass(self):
         bash_post_tool.run(

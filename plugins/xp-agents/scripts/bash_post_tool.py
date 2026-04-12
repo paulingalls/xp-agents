@@ -5,7 +5,6 @@ Records commit status events, checks commit size, and records test
 pass/fail status. Nudges /simplify after commits with 3+ code files.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -54,14 +53,7 @@ def _resolve_lint_on_commit(
             )
 
 
-def load_commit_threshold() -> int:
-    """Load commit_size_threshold from settings.json, default 10."""
-    try:
-        settings_path = _common.resolve_plugin_root() / "settings.json"
-        data = json.loads(settings_path.read_text())
-        return int(data.get("commit_size_threshold", 10))
-    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError):
-        return 10
+COMMIT_SIZE_THRESHOLD = 12
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +134,7 @@ def _handle_commit(
         _common.append_safe(smm_dir, event)
 
         # Commit size check
-        threshold = load_commit_threshold()
+        threshold = COMMIT_SIZE_THRESHOLD
         file_count = len(committed_files)
         if file_count >= threshold:
             concern = _common.make_event(
