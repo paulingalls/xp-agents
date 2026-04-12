@@ -128,6 +128,18 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
   --working-on '["src/api/users.ts"]'
 ```
 
+### Type-Specific Fields
+
+Some event types require additional fields:
+
+| Type | Required Field | Flag | Example |
+|------|---------------|------|---------|
+| `debt` | files | `--files` | `--files '["src/auth.py"]'` |
+| `decision` | topic | `--topic` | `--topic "error-handling"` |
+| `concern` | severity | `--severity` | `--severity "medium"` |
+
+See PROCESS_GUIDE.md for full event type reference and examples.
+
 ### Resolving Events
 
 To resolve a goal, concern, or debt item, include `metadata.resolves`:
@@ -200,7 +212,7 @@ plugins/xp-agents/
 ├── hooks/hooks.json                   ← all hook registrations
 ├── scripts/*.py                       ← command hooks + shared modules
 ├── agents/*.md                        ← subagent definitions (7 agents: retrospective, plan-reviewer,
-│                                        security-reviewer, sprint-reviewer, sprint-retro, spawn-team,
+│                                        security-reviewer, sprint-reviewer, sprint-retro, assign,
 │                                        system-context)
 ├── skills/                            ← forked + inline skills
 │   ├── xp-kickoff/SKILL.md           ← session start orchestrator
@@ -217,7 +229,7 @@ plugins/xp-agents/
 │   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
 │   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
 │   ├── xp-sprint-retro/SKILL.md      ← forked, delegates to xp-sprint-retro agent
-│   └── xp-spawn-team/SKILL.md        ← forked, delegates to xp-spawn-team agent
+│   └── xp-assign/SKILL.md            ← inline, mode selection + worktree spawn
 └── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
          resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
          sprint_store.py,sprint_schema.py,sprint_cli.py,schema.json}
@@ -235,7 +247,7 @@ Fail loud, never corrupt, always recoverable. Every script follows:
 
 ## Testing
 
-All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel:
+All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel. All test commands in lefthook.yml use `env -u` to strip git environment variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`) — without this, tests that create temp git repos would operate on the parent repo instead of the temp dir (known issue: [pre-commit#3032](https://github.com/pre-commit/pre-commit/issues/3032), [lefthook#1265](https://github.com/evilmartians/lefthook/issues/1265)). The `conftest.py` also strips these at import time as defense-in-depth.
 
 ```bash
 # Run everything:
@@ -286,13 +298,14 @@ tests/
 │   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
 │   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
 │   ├── test_sprint_retro.py  ← sprint retro data prep, preload
-│   └── test_spawn_team.py   ← M15 spawn-team preload integration
+│   └── test_assign.py       ← xp-assign preload integration
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
 │   ├── test_scenarios.py    ← round trips, retro, new event types
 │   ├── test_scenarios_lifecycle.py ← full lifecycle, plan review, multi-session
 │   ├── test_extended.py     ← simplify gate, security review, commit gate
+│   ├── test_assign.py       ← xp-assign preload, teammate agent, WorktreeCreate hook
 │   ├── test_maintenance.py  ← repair, migration
 │   └── test_scaling.py      ← concurrency, worktrees, benchmarks
 ├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
@@ -320,6 +333,8 @@ tests/
 - **SMM foundation tests** go in `tests/smm/`. Extend `_TempRepoTestCase` for subprocess tests with init.sh/append.sh.
 - Follow TDD: write the test first, watch it fail, then implement.
 
+**Git environment safety:** Tests that create temp git repos MUST import from `conftest.py` (which strips `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE` at import time). Without this, git subprocess calls in tests will operate on the parent repo when running under lefthook or inside worktrees — corrupting config, leaking branches, and setting `core.bare=true`. All base test classes (`_IntegrationTestCase`, `_TempRepoTestCase`) already handle this via conftest import.
+
 ### Test helpers (all in `tests/conftest.py`)
 
 - `make_event(type, **kwargs)` — creates a valid event dict with defaults
@@ -345,5 +360,6 @@ tests/
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
 - Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
-- No prep script for spawn-team — domain analysis is LLM judgment
+- No prep script for xp-assign — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
+- Worktree subagents over Agent Teams for sprint-driven parallel execution — Agent Teams' "do not commit" restriction makes the lead a serial bottleneck; worktree subagents run full TDD + review cycle + commits independently

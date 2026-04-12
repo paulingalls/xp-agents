@@ -362,7 +362,7 @@ class TestCountMilestones(_SMMTestCase):
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         counts = store.count_milestones(self.smm_dir)
         self.assertEqual(counts["planned"], 1)
-        self.assertEqual(counts["in_progress"], 1)
+        self.assertEqual(counts["in-progress"], 1)
         self.assertEqual(counts["delivered"], 2)
 
     def test_count_missing_file(self):
@@ -370,7 +370,7 @@ class TestCountMilestones(_SMMTestCase):
 
         counts = store.count_milestones(self.smm_dir)
         self.assertEqual(counts["planned"], 0)
-        self.assertEqual(counts["in_progress"], 0)
+        self.assertEqual(counts["in-progress"], 0)
         self.assertEqual(counts["delivered"], 0)
 
 

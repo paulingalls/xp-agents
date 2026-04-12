@@ -136,7 +136,7 @@ Three levels of persistence:
 - **`sprint.md`** — current sprint's stories with acceptance criteria and status. Persists across sessions within a sprint.
 - **Platform task list** — `~/.claude/tasks/{team-name}/`. Ephemeral, per-team.
 
-The `/xp-spawn-team` skill bridges sprint.md and the platform: it reads stories and creates platform tasks. The lead closes the loop during Accept by verifying acceptance criteria and updating story status in sprint.md.
+The `/xp-assign` skill bridges sprint.md and the platform: it reads stories and creates platform tasks. The lead closes the loop during Accept by verifying acceptance criteria and updating story status in sprint.md.
 
 ---
 
@@ -196,7 +196,7 @@ When the plan review recommends Agent Teams (cleanly separable domains, genuinel
      - Acceptance criteria per user story AND for the integrated result
 
 3. Spawn
-   → Lead runs /xp-spawn-team
+   → Lead runs /xp-assign
    → Skill reads plan, structures tasks with domains and criteria
    → Lead creates Agent Team with tasks
 
@@ -246,7 +246,7 @@ Agent Teams are the heavy option. Most work should stay solo or use subagents.
 The plan reviewer is in the right position to make this call. It sees the full plan and knows whether the work is sequential, parallelizable, or a mix. It can recommend the execution mode:
 - "This is sequential work, execute it in order" → solo
 - "Steps 2 and 3 are independent research" → subagents
-- "This decomposes into 3 independent modules with no file overlap — consider `/xp-spawn-team`" → teams
+- "This decomposes into 3 independent modules with no file overlap — consider `/xp-assign`" → teams
 
 ---
 
@@ -306,7 +306,7 @@ Key implication: we cannot define plugin agent files with frontmatter to control
 The lead **does not write code**. It orchestrates:
 
 - **Sprint start**: goal setting, spec gathering, planning game
-- **Mid-sprint**: spawn teammates via `/xp-spawn-team`, handle questions, unblock dependencies, review PRs, merge
+- **Mid-sprint**: spawn teammates via `/xp-assign`, handle questions, unblock dependencies, review PRs, merge
 - **Sprint end**: review, retrospective, prepare next sprint
 - **Interrupt-driven**: responds to teammate messages, `TeammateIdle` events, `TaskCompleted` events, customer questions
 
@@ -341,7 +341,7 @@ The planning game is where this gets decided. If the plan can't be decomposed in
 
 ### Plan First, Then Hand Off
 
-The most effective pattern is: plan first (plan mode), review the plan (`/xp-review-plan`), then hand the plan to a team for parallel execution (`/xp-spawn-team`). Don't jump straight into spawning teammates. Get the architecture and task breakdown right first.
+The most effective pattern is: plan first (plan mode), review the plan (`/xp-review-plan`), then hand the plan to a team for parallel execution (`/xp-assign`). Don't jump straight into spawning teammates. Get the architecture and task breakdown right first.
 
 ### Feed Context Into Task Descriptions
 
@@ -379,7 +379,7 @@ Worktree isolation for teammates is available but prompt-driven — the lead req
 
 ### Decision Criteria
 
-The `/xp-spawn-team` skill should choose based on the plan:
+The `/xp-assign` skill should choose based on the plan:
 
 - **No worktrees** (default): clean domain separation, teammates work on completely different files. `.coordination.json` prevents overlap. Best for most cases, especially when the planning game produces non-overlapping task assignments.
 - **Worktrees**: when tasks involve git-heavy workflows (branching, PRs), when the lead wants formal PR review, or when git operation isolation is important (larger teams where `git add .` risk is higher).
@@ -397,14 +397,14 @@ Fix: normalize to repo-relative paths using `git rev-parse --show-toplevel` to s
 
 ## Team Launch Mechanism
 
-### `/xp-spawn-team` Skill
+### `/xp-assign` Skill
 
 A lead-invoked skill that reads the current plan and creates an Agent Team. The plan reviewer recommends it when the plan has genuinely parallelizable, cleanly separable work.
 
 **Flow:**
 1. Plan reviewer reviews the plan, identifies parallel groups with non-overlapping file domains
-2. Plan reviewer tells the lead: "This plan has 3 independent modules — run `/xp-spawn-team`"
-3. Lead runs `/xp-spawn-team`
+2. Plan reviewer tells the lead: "This plan has 3 independent modules — run `/xp-assign`"
+3. Lead runs `/xp-assign`
 4. Skill preload reads the plan file, prepares task structure
 5. Skill prompt tells the lead:
    - How many teammates to spawn (based on parallel group count, capped at 5)
@@ -778,7 +778,7 @@ TeammateIdle and TaskCompleted use exit 2 + stderr to block. They do NOT support
 
 ### Three Layers
 
-1. **Planning** — `/xp-spawn-team` decomposes work into non-overlapping file domains. Each task gets a `file_domain` declaring which files/directories it owns. This is the primary mechanism — if domains are clean, conflicts don't happen.
+1. **Planning** — `/xp-assign` decomposes work into non-overlapping file domains. Each task gets a `file_domain` declaring which files/directories it owns. This is the primary mechanism — if domains are clean, conflicts don't happen.
 
 2. **Coordination** — `.coordination.json` blocks overlapping writes at PreToolUse time. Deterministic, real-time, already works for teammates. This is the safety net that catches domain violations.
 
@@ -837,7 +837,7 @@ Every phase of the iteration is gated: kickoff (UserPromptSubmit) → plan revie
 |---|---|
 | `/xp-plan` | Create or refine `execution_plan.md` — collaborative milestone decomposition from external sources. |
 | `/xp-sprint-start` | Read `execution_plan.md` → select milestone → deep codebase dive → decompose into stories → write `sprint.md` |
-| `/xp-spawn-team` | Read plan, analyze file domains, structure tasks, instruct lead to create team |
+| `/xp-assign` | Read plan, analyze file domains, structure tasks, instruct lead to create team |
 | `/xp-accept` | Verify acceptance criteria for in-progress stories, run e2e tests, update `sprint.md`. Gated at Stop. |
 | `/xp-sprint-review` | Compare delivered stories against sprint goal, update `execution_plan.md` milestone status |
 | `/xp-sprint-retro` | Cross-session retrospective for the sprint |
@@ -1049,7 +1049,7 @@ Priority is implicit by order — first story = highest priority. Story status: 
 | Lead is fixed | Can't rotate coach role | Lead is always the main session |
 | Teammates don't inherit lead's history | Teammates lack planning context | SubagentStart injects SMM + behavioral guide; task descriptions embed specifics |
 | Shutdown can be slow | Session end delayed | Design for graceful degradation |
-| No PR/merge workflow | No integration mechanism | Lead manages merges; `/xp-spawn-team` structures the approach |
+| No PR/merge workflow | No integration mechanism | Lead manages merges; `/xp-assign` structures the approach |
 | Prompt nuggets don't work for teammates | No mid-session signal injection | SubagentStart provides initial context; direct messaging for urgent updates |
 | Same model for all teammates | Can't optimize cost with smaller models | Accept until platform adds per-role model selection |
 
@@ -1101,3 +1101,61 @@ The key addition: **the sprint as a first-class lifecycle** that wraps the exist
 | **Kickoff doesn't check sprint status** | Lead needs to know if mid-sprint or starting new | Add sprint status check to kickoff |
 | **Path normalization uses absolute paths** | `.coordination.json` fails across worktrees | Normalize to repo-relative paths |
 | **context:fork doesn't reliably delegate** | Plan reviewer and retro subagents sometimes run inline | v1 issue, still present — fallback instructions mitigate |
+
+---
+
+## Worktree Subagent Findings (M1/M2)
+
+### Empirical Testing (2026-04-10)
+
+We tested native Agent Teams with parallel sprint stories. The key finding: **the commit restriction makes the lead a serial bottleneck.** In Agent Teams, only the lead can commit. Teammates implement code but depend on the lead to stage, review, and commit their work. This serializes what should be parallel work and creates context-window pressure as the lead juggles multiple teammates' output.
+
+The review cycle (`/simplify` -> `/xp-quality-review` -> `/xp-security-triage`) compounds this. Each teammate's commit requires three review steps, all gated through the lead. With 3-4 teammates producing commits, the lead spends most of its time in review cycles rather than coordinating.
+
+### Why Worktree Subagents Are Better for Sprint Work
+
+Worktree subagents solve the bottleneck by giving each teammate full autonomy:
+
+| Capability | Agent Teams | Worktree Subagents |
+|---|---|---|
+| **Commits** | Lead only (serial bottleneck) | Each teammate commits independently |
+| **Review cycle** | Lead runs reviews for each teammate's changes | Each teammate runs its own review cycle |
+| **Git isolation** | Shared checkout or prompt-driven worktrees | Automatic worktree per teammate (`isolation: worktree`) |
+| **TDD** | PreToolUse hooks fire, but commit gate is lead-only | Full TDD cycle including commit gate per teammate |
+| **Merge** | N/A (shared branch) | Lead merges branches after completion |
+| **Context pressure** | Lead context fills with teammate output | Each teammate has its own context window |
+
+The `xp-teammate` agent definition (`plugins/xp-agents/agents/xp-teammate.md`) provides the behavioral contract: strict TDD, review cycle before every commit, stay within assigned file domain, record decisions and concerns to the SMM.
+
+### Two-Mode Model
+
+The `/xp-assign` skill selects the execution mode after analyzing sprint stories:
+
+**Solo** (sequential) — the lead executes stories directly. Selected when:
+- Stories have dependency chains between them
+- File domains overlap between stories
+- All stories are size S (coordination overhead not worth it)
+- File domains are missing from story definitions
+
+**Worktree Subagents** (parallel) — each story gets an `xp-teammate` agent. Selected when:
+- 2+ stories have no dependencies between them
+- Stories are size M or L
+- Stories have non-overlapping file domains
+
+The mode decision is presented to the user for confirmation before spawning. `/xp-assign` auto-runs after planning completes.
+
+### Platform Constraints Discovered
+
+Two platform issues were discovered during M1/M2 implementation:
+
+1. **`isolation: worktree` silently ignored with `team_name`** ([anthropics/claude-code#33045](https://github.com/anthropics/claude-code/issues/33045)) — when an agent is spawned with both `isolation: worktree` and a `team_name`, the worktree isolation is silently dropped. Workaround: use `isolation: worktree` without `team_name`, treating teammates as independent subagents rather than Agent Team members.
+
+2. **WorktreeCreate stdout must be clean** ([anthropics/claude-code#27467](https://github.com/anthropics/claude-code/issues/27467)) — any stdout from `WorktreeCreate` hooks is interpreted as the worktree path. Hook scripts must avoid writing to stdout during worktree creation, or the worktree setup fails silently.
+
+### Recommendation
+
+**Use worktree subagents for sprint-driven parallel execution.** They provide full teammate autonomy (TDD, review, commits) without the serial bottleneck of Agent Teams' lead-only commit model.
+
+**Use native Agent Teams for ad-hoc collaborative work** outside the sprint flow — exploratory tasks, shared investigation, or work that benefits from the built-in task list and messaging primitives without needing independent commits.
+
+The original Agent Teams design in this document remains valid for its coordination patterns (SMM sharing, conflict detection, behavioral guide injection). The worktree subagent model reuses all of these patterns — it changes the execution primitive (subagent with worktree isolation instead of Agent Team teammate), not the coordination architecture.

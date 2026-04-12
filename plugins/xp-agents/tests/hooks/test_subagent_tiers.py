@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from conftest import SAMPLE_SPRINT_MD as _SAMPLE_SPRINT
 from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
@@ -252,30 +253,6 @@ class TestSubagentStartTieredInjection(_HookTestCase):
 # Sprint-aware tier tests (M10)
 # ===========================================================================
 
-_SAMPLE_SPRINT = """\
-# Sprint: Build user management REST API
-
-- **Sprint ID:** sprint-001
-- **Started:** 2026-03-26
-
-## Stories
-
-### story-001: User registration
-- **Size:** M
-- **Status:** done
-- **Dependencies:** none
-
-### story-002: JWT authentication
-- **Size:** M
-- **Status:** in-progress
-- **Dependencies:** story-001
-
-### story-003: Admin user list
-- **Size:** S
-- **Status:** ready
-- **Dependencies:** story-001
-"""
-
 
 class TestSubagentStartSprintTiers(_HookTestCase):
     """M10: Sprint-aware tiered injection."""
@@ -317,20 +294,6 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                 "session_id": "t",
                 "agent_id": "retro-1",
                 "agent_type": "xp-retrospective",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
-        self.assertNotIn("Ship v1", result)
-
-    def test_spawn_team_gets_values_only(self):
-        """xp-spawn-team gets XP values only (data from preload)."""
-        result = self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "spawn-1",
-                "agent_type": "xp-spawn-team",
             },
             smm_dir=self.smm_dir,
         )
@@ -410,6 +373,48 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("XP Values", result)
+
+    def _run_xp_teammate(self) -> str | None:
+        return self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-1",
+                "agent_type": "xp-teammate",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+    def test_xp_teammate_gets_smm_and_values(self):
+        """xp-teammate gets SMM + values but NOT teammate guide."""
+        result = self._run_xp_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("Intent", result)
+        self.assertIn("Constraints", result)
+        self.assertIn("XP Values", result)
+
+    def test_xp_teammate_no_guide_or_process_or_sprint(self):
+        """xp-teammate skips guide, process guide, and sprint."""
+        result = self._run_xp_teammate()
+        self.assertIsNotNone(result)
+        self.assertNotIn("Teammate Guide", result)
+        self.assertNotIn("PROCESS_GUIDE", result)
+        self.assertNotIn("sprint-001", result)
+
+    def test_xp_teammate_plugin_prefixed_agent_type(self):
+        """Platform sends 'xp-agents:xp-teammate' — must route correctly."""
+        result = self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-2",
+                "agent_type": "xp-agents:xp-teammate",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("Teammate Guide", result)
 
     def test_other_xp_agents_get_values(self):
         """xp-* agents not in dispatch table still get XP values."""
@@ -526,6 +531,25 @@ class TestTeammateSystemContext(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertNotIn("System Context", result)
         self.assertIn("Ship v1", result)
+
+    def _run_xp_teammate(self) -> str | None:
+        return self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-1",
+                "agent_type": "xp-teammate",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+    def test_xp_teammate_gets_system_context(self):
+        """xp-teammate gets system_context.md like other teammates."""
+        ctx_path = self.smm_dir / "system_context.md"
+        ctx_path.write_text("Microservices architecture.\n")
+        result = self._run_xp_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("System Context", result)
+        self.assertIn("Microservices architecture.", result)
 
 
 if __name__ == "__main__":

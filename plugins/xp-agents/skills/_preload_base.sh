@@ -36,6 +36,13 @@ smm_render_to_tempfile() {
     echo "$out"
 }
 
+sprint_render_to_tempfile() {
+    local out
+    out=$(mktemp "${SMM_DIR}/.sprint-rendered.XXXXXX")
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" render > "$out" 2>/dev/null
+    echo "$out"
+}
+
 dump_values() {
     local values="${PLUGIN_ROOT}/XP_VALUES.md"
     if [ -f "$values" ]; then

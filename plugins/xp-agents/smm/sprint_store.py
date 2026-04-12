@@ -23,13 +23,6 @@ from sprint_schema import (
 _MARKER_NAME = ".needs-sprint"
 _ACTIVE_STATUSES = frozenset({"ready", "in-progress"})
 
-_STATUS_KEY_MAP = {
-    "ready": "ready",
-    "in-progress": "in_progress",
-    "done": "done",
-    "deferred": "deferred",
-}
-
 
 def sprint_exists(smm_dir: Path) -> bool:
     """Check if sprint.json exists (not a symlink)."""
@@ -163,18 +156,18 @@ def is_complete(smm_dir: Path) -> bool:
 def count_by_status(sprint: dict) -> dict[str, int]:
     """Count stories by status.
 
-    Returns dict with keys: ready, in_progress, done, deferred.
+    Returns dict with keys: ready, in-progress, done, deferred.
     """
     counts = {
         "ready": 0,
-        "in_progress": 0,
+        "in-progress": 0,
         "done": 0,
         "deferred": 0,
     }
     for s in sprint["stories"]:
-        key = _STATUS_KEY_MAP.get(s["status"])
-        if key:
-            counts[key] += 1
+        status = s["status"]
+        if status in counts:
+            counts[status] += 1
     return counts
 
 

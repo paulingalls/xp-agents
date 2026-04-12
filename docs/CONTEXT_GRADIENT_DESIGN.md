@@ -202,7 +202,7 @@ Invoked by: `/xp-plan` (if file missing), `/xp-sprint-review` (if architecture c
 - `skills/xp-kickoff/scripts/check_session_needs.sh` — check execution_plan.md
 - `smm/sprint_parser.py` — parse new sprint fields (Context, File Domain, Interface Contracts)
 - `scripts/subagent_start.py` — include System Context when extracting stories for teammates
-- `agents/xp-spawn-team.md` — use pre-computed File Domains from stories
+- `agents/xp-assign.md` — use pre-computed File Domains from stories
 - `PROCESS_GUIDE.md` — update references
 - `docs/ARCHITECTURE.md` — update to four-file architecture (events.jsonl + system_context.md + execution_plan.md + sprint.md)
 
@@ -215,6 +215,6 @@ Invoked by: `/xp-plan` (if file missing), `/xp-sprint-review` (if architecture c
 1. Create a test execution plan via `/xp-plan` with a real change request
 2. Run `/xp-sprint-start` against a milestone — verify stories carry context gradient
 3. Verify `sprint_parser.py` extracts new fields correctly
-4. Run `/xp-spawn-team` — verify it uses pre-computed file domains
+4. Run `/xp-assign` — verify it uses pre-computed file domains
 5. Run full sprint cycle through review — verify milestone status updates
 6. Test migration path from existing product_spec.md

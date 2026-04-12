@@ -17,6 +17,14 @@ import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
+# Strip git environment variables so subprocess calls in tests operate on
+# temp repos, not the parent's repo. During git commit, git sets GIT_INDEX_FILE;
+# in worktrees, git sets GIT_DIR/GIT_COMMON_DIR. Any subprocess inheriting
+# these will target the parent repo instead of its own temp dir.
+# Known issue: pre-commit#3032, lefthook#1265.
+for _git_var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+    os.environ.pop(_git_var, None)
+
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules
 # ---------------------------------------------------------------------------
@@ -129,6 +137,33 @@ SPRINT_MIXED_IN_PROGRESS = _sprint_json(
     sprint_id="sprint-001",
     started="2026-04-01",
 )
+
+# Rendered markdown sprint — used by preload-based tests (test_assign,
+# test_subagent_tiers, test_teammate_guide) that write to sprint.json
+# in rendered markdown format rather than raw JSON.
+SAMPLE_SPRINT_MD = """\
+# Sprint: Build user management REST API
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-26
+
+## Stories
+
+### story-001: User registration
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+
+### story-002: JWT authentication
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** story-001
+
+### story-003: Admin user list
+- **Size:** S
+- **Status:** ready
+- **Dependencies:** story-001
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -540,16 +575,24 @@ class _TempRepoTestCase(unittest.TestCase):
         cls._plugin_data_dir = Path(tempfile.mkdtemp())
         cls._test_env = os.environ.copy()
         cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
-        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "init"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+            env=cls._test_env,
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=cls.tmpdir,
             capture_output=True,
+            env=cls._test_env,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
             cwd=cls.tmpdir,
             capture_output=True,
+            env=cls._test_env,
         )
 
     @classmethod

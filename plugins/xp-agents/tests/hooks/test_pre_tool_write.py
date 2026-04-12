@@ -452,6 +452,46 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             self.assertNotIn("xp-review-plan", result)
 
 
+class TestAssignPendingGate(_HookTestCase):
+    """PreToolUse blocks writes when /xp-assign hasn't run after plan review."""
+
+    def test_assign_pending_blocks_write(self):
+        """Write with .assign-pending marker should block."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.touch()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("xp-assign", str(ctx.exception))
+
+    def test_plan_file_exempt_from_assign_gate(self):
+        """Write to .claude/plans/ allowed even with assign-pending marker."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.touch()
+        plan_input = _make_write_input(
+            session_id="t",
+            cwd="/tmp",
+            tool_input={
+                "file_path": "/Users/x/.claude/plans/my-plan.md",
+                "content": "# Plan\n1. Do stuff",
+            },
+        )
+        result = pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("xp-assign", result)
+
+    def test_no_assign_marker_no_block(self):
+        """Write without assign-pending marker should not block."""
+        result = pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-assign", result)
+
+
 class TestQuestionGate(_HookTestCase):
     """PreToolUse blocks writes when a blocking question is unanswered."""
 

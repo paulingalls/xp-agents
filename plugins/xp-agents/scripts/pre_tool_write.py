@@ -259,6 +259,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Plan review required before implementation.",
         )
 
+    # Assign gate — block writes until /xp-assign decides execution mode.
+    # Plan files (.claude/plans/) are exempt — same as plan review gate.
+    assign_marker = (
+        smm_dir
+        and not is_plan_file
+        and markers.marker_exists(smm_dir, markers.ASSIGN_PENDING)
+    )
+    if assign_marker:
+        raise _common.BlockedError(
+            "Run /xp-assign to decide execution mode "
+            "(solo vs worktree subagents) before writing code.",
+            "Work assignment required before implementation.",
+        )
+
     # Question gate — block writes until blocking question is answered.
     question_gate = smm_dir and markers.marker_exists(smm_dir, markers.QUESTION_GATE)
     if question_gate:

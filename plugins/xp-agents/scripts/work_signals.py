@@ -19,6 +19,12 @@ _TEST_FAIL_RE = re.compile(r"(\d+)\s+failed", re.IGNORECASE)
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
 
 
+def _has_code_changes(event: dict) -> bool:
+    """Check if event represents a code change (non-empty working_on)."""
+    working_on = event.get("working_on", [])
+    return isinstance(working_on, list) and len(working_on) > 0
+
+
 def build_work_signals(events: list[dict]) -> dict:
     """Analyze event sequence for work-level signals.
 
@@ -34,9 +40,9 @@ def build_work_signals(events: list[dict]) -> dict:
     consecutive_failures = 0
     max_consecutive_failures = 0
 
-    events_since_last_commit = 0
-    max_events_between_commits = 0
-    seen_commit = False
+    events_since_first_edit = 0
+    max_events_to_commit = 0
+    editing = False
 
     for e in events:
         etype = e.get("type", "")
@@ -52,16 +58,20 @@ def build_work_signals(events: list[dict]) -> dict:
             pending_concerns = 0
             # Decisions before this commit are implemented
             pending_decisions = 0
-            # Track cadence
-            if seen_commit:
-                max_events_between_commits = max(
-                    max_events_between_commits, events_since_last_commit
+            # Track events from first edit to commit
+            if editing:
+                max_events_to_commit = max(
+                    max_events_to_commit, events_since_first_edit
                 )
-            events_since_last_commit = 0
-            seen_commit = True
+            events_since_first_edit = 0
+            editing = False
         else:
-            if seen_commit:
-                events_since_last_commit += 1
+            # Start counting from first code change
+            if not editing and _has_code_changes(e):
+                editing = True
+                events_since_first_edit = 1
+            elif editing:
+                events_since_first_edit += 1
 
             if etype == _common.CONCERN:
                 pending_concerns += 1
@@ -87,5 +97,5 @@ def build_work_signals(events: list[dict]) -> dict:
         "unaddressed_concerns": pending_concerns,
         "decisions_without_commits": decisions_without_commits,
         "max_consecutive_test_failures": max_consecutive_failures,
-        "max_events_between_commits": max_events_between_commits,
+        "max_events_to_commit": max_events_to_commit,
     }

@@ -19,10 +19,10 @@ _SUBAGENT_NAMES = (
     "xp-plan-reviewer",
     "xp-retrospective",
     "xp-security-reviewer",
-    "xp-spawn-team",
     "xp-sprint-retro",
     "xp-sprint-reviewer",
     "xp-system-context",
+    "xp-teammate",
 )
 
 _ALL_SKILL_NAMES = (
@@ -35,7 +35,7 @@ _ALL_SKILL_NAMES = (
     "xp-run-retrospective",
     "xp-run-sprint-retro",
     "xp-security-triage",
-    "xp-spawn-team",
+    "xp-assign",
     "xp-sprint-review",
     "xp-sprint-start",
     "xp-system-context",
@@ -232,6 +232,42 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertIn(
                 "SMM Content Trust", content, f"{name} missing SMM Content Trust"
             )
+
+    def test_xp_teammate_frontmatter(self):
+        """xp-teammate must have isolation: worktree and Skill in frontmatter."""
+        content = (self.agents_dir / "xp-teammate.md").read_text()
+        parts = content.split("---", 2)
+        fm = parts[1]
+        self.assertIn("isolation: worktree", fm)
+        self.assertIn("Skill", fm)
+
+    def test_xp_teammate_has_review_cycle(self):
+        """xp-teammate body must reference the full review cycle."""
+        content = (self.agents_dir / "xp-teammate.md").read_text()
+        parts = content.split("---", 2)
+        body = parts[2]
+        self.assertIn("/simplify", body)
+        self.assertIn("/xp-quality-review", body)
+        self.assertIn("/xp-security-triage", body)
+
+    def test_xp_assign_has_no_agent_file(self):
+        """xp-assign is an inline skill — no agent file should exist."""
+        path = self.agents_dir / "xp-assign.md"
+        self.assertFalse(
+            path.exists(), f"xp-assign agent file should not exist: {path}"
+        )
+
+    def test_xp_assign_skill_is_inline(self):
+        """xp-assign SKILL.md must not have context: fork or agent: field."""
+        skill_file = (
+            Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"
+        )
+        content = skill_file.read_text()
+        match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        self.assertIsNotNone(match)
+        fm = match.group(1)
+        self.assertNotIn("context: fork", fm)
+        self.assertNotIn("agent:", fm)
 
 
 # ===========================================================================

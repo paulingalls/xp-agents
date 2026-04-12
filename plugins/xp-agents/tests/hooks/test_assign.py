@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for M15: xp-spawn-team preload integration.
+"""Tests for xp-assign preload integration.
 
 Covers: preload.sh output (SMM, sprint, plan, guide), graceful degradation.
 """
@@ -19,7 +19,7 @@ from conftest import _IntegrationTestCase, write_smm_fixture
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
     / "skills"
-    / "xp-spawn-team"
+    / "xp-assign"
     / "scripts"
     / "preload.sh"
 )
@@ -56,8 +56,8 @@ _SAMPLE_PLAN = """\
 """
 
 
-class TestSpawnTeamPreload(_IntegrationTestCase):
-    """M15: preload.sh dumps SMM + sprint + plan + guide."""
+class TestAssignPreload(_IntegrationTestCase):
+    """xp-assign preload: dumps SMM + sprint + plan paths."""
 
     def setUp(self):
         super().setUp()
@@ -118,6 +118,14 @@ class TestSpawnTeamPreload(_IntegrationTestCase):
             marker.unlink()
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_preload_clears_assign_pending_marker(self):
+        """Preload clears .assign-pending marker when it exists."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.write_text("review-1")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "assign-pending marker should be cleared")
 
 
 if __name__ == "__main__":

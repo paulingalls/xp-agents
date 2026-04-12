@@ -42,7 +42,7 @@ Analyze events through **XP values as lenses**:
 - **Honesty** — Use `honesty_signals` data (see below). Were assumptions stated? Were concerns raised proportional to complexity?
 - **Communication** — Were decisions recorded? Were questions asked when needed? Were decisions followed through with commits? (see `work_signals.decisions_without_commits`)
 - **Courage** — Were hard problems addressed directly? Were concerns addressed in subsequent commits? (see `work_signals.concerns_addressed_by_commits`) Were bad decisions revisited?
-- **Simplicity** — Were solutions kept simple? Were commits small and frequent? (see `work_signals.max_events_between_commits`) Were plans right-sized?
+- **Simplicity** — Were solutions kept simple? Were commits frequent after editing started? (see `work_signals.max_events_to_commit`) Were plans right-sized?
 - **Respect** — Were customer inputs acknowledged? Were conventions followed? Were team decisions honored?
 
 ## Honesty Checks
@@ -67,7 +67,7 @@ Use `digest.work_signals` for pre-computed correlations:
 - **`concerns_addressed_by_commits`** — concerns raised then resolved through subsequent work. Non-zero = Keep under Courage. Zero with many concerns = Fix (concerns raised but not acted on).
 - **`decisions_without_commits`** — decisions recorded but not implemented by session end. Non-zero = Fix under Communication ("decided but didn't follow through").
 - **`max_consecutive_test_failures`** — longest red streak before green. 1 is normal TDD. 3+ suggests a difficult problem — correlate with nearby commit messages in `signal_events` to identify what was hard. Include in the accomplishment narrative.
-- **`max_events_between_commits`** — long gaps between commits suggest large batch work (Simplicity concern) or sustained debugging.
+- **`max_events_to_commit`** — events from first code change (non-empty working_on) to next commit. Excludes planning/dialogue events before editing starts. High values suggest large batch work (Simplicity concern).
 
 **Goal tracing** — compare `customer_input` and `goal` event content in `signal_events` with commit messages. Were the user's goals addressed? Unaddressed goals = Fix.
 

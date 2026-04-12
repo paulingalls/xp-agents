@@ -61,17 +61,17 @@ If the user declines to answer, move on gracefully.
 1. Show the ready stories from preload.
 2. Ask via AskUserQuestion: "Which stories for this iteration?"
    Options: individual story IDs, "all ready stories", or "add ad-hoc story".
-3. For ad-hoc stories: ask for title and brief description, then add the
-   story to sprint.json and mark it in-progress.
-4. For selected stories: Read sprint.json from SMM_DIR, change each selected
-   story's `**Status:** ready` to `**Status:** in-progress`.
-5. Write updated sprint.json:
+3. For ad-hoc stories: ask for title and brief description, then add via CLI:
    ```bash
-   cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-sprint-start/scripts/save_sprint.py --smm-dir <SMM_DIR>
-   <full updated sprint.json content>
-   SPRINTEOF
+   echo '{"id":"story-NNN","title":"...","status":"in-progress","size":"M","dependencies":[],"acceptance_criteria":["..."]}' \
+     | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> add-story
    ```
-6. Record status event:
+4. For selected stories: update each story's status via CLI:
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+     update-story story-NNN in-progress
+   ```
+5. Record status event:
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
      --type "status" --agent "xp-work-selection" \

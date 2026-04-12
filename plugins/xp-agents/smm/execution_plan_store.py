@@ -95,20 +95,16 @@ def has_remaining_work(smm_dir: Path) -> bool:
 def count_milestones(smm_dir: Path) -> dict[str, int]:
     """Count milestones by status.
 
-    Returns dict with keys: planned, in_progress, delivered.
+    Returns dict with keys: planned, in-progress, delivered.
     """
-    counts = {"planned": 0, "in_progress": 0, "delivered": 0}
+    counts = {"planned": 0, "in-progress": 0, "delivered": 0}
     plan = load_plan(smm_dir)
     if plan is None:
         return counts
     for m in plan["milestones"]:
-        match m["status"]:
-            case "planned":
-                counts["planned"] += 1
-            case "in-progress":
-                counts["in_progress"] += 1
-            case "delivered":
-                counts["delivered"] += 1
+        status = m["status"]
+        if status in counts:
+            counts[status] += 1
     return counts
 
 

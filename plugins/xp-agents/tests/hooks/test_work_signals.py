@@ -23,7 +23,7 @@ class TestWorkSignals(unittest.TestCase):
         self.assertEqual(result["unaddressed_concerns"], 0)
         self.assertEqual(result["decisions_without_commits"], 0)
         self.assertEqual(result["max_consecutive_test_failures"], 0)
-        self.assertEqual(result["max_events_between_commits"], 0)
+        self.assertEqual(result["max_events_to_commit"], 0)
 
     def test_concern_then_commit_counts(self):
         """Concern followed by a commit = addressed (Courage)."""
@@ -118,32 +118,60 @@ class TestWorkSignals(unittest.TestCase):
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 0)
 
-    def test_max_events_between_commits(self):
-        """Longest gap between commits."""
+    def test_max_events_to_commit(self):
+        """Events from first code change to next commit."""
         import work_signals
 
         events = [
             make_event("commit", content="First commit"),
-            make_event("status", content="Wrote to a.py"),
-            make_event("status", content="Wrote to b.py"),
-            make_event("status", content="Tests: 5 passed, 0 failed (unittest)"),
+            make_event("status", content="Wrote to a.py", working_on=["a.py"]),
+            make_event("status", content="Tests passed", working_on=[]),
             make_event("commit", content="Second commit"),
-            make_event("status", content="Wrote to c.py"),
-            make_event("commit", content="Third commit"),
         ]
         result = work_signals.build_work_signals(events)
-        self.assertEqual(result["max_events_between_commits"], 3)
+        # 2 events: the edit + the test status
+        self.assertEqual(result["max_events_to_commit"], 2)
 
-    def test_no_commits_gap_is_zero(self):
-        """No commits means gap is 0 (nothing to measure between)."""
+    def test_max_events_picks_longest_gap(self):
+        """Reports the longest edit-to-commit gap across all cycles."""
         import work_signals
 
         events = [
-            make_event("status", content="Wrote to a.py"),
-            make_event("concern", content="Some concern"),
+            make_event("status", working_on=["a.py"]),
+            make_event("commit", content="Quick commit"),
+            make_event("status", working_on=["b.py"]),
+            make_event("status", content="Concern raised"),
+            make_event("status", content="Tests passed", working_on=[]),
+            make_event("commit", content="Slow commit"),
         ]
         result = work_signals.build_work_signals(events)
-        self.assertEqual(result["max_events_between_commits"], 0)
+        # First cycle: 1 event. Second cycle: 3 events.
+        self.assertEqual(result["max_events_to_commit"], 3)
+
+    def test_no_code_changes_gap_is_zero(self):
+        """No code changes (no working_on files) means gap is 0."""
+        import work_signals
+
+        events = [
+            make_event("concern", content="Some concern"),
+            make_event("decision", content="Use REST", topic="api"),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_events_to_commit"], 0)
+
+    def test_planning_events_before_first_edit_excluded(self):
+        """Events without working_on before first edit don't count."""
+        import work_signals
+
+        events = [
+            make_event("goal", content="Ship v1"),
+            make_event("decision", content="Use REST", topic="api"),
+            make_event("status", working_on=["a.py"]),
+            make_event("commit", content="First commit"),
+        ]
+        result = work_signals.build_work_signals(events)
+        # 1 event (the edit), NOT 3 (goal + decision + edit)
+        self.assertEqual(result["max_events_to_commit"], 1)
 
 
 if __name__ == "__main__":

@@ -36,11 +36,13 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 
 **Forked skills (all XP agents):**
 - All XP agents are invoked via their corresponding skill, never launched directly with the Agent tool. Skills provide preload data and cleanup hooks that direct launches skip.
-- `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`, `/xp-run-sprint-retro`, `/xp-spawn-team`
+- `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`, `/xp-run-sprint-retro`
 
-**Agent Teams:**
-- `/xp-spawn-team` for plan analysis and team sizing.
-- Teammates receive TEAMMATE_GUIDE.md — they focus on implementation.
+**Agent Teams (inline skill):**
+- `/xp-assign` is an inline skill that auto-runs after planning completes (`/xp-review-plan`). It analyzes sprint stories and decides execution mode:
+  - **Solo** — lead executes stories sequentially (dependency chains, overlapping domains, or small stories)
+  - **Worktree subagents** — spawns `xp-teammate` agents via Agent tool with `isolation: worktree` for parallel execution (independent stories with non-overlapping file domains)
+- Teammates receive TEAMMATE_GUIDE.md via SubagentStart injection and work independently with full TDD + review cycle.
 
 **When running tests:**
 - Check for FAIL/ERROR in the output first. Never re-run the full suite just to find failure names — capture them from the first run.
@@ -52,6 +54,29 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 ## Project Files
 
 Project state lives in `SMM_DIR`: `shared_mental_model.json` (curated briefing), `sprint.json` (current sprint stories), `execution_plan.json` (milestones and change zones), `system_context.md` (product/system description). Resolve `SMM_DIR` by running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
+
+## CLI Tools
+
+Use these CLIs instead of reading/writing project files directly. All require `--smm-dir <SMM_DIR>`.
+
+**sprint_cli.py** — sprint operations:
+- `update-story STORY_ID STATUS` — change story status (ready, in-progress, done, deferred)
+- `add-story` — add story from stdin JSON
+- `list-stories [--status STATUS]` — list stories, optionally filtered
+- `render` — render sprint as markdown
+- `exists` / `has-active` / `is-complete` — status checks
+
+**plan_cli.py** — execution plan operations:
+- `edit-milestone N` — merge JSON patch from stdin into milestone N
+- `update-status N STATUS [--delivered-sprint ID]` — change milestone status
+- `add-milestone` — add milestone from stdin JSON
+- `render` — render plan as markdown
+- `exists` / `has-remaining` / `count` — status checks
+
+**smm_cli.py** — shared mental model operations:
+- `dump` — render full SMM as markdown
+- `section NAME` — render a single pillar (intent, constraints, risks, wisdom)
+- `has-section NAME` — check if pillar exists
 
 ## Recording Events
 
