@@ -163,7 +163,7 @@ class TestBashPostTool(_HookTestCase):
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
     def test_commit_threshold_default(self):
-        self.assertEqual(bash_post_tool.load_commit_threshold(), 10)
+        self.assertEqual(bash_post_tool.load_commit_threshold(), 12)
 
     def test_pytest_pass(self):
         bash_post_tool.run(

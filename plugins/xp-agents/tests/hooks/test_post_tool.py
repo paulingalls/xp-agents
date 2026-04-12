@@ -246,7 +246,7 @@ class TestPostToolUseHooksConfig(unittest.TestCase):
         with open(settings_path) as f:
             data = json.load(f)
         self.assertIn("commit_size_threshold", data)
-        self.assertEqual(data["commit_size_threshold"], 10)
+        self.assertEqual(data["commit_size_threshold"], 12)
 
 
 import post_tool_exit_plan  # noqa: E402
