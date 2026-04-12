@@ -98,8 +98,11 @@ def maybe_run_sprint_retro_branch(smm_dir: Path, events: list[dict]) -> str | No
         return None
 
     (smm_dir / ".retro-input.json").unlink(missing_ok=True)
+    stories = result.get("velocity", {}).get("stories_planned", 0)
+    sessions = len(result.get("session_retros", []))
     return (
         f"Previous session ended sprint {sprint_id} without retrospecting "
-        "it. Run /xp-kickoff — the sprint retrospective will run at "
-        "kickoff (instead of the regular session retro)."
+        f"it. {stories} stories across {sessions} sessions to review. "
+        "Run /xp-kickoff — the sprint retrospective will run at kickoff "
+        "(instead of the regular session retro)."
     )

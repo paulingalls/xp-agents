@@ -486,11 +486,13 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
-        _match = re.search(r"(\d+) events", context)
+        _match = re.search(r"(\d+) (?:events|stories)", context)
         _count = _match.group(1) if _match else "some"
+        _matched = _match.group(0) if _match else ""
+        _label = "stories" if "stories" in _matched else "events"
         _common.hook_output(
             "SessionStart",
             context,
-            f"Kickoff data prepared — {_count} events to review.",
+            f"Kickoff data prepared — {_count} {_label} to review.",
         )
     sys.exit(0)
