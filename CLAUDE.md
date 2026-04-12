@@ -247,7 +247,7 @@ Fail loud, never corrupt, always recoverable. Every script follows:
 
 ## Testing
 
-All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel:
+All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel. All test commands in lefthook.yml use `env -u` to strip git environment variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`) — without this, tests that create temp git repos would operate on the parent repo instead of the temp dir (known issue: [pre-commit#3032](https://github.com/pre-commit/pre-commit/issues/3032), [lefthook#1265](https://github.com/evilmartians/lefthook/issues/1265)). The `conftest.py` also strips these at import time as defense-in-depth.
 
 ```bash
 # Run everything:
@@ -305,6 +305,7 @@ tests/
 │   ├── test_scenarios.py    ← round trips, retro, new event types
 │   ├── test_scenarios_lifecycle.py ← full lifecycle, plan review, multi-session
 │   ├── test_extended.py     ← simplify gate, security review, commit gate
+│   ├── test_assign.py       ← xp-assign preload, teammate agent, WorktreeCreate hook
 │   ├── test_maintenance.py  ← repair, migration
 │   └── test_scaling.py      ← concurrency, worktrees, benchmarks
 ├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
@@ -331,6 +332,8 @@ tests/
 - **Engine tests** go in `tests/engine/`. Extend `_SMMTestCase` for a temp SMM dir.
 - **SMM foundation tests** go in `tests/smm/`. Extend `_TempRepoTestCase` for subprocess tests with init.sh/append.sh.
 - Follow TDD: write the test first, watch it fail, then implement.
+
+**Git environment safety:** Tests that create temp git repos MUST import from `conftest.py` (which strips `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE` at import time). Without this, git subprocess calls in tests will operate on the parent repo when running under lefthook or inside worktrees — corrupting config, leaking branches, and setting `core.bare=true`. All base test classes (`_IntegrationTestCase`, `_TempRepoTestCase`) already handle this via conftest import.
 
 ### Test helpers (all in `tests/conftest.py`)
 
