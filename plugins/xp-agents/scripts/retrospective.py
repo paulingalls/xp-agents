@@ -16,8 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import sizing_metrics
-import sprint_retro_detection
-from event_schema import RETRO_ACTION_SESSION_DONE
+from event_schema import (
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+    RETRO_ACTION_SESSION_DONE,
+    SPRINT_ACTION_END,
+    SPRINT_ACTION_START,
+    STATUS_ACTION_SPRINT_RETRO_DONE,
+)
 from honesty_signals import build_honesty_signals
 from retro_history import annotate_try_status, gather_retro_history
 
@@ -27,6 +33,54 @@ from retro_history import annotate_try_status, gather_retro_history
 
 RETRO_THRESHOLD = 5
 MAX_EVENTS_IN_RETRO = 200
+
+
+# ---------------------------------------------------------------------------
+# Sprint detection
+# ---------------------------------------------------------------------------
+
+
+def needs_sprint_retro(events: list[dict]) -> str | None:
+    """Return the sprint_id that needs a retro, or None.
+
+    A sprint retro is needed when:
+    1. A sprint_end event exists (the most recent one).
+    2. No sprint_retro_done status event has been recorded for that sprint_id.
+    3. No newer sprint_start event exists (that would mean the user moved on
+       without retro-ing the old sprint — session retro handles it).
+    """
+    end_index = -1
+    end_sprint_id: str | None = None
+    for i in range(len(events) - 1, -1, -1):
+        event = events[i]
+        if event.get("type") != EVENT_TYPE_SPRINT:
+            continue
+        metadata = event.get("metadata", {})
+        if metadata.get("action") != SPRINT_ACTION_END:
+            continue
+        end_index = i
+        end_sprint_id = metadata.get("sprint_id")
+        break
+
+    if end_sprint_id is None:
+        return None
+
+    for event in events[end_index + 1 :]:
+        event_type = event.get("type")
+        metadata = event.get("metadata", {})
+        action = metadata.get("action")
+
+        if event_type == EVENT_TYPE_SPRINT and action == SPRINT_ACTION_START:
+            return None
+
+        if (
+            event_type == EVENT_TYPE_STATUS
+            and action == STATUS_ACTION_SPRINT_RETRO_DONE
+            and metadata.get("sprint_id") == end_sprint_id
+        ):
+            return None
+
+    return end_sprint_id
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +437,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     events = _common.read_events_raw(smm_dir)
 
-    sprint_id = sprint_retro_detection.needs_sprint_retro(events)
+    sprint_id = needs_sprint_retro(events)
 
     start_idx = _find_unanalyzed_start(events)
     unanalyzed_count = len(events) - start_idx

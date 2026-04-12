@@ -667,6 +667,110 @@ class TestSprintSizingInRetro(_HookTestCase):
 
 
 # ===========================================================================
+# M3: Sprint detection (inlined from sprint_retro_detection.py)
+# ===========================================================================
+
+
+def _sprint_start(sprint_id: str) -> dict:
+    return make_event(
+        "sprint",
+        content=f"Sprint {sprint_id} started",
+        metadata={"sprint_id": sprint_id, "action": "start"},
+    )
+
+
+def _sprint_end(sprint_id: str) -> dict:
+    return make_event(
+        "sprint",
+        content=f"Sprint {sprint_id} ended",
+        metadata={"sprint_id": sprint_id, "action": "end"},
+    )
+
+
+def _sprint_retro_done(sprint_id: str) -> dict:
+    return make_event(
+        "status",
+        content="Sprint retrospective complete.",
+        metadata={"sprint_id": sprint_id, "action": "sprint_retro_done"},
+    )
+
+
+class TestNeedsSprintRetro(unittest.TestCase):
+    """needs_sprint_retro(events) returns sprint_id or None."""
+
+    def test_dangling_sprint_end_returns_sprint_id(self):
+        import retrospective
+
+        events = [
+            _sprint_start("s-001"),
+            make_event(content="work during sprint"),
+            _sprint_end("s-001"),
+            make_event(content="post-sprint activity"),
+        ]
+        self.assertEqual(retrospective.needs_sprint_retro(events), "s-001")
+
+    def test_sprint_end_with_matching_retro_done_returns_none(self):
+        import retrospective
+
+        events = [
+            _sprint_start("s-001"),
+            _sprint_end("s-001"),
+            _sprint_retro_done("s-001"),
+            make_event(content="post-retro activity"),
+        ]
+        self.assertIsNone(retrospective.needs_sprint_retro(events))
+
+    def test_no_sprint_end_returns_none(self):
+        import retrospective
+
+        events = [
+            _sprint_start("s-001"),
+            make_event(content="mid-sprint work"),
+        ]
+        self.assertIsNone(retrospective.needs_sprint_retro(events))
+
+    def test_empty_events_returns_none(self):
+        import retrospective
+
+        self.assertIsNone(retrospective.needs_sprint_retro([]))
+
+    def test_abandoned_sprint_returns_none(self):
+        import retrospective
+
+        events = [
+            _sprint_start("s-001"),
+            _sprint_end("s-001"),
+            _sprint_start("s-002"),
+            make_event(content="new sprint work"),
+        ]
+        self.assertIsNone(retrospective.needs_sprint_retro(events))
+
+    def test_stale_retro_done_different_sprint_id(self):
+        import retrospective
+
+        events = [
+            _sprint_start("s-001"),
+            _sprint_end("s-001"),
+            _sprint_retro_done("s-001"),
+            _sprint_start("s-002"),
+            _sprint_end("s-002"),
+        ]
+        self.assertEqual(retrospective.needs_sprint_retro(events), "s-002")
+
+    def test_most_recent_sprint_end_checked(self):
+        import retrospective
+
+        events = [
+            _sprint_end("s-001"),
+            _sprint_retro_done("s-001"),
+            _sprint_end("s-002"),
+            _sprint_retro_done("s-002"),
+            _sprint_end("s-003"),
+        ]
+        self.assertEqual(retrospective.needs_sprint_retro(events), "s-003")
+
+
+# ===========================================================================
 # M6.5: Retrospective nudge tests
 # ===========================================================================
 
