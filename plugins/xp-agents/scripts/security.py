@@ -146,11 +146,13 @@ def security_triaged_exists(smm_dir: Path) -> bool:
     return isinstance(data, dict) and "ts" in data
 
 
-def write_security_triaged(smm_dir: Path) -> None:
+def write_security_triaged(smm_dir: Path, *, exempt_reason: str | None = None) -> None:
     """Atomic write of the triage marker with timestamp."""
     from datetime import datetime, timezone
 
     data = {"ts": datetime.now(timezone.utc).isoformat()}
+    if exempt_reason is not None:
+        data["exempt_reason"] = exempt_reason
     markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data)
 
 

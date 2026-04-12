@@ -83,14 +83,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Run /xp-security-triage before committing.",
                     "Security triage required before committing.",
                 )
-        else:
-            # Below threshold: security triage only for production code
+        elif not security.security_triaged_exists(smm_dir):
             has_code = security.has_staged_code_files(cwd, command)
-            if has_code and not security.security_triaged_exists(smm_dir):
+            if has_code:
                 raise _common.BlockedError(
                     "Run /xp-security-triage before committing.",
                     "Security triage required before committing.",
                 )
+            else:
+                security.write_security_triaged(smm_dir, exempt_reason="no-code-files")
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:

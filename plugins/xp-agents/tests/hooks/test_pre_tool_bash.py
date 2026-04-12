@@ -339,5 +339,57 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             self.assertEqual(mock.call_args[0][1], "abc123")
 
 
+class TestTriageExemption(_HookTestCase):
+    """Non-code commits auto-set triage marker with exempt_reason."""
+
+    _CODE_FILES_PATCH = "commits.get_code_files_for_review"
+    _STAGED_PATCH = "security.has_staged_code_files"
+
+    def _commit_input(self, **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m 'docs update'"},
+            "cwd": "/tmp",
+            "agent_id": "main",
+        }
+        data.update(overrides)
+        return data
+
+    def test_no_code_files_auto_sets_marker(self):
+        """Doc-only commit auto-sets triage marker with exempt_reason."""
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch(self._STAGED_PATCH, return_value=False),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        self.assertEqual(data["exempt_reason"], "no-code-files")
+
+    def test_code_files_still_require_triage(self):
+        """Commit with code files still requires manual triage."""
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch(self._STAGED_PATCH, return_value=True),
+            self.assertRaises(_common.BlockedError),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    def test_write_security_triaged_with_exempt_reason(self):
+        """write_security_triaged accepts optional exempt_reason."""
+        security.write_security_triaged(self.smm_dir, exempt_reason="no-code-files")
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        self.assertIn("ts", data)
+        self.assertEqual(data["exempt_reason"], "no-code-files")
+
+    def test_write_security_triaged_without_exempt_reason(self):
+        """write_security_triaged without exempt_reason has no exempt_reason key."""
+        security.write_security_triaged(self.smm_dir)
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        self.assertIn("ts", data)
+        self.assertNotIn("exempt_reason", data)
+
+
 if __name__ == "__main__":
     unittest.main()
