@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.8.0 — Merge Sprint Retro into Session Retro
+
+### Sprint-010: Milestone 3
+- **Sprint sizing metrics.** New `sizing_metrics.py` computes per-story and per-size metrics by attributing commit events to stories via file_domain overlap. Shared attribution — a commit matching multiple stories counts for all. Metrics: commits, files_changed, in_domain_files, out_of_domain_files, domain_accuracy.
+- **Session retro handles sprint analysis.** When a sprint has ended, `retrospective.py` enriches `.retro-input.json` with a `sizing_analysis` block. The xp-retrospective agent prompt includes a conditional Sprint Analysis section (goal assessment, per-story metrics table, per-size calibration). Sprint end bypasses the 5-event retro threshold.
+- **Unified kickoff flow.** `check_session_needs.sh` and `xp-kickoff/SKILL.md` no longer check for `.sprint-retro-input.json` or route to `/xp-run-sprint-retro`. All retro work flows through `RETRO_NEEDED` → `/xp-run-retrospective`.
+- **`needs_sprint_retro()` inlined.** Detection function moved from `sprint_retro_detection.py` into `retrospective.py`. Renamed from `_needs_sprint_retro` to public API.
+
+### Removed
+- **`agents/xp-sprint-retro.md`** — sprint retro agent definition.
+- **`skills/xp-run-sprint-retro/`** — sprint retro skill + preload script.
+- **`scripts/prepare_sprint_retro_data.py`** — sprint retro data prep script.
+- **`scripts/sprint_retro_detection.py`** — detection module (inlined into retrospective.py).
+- **`_handle_sprint_retro_done`** function, constants, and call site from `subagent_stop.py`.
+- **Test files:** `test_sprint_retro.py`, `test_sprint_retro_detection.py`, `TestSprintRetroDone` class, sprint retro integration tests, sprint retro tier test.
+
 ## v2.7.0 — Housekeeper Migration to Item-Level CLI
 
 ### Sprint-009: Milestone 2
