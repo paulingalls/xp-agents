@@ -563,7 +563,7 @@ class TestCompactAfterCuration(_SMMTestCase):
     def test_retains_sprint_retro_done_paired_with_sprint_end(self):
         """M7: sprint_retro_done status event with sprint_id matching a
         retained sprint_end is also retained. Required by the
-        _needs_sprint_retro detection scan to correctly identify that
+        needs_sprint_retro detection scan to correctly identify that
         the retained sprint has been retrospected."""
         import compact
 
@@ -661,7 +661,7 @@ class TestCompactAfterCuration(_SMMTestCase):
 
     def test_detection_works_after_compaction(self):
         """M7: round-trip — seed sprint_end + sprint_retro_done, compact,
-        run _needs_sprint_retro → returns None (retro was done)."""
+        run needs_sprint_retro → returns None (retro was done)."""
         import compact
         import sprint_retro_detection
 
@@ -698,7 +698,7 @@ class TestCompactAfterCuration(_SMMTestCase):
         retained = self._read_events()
 
         # Detection should return None — retro has been done for sprint-001.
-        self.assertIsNone(sprint_retro_detection._needs_sprint_retro(retained))
+        self.assertIsNone(sprint_retro_detection.needs_sprint_retro(retained))
 
     def test_watermark_updated_true_when_compaction_runs(self):
         """Return includes watermark_updated=True when main path runs."""

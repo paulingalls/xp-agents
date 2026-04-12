@@ -200,7 +200,7 @@ def _classify_pre_watermark(
     2. Last 2 retrospective events (for trend detection)
     3. Last 1 sprint end event (for velocity data)
     4. sprint_retro_done status events paired with retained sprint_end
-       (so _needs_sprint_retro detection stays correct after compaction)
+       (so needs_sprint_retro detection stays correct after compaction)
     5. SMM-referenced events (unresolved goals, active decisions, etc.)
     6. Everything else → archived
 
@@ -245,7 +245,7 @@ def _classify_pre_watermark(
 
     # Keep sprint_retro_done events whose sprint_id matches a retained
     # sprint_end. Sprint-id-paired rule keeps detection correct after
-    # compaction — _needs_sprint_retro would otherwise re-fire on a
+    # compaction — needs_sprint_retro would otherwise re-fire on a
     # retained sprint_end whose paired retro_done was archived.
     retained_sprint_ids: set[str] = set()
     for e in all_events:

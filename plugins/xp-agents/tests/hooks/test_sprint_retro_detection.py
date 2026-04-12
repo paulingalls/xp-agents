@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for sprint_retro_detection._needs_sprint_retro.
+"""Tests for sprint_retro_detection.needs_sprint_retro.
 
 Decides whether the next session start should run a sprint retro
 (because the previous session ended a sprint without retrospecting it)
@@ -42,7 +42,7 @@ def _sprint_retro_done(sprint_id: str) -> dict:
 
 
 class TestNeedsSprintRetro(_HookTestCase):
-    """_needs_sprint_retro(events) returns sprint_id or None."""
+    """needs_sprint_retro(events) returns sprint_id or None."""
 
     def test_dangling_sprint_end_returns_sprint_id(self):
         """Sprint ended with no matching retro_done: sprint retro is needed."""
@@ -54,7 +54,7 @@ class TestNeedsSprintRetro(_HookTestCase):
             _sprint_end("s-001"),
             make_event(content="post-sprint activity"),
         ]
-        self.assertEqual(sprint_retro_detection._needs_sprint_retro(events), "s-001")
+        self.assertEqual(sprint_retro_detection.needs_sprint_retro(events), "s-001")
 
     def test_sprint_end_with_matching_retro_done_returns_none(self):
         """Sprint ended and retro already done for that sprint_id: no retro needed."""
@@ -66,7 +66,7 @@ class TestNeedsSprintRetro(_HookTestCase):
             _sprint_retro_done("s-001"),
             make_event(content="post-retro activity"),
         ]
-        self.assertIsNone(sprint_retro_detection._needs_sprint_retro(events))
+        self.assertIsNone(sprint_retro_detection.needs_sprint_retro(events))
 
     def test_no_sprint_end_returns_none(self):
         """No sprint_end event exists: no sprint retro needed."""
@@ -76,13 +76,13 @@ class TestNeedsSprintRetro(_HookTestCase):
             _sprint_start("s-001"),
             make_event(content="mid-sprint work"),
         ]
-        self.assertIsNone(sprint_retro_detection._needs_sprint_retro(events))
+        self.assertIsNone(sprint_retro_detection.needs_sprint_retro(events))
 
     def test_empty_events_returns_none(self):
         """Empty event log: no sprint retro needed."""
         import sprint_retro_detection
 
-        self.assertIsNone(sprint_retro_detection._needs_sprint_retro([]))
+        self.assertIsNone(sprint_retro_detection.needs_sprint_retro([]))
 
     def test_abandoned_sprint_returns_none(self):
         """Sprint ended, then a NEWER sprint started without retro for the old
@@ -96,7 +96,7 @@ class TestNeedsSprintRetro(_HookTestCase):
             _sprint_start("s-002"),
             make_event(content="new sprint work"),
         ]
-        self.assertIsNone(sprint_retro_detection._needs_sprint_retro(events))
+        self.assertIsNone(sprint_retro_detection.needs_sprint_retro(events))
 
     def test_stale_retro_done_different_sprint_id_returns_sprint_id(self):
         """sprint_retro_done for a previous sprint does not satisfy detection
@@ -111,7 +111,7 @@ class TestNeedsSprintRetro(_HookTestCase):
             _sprint_end("s-002"),
             # No retro_done for s-002.
         ]
-        self.assertEqual(sprint_retro_detection._needs_sprint_retro(events), "s-002")
+        self.assertEqual(sprint_retro_detection.needs_sprint_retro(events), "s-002")
 
     def test_most_recent_sprint_end_is_the_one_checked(self):
         """When multiple sprint_ends exist, only the most recent one's
@@ -126,7 +126,7 @@ class TestNeedsSprintRetro(_HookTestCase):
             _sprint_end("s-003"),
             # s-003 not retro'd yet.
         ]
-        self.assertEqual(sprint_retro_detection._needs_sprint_retro(events), "s-003")
+        self.assertEqual(sprint_retro_detection.needs_sprint_retro(events), "s-003")
 
 
 if __name__ == "__main__":

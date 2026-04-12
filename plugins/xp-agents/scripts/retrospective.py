@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import sizing_metrics
 import sprint_retro_detection
 from event_schema import RETRO_ACTION_SESSION_DONE
 from honesty_signals import build_honesty_signals
@@ -382,29 +383,26 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     events = _common.read_events_raw(smm_dir)
 
-    # Sprint-retro branch runs BEFORE the session-retro threshold check:
-    # a dangling sprint_end needs retro regardless of event count.
-    sprint_retro_summary = sprint_retro_detection.maybe_run_sprint_retro_branch(
-        smm_dir, events
-    )
-    if sprint_retro_summary:
-        return sprint_retro_summary
+    sprint_id = sprint_retro_detection.needs_sprint_retro(events)
 
     start_idx = _find_unanalyzed_start(events)
     unanalyzed_count = len(events) - start_idx
 
-    if unanalyzed_count < RETRO_THRESHOLD:
+    if unanalyzed_count < RETRO_THRESHOLD and sprint_id is None:
         return None
 
     retro_history = gather_retro_history(smm_dir)
     retro_input = _build_retro_input(events, start_idx, retro_history)
+
+    if sprint_id is not None:
+        sizing = sizing_metrics.compute_sizing_analysis(smm_dir, events)
+        if sizing is not None:
+            retro_input["sizing_analysis"] = sizing
+
     _write_retro_input(smm_dir, retro_input)
 
-    # Exclusive-file invariant: clean any stale sprint-retro input.
     (smm_dir / ".sprint-retro-input.json").unlink(missing_ok=True)
 
-    # Main agent gets counts + health only — no event details.
-    # The retro subagent reads .retro-input.json for the full data.
     return _build_context_summary(
         unanalyzed_count,
         retro_input["event_type_counts"],

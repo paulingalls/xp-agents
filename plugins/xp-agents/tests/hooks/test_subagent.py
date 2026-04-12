@@ -614,7 +614,7 @@ class TestSprintRetroDone(_HookTestCase):
     def test_records_sprint_id_from_sprint_md(self):
         """M4a: sprint_retro_done metadata includes sprint_id from sprint.json.
 
-        Detection (_needs_sprint_retro) scopes by sprint_id — without it,
+        Detection (needs_sprint_retro) scopes by sprint_id — without it,
         the scanner can't tell which sprint was retro'd.
         """
         (self.smm_dir / "sprint.json").write_text(

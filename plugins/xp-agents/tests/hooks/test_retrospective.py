@@ -178,9 +178,9 @@ class TestRetrospective(_HookTestCase):
             )
         )
 
-    def test_sprint_retro_branch_writes_sprint_input(self):
-        """M4b: dangling sprint_end triggers sprint-retro branch: writes
-        .sprint-retro-input.json, does NOT write .retro-input.json."""
+    def test_sprint_end_writes_retro_input_with_sizing(self):
+        """M3: dangling sprint_end triggers session retro with sizing_analysis
+        in .retro-input.json (replaces old separate sprint-retro path)."""
         import retrospective
 
         self._sprint_md()
@@ -199,14 +199,15 @@ class TestRetrospective(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertTrue((self.smm_dir / ".sprint-retro-input.json").exists())
-        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
-        self.assertIn("sprint", result.lower())
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+        self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("sizing_analysis", data)
 
-    def test_sprint_retro_fires_below_retro_threshold(self):
-        """M4b: sprint-retro detection runs BEFORE the RETRO_THRESHOLD
-        short-circuit. A sprint_end with fewer than 5 unanalyzed events
-        still triggers sprint retro."""
+    def test_sprint_end_below_threshold_still_fires(self):
+        """M3: sprint end bypasses RETRO_THRESHOLD — session retro fires
+        with sizing_analysis even with fewer than 5 unanalyzed events."""
         import retrospective
 
         self._sprint_md()
@@ -229,7 +230,7 @@ class TestRetrospective(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertTrue((self.smm_dir / ".sprint-retro-input.json").exists())
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
 
     def test_session_retro_removes_stale_sprint_retro_input(self):
         """M4b: exclusive-file invariant — session retro path unlinks
@@ -518,6 +519,151 @@ class TestRetrospective(_HookTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
         self.assertEqual(data["session_stats"]["iterations_completed"], 0)
+
+
+# ===========================================================================
+# M3: Sprint sizing in session retro
+# ===========================================================================
+
+
+class TestSprintSizingInRetro(_HookTestCase):
+    """M3: when a sprint ended, .retro-input.json includes sizing_analysis."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def _setup_sprint_with_end(self, event_count: int = 8) -> list[dict]:
+        """Write sprint.json and return events including sprint_end."""
+        from conftest import _s, _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Add auth",
+                        "M",
+                        "done",
+                        file_domain=["scripts/auth.py \u2014 add login"],
+                    ),
+                    _s(
+                        "story-002",
+                        "Add tests",
+                        "S",
+                        "done",
+                        file_domain=["tests/test_auth.py \u2014 auth tests"],
+                    ),
+                ],
+                sprint_id="sprint-042",
+                started="2026-04-01",
+                goal="Build auth",
+            )
+        )
+        events = [make_event(content=f"event {i}") for i in range(event_count)]
+        events.append(
+            make_event(
+                "commit",
+                content="Committed: add login",
+                files=["scripts/auth.py"],
+                ts="2026-04-05T10:00:00+00:00",
+                metadata={"code_commit": True, "commit_hash": "abc123"},
+            )
+        )
+        events.append(
+            make_event(
+                "sprint",
+                content="Sprint ended",
+                metadata={"sprint_id": "sprint-042", "action": "end"},
+            )
+        )
+        return events
+
+    def test_sprint_ended_retro_input_has_sizing_analysis(self):
+        import retrospective
+
+        events = self._setup_sprint_with_end()
+        self._write_events(events)
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("sizing_analysis", data)
+        sizing = data["sizing_analysis"]
+        self.assertEqual(sizing["sprint_id"], "sprint-042")
+        self.assertEqual(sizing["velocity"]["stories_delivered"], 2)
+        self.assertIn("per_story", sizing)
+        self.assertIn("per_size", sizing)
+
+    def test_no_sprint_ended_no_sizing(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertNotIn("sizing_analysis", data)
+
+    def test_sprint_ended_below_threshold_still_fires(self):
+        """Sprint end should bypass the RETRO_THRESHOLD and produce
+        .retro-input.json with sizing_analysis even with few events."""
+        import retrospective
+
+        events = self._setup_sprint_with_end(event_count=2)
+        self._write_events(events)
+
+        result = retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("sizing_analysis", data)
+
+    def test_sprint_ended_cleans_stale_sprint_retro_input(self):
+        """Even with sprint end, old .sprint-retro-input.json is cleaned up."""
+        import retrospective
+
+        (self.smm_dir / ".sprint-retro-input.json").write_text('{"stale": true}')
+        events = self._setup_sprint_with_end()
+        self._write_events(events)
+
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".sprint-retro-input.json").exists())
+        self.assertTrue((self.smm_dir / ".retro-input.json").exists())
+
+    def test_sizing_analysis_attributes_commits_to_stories(self):
+        import retrospective
+
+        events = self._setup_sprint_with_end()
+        self._write_events(events)
+
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        sizing = data["sizing_analysis"]
+        story_001 = next(s for s in sizing["per_story"] if s["id"] == "story-001")
+        self.assertEqual(story_001["commits"], 1)
+        self.assertEqual(story_001["in_domain_files"], 1)
 
 
 # ===========================================================================

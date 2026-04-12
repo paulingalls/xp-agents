@@ -27,7 +27,7 @@ from event_schema import (
 )
 
 
-def _needs_sprint_retro(events: list[dict]) -> str | None:
+def needs_sprint_retro(events: list[dict]) -> str | None:
     """Return the sprint_id that needs a retro, or None.
 
     A sprint retro is needed when:
@@ -83,7 +83,7 @@ def maybe_run_sprint_retro_branch(smm_dir: Path, events: list[dict]) -> str | No
     (sprint.md missing, malformed, or exception) returns None so the
     caller falls back to the session-retro path.
     """
-    sprint_id = _needs_sprint_retro(events)
+    sprint_id = needs_sprint_retro(events)
     if sprint_id is None:
         return None
 
