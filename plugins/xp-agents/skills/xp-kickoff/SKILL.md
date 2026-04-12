@@ -18,14 +18,11 @@ The session status above was preloaded automatically.
 
 **You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 6) MUST always run — it is not optional. Only after housekeeping completes should you begin working on the session goals.**
 
-## Step 1: Retrospective (if SPRINT_RETRO_NEEDED or RETRO_NEEDED)
+## Step 1: Retrospective (if RETRO_NEEDED)
 
-The preload reports exactly one of these flags (or neither):
+If the preload shows **RETRO_NEEDED**, invoke the `/xp-run-retrospective` skill immediately. The session retro handles both regular sessions and sprint completions — when a sprint just ended, the retro input includes sprint sizing metrics automatically.
 
-- **SPRINT_RETRO_NEEDED** — the previous session ended a sprint without retrospecting it. Invoke the `/xp-run-sprint-retro` skill immediately. The sprint retrospective covers the full sprint instead of the regular session retro.
-- **RETRO_NEEDED** — unanalyzed events from previous sessions. Invoke the `/xp-run-retrospective` skill immediately.
-
-**Do NOT analyze events yourself — both skills run dedicated subagents that do the analysis.** Just invoke the right one and wait for the result.
+**Do NOT analyze events yourself — the skill runs a dedicated subagent that does the analysis.** Just invoke it and wait for the result.
 
 **The subagent result is NOT visible to the user** — you must output the full retrospective as text in your response. Do not summarize it.
 
