@@ -17,6 +17,13 @@ import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
+# Strip GIT_DIR/GIT_WORK_TREE from the process environment so that git
+# subprocess calls in tests operate on temp repos, not the parent's repo.
+# lefthook sets GIT_DIR during pre-commit hooks, which breaks git init
+# in _IntegrationTestCase and _TempRepoTestCase.
+os.environ.pop("GIT_DIR", None)
+os.environ.pop("GIT_WORK_TREE", None)
+
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules
 # ---------------------------------------------------------------------------
@@ -567,16 +574,24 @@ class _TempRepoTestCase(unittest.TestCase):
         cls._plugin_data_dir = Path(tempfile.mkdtemp())
         cls._test_env = os.environ.copy()
         cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
-        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "init"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+            env=cls._test_env,
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=cls.tmpdir,
             capture_output=True,
+            env=cls._test_env,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
             cwd=cls.tmpdir,
             capture_output=True,
+            env=cls._test_env,
         )
 
     @classmethod

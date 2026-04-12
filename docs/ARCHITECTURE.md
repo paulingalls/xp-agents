@@ -124,9 +124,8 @@ Subagents have full tool access. Command hooks trigger them via `additionalConte
 | `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
 | `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
 | `xp-sprint-retro` | `/xp-sprint-retro` skill | Fork | Cross-iteration retrospective: patterns across session retros, sizing accuracy |
-| `xp-assign` | `/xp-assign` skill | Fork | Analyze plan for parallelizable work, produce structured spawn instructions |
 
-Inline skills run in the main agent for full tool access (AskUserQuestion, Bash):
+Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent):
 - `/xp-kickoff` — orchestrator, sequences retro → question triage → goals → housekeeping at session start
 - `/xp-housekeeping` — curates four-pillar SMM, records resolutions via `metadata.resolves`
 - `/xp-goal-collection` — session goal collection
@@ -136,6 +135,7 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash)
 - `/xp-system-context` — create/update system context description (`system_context.md`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred
+- `/xp-assign` — analyze sprint stories, decide execution mode (solo vs worktree subagents), spawn `xp-teammate` agents for parallel execution. Auto-runs after planning completes
 
 All subagents preload `xp-smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
 
@@ -232,7 +232,8 @@ Note: Review cycle enforcement (simplify, quality review, security triage) moved
 SubagentStart → subagent_start.py: tiered context injection + watermark
                 Explore: Intent+Constraints only (~200 tokens)
                 xp-plan-reviewer/xp-retrospective: full SMM + behavioral guide + sprint.json
-                Teammates (custom agent_type): SMM + TEAMMATE_GUIDE.md + filtered stories
+                xp-teammate: SMM + TEAMMATE_GUIDE.md + filtered stories (assigned story only)
+                Other teammates (custom agent_type): SMM + TEAMMATE_GUIDE.md + filtered stories
                 Default (Plan/general-purpose): full SMM + behavioral guide
                 xp-* agents not in dispatch: skipped (use own preloads)
 SubagentStop  → subagent_stop.py: record, conflicts, security check
@@ -253,7 +254,7 @@ plugins/xp-agents/
 │   ├── xp-security-reviewer.md
 │   ├── xp-sprint-reviewer.md
 │   ├── xp-sprint-retro.md
-│   └── xp-assign.md
+│   └── xp-teammate.md              ← worktree-isolated teammate for parallel story execution
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
 │   ├── xp-smm-protocol/SKILL.md
@@ -263,7 +264,6 @@ plugins/xp-agents/
 │   ├── xp-security-triage/SKILL.md ← forked, agent: xp-security-reviewer
 │   ├── xp-sprint-review/SKILL.md   ← forked, agent: xp-sprint-reviewer
 │   ├── xp-sprint-retro/SKILL.md    ← forked, agent: xp-sprint-retro
-│   ├── xp-assign/SKILL.md      ← forked, agent: xp-assign
 │   ├── xp-kickoff/SKILL.md         ← inline, orchestrates session start lifecycle
 │   ├── xp-housekeeping/SKILL.md    ← inline, four-pillar SMM curation
 │   ├── xp-goal-collection/SKILL.md ← inline, session goal collection
@@ -271,7 +271,8 @@ plugins/xp-agents/
 │   ├── xp-plan/SKILL.md            ← inline, execution planning
 │   ├── xp-system-context/SKILL.md  ← forked, system context analysis
 │   ├── xp-sprint-start/SKILL.md    ← inline, sprint creation
-│   └── xp-accept/SKILL.md          ← inline, acceptance testing
+│   ├── xp-accept/SKILL.md          ← inline, acceptance testing
+│   └── xp-assign/SKILL.md          ← inline, mode selection + worktree spawn
 ├── hooks/hooks.json                 ← command hooks only
 ├── scripts/                         ← command hooks + shared modules (Python 3.10+, stdlib only)
 │   ├── _common.py               ← core helpers (hook I/O, constants, event factories)
@@ -400,11 +401,20 @@ TeammateIdle and TaskCompleted enforce TDD — tests must pass before going idle
 
 ### Team Spawn Flow
 
-1. Plan reviewer recommends `/xp-assign` when plan has parallelizable work
-2. Lead runs `/xp-assign` — subagent analyzes file domains, outputs structured instructions
-3. Lead creates Agent Team using platform mechanism with the spawn instructions
-4. Each teammate works within assigned file domain with commit-gated review cycle
-5. Lead runs `/xp-accept` when all tasks complete
+`/xp-assign` is an inline skill that auto-runs after planning completes (`/xp-review-plan`). It operates in two modes:
+
+**Solo mode** — lead executes stories sequentially. Chosen when stories have dependency chains, overlapping file domains, or are all small (size S).
+
+**Worktree subagent mode** — parallel execution via `xp-teammate` agents. Chosen when 2+ independent stories have non-overlapping file domains and are worth the coordination overhead (size M/L).
+
+Flow:
+1. `/xp-assign` analyzes sprint stories (dependencies, file domains, sizing)
+2. Presents mode recommendation to user for confirmation
+3. If worktree mode: spawns `xp-teammate` agents via Agent tool with `isolation: worktree` and `run_in_background: true`
+4. Each teammate gets a self-contained spawn prompt (story context, file domain, acceptance criteria, interface contracts)
+5. Each teammate works independently: TDD, review cycle, commits — all in its own worktree
+6. Lead merges teammate branches, resolves conflicts, runs full test suite
+7. Lead runs `/xp-accept` to verify acceptance criteria
 
 ## Enforcement vs. Agent Compliance
 

@@ -401,6 +401,21 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertNotIn("PROCESS_GUIDE", result)
         self.assertNotIn("sprint-001", result)
 
+    def test_xp_teammate_plugin_prefixed_agent_type(self):
+        """Platform sends 'xp-agents:xp-teammate' — must route correctly."""
+        result = self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "teammate-2",
+                "agent_type": "xp-agents:xp-teammate",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+        self.assertIn("XP Values", result)
+        self.assertNotIn("Teammate Guide", result)
+
     def test_other_xp_agents_get_values(self):
         """xp-* agents not in dispatch table still get XP values."""
         result = self.subagent_start.run(

@@ -1101,3 +1101,61 @@ The key addition: **the sprint as a first-class lifecycle** that wraps the exist
 | **Kickoff doesn't check sprint status** | Lead needs to know if mid-sprint or starting new | Add sprint status check to kickoff |
 | **Path normalization uses absolute paths** | `.coordination.json` fails across worktrees | Normalize to repo-relative paths |
 | **context:fork doesn't reliably delegate** | Plan reviewer and retro subagents sometimes run inline | v1 issue, still present — fallback instructions mitigate |
+
+---
+
+## Worktree Subagent Findings (M1/M2)
+
+### Empirical Testing (2026-04-10)
+
+We tested native Agent Teams with parallel sprint stories. The key finding: **the commit restriction makes the lead a serial bottleneck.** In Agent Teams, only the lead can commit. Teammates implement code but depend on the lead to stage, review, and commit their work. This serializes what should be parallel work and creates context-window pressure as the lead juggles multiple teammates' output.
+
+The review cycle (`/simplify` -> `/xp-quality-review` -> `/xp-security-triage`) compounds this. Each teammate's commit requires three review steps, all gated through the lead. With 3-4 teammates producing commits, the lead spends most of its time in review cycles rather than coordinating.
+
+### Why Worktree Subagents Are Better for Sprint Work
+
+Worktree subagents solve the bottleneck by giving each teammate full autonomy:
+
+| Capability | Agent Teams | Worktree Subagents |
+|---|---|---|
+| **Commits** | Lead only (serial bottleneck) | Each teammate commits independently |
+| **Review cycle** | Lead runs reviews for each teammate's changes | Each teammate runs its own review cycle |
+| **Git isolation** | Shared checkout or prompt-driven worktrees | Automatic worktree per teammate (`isolation: worktree`) |
+| **TDD** | PreToolUse hooks fire, but commit gate is lead-only | Full TDD cycle including commit gate per teammate |
+| **Merge** | N/A (shared branch) | Lead merges branches after completion |
+| **Context pressure** | Lead context fills with teammate output | Each teammate has its own context window |
+
+The `xp-teammate` agent definition (`plugins/xp-agents/agents/xp-teammate.md`) provides the behavioral contract: strict TDD, review cycle before every commit, stay within assigned file domain, record decisions and concerns to the SMM.
+
+### Two-Mode Model
+
+The `/xp-assign` skill selects the execution mode after analyzing sprint stories:
+
+**Solo** (sequential) — the lead executes stories directly. Selected when:
+- Stories have dependency chains between them
+- File domains overlap between stories
+- All stories are size S (coordination overhead not worth it)
+- File domains are missing from story definitions
+
+**Worktree Subagents** (parallel) — each story gets an `xp-teammate` agent. Selected when:
+- 2+ stories have no dependencies between them
+- Stories are size M or L
+- Stories have non-overlapping file domains
+
+The mode decision is presented to the user for confirmation before spawning. `/xp-assign` auto-runs after planning completes.
+
+### Platform Constraints Discovered
+
+Two platform issues were discovered during M1/M2 implementation:
+
+1. **`isolation: worktree` silently ignored with `team_name`** ([anthropics/claude-code#33045](https://github.com/anthropics/claude-code/issues/33045)) — when an agent is spawned with both `isolation: worktree` and a `team_name`, the worktree isolation is silently dropped. Workaround: use `isolation: worktree` without `team_name`, treating teammates as independent subagents rather than Agent Team members.
+
+2. **WorktreeCreate stdout must be clean** ([anthropics/claude-code#27467](https://github.com/anthropics/claude-code/issues/27467)) — any stdout from `WorktreeCreate` hooks is interpreted as the worktree path. Hook scripts must avoid writing to stdout during worktree creation, or the worktree setup fails silently.
+
+### Recommendation
+
+**Use worktree subagents for sprint-driven parallel execution.** They provide full teammate autonomy (TDD, review, commits) without the serial bottleneck of Agent Teams' lead-only commit model.
+
+**Use native Agent Teams for ad-hoc collaborative work** outside the sprint flow — exploratory tasks, shared investigation, or work that benefits from the built-in task list and messaging primitives without needing independent commits.
+
+The original Agent Teams design in this document remains valid for its coordination patterns (SMM sharing, conflict detection, behavioral guide injection). The worktree subagent model reuses all of these patterns — it changes the execution primitive (subagent with worktree isolation instead of Agent Team teammate), not the coordination architecture.

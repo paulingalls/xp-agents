@@ -258,16 +258,23 @@ The retrospective runs at session *start*, not session end — resilient to forc
 | 5th | Tried experiments validated or dropped. |
 | 10th | Genuine institutional memory. |
 
-### Agent Teams
+### Sprint Execution: Solo and Worktree Subagents
 
-xp-agents is designed for Agent Teams. Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
+After planning, the `/xp-assign` skill analyzes sprint stories and selects an execution mode:
 
-- Prompt nuggets at each user prompt and tiered context at subagent spawn
+**Solo** (sequential) — the lead executes stories one at a time. Best when stories have dependencies between them, overlapping file domains, or are all small (S-sized). This is the default and most common mode.
+
+**Worktree Subagents** (parallel) — each independent story gets its own `xp-teammate` agent running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`, `/xp-security-triage`), and commit independently. The lead merges branches after all teammates complete.
+
+`/xp-assign` chooses worktree subagents when two or more stories are size M or L, have no dependencies between them, and have non-overlapping file domains. The mode decision is presented to the user for confirmation before spawning.
+
+Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
+
+- Tiered context injection at spawn (full SMM + behavioral guide)
 - `working_on` conflict detection across teammates
-- Decisions visible to every other teammate
+- Commit-gated review cycle enforcement (same gates as solo)
+- Decisions and concerns visible to every other agent
 - A team-wide retrospective at next session start
-
-Native Agent Teams provide task distribution. xp-agents adds the coordination layer: shared context, conflict prevention, quality enforcement, and institutional memory.
 
 ---
 
