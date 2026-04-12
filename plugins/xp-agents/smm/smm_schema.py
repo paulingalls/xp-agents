@@ -92,6 +92,8 @@ _PILLAR_SPECS: tuple[PillarSpec, ...] = (
     PillarSpec(PILLAR_WISDOM, frozenset()),
 )
 
+_PILLAR_SPEC_MAP: dict[str, PillarSpec] = {s.name: s for s in _PILLAR_SPECS}
+
 
 def _validate_base_entry(entry: object, pillar: str, idx: int) -> list[str]:
     """Validate the common id/content/source/ts fields on every entry."""
@@ -127,6 +129,54 @@ def _validate_base_entry(entry: object, pillar: str, idx: int) -> list[str]:
     return errors
 
 
+def _validate_entry_specific(
+    entry: dict, spec: PillarSpec, pillar: str, idx: int
+) -> list[str]:
+    """Validate pillar-specific fields on a single entry (type, extras, severity)."""
+    errors: list[str] = []
+
+    if "type" in entry:
+        if not isinstance(entry["type"], str):
+            errors.append(f"{pillar}[{idx}] field 'type' must be a string")
+        elif spec.valid_types and entry["type"] not in spec.valid_types:
+            errors.append(
+                f"{pillar}[{idx}] field 'type' must be one of "
+                f"{sorted(spec.valid_types)}"
+            )
+
+    for extra in spec.extra_string_fields:
+        if extra in entry and not isinstance(entry[extra], str):
+            errors.append(f"{pillar}[{idx}] field {extra!r} must be a string")
+
+    if spec.severity_enum is not None and "severity" in entry:
+        if not isinstance(entry["severity"], str):
+            errors.append(f"{pillar}[{idx}] field 'severity' must be a string")
+        elif entry["severity"] not in spec.severity_enum:
+            errors.append(
+                f"{pillar}[{idx}] field 'severity' must be one of "
+                f"{sorted(spec.severity_enum)}"
+            )
+
+    return errors
+
+
+def validate_entry(entry: object, pillar: str) -> list[str]:
+    """Validate a single SMM entry against its pillar's spec.
+
+    Returns a list of error strings — empty list means valid.
+    """
+    spec = _PILLAR_SPEC_MAP.get(pillar)
+    if spec is None:
+        return [f"Unknown pillar: {pillar!r}"]
+
+    base_errors = _validate_base_entry(entry, pillar, 0)
+    if base_errors:
+        return base_errors
+
+    assert isinstance(entry, dict)  # guaranteed by _validate_base_entry
+    return _validate_entry_specific(entry, spec, pillar, 0)
+
+
 def _validate_pillar(entries: object, spec: PillarSpec) -> list[str]:
     """Validate entries in one pillar — base fields + pillar-specific rules."""
     errors: list[str] = []
@@ -137,29 +187,8 @@ def _validate_pillar(entries: object, spec: PillarSpec) -> list[str]:
         base_errors = _validate_base_entry(entry, spec.name, idx)
         errors.extend(base_errors)
         if base_errors:
-            continue  # Skip pillar-specific checks — the base is already broken.
-
-        if "type" in entry:
-            if not isinstance(entry["type"], str):
-                errors.append(f"{spec.name}[{idx}] field 'type' must be a string")
-            elif spec.valid_types and entry["type"] not in spec.valid_types:
-                errors.append(
-                    f"{spec.name}[{idx}] field 'type' must be one of "
-                    f"{sorted(spec.valid_types)}"
-                )
-
-        for extra in spec.extra_string_fields:
-            if extra in entry and not isinstance(entry[extra], str):
-                errors.append(f"{spec.name}[{idx}] field {extra!r} must be a string")
-
-        if spec.severity_enum is not None and "severity" in entry:
-            if not isinstance(entry["severity"], str):
-                errors.append(f"{spec.name}[{idx}] field 'severity' must be a string")
-            elif entry["severity"] not in spec.severity_enum:
-                errors.append(
-                    f"{spec.name}[{idx}] field 'severity' must be one of "
-                    f"{sorted(spec.severity_enum)}"
-                )
+            continue
+        errors.extend(_validate_entry_specific(entry, spec, spec.name, idx))
 
     return errors
 

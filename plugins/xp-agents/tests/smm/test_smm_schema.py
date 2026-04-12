@@ -439,5 +439,67 @@ class TestSMMSchemaConstants(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# Per-entry validation (validate_entry)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateEntry(unittest.TestCase):
+    """validate_entry validates a single entry against its pillar spec."""
+
+    def test_valid_intent_entry_returns_empty(self):
+        e = _entry(type="goal")
+        self.assertEqual(smm_schema.validate_entry(e, "intent"), [])
+
+    def test_valid_constraint_entry_with_topic(self):
+        e = _entry(type="decision", topic="auth-method")
+        self.assertEqual(smm_schema.validate_entry(e, "constraints"), [])
+
+    def test_valid_risk_entry_with_severity(self):
+        e = _entry(type="concern", severity="problem")
+        self.assertEqual(smm_schema.validate_entry(e, "risks"), [])
+
+    def test_valid_wisdom_entry(self):
+        e = _entry()
+        self.assertEqual(smm_schema.validate_entry(e, "wisdom"), [])
+
+    def test_missing_content_returns_errors(self):
+        e = _entry()
+        del e["content"]
+        errors = smm_schema.validate_entry(e, "wisdom")
+        self.assertTrue(any("content" in err for err in errors))
+
+    def test_missing_id_returns_errors(self):
+        e = _entry()
+        del e["id"]
+        errors = smm_schema.validate_entry(e, "wisdom")
+        self.assertTrue(any("id" in err for err in errors))
+
+    def test_invalid_pillar_name_returns_error(self):
+        e = _entry()
+        errors = smm_schema.validate_entry(e, "bogus")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bogus", errors[0])
+
+    def test_invalid_type_for_pillar_returns_error(self):
+        e = _entry(type="concern")
+        errors = smm_schema.validate_entry(e, "intent")
+        self.assertTrue(any("type" in err for err in errors))
+
+    def test_invalid_severity_returns_error(self):
+        e = _entry(type="concern", severity="mild")
+        errors = smm_schema.validate_entry(e, "risks")
+        self.assertTrue(any("severity" in err for err in errors))
+
+    def test_non_dict_returns_error(self):
+        errors = smm_schema.validate_entry("not a dict", "intent")
+        self.assertTrue(len(errors) > 0)
+
+    def test_source_event_id_validated(self):
+        e = _entry(type="goal", source_event_id="not-a-uuid")
+        errors = smm_schema.validate_entry(e, "intent")
+        self.assertTrue(any("source_event_id" in err for err in errors))
+
+
 if __name__ == "__main__":
     unittest.main()
