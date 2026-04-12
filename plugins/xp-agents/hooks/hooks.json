@@ -20,6 +20,16 @@
             "statusMessage": "Checking commit constraints..."
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_skill.py",
+            "statusMessage": "Preparing review guidance..."
+          }
+        ]
       }
     ],
     "SessionStart": [
