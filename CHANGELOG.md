@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.7.0 — Housekeeper Migration to Item-Level CLI
+
+### Sprint-009: Milestone 2
+- **xp-housekeeper agent rewritten for item-level API.** Agent now expresses SMM mutations as individual `add-item`, `update-item`, `remove-item`, and `complete-curation` CLI commands instead of assembling a full JSON document and piping to `smm_cli.py save`. The CLI handles identity (UUIDs, timestamps) server-side, eliminating UUID drift risk entirely.
+- **Allowed tools updated.** `xp-housekeeping` SKILL.md patterns changed from `Bash(cat *| python3 */smm_cli.py *)` to `Bash(echo *| python3 */smm_cli.py *)` and `Bash(python3 */smm_cli.py *)` for the two command forms.
+- **Merge rules simplified.** Agent prompt no longer contains UUID preservation instructions, full-doc JSON assembly templates, or entry schema requirements. Mutation verbs (add/update/remove) replace the monolithic output format.
+
+### Removed
+- **`settings.json`** deleted. The sole config value (`commit_size_threshold`) is now a hardcoded constant (`COMMIT_SIZE_THRESHOLD = 12`) in `bash_post_tool.py`, consistent with all other thresholds in the codebase.
+- **`load_commit_threshold()`** function removed from `bash_post_tool.py`.
+- **Tautological constant test** removed — asserting a constant equals a literal validates nothing.
+
+### Changed
+- **Retro metric thresholds moved to Python.** `retro_flags.py` now owns threshold definitions and comparisons instead of delegating judgment to the LLM.
+
 ## v2.6.0 — Item-Level SMM API + Retro Try Fixes
 
 ### Sprint-008: Milestone 1 (partial — 2/6 stories)
