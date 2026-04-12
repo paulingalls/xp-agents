@@ -359,3 +359,4 @@ tests/
 - Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
 - No prep script for xp-assign — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
+- Worktree subagents over Agent Teams for sprint-driven parallel execution — Agent Teams' "do not commit" restriction makes the lead a serial bottleneck; worktree subagents run full TDD + review cycle + commits independently

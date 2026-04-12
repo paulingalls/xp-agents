@@ -201,7 +201,7 @@ Stories often share infrastructure files (imports, registrations, test fixtures,
 Tests passing in isolation but failing after merge is the biggest operational risk. Each worktree has a consistent snapshot — interactions between stories only surface after merge. The lead must understand ALL the work to fix these. Mitigation: keep file domains truly independent; run full test suite after each merge.
 
 ### SMM Path Resolution in Worktrees
-`git rev-parse --git-common-dir` should point to the same git dir across worktrees, meaning all worktree subagents share the same SMM. **Needs empirical verification** — if this doesn't work, each worktree would get its own SMM and lose coordination context.
+`git rev-parse --git-common-dir` points to the same git dir across worktrees, meaning all worktree subagents share the same SMM. **Verified** — the SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees, coordinated by existing `flock`-based concurrency control (see "Shared State Across Worktrees" in Community Findings).
 
 ### Hook Compatibility
 TeammateIdle and TaskCompleted hooks were built for Agent Teams. Worktree subagents fire SubagentStop instead. The hook layer needs to handle both paths, or worktree subagents need separate hook coverage.
@@ -209,14 +209,14 @@ TeammateIdle and TaskCompleted hooks were built for Agent Teams. Worktree subage
 ### Branch Base Mismatch
 If the project works on a non-default branch (e.g. v2), worktrees branching from `origin/HEAD` (main) would start from the wrong base. Requires either a WorktreeCreate hook or `git remote set-head` configuration.
 
-## Open Questions
+## Open Questions (All Resolved)
 
 1. ~~How should the teammate's branch be named?~~ → Auto-named `worktree-<name>` by platform
-2. Should the skill wait for all teammates to finish, or return immediately (`run_in_background`)?
-3. Should the lead auto-merge, or present branches for review first?
-4. How does the accept gate interact with worktree branches? Does it check sprint.md in the worktree or the main repo?
-5. Should teammates get the full SMM via SubagentStart, or a trimmed version?
-6. What happens if a teammate's tests pass in their worktree but fail after merge? (See Risks above)
+2. ~~Should the skill wait for all teammates to finish, or return immediately (`run_in_background`)?~~ → Teammates spawn with `run_in_background: true`. Lead waits for completion notifications — each teammate sends a message when done.
+3. ~~Should the lead auto-merge, or present branches for review first?~~ → Lead merges manually with `git merge <worktree-branch> --no-ff`, resolves any conflicts (rare with good file domains), then runs full test suite on the merged result.
+4. ~~How does the accept gate interact with worktree branches? Does it check sprint.md in the worktree or the main repo?~~ → Accept checks sprint.json in the shared SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/`, which is shared across all worktrees. Story status is tracked there, not in any worktree-local file.
+5. ~~Should teammates get the full SMM via SubagentStart, or a trimmed version?~~ → Teammates get SMM + TEAMMATE_GUIDE.md via SubagentStart tiered injection (detected by `is_teammate_by_agent_type()`). Story-specific context comes via the spawn prompt, not SubagentStart.
+6. ~~What happens if a teammate's tests pass in their worktree but fail after merge? (See Risks above)~~ → Lead runs the full test suite after each merge. Post-merge failures are rare with good file domain separation. When they occur, the lead has full context from the plan and both stories' work to resolve them.
 
 ## Testing Strategy
 
