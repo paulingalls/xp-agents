@@ -30,6 +30,7 @@ _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-revie
 _SPRINT_RETRO_AGENT_TYPES = {"xp-sprint-retro", "xp-agents:xp-sprint-retro"}
 _PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
 _TEAMMATE_AGENT_TYPES = {"xp-teammate", "xp-agents:xp-teammate"}
+_PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
 _SPRINT_RETRO_AGENT_ID = "xp-sprint-retro"
@@ -202,6 +203,19 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     )
 
 
+def _record_completion(smm_dir: Path, agent_id: str) -> None:
+    """Record subagent completion: status event + coordination + markers."""
+    event = _common.make_event(
+        _common.STATUS,
+        agent_id,
+        _common.subagent_completed_content(agent_id),
+        working_on=[],
+    )
+    _common.append_safe(smm_dir, event)
+    coordination.clear_coordination_agent(smm_dir, agent_id)
+    markers.cleanup_agent_markers(smm_dir, agent_id)
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core SubagentStop logic. Returns context or None."""
     # Review cycle flags must run before is_xp_agent skip because
@@ -234,18 +248,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # xp-teammate: record completion and clear coordination.
         # Must run before the is_xp_agent skip — teammates are xp-* agents
         # but need completion tracking for stop gate deferral.
-        agent_type = input_data.get("agent_type", "")
-        if agent_type in _TEAMMATE_AGENT_TYPES:
-            agent_id = input_data.get("agent_id", "subagent")
-            event = _common.make_event(
-                _common.STATUS,
-                agent_id,
-                _common.subagent_completed_content(agent_id),
-                working_on=[],
-            )
-            _common.append_safe(smm_dir, event)
-            coordination.clear_coordination_agent(smm_dir, agent_id)
-            markers.cleanup_agent_markers(smm_dir, agent_id)
+        if input_data.get("agent_type", "") in _TEAMMATE_AGENT_TYPES:
+            _record_completion(smm_dir, input_data.get("agent_id", "subagent"))
             return None
 
     if _common.is_xp_agent(input_data):
@@ -260,18 +264,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except ValueError:
         return None
 
-    # Minimal completion status
-    event = _common.make_event(
-        _common.STATUS,
-        agent_id,
-        _common.subagent_completed_content(agent_id),
-        working_on=[],
-    )
-    _common.append_safe(smm_dir, event)
-
-    # Clear coordination entry and agent-scoped markers
-    coordination.clear_coordination_agent(smm_dir, agent_id)
-    markers.cleanup_agent_markers(smm_dir, agent_id)
+    _record_completion(smm_dir, agent_id)
 
     # Conflict detection — patterns 2-5 only (no file_path)
     events = _common.read_events_raw(smm_dir)
@@ -283,7 +276,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # PostToolUse:ExitPlanMode handles the EnterPlanMode/ExitPlanMode tool flow;
     # this handles the SubagentStop flow for Plan-type subagents.
     agent_type = input_data.get("agent_type", "")
-    if agent_type == "Plan":
+    if agent_type == _PLAN_AGENT_TYPE:
         markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, agent_id)
 
         gate_event = _common.make_event(
