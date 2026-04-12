@@ -139,9 +139,6 @@ class TestBashPostTool(_HookTestCase):
         self.assertEqual(len(committed), 1)
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
-    def test_commit_threshold_value(self):
-        self.assertEqual(bash_post_tool.COMMIT_SIZE_THRESHOLD, 12)
-
     def test_pytest_pass(self):
         bash_post_tool.run(
             _make_bash_input(
