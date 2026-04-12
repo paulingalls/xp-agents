@@ -225,5 +225,46 @@ class TestSaveCommand(_HookTestCase):
         self.assertTrue((self.smm_dir / smm_store.SMM_FILENAME).exists())
 
 
+class TestCompleteCuration(_HookTestCase):
+    """Tests for smm_cli.complete_curation() — watermark + compact."""
+
+    def test_updates_watermark(self):
+        self._write_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+            ]
+        )
+        smm_cli.complete_curation(self.smm_dir)
+        import materialize as _mat
+
+        wm = _mat.read_curation_watermark(self.smm_dir)
+        self.assertEqual(wm["event_count"], 2)
+        self.assertEqual(wm["agent_id"], "xp-housekeeping")
+
+    def test_runs_compaction(self):
+        from unittest.mock import patch
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        with patch("compact.compact_after_curation") as mock:
+            smm_cli.complete_curation(self.smm_dir)
+        mock.assert_called_once_with(self.smm_dir)
+
+    def test_compaction_failure_does_not_raise(self):
+        from unittest.mock import patch
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        with patch("compact.compact_after_curation", side_effect=OSError("boom")):
+            smm_cli.complete_curation(self.smm_dir)
+
+    def test_save_calls_complete_curation(self):
+        from unittest.mock import patch
+
+        self._write_events([make_event("goal", content="Ship v1")])
+        with patch.object(smm_cli, "complete_curation") as mock:
+            smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
+        mock.assert_called_once_with(self.smm_dir)
+
+
 if __name__ == "__main__":
     unittest.main()

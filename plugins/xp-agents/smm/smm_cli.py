@@ -107,6 +107,11 @@ def _cmd_has_section(args: argparse.Namespace) -> int:
     return 0 if entries else 1
 
 
+def _cmd_complete_curation(args: argparse.Namespace) -> int:
+    complete_curation(args.smm_dir)
+    return 0
+
+
 def _cmd_save(args: argparse.Namespace) -> int:
     import json
 
@@ -124,6 +129,25 @@ def _cmd_save(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def complete_curation(smm_dir: Path) -> None:
+    """Finalize curation: update watermark and run compaction.
+
+    Called after item-level mutations or full-doc save. Records the
+    current event count as the curation watermark and triggers
+    compaction of old events.
+    """
+    import contextlib
+
+    import compact
+    import materialize
+
+    events, _ = materialize.parse_events(smm_dir)
+    materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
+
+    with contextlib.suppress(OSError, ValueError):
+        compact.compact_after_curation(smm_dir)
+
+
 def save(content: str, *, smm_dir: Path) -> None:
     """Parse JSON, validate, write, update watermark, compact.
 
@@ -131,20 +155,11 @@ def save(content: str, *, smm_dir: Path) -> None:
         json.JSONDecodeError: If content is not valid JSON.
         ValueError: If content fails SMM schema validation.
     """
-    import contextlib
     import json
-
-    import compact
-    import materialize
 
     data = json.loads(content)
     smm_store.save_smm(smm_dir, data)
-
-    events, _ = materialize.parse_events(smm_dir)
-    materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
-
-    with contextlib.suppress(OSError, ValueError):
-        compact.compact_after_curation(smm_dir)
+    complete_curation(smm_dir)
 
 
 def main() -> None:
@@ -164,6 +179,8 @@ def main() -> None:
 
     sub.add_parser("save", help="Save SMM from stdin JSON")
 
+    sub.add_parser("complete-curation", help="Finalize curation (watermark + compact)")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -171,6 +188,7 @@ def main() -> None:
         "section": _cmd_section,
         "has-section": _cmd_has_section,
         "save": _cmd_save,
+        "complete-curation": _cmd_complete_curation,
     }
 
     sys.exit(dispatch[args.command](args))
