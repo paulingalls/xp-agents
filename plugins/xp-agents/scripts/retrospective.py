@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import security
 import sprint_retro_detection
 from event_schema import RETRO_ACTION_SESSION_DONE
+from honesty_signals import build_honesty_signals
 from retro_history import annotate_try_status, gather_retro_history
 
 # ---------------------------------------------------------------------------
@@ -131,79 +131,6 @@ def _group_concerns(
     return list(groups.values())
 
 
-def _build_honesty_signals(events: list[dict]) -> dict:
-    """Analyze event sequence for honesty red flags.
-
-    Looks at ordering and gaps, not just counts — gives the retro
-    concrete data to reason about instead of inferring from totals.
-    """
-    signals: dict = {}
-
-    # Track sequence for gap analysis
-    unique_files_since_test: set[str] = set()
-    max_unique_files_without_test = 0
-    commits_without_triage = 0
-    total_commits = 0
-    last_triage_seen = False
-    concern_count = 0
-    assumption_count = 0
-    file_write_count = 0
-
-    from pre_tool_write import is_test_file
-
-    for e in events:
-        etype = e.get("type", "")
-        content = e.get("content", "")
-
-        # Detect commits: new commit type or legacy status with "Committed:"
-        is_commit = etype == _common.COMMIT or (
-            etype == _common.STATUS and _COMMIT_RE.search(content)
-        )
-        if is_commit:
-            total_commits += 1
-            is_code = e.get("metadata", {}).get("code_commit", True)
-            if not last_triage_seen and is_code:
-                commits_without_triage += 1
-            last_triage_seen = False
-        elif etype == _common.STATUS:
-            if _FILE_WRITE_RE.search(content):
-                path = content.replace("Wrote to ", "").strip()
-                if security.is_code_file(path):
-                    file_write_count += 1
-                    # TDD streak: count unique production files between tests
-                    # (writing test files isn't a testing gap, and multiple
-                    # writes to the same file is normal iteration)
-                    if not is_test_file(path):
-                        unique_files_since_test.add(path)
-            elif _TEST_RUN_RE.search(content):
-                max_unique_files_without_test = max(
-                    max_unique_files_without_test, len(unique_files_since_test)
-                )
-                unique_files_since_test = set()
-            elif _SECURITY_TRIAGE_RE.search(content):
-                last_triage_seen = True
-        elif etype == _common.CONCERN:
-            concern_count += 1
-        elif etype == _common.ASSUMPTION:
-            assumption_count += 1
-
-    # Final streak (files written after last test)
-    max_unique_files_without_test = max(
-        max_unique_files_without_test, len(unique_files_since_test)
-    )
-
-    signals["max_unique_files_without_test"] = max_unique_files_without_test
-    signals["commits_without_triage"] = commits_without_triage
-    signals["total_commits"] = total_commits
-
-    # Complexity vs scrutiny: many writes but no concerns = uncritical?
-    signals["code_file_writes"] = file_write_count
-    signals["concerns_raised"] = concern_count
-    signals["assumptions_stated"] = assumption_count
-
-    return signals
-
-
 _MAX_RESOLVER_CONTENT = 200
 
 # (event type, resolutions dict key) — ordered for deterministic output
@@ -256,7 +183,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     ]
     status_summary = _classify_status_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
-    honesty_signals = _build_honesty_signals(unanalyzed)
+    honesty_signals = build_honesty_signals(unanalyzed)
 
     from work_signals import build_work_signals
 
@@ -341,6 +268,7 @@ def _build_retro_input(
     Caps events_since_last_retro to MAX_EVENTS_IN_RETRO (most recent).
     """
     import resolution
+    from retro_flags import evaluate_flags
 
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
@@ -348,6 +276,13 @@ def _build_retro_input(
     resolutions = resolution.compute_resolutions(unanalyzed)
     digest = _build_retro_digest(events, start_idx, resolutions)
     annotate_try_status(retro_history, digest["resolutions"])
+
+    digest["flags"] = evaluate_flags(
+        digest["honesty_signals"],
+        digest["work_signals"],
+        digest["status_summary"],
+        session_stats,
+    )
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id

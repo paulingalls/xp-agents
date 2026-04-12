@@ -34,8 +34,6 @@ def build_work_signals(events: list[dict]) -> dict:
     """
     pending_concerns = 0
     concerns_addressed = 0
-    pending_decisions = 0
-    decisions_without_commits = 0
 
     consecutive_failures = 0
     max_consecutive_failures = 0
@@ -56,8 +54,6 @@ def build_work_signals(events: list[dict]) -> dict:
             # Concerns before this commit are now addressed
             concerns_addressed += pending_concerns
             pending_concerns = 0
-            # Decisions before this commit are implemented
-            pending_decisions = 0
             # Track events from first edit to commit
             if editing:
                 max_events_to_commit = max(
@@ -75,8 +71,6 @@ def build_work_signals(events: list[dict]) -> dict:
 
             if etype == _common.CONCERN:
                 pending_concerns += 1
-            elif etype == _common.DECISION:
-                pending_decisions += 1
             elif etype == _common.STATUS and _TEST_RUN_RE.search(content):
                 fail_match = _TEST_FAIL_RE.search(content)
                 failed_count = int(fail_match.group(1)) if fail_match else 0
@@ -90,12 +84,10 @@ def build_work_signals(events: list[dict]) -> dict:
 
     # Final streaks
     max_consecutive_failures = max(max_consecutive_failures, consecutive_failures)
-    decisions_without_commits = pending_decisions
 
     return {
         "concerns_addressed_by_commits": concerns_addressed,
         "unaddressed_concerns": pending_concerns,
-        "decisions_without_commits": decisions_without_commits,
         "max_consecutive_test_failures": max_consecutive_failures,
         "max_events_to_commit": max_events_to_commit,
     }

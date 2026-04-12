@@ -21,7 +21,6 @@ class TestWorkSignals(unittest.TestCase):
         result = work_signals.build_work_signals([])
         self.assertEqual(result["concerns_addressed_by_commits"], 0)
         self.assertEqual(result["unaddressed_concerns"], 0)
-        self.assertEqual(result["decisions_without_commits"], 0)
         self.assertEqual(result["max_consecutive_test_failures"], 0)
         self.assertEqual(result["max_events_to_commit"], 0)
 
@@ -61,27 +60,6 @@ class TestWorkSignals(unittest.TestCase):
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["concerns_addressed_by_commits"], 2)
         self.assertEqual(result["unaddressed_concerns"], 0)
-
-    def test_decision_without_commit(self):
-        """Decision with no subsequent commit = unimplemented."""
-        import work_signals
-
-        events = [
-            make_event("decision", content="Use REST API", topic="api"),
-        ]
-        result = work_signals.build_work_signals(events)
-        self.assertEqual(result["decisions_without_commits"], 1)
-
-    def test_decision_with_commit(self):
-        """Decision followed by commit = implemented."""
-        import work_signals
-
-        events = [
-            make_event("decision", content="Use REST API", topic="api"),
-            make_event("commit", content="Add REST endpoint"),
-        ]
-        result = work_signals.build_work_signals(events)
-        self.assertEqual(result["decisions_without_commits"], 0)
 
     def test_max_consecutive_failures_three_reds(self):
         """red→red→red→green = 3 consecutive failures."""

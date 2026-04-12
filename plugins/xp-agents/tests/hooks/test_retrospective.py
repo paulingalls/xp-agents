@@ -91,6 +91,20 @@ class TestRetrospective(_HookTestCase):
         self.assertIn("digest", data)
         self.assertEqual(data["unanalyzed_count"], 6)
 
+    def test_retro_input_includes_flags(self):
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(6)]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        self.assertIn("flags", data["digest"])
+        self.assertIsInstance(data["digest"]["flags"], list)
+
     def test_counts_events_after_last_retro(self):
         import retrospective
 
@@ -522,7 +536,7 @@ class TestHonestySignals(unittest.TestCase):
 
     def test_counts_unique_files_not_raw_writes(self):
         """4 writes to same file between tests should count as 1."""
-        import retrospective
+        import honesty_signals
 
         events = [
             self._make_write_status("src/app.py"),
@@ -531,12 +545,12 @@ class TestHonestySignals(unittest.TestCase):
             self._make_write_status("src/app.py"),
             self._make_test_status(),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
 
     def test_counts_different_files(self):
         """3 different files between tests should count as 3."""
-        import retrospective
+        import honesty_signals
 
         events = [
             self._make_write_status("src/app.py"),
@@ -544,12 +558,12 @@ class TestHonestySignals(unittest.TestCase):
             self._make_write_status("src/api.py"),
             self._make_test_status(),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 3)
 
     def test_resets_on_test_run(self):
         """Unique file set resets after each test run."""
-        import retrospective
+        import honesty_signals
 
         events = [
             self._make_write_status("src/app.py"),
@@ -558,24 +572,24 @@ class TestHonestySignals(unittest.TestCase):
             self._make_write_status("src/api.py"),
             self._make_test_status(),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 2)
 
     def test_excludes_test_files(self):
         """Test file writes should not count."""
-        import retrospective
+        import honesty_signals
 
         events = [
             self._make_write_status("tests/test_app.py"),
             self._make_write_status("src/app.py"),
             self._make_test_status(),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
 
     def test_excludes_non_code_files(self):
         """Non-code files (md, json, etc) should not count."""
-        import retrospective
+        import honesty_signals
 
         events = [
             self._make_write_status("README.md"),
@@ -583,7 +597,7 @@ class TestHonestySignals(unittest.TestCase):
             self._make_write_status("src/app.py"),
             self._make_test_status(),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
 
 
@@ -592,7 +606,7 @@ class TestTriageCounting(unittest.TestCase):
 
     def test_commit_event_without_triage_counted(self):
         """Commit event without preceding triage is counted as untriaged."""
-        import retrospective
+        import honesty_signals
 
         events = [
             make_event(
@@ -601,13 +615,13 @@ class TestTriageCounting(unittest.TestCase):
                 metadata={"code_commit": True, "commit_hash": "abc123"},
             ),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 1)
         self.assertEqual(signals["total_commits"], 1)
 
     def test_commit_event_with_triage_not_counted(self):
         """Commit event preceded by triage is not counted as untriaged."""
-        import retrospective
+        import honesty_signals
 
         events = [
             make_event(
@@ -620,12 +634,12 @@ class TestTriageCounting(unittest.TestCase):
                 metadata={"code_commit": True, "commit_hash": "abc123"},
             ),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 0)
 
     def test_non_code_commit_event_not_counted(self):
         """Non-code commit (docs-only) without triage is NOT counted as untriaged."""
-        import retrospective
+        import honesty_signals
 
         events = [
             make_event(
@@ -634,19 +648,70 @@ class TestTriageCounting(unittest.TestCase):
                 metadata={"code_commit": False},
             ),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 0)
 
     def test_legacy_status_commit_backward_compat(self):
         """Legacy status commit events still detected (backward compat)."""
-        import retrospective
+        import honesty_signals
 
         events = [
             make_event("status", content="Committed: Old commit"),
         ]
-        signals = retrospective._build_honesty_signals(events)
+        signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 1)
         self.assertEqual(signals["total_commits"], 1)
+
+
+class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
+    """Tests for code_commits and planning_events in honesty_signals."""
+
+    def test_counts_code_commits(self):
+        import honesty_signals
+
+        events = [
+            make_event(
+                "commit",
+                content="Fix bug",
+                metadata={"code_commit": True, "commit_hash": "abc"},
+            ),
+            make_event(
+                "commit",
+                content="Update docs",
+                metadata={"code_commit": False, "commit_hash": "def"},
+            ),
+            make_event(
+                "commit",
+                content="Add feature",
+                metadata={"code_commit": True, "commit_hash": "ghi"},
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["code_commits"], 2)
+
+    def test_counts_planning_events(self):
+        import honesty_signals
+
+        events = [
+            make_event(
+                "status",
+                content="plan_awaiting_review: Plan completed",
+            ),
+            make_event("status", content="Working on tests"),
+            make_event(
+                "status",
+                content="plan_awaiting_review: Plan completed",
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["planning_events"], 2)
+
+    def test_no_planning_events(self):
+        import honesty_signals
+
+        events = [make_event("status", content="Working on tests")]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["planning_events"], 0)
 
 
 class TestCommitAsSignalEvent(_HookTestCase):
