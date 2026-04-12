@@ -88,6 +88,31 @@ For each item:
 - Reference the events that motivated it
 - Must be specific enough to evaluate ("try writing tests first" not "be better")
 
+## Sprint Analysis (conditional)
+
+If `.retro-input.json` contains a `sizing_analysis` key, a sprint has just ended. Produce a **Sprint Analysis** section in your output, between Session Accomplishments and Keep/Fix/Try.
+
+The `sizing_analysis` object contains:
+- `sprint_id`, `goal` — identify the sprint
+- `velocity` — `{stories_planned, stories_delivered, stories_carried}`
+- `per_story` — `[{id, title, status, size, commits, files_changed, in_domain_files, out_of_domain_files, domain_accuracy}]`
+- `per_size` — `{S: {count, avg_commits, avg_files}, M: {...}, L: {...}}`
+
+### Sprint Analysis output format
+
+#### Sprint Goal Assessment
+Did the sprint achieve its goal? Reference `velocity` (delivery rate) and any deferred stories.
+
+#### Per-Story Metrics Table
+| Story | Size | Commits | Files | Domain Accuracy |
+|-------|------|---------|-------|----------------|
+For each entry in `per_story`, report the metrics. Flag stories with `domain_accuracy < 0.5` — their file_domain was poorly scoped.
+
+#### Per-Size Calibration
+For each size in `per_size`, report `avg_commits` and `avg_files`. Compare across sizes — if S stories average more commits than M stories, sizing was inaccurate. Recommend calibration adjustments.
+
+**If `sizing_analysis` is absent, skip this entire section.** The retro works exactly as before for non-sprint sessions.
+
 ## Debt in Retrospectives
 
 ### Writing debt events
@@ -155,31 +180,6 @@ This single command:
 ### 2. Return summary to the main agent:
 
 After saving, provide a concise Keep/Fix/Try summary that the main agent can act on immediately.
-
-## Sprint Analysis (conditional)
-
-If `.retro-input.json` contains a `sizing_analysis` key, a sprint has just ended. Produce a **Sprint Analysis** section in your output, between Session Accomplishments and Keep/Fix/Try.
-
-The `sizing_analysis` object contains:
-- `sprint_id`, `goal` — identify the sprint
-- `velocity` — `{stories_planned, stories_delivered, stories_carried}`
-- `per_story` — `[{id, title, status, size, commits, files_changed, in_domain_files, out_of_domain_files, domain_accuracy}]`
-- `per_size` — `{S: {count, avg_commits, avg_files}, M: {...}, L: {...}}`
-
-### Sprint Analysis output format
-
-#### Sprint Goal Assessment
-Did the sprint achieve its goal? Reference `velocity` (delivery rate) and any deferred stories.
-
-#### Per-Story Metrics Table
-| Story | Size | Commits | Files | Domain Accuracy |
-|-------|------|---------|-------|----------------|
-For each entry in `per_story`, report the metrics. Flag stories with `domain_accuracy < 0.5` — their file_domain was poorly scoped.
-
-#### Per-Size Calibration
-For each size in `per_size`, report `avg_commits` and `avg_files`. Compare across sizes — if S stories average more commits than M stories, sizing was inaccurate. Recommend calibration adjustments.
-
-**If `sizing_analysis` is absent, skip this entire section.** The retro works exactly as before for non-sprint sessions.
 
 ## Cross-Session Trends
 
