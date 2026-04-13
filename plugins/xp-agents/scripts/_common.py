@@ -54,17 +54,27 @@ class BlockedError(Exception):
 _WORKTREE_PATH_MARKER = "/.claude/worktrees/"
 
 
+def _extract_worktree_name(cwd: str) -> str | None:
+    """Extract worktree directory name from cwd, or None if not in worktree."""
+    idx = cwd.find(_WORKTREE_PATH_MARKER)
+    if idx < 0:
+        return None
+    tail = cwd[idx + len(_WORKTREE_PATH_MARKER) :]
+    return tail.split("/")[0]
+
+
+def is_worktree_teammate(input_data: dict) -> bool:
+    """Detect CLI teammates by worktree cwd path with teammate- prefix."""
+    name = _extract_worktree_name(input_data.get("cwd", ""))
+    return name.startswith("teammate-") if name else False
+
+
 def resolve_agent_id(input_data: dict) -> str:
     """Resolve agent_id from hook input, worktree path, or default."""
     agent_id = input_data.get("agent_id", "")
     if agent_id:
         return agent_id
-    cwd = input_data.get("cwd", "")
-    idx = cwd.find(_WORKTREE_PATH_MARKER)
-    if idx >= 0:
-        tail = cwd[idx + len(_WORKTREE_PATH_MARKER) :]
-        return tail.split("/")[0]
-    return "main"
+    return _extract_worktree_name(input_data.get("cwd", "")) or "main"
 
 
 # ---------------------------------------------------------------------------

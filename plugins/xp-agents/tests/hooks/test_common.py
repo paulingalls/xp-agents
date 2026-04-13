@@ -146,6 +146,32 @@ class TestResolveAgentId(unittest.TestCase):
         self.assertEqual(result, "subagent-abc")
 
 
+class TestIsWorktreeTeammate(unittest.TestCase):
+    """is_worktree_teammate detects CLI teammates by cwd path."""
+
+    def test_teammate_cwd_detected(self):
+        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src"}
+        self.assertTrue(_common.is_worktree_teammate(inp))
+
+    def test_teammate_cwd_root(self):
+        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-002"}
+        self.assertTrue(_common.is_worktree_teammate(inp))
+
+    def test_non_teammate_worktree_not_detected(self):
+        inp = {"cwd": "/home/user/project/.claude/worktrees/explore-abc/src"}
+        self.assertFalse(_common.is_worktree_teammate(inp))
+
+    def test_regular_cwd_not_detected(self):
+        inp = {"cwd": "/home/user/project/src"}
+        self.assertFalse(_common.is_worktree_teammate(inp))
+
+    def test_empty_cwd_not_detected(self):
+        self.assertFalse(_common.is_worktree_teammate({"cwd": ""}))
+
+    def test_no_cwd_field_not_detected(self):
+        self.assertFalse(_common.is_worktree_teammate({}))
+
+
 class TestResolvePluginRoot(unittest.TestCase):
     def test_from_env_var(self):
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/opt/plugins/xp"}):
