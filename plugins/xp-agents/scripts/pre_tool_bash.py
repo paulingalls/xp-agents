@@ -51,7 +51,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
 
     tool_input = input_data.get("tool_input", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = _common.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
     command = tool_input.get("command", "")
 

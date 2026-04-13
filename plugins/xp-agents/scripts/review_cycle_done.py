@@ -54,7 +54,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = _common.resolve_agent_id(input_data)
 
     # Plan review: nudge task creation (not part of commit review cycle)
     if _is_plan_review(skill_name):

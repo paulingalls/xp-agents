@@ -435,5 +435,30 @@ class TestAcceptGate(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestPreToolBashWorktreeAgentId(_HookTestCase):
+    """Commit gate reads markers under worktree-derived agent_id."""
+
+    def test_worktree_cwd_reads_correct_markers(self):
+        """Worktree cwd resolves agent_id for commit gate markers."""
+        markers.set_review_flag(self.smm_dir, "teammate-story-001", "simplify_done")
+        markers.set_review_flag(
+            self.smm_dir, "teammate-story-001", "quality_review_done"
+        )
+        inp = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m 'test'"},
+            "cwd": "/proj/.claude/worktrees/teammate-story-001",
+            "agent_id": "",
+        }
+        with patch(
+            "commits.get_code_files_for_review",
+            return_value=["a.py", "b.py", "c.py"],
+        ):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                pre_tool_bash.run(inp, smm_dir=self.smm_dir)
+            self.assertIn("/xp-security-triage", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

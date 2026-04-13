@@ -438,6 +438,33 @@ class TestResolveTestConcerns(_HookTestCase):
         self.assertEqual(len(events), 0)
 
 
+class TestBashPostToolWorktreeAgentId(_HookTestCase):
+    """Worktree cwd uses resolve_agent_id for commit handling."""
+
+    def test_commit_resets_worktree_scoped_markers(self):
+        """After commit, worktree-scoped markers are reset."""
+        agent_id = "teammate-story-001"
+        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        markers.set_review_flag(self.smm_dir, agent_id, "security_review_done")
+        inp = _make_bash_input(
+            command="git commit -m 'test'",
+            stdout="[main abc123] test\n 1 file changed",
+            agent_id="",
+            cwd="/proj/.claude/worktrees/teammate-story-001",
+        )
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch(
+                "commits.get_head_commit_hash",
+                return_value="newcommit123",
+            ),
+        ):
+            bash_post_tool.run(inp, smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, agent_id)
+        self.assertEqual(cycle["last_review_commit"], "newcommit123")
+        self.assertFalse(cycle["simplify_done"])
+
+
 class TestBashPostToolGreenNudge(_HookTestCase):
     """Tests for commit-after-green nudge in bash_post_tool."""
 
