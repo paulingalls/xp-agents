@@ -36,7 +36,7 @@ def _is_plan_review(skill_name: str) -> bool:
 
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
-    "quality_review_done": "Run /xp-security-triage next.",
+    "quality_review_done": "Run /security-review next.",
     "security_review_done": "Review cycle complete — commit your changes now.",
 }
 

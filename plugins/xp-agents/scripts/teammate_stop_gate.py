@@ -2,8 +2,8 @@
 """Stop command hook: teammate review cycle + commit gate.
 
 Blocks xp-teammate agents from stopping if they have uncommitted changes
-without completing the review cycle (simplify → quality-review →
-security-triage) and committing.
+without completing the review cycle (xp-simplify → quality-review →
+security-review) and committing.
 """
 
 import subprocess
@@ -55,11 +55,11 @@ def run(
     cycle = markers.read_review_cycle(smm_dir, agent_id)
 
     if not cycle.get("simplify_done"):
-        return "You have uncommitted changes. Run /simplify before stopping."
+        return "You have uncommitted changes. Run /xp-simplify before stopping."
     if not cycle.get("quality_review_done"):
         return "Simplify complete. Run /xp-quality-review before stopping."
     if not cycle.get("security_review_done"):
-        return "Quality review complete. Run /xp-security-triage before stopping."
+        return "Quality review complete. Run /security-review before stopping."
 
     return "Review cycle complete. Commit your changes before stopping."
 

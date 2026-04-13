@@ -249,7 +249,7 @@ class TestTeammateStopGate(_HookTestCase):
         self.assertIsNone(result)
 
     def test_uncommitted_no_review_blocks_simplify(self):
-        """Uncommitted changes + no review cycle → block: run /simplify."""
+        """Uncommitted changes + no review cycle → block: run /xp-simplify."""
         import teammate_stop_gate
 
         result = teammate_stop_gate.run(
@@ -258,7 +258,7 @@ class TestTeammateStopGate(_HookTestCase):
             has_uncommitted=True,
         )
         self.assertIsNotNone(result)
-        self.assertIn("/simplify", result)
+        self.assertIn("/xp-simplify", result)
 
     def test_simplify_done_blocks_quality(self):
         """simplify done but not quality → block: run /xp-quality-review."""
@@ -274,7 +274,7 @@ class TestTeammateStopGate(_HookTestCase):
         self.assertIn("/xp-quality-review", result)
 
     def test_quality_done_blocks_security(self):
-        """simplify + quality done but not security → block: run /xp-security-triage."""
+        """simplify + quality done but not security → block: run /security-review."""
         import teammate_stop_gate
 
         self._set_review_flags(simplify_done=True, quality_review_done=True)
@@ -284,7 +284,7 @@ class TestTeammateStopGate(_HookTestCase):
             has_uncommitted=True,
         )
         self.assertIsNotNone(result)
-        self.assertIn("/xp-security-triage", result)
+        self.assertIn("/security-review", result)
 
     def test_full_review_blocks_commit(self):
         """Full review cycle done but uncommitted → block: commit."""

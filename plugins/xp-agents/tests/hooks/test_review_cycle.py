@@ -113,13 +113,13 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-    def test_quality_review_nudges_security_triage(self):
-        """After /xp-quality-review, nudge to run /xp-security-triage."""
+    def test_quality_review_nudges_security_review(self):
+        """After /xp-quality-review, nudge to run /security-review."""
         result = review_cycle_done.run(
             self._skill_input("xp-quality-review"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
-        self.assertIn("/xp-security-triage", result)
+        self.assertIn("/security-review", result)
 
     def test_security_triage_nudges_commit(self):
         """After /xp-security-triage, nudge to commit."""
