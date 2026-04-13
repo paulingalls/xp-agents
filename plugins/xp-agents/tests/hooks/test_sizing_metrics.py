@@ -192,6 +192,44 @@ class TestAttributeCommits(unittest.TestCase):
         self.assertEqual(result["story-001"]["commits"], 0)
         self.assertAlmostEqual(result["story-001"]["domain_accuracy"], 0.0)
 
+    def test_test_file_matches_source_domain(self):
+        """tests/hooks/test_foo.py should match domain scripts/foo.py."""
+        import sizing_metrics
+
+        stories = [
+            {
+                "id": "story-001",
+                "size": "M",
+                "title": "Auth",
+                "status": "done",
+                "file_domain": ["scripts/retro_flags.py \u2014 add suppression"],
+            }
+        ]
+        commits = [
+            _commit_event(["scripts/retro_flags.py", "tests/hooks/test_retro_flags.py"])
+        ]
+        result = sizing_metrics._attribute_commits(commits, stories)
+        self.assertEqual(result["story-001"]["commits"], 1)
+        self.assertEqual(result["story-001"]["in_domain_files"], 2)
+
+    def test_prefixed_path_matches_domain(self):
+        """plugins/xp-agents/scripts/foo.py should match domain scripts/foo.py."""
+        import sizing_metrics
+
+        stories = [
+            {
+                "id": "story-001",
+                "size": "M",
+                "title": "Auth",
+                "status": "done",
+                "file_domain": ["scripts/auth.py \u2014 add login"],
+            }
+        ]
+        commits = [_commit_event(["plugins/xp-agents/scripts/auth.py"])]
+        result = sizing_metrics._attribute_commits(commits, stories)
+        self.assertEqual(result["story-001"]["commits"], 1)
+        self.assertEqual(result["story-001"]["in_domain_files"], 1)
+
     def test_multiple_commits(self):
         import sizing_metrics
 
@@ -312,8 +350,8 @@ class TestComputeSizingAnalysis(_HookTestCase):
         self.assertEqual(len(result["per_story"]), 2)
 
         story_001 = next(s for s in result["per_story"] if s["id"] == "story-001")
-        self.assertEqual(story_001["commits"], 1)
-        self.assertEqual(story_001["in_domain_files"], 2)
+        self.assertEqual(story_001["commits"], 2)
+        self.assertEqual(story_001["in_domain_files"], 3)
 
         story_002 = next(s for s in result["per_story"] if s["id"] == "story-002")
         self.assertEqual(story_002["commits"], 1)

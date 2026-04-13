@@ -31,6 +31,24 @@ def _extract_file_domain_paths(file_domain: list[str]) -> set[str]:
     return paths
 
 
+def _file_matches_domain(file_path: str, domain: set[str]) -> bool:
+    """Check if a file matches the domain.
+
+    Handles path prefixes (a/b/scripts/foo.py matches scripts/foo.py)
+    and test-to-source mapping (test_foo.py matches foo.py).
+    """
+    for d in domain:
+        if file_path == d or file_path.endswith("/" + d):
+            return True
+    name = Path(file_path).name
+    if name.startswith("test_"):
+        source_name = name[5:]
+        for d in domain:
+            if Path(d).name == source_name:
+                return True
+    return False
+
+
 def _attribute_commits(
     commit_events: list[dict], stories: list[dict]
 ) -> dict[str, dict]:
@@ -63,7 +81,7 @@ def _attribute_commits(
             if not domain:
                 continue
 
-            overlap = committed_files & domain
+            overlap = {f for f in committed_files if _file_matches_domain(f, domain)}
             if not overlap:
                 continue
 
