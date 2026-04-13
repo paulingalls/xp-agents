@@ -485,5 +485,55 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertFalse(marker.exists(), ".assign-pending should be cleared")
 
 
+class TestTeammateReviewCycleE2E(_IntegrationTestCase):
+    """E2E: teammate stop gate enforces review cycle sequence."""
+
+    def _stop_input(self, **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "agent_id": "teammate-1",
+            "agent_type": "xp-teammate",
+            "cwd": str(self.tmpdir),
+        }
+        data.update(overrides)
+        return data
+
+    def test_full_review_cycle_sequence(self):
+        """Walk through the 5-step stop gate sequence end-to-end."""
+        import markers
+        import teammate_stop_gate
+
+        inp = self._stop_input()
+
+        # Step 1: uncommitted changes, no review → block for /xp-simplify
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-simplify", result)
+
+        # Step 2: simplify done → block for /xp-quality-review
+        markers.set_review_flag(self.smm_dir, "teammate-1", "simplify_done")
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+        # Step 3: quality review done → block for /security-review
+        markers.set_review_flag(self.smm_dir, "teammate-1", "quality_review_done")
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/security-review", result)
+
+        # Step 4: security review done → block for commit
+        markers.set_review_flag(self.smm_dir, "teammate-1", "security_review_done")
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("commit", result.lower())
+
+        # Step 5: no uncommitted changes → stop allowed
+        result = teammate_stop_gate.run(
+            inp, smm_dir=self.smm_dir, has_uncommitted=False
+        )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
