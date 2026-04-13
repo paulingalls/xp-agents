@@ -245,9 +245,9 @@ class TestAgentFilesM65(unittest.TestCase):
         content = (self.agents_dir / "xp-teammate.md").read_text()
         parts = content.split("---", 2)
         body = parts[2]
-        self.assertIn("/simplify", body)
+        self.assertIn("/xp-simplify", body)
         self.assertIn("/xp-quality-review", body)
-        self.assertIn("/xp-security-triage", body)
+        self.assertIn("/security-review", body)
 
     def test_xp_assign_has_no_agent_file(self):
         """xp-assign is an inline skill — no agent file should exist."""

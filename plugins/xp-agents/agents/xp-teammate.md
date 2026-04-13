@@ -30,9 +30,9 @@ Take small steps. Don't try to implement everything at once.
 
 Before each commit, run the full review cycle:
 
-1. `/simplify` — code reuse, quality, efficiency review
+1. `/xp-simplify` — code reuse, quality, efficiency review (inline, no sub-agents)
 2. `/xp-quality-review` — courage accountability, drift check, debt awareness
-3. `/xp-security-triage` — security review of pending changes
+3. `/security-review` — security review of pending changes (built-in command)
 4. Commit — pre-commit hooks enforce test-passing and formatting
 
 ## Code Quality

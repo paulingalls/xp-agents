@@ -86,7 +86,7 @@ You are implementing step N: <title>
 SMM_DIR=<path from preload>
 
 Follow strict TDD: write failing test, make it pass, refactor, commit.
-Run the full review cycle before each commit: /simplify, /xp-quality-review, /xp-security-triage.
+Run the full review cycle before each commit: /xp-simplify, /xp-quality-review, /security-review.
 
 When done, report: what was implemented, which acceptance criteria are met,
 commits made, and any concerns or assumptions that need attention.
