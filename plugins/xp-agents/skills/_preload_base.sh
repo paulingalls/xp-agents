@@ -139,7 +139,10 @@ get_try_items() {
 import json, sys
 data = json.load(open(sys.argv[1]))
 items = data.get('try', [])
-for item in items:
+statuses = data.get('try_status', [])
+for i, item in enumerate(items):
+    if i < len(statuses) and statuses[i].get('resolved_this_session'):
+        continue
     c = item.get('content', item) if isinstance(item, dict) else item
     refs = item.get('event_refs', []) if isinstance(item, dict) else []
     if refs:

@@ -187,5 +187,68 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
         self.assertNotIn("disposition", entry)
 
 
+class TestGetTryItemsFiltering(unittest.TestCase):
+    """get_try_items preload should skip resolved Try items.
+
+    Tests the inline Python logic from _preload_base.sh get_try_items()
+    directly, since sourcing the bash file requires a git repo.
+    """
+
+    @staticmethod
+    def _filter_try_items(retro_data: dict) -> list[str]:
+        """Replicate get_try_items() Python logic for testability."""
+        items = retro_data.get("try", [])
+        statuses = retro_data.get("try_status", [])
+        lines: list[str] = []
+        for i, item in enumerate(items):
+            if i < len(statuses) and statuses[i].get("resolved_this_session"):
+                continue
+            c = item.get("content", item) if isinstance(item, dict) else item
+            refs = item.get("event_refs", []) if isinstance(item, dict) else []
+            if refs:
+                lines.append(f"- {c} [refs: {', '.join(refs)}]")
+            else:
+                lines.append(f"- {c}")
+        return lines
+
+    def test_unresolved_items_shown(self):
+        """Try items without try_status are shown."""
+        data = {"try": [{"content": "Do X"}, {"content": "Do Y"}]}
+        lines = self._filter_try_items(data)
+        self.assertEqual(len(lines), 2)
+        self.assertIn("Do X", lines[0])
+        self.assertIn("Do Y", lines[1])
+
+    def test_resolved_items_filtered(self):
+        """Try items with resolved_this_session=True are filtered out."""
+        data = {
+            "try": [{"content": "Already adopted"}, {"content": "Still open"}],
+            "try_status": [
+                {"resolved_this_session": True, "disposition": "adopted"},
+                {"resolved_this_session": False},
+            ],
+        }
+        lines = self._filter_try_items(data)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("Still open", lines[0])
+
+    def test_all_resolved_returns_empty(self):
+        """When all Try items are resolved, output is empty."""
+        data = {
+            "try": [{"content": "Done"}],
+            "try_status": [{"resolved_this_session": True}],
+        }
+        lines = self._filter_try_items(data)
+        self.assertEqual(len(lines), 0)
+
+    def test_refs_preserved(self):
+        """Event refs are included in output for unresolved items."""
+        data = {
+            "try": [{"content": "Fix X", "event_refs": ["abc123def456"]}],
+        }
+        lines = self._filter_try_items(data)
+        self.assertIn("[refs: abc123def456]", lines[0])
+
+
 if __name__ == "__main__":
     unittest.main()
