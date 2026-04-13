@@ -89,7 +89,7 @@ class TestTeammateGuide(_HookTestCase):
         self.assertIn("TDD", result)
         self.assertIn("small steps", result.lower())
         self.assertIn("file domain", result.lower())
-        self.assertIn("message the lead", result.lower())
+        self.assertIn("raise a concern", result.lower())
 
     def test_teammate_guide_has_dont_items(self):
         """Teammate guide has quality-focused DON'Ts."""
@@ -105,8 +105,8 @@ class TestTeammateGuide(_HookTestCase):
     def test_teammate_guide_has_keep_items(self):
         """Teammate guide has KEEP items for TDD and concerns."""
         result = self._run_teammate()
-        self.assertIn("TDD discipline", result)
-        self.assertIn("Concern recording", result)
+        self.assertIn("TDD", result)
+        self.assertIn("raise a concern", result.lower())
 
     def test_teammate_guide_has_simplify(self):
         """Teammate guide tells teammates to run /simplify."""

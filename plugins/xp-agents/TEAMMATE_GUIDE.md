@@ -1,33 +1,42 @@
 # Teammate Guide
 
-You are a teammate in an Agent Team. The lead coordinates the project; you focus on implementation.
+You are a worktree-isolated teammate. The lead coordinates the project; you implement your assigned story independently with full TDD and review cycle support.
 
-## DO
+## TDD Workflow
 
-- **Write tests first (TDD).** Red, green, refactor. Every feature starts with a failing test.
-- **Take small steps.** Break work into small, verifiable increments. Don't try to implement everything at once.
-- **Stay in your file domain.** Only modify files related to your assigned task. Avoid touching files other teammates are working on.
-- **Record decisions, assumptions, and concerns.** See Event Recording below.
-- **Message the lead for urgent discoveries.** Blocking issues, architectural problems, or security concerns that affect other teammates.
+Follow strict TDD for every change:
 
-## DON'T
+1. **Red** — Write a failing test that captures the requirement
+2. **Green** — Write the minimal code to make it pass
+3. **Refactor** — Clean up while tests stay green
+4. **Commit** — Small commit, one logical change
 
-- **Don't ignore code smells.** If you see unclear names, deep nesting, or mixed responsibilities — fix them now.
-- **Don't create large files.** Keep files focused and under 500 lines.
-- **Don't add unnecessary complexity.** Solve today's problem simply. Two similar lines beat a premature abstraction.
+Take small steps. Don't try to implement everything at once.
 
-## SKIP
+## Review Cycle
 
-- **Plan mode.** Built-in plan approval handles teammate planning. You do not need to enter plan mode or run plan review.
+Run the full review cycle before each commit:
 
-## KEEP
+1. `/simplify` — code reuse, quality, and efficiency review
+2. `/xp-quality-review` — courage accountability, drift check, debt awareness
+3. `/xp-security-triage` — security review of pending changes
+4. Commit — pre-commit hooks enforce test-passing and formatting
 
-- **TDD discipline.** Hooks enforce test-passing gates on TeammateIdle and TaskCompleted. If your tests are failing, you cannot go idle or complete a task.
-- **Concern recording.** If something looks wrong, record it. The lead and other teammates need visibility.
+## Commit Conventions
 
-## BEFORE DONE
+- One logical change per commit
+- Run `ruff format` before staging
+- Write commit messages that explain *why*, not *what*
 
-- **Run `/simplify`.** Before reporting completion, run `/simplify` on your changes and address the findings directly.
+## File Domain
+
+Stay in your assigned file domain. If you need to modify files outside your domain, raise a concern.
+
+## Code Quality
+
+- Don't ignore code smells — fix unclear names, deep nesting, mixed responsibilities now
+- Keep files focused and under 500 lines
+- Don't add unnecessary complexity — solve today's problem simply
 
 ## Event Recording
 
@@ -52,3 +61,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "What might go wrong" \
   --severity "medium"
 ```
+
+## When Done
+
+Report: what was implemented, which acceptance criteria are met, commits made, and any concerns or assumptions that need attention.

@@ -581,5 +581,43 @@ class TestPluginConfig(unittest.TestCase):
         self.assertFalse(settings_path.is_file())
 
 
+# ===========================================================================
+# Teammate guide content tests
+# ===========================================================================
+
+
+class TestTeammateGuideContent(unittest.TestCase):
+    """TEAMMATE_GUIDE.md has required content for CLI teammates."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.guide = _common.load_teammate_guide()
+        assert cls.guide, "load_teammate_guide() returned None"
+
+    def test_has_full_review_cycle(self):
+        """Guide includes full review cycle commands."""
+        self.assertIn("/simplify", self.guide)
+        self.assertIn("/xp-quality-review", self.guide)
+        self.assertIn("/xp-security-triage", self.guide)
+
+    def test_has_tdd_discipline(self):
+        """Guide includes TDD discipline."""
+        self.assertIn("TDD", self.guide)
+
+    def test_has_event_recording(self):
+        """Guide includes event recording via append.sh."""
+        self.assertIn("append.sh", self.guide)
+
+    def test_has_commit_conventions(self):
+        """Guide includes commit conventions."""
+        self.assertIn("ruff format", self.guide)
+
+    def test_no_plan_mode(self):
+        """Guide does NOT mention plan mode or kickoff."""
+        guide_lower = self.guide.lower()
+        self.assertNotIn("plan mode", guide_lower)
+        self.assertNotIn("kickoff", guide_lower)
+
+
 if __name__ == "__main__":
     unittest.main()
