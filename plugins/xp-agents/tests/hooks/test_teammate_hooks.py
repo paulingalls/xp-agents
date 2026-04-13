@@ -229,11 +229,11 @@ class TestTeammateStopGate(_HookTestCase):
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
-    def test_no_agent_type_skips(self):
-        """Missing agent_type exits cleanly."""
+    def test_no_agent_type_no_worktree_skips(self):
+        """Missing agent_type + non-worktree cwd exits cleanly."""
         import teammate_stop_gate
 
-        inp = _make_teammate_stop_input(agent_type="")
+        inp = _make_teammate_stop_input(agent_type="", cwd="/tmp/regular")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
@@ -302,6 +302,45 @@ class TestTeammateStopGate(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("commit", result.lower())
+
+    def test_worktree_cwd_detected_as_teammate(self):
+        """Worktree cwd without agent_type is detected as teammate."""
+        import teammate_stop_gate
+
+        inp = {
+            "session_id": "t",
+            "cwd": "/proj/.claude/worktrees/agent-abc12345",
+        }
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-simplify", result)
+
+    def test_worktree_cwd_resolves_agent_id(self):
+        """Worktree cwd resolves agent_id from marker file prefix."""
+        import markers
+        import teammate_stop_gate
+
+        full_id = "abc12345deadbeef9"
+        markers.set_review_flag(self.smm_dir, full_id, "simplify_done")
+        inp = {
+            "session_id": "t",
+            "cwd": "/proj/.claude/worktrees/agent-abc12345",
+        }
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_worktree_cwd_no_marker_blocks_simplify(self):
+        """Worktree cwd with no marker file blocks for simplify."""
+        import teammate_stop_gate
+
+        inp = {
+            "session_id": "t",
+            "cwd": "/proj/.claude/worktrees/agent-ffffffff",
+        }
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-simplify", result)
 
     def test_no_smm_dir_graceful(self):
         """Missing SMM dir exits cleanly."""

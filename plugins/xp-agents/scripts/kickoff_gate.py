@@ -37,6 +37,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if _common.is_xp_agent(input_data):
         return None
 
+    cwd = input_data.get("cwd", "")
+    if "/.claude/worktrees/" in cwd:
+        return None
+
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None

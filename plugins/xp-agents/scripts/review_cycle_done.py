@@ -90,6 +90,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
+
+    # DEBUG: log PostToolUse:Skill input for worktree investigation
+    smm_dir = _common.get_validated_smm_dir()
+    skill_name = input_data.get("tool_input", {}).get("skill", "")
+    if smm_dir is not None and "simplify" in skill_name:
+        import json as _json
+
+        debug_event = _common.make_event(
+            _common.STATUS,
+            "review-cycle-debug",
+            f"PostToolUse:Skill keys: {sorted(input_data.keys())}"
+            f" | full: {_json.dumps(input_data, default=str)[:500]}",
+            working_on=[],
+        )
+        _common.append_safe(smm_dir, debug_event)
+
     result = run(input_data)
     if result:
         _common.hook_output("PostToolUse", result)
