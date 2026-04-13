@@ -66,6 +66,17 @@ class TestAcceptPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("in-progress", result.stdout.lower())
 
+    def test_preload_clears_accept_marker(self):
+        """Preload clears .accept marker so update-story done is unblocked."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(
+            (self.smm_dir / ".accept").exists(),
+            ".accept marker should be cleared by preload",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

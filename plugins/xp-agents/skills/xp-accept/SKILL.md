@@ -30,15 +30,9 @@ Read the sprint file using the `SPRINT_FILE` path from the preload output. For e
    - **deferred** — story is incomplete, carry forward to next sprint
 5. If the user has questions or wants to discuss, resolve inline before marking.
 
-## Step 2: Clear accept gate and update sprint.json
+## Step 2: Update sprint.json
 
-Clear the accept marker so the update-story gate allows status changes:
-
-```bash
-rm -f <SMM_DIR>/.accept
-```
-
-Then update each story's status via CLI:
+The accept gate marker was already cleared by the preload script. Update each story's status via CLI:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \

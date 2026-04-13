@@ -17,6 +17,11 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
     exit 0
 }
 
+# Clean up temp files from previous preload runs.
+# These are created by smm_render_to_tempfile/sprint_render_to_tempfile
+# and are safe to remove once the previous skill has finished.
+find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" \) -exec rm -f {} + 2>/dev/null || true
+
 dump_smm() {
     if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
         echo "## Current SMM State"
@@ -199,4 +204,18 @@ plan_has_remaining() {
 
 plan_count() {
     python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
+}
+
+# Marker helpers (thin wrappers over markers.py).
+# Usage: consume_marker ACCEPT
+consume_marker() {
+    local marker_name="$1"
+    python3 -c "
+import sys
+sys.path.insert(0, '${PLUGIN_ROOT}/scripts')
+sys.path.insert(0, '${PLUGIN_ROOT}/smm')
+from pathlib import Path
+import markers
+markers.marker_consume(Path('${SMM_DIR}'), getattr(markers, '${marker_name}'))
+" 2>/dev/null || true
 }

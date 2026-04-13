@@ -23,6 +23,11 @@ if [ "$in_progress_count" -eq 0 ]; then
     exit 0
 fi
 
+# Clear the accept gate marker so update-story done is unblocked.
+# This MUST happen in the preload, not via rm in the SKILL.md — never
+# ask an agent to run rm.
+consume_marker ACCEPT
+
 echo "### STORIES_TO_ACCEPT"
 echo "Sprint has ${in_progress_count} in-progress stories to verify."
 echo "SPRINT_FILE=${SPRINT_FILE}"
