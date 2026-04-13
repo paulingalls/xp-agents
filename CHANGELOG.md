@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.9.0 — Plan-Driven /xp-assign + Teammate Gates
+
+### Sprint-011: Milestone 4
+- **Plan cycle documented.** PROCESS_GUIDE.md defines the plan cycle (EnterPlanMode → /xp-review-plan → /xp-assign → execute) as a named hook-enforced sequence alongside the review cycle. Marker flow documented: `.plan-awaiting-review` → `.assign-pending`.
+- **Plan-driven /xp-assign.** SKILL.md rewritten to read plan file steps for mode selection instead of sprint stories. Works identically in sprint and free session modes. preload.sh outputs PLAN_FILE as primary input, SPRINT_FILE as optional context.
+- **Plan reviewer updated.** Section 9 (execution mode) uses plan-step terminology, Agent Team option removed per SMM constraint (Solo + Worktree subagents only).
+- **Terminology sweep.** All references to "sprint stories" in the context of /xp-assign updated across kickoff SKILL.md, subagent_stop.py, README.md, ARCHITECTURE.md, CHANGELOG.md.
+
+### New Gates
+- **Teammate stop gate.** New `teammate_stop_gate.py` blocks xp-teammate agents from stopping with uncommitted changes. Enforces review cycle in order: /simplify → /xp-quality-review → /xp-security-triage → commit. `TEAMMATE_AGENT_TYPES` extracted to `_common.py` (shared with subagent_stop.py).
+- **Accept gate.** New gate in `pre_tool_bash.py` blocks `update-story done` when ACCEPT marker exists — prevents bypassing /xp-accept acceptance criteria verification. Uses regex detection (`update-story\s+\S+\s+done\b`). /xp-accept SKILL.md updated to clear marker before updating status.
+
+### Fixed
+- **xp-plan preload permission.** Added `Bash(*/skills/*/scripts/*)` to xp-plan allowed-tools, matching all other skills. Preload script was being blocked by permission system.
+- **Pyright type narrowing.** Fixed `str | None` → `Path()` warnings in test_assign.py by using `assert` instead of `self.assertIsNotNone` for type narrowing.
+
 ## v2.8.1 — Close Retro Fix/Try Feedback Loop
 
 ### Fixed
