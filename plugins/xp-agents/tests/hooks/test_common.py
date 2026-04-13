@@ -106,6 +106,46 @@ class TestIsXpAgent(unittest.TestCase):
         self.assertFalse(_common.is_xp_agent({"agent_type": 42}))
 
 
+class TestResolveAgentId(unittest.TestCase):
+    def test_platform_provided_agent_id(self):
+        result = _common.resolve_agent_id({"agent_id": "xp-teammate-001"})
+        self.assertEqual(result, "xp-teammate-001")
+
+    def test_worktree_cwd_extracts_name(self):
+        result = _common.resolve_agent_id(
+            {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001"}
+        )
+        self.assertEqual(result, "teammate-story-001")
+
+    def test_nested_worktree_cwd(self):
+        result = _common.resolve_agent_id(
+            {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src/lib"}
+        )
+        self.assertEqual(result, "teammate-story-001")
+
+    def test_non_worktree_cwd_returns_main(self):
+        result = _common.resolve_agent_id({"cwd": "/home/user/project/src"})
+        self.assertEqual(result, "main")
+
+    def test_no_cwd_returns_main(self):
+        result = _common.resolve_agent_id({})
+        self.assertEqual(result, "main")
+
+    def test_empty_agent_id_falls_through_to_cwd(self):
+        result = _common.resolve_agent_id(
+            {"agent_id": "", "cwd": "/x/.claude/worktrees/teammate-story-002"}
+        )
+        self.assertEqual(result, "teammate-story-002")
+
+    def test_platform_agent_id_takes_precedence_over_worktree_cwd(self):
+        inp = {
+            "agent_id": "subagent-abc",
+            "cwd": "/x/.claude/worktrees/teammate-story-001",
+        }
+        result = _common.resolve_agent_id(inp)
+        self.assertEqual(result, "subagent-abc")
+
+
 class TestResolvePluginRoot(unittest.TestCase):
     def test_from_env_var(self):
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/opt/plugins/xp"}):

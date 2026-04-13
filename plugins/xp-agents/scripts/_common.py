@@ -48,6 +48,26 @@ class BlockedError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Agent identity resolution
+# ---------------------------------------------------------------------------
+
+_WORKTREE_PATH_MARKER = "/.claude/worktrees/"
+
+
+def resolve_agent_id(input_data: dict) -> str:
+    """Resolve agent_id from hook input, worktree path, or default."""
+    agent_id = input_data.get("agent_id", "")
+    if agent_id:
+        return agent_id
+    cwd = input_data.get("cwd", "")
+    idx = cwd.find(_WORKTREE_PATH_MARKER)
+    if idx >= 0:
+        tail = cwd[idx + len(_WORKTREE_PATH_MARKER) :]
+        return tail.split("/")[0]
+    return "main"
+
+
+# ---------------------------------------------------------------------------
 # Event type and priority constants
 # ---------------------------------------------------------------------------
 
