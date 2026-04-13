@@ -30,14 +30,11 @@ VALID_CONSTRAINT_TYPES = frozenset({"decision", "convention"})
 VALID_RISK_TYPES = frozenset({"concern", "assumption", "debt", "question"})
 VALID_RISK_SEVERITIES = frozenset({"problem", "uncertainty", "debt"})
 
-# UUID v4/v5 regex — accepts both v4 (runtime) and v5 (deterministic seed).
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-)
+_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
-def _is_valid_uuid(value: object) -> bool:
-    return isinstance(value, str) and bool(_UUID_RE.match(value))
+def _is_valid_id(value: object) -> bool:
+    return isinstance(value, str) and bool(_ID_RE.match(value))
 
 
 def _is_iso8601(value: object) -> bool:
@@ -107,8 +104,8 @@ def _validate_base_entry(entry: object, pillar: str, idx: int) -> list[str]:
     if errors:
         return errors
 
-    if not _is_valid_uuid(entry["id"]):
-        errors.append(f"{pillar}[{idx}] field 'id' must be a valid UUID string")
+    if not _is_valid_id(entry["id"]):
+        errors.append(f"{pillar}[{idx}] field 'id' must be a 12-char hex ID")
 
     if not isinstance(entry["content"], str) or not entry["content"]:
         errors.append(f"{pillar}[{idx}] field 'content' must be a non-empty string")
@@ -121,9 +118,9 @@ def _validate_base_entry(entry: object, pillar: str, idx: int) -> list[str]:
     if not _is_iso8601(entry["ts"]):
         errors.append(f"{pillar}[{idx}] field 'ts' must be an ISO-8601 timestamp")
 
-    if "source_event_id" in entry and not _is_valid_uuid(entry["source_event_id"]):
+    if "source_event_id" in entry and not _is_valid_id(entry["source_event_id"]):
         errors.append(
-            f"{pillar}[{idx}] field 'source_event_id' must be a valid UUID string"
+            f"{pillar}[{idx}] field 'source_event_id' must be a 12-char hex ID"
         )
 
     return errors

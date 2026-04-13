@@ -7,7 +7,6 @@ and final status — then appends a session_end event.
 
 import contextlib
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +18,7 @@ import _common
 import coordination
 import markers
 import resolution
+from event_builder import generate_id
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -98,7 +98,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Build session_end event directly (avoids subprocess + shell escaping)
     event = {
-        "id": str(uuid.uuid4()),
+        "id": generate_id(),
         "ts": datetime.now(timezone.utc).isoformat(),
         "type": _common.SESSION_END,
         "agent_id": "main",

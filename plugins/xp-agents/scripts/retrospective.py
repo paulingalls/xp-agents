@@ -182,7 +182,7 @@ def _group_concerns(
         if key not in groups:
             groups[key] = {"key": key, "count": 0, "ids": []}
         groups[key]["count"] += 1
-        groups[key]["ids"].append(e.get("id", "")[:8])
+        groups[key]["ids"].append(e.get("id", ""))
     return list(groups.values())
 
 
@@ -200,7 +200,7 @@ _RESOLUTION_BUCKETS = (
 
 
 def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
-    """Map short target IDs to resolver event info for the retro digest.
+    """Map target IDs to resolver event info for the retro digest.
 
     Each target ID lands in exactly one bucket — compute_resolutions uses
     a match/case on event type so a single ID cannot appear under multiple
@@ -211,13 +211,13 @@ def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
         for target_id, resolver in resolutions.get(bucket_key, {}).items():
             entry: dict = {
                 "type": type_name,
-                "resolver_id": resolver.get("id", "")[:8],
+                "resolver_id": resolver.get("id", ""),
                 "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
             }
             disposition = resolver.get("metadata", {}).get("disposition")
             if disposition:
                 entry["disposition"] = disposition
-            result[target_id[:8]] = entry
+            result[target_id] = entry
     return result
 
 
@@ -366,7 +366,7 @@ def _build_retro_input(
             elif etype == _common.COMMIT and len(content) > _MAX_COMMIT_CONTENT:
                 content = content[:_MAX_COMMIT_CONTENT]
             slimmed_signals.append(
-                {"type": etype, "content": content, "id": e.get("id", "")[:8]}
+                {"type": etype, "content": content, "id": e.get("id", "")}
             )
         digest["signal_events"] = slimmed_signals
     return {

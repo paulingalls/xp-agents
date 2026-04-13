@@ -18,28 +18,28 @@ from event_schema import EVENT_TYPE_ANSWER, EVENT_TYPE_QUESTION
 # Event resolution tracking (shared by materialize, retrospective, hooks)
 # ---------------------------------------------------------------------------
 
-_UUID_FULL_LENGTH = 36  # Standard UUID: 8-4-4-4-12 with hyphens
+_ID_FULL_LENGTH = 12
 
 
 def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] | None:
-    """Resolve an event ID, supporting short-prefix fallback.
+    """Resolve an event ID by exact match.
 
-    If target_id is a full UUID, does an O(1) dict lookup. If it's shorter
-    (e.g. 8-char prefix from materialized output), scans keys for a unique
-    prefix match. Returns (full_id, event) or None if not found / ambiguous.
+    With 12-char hex IDs, exact match is the primary path. Prefix
+    scanning is retained as a fallback for any IDs shorter than 12 chars.
+    Returns (full_id, event) or None if not found / ambiguous.
     """
     event = by_id.get(target_id)
     if event:
         return target_id, event
 
-    if len(target_id) >= _UUID_FULL_LENGTH:
+    if len(target_id) >= _ID_FULL_LENGTH:
         return None
 
     match_id: str | None = None
     for k in by_id:
         if k.startswith(target_id):
             if match_id is not None:
-                return None  # Ambiguous — two or more matches
+                return None
             match_id = k
 
     if match_id is not None:

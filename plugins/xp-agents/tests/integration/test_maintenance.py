@@ -368,8 +368,6 @@ class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
         sides of the contract: save preserves existing pillars AND
         re-prepare reflects the new additions.
         """
-        import uuid
-
         self._seed_events(
             [
                 make_event("goal", content="Ship v1"),
@@ -388,7 +386,9 @@ class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
         self.assertEqual(data["health"]["intent_count"], 0)
 
         smm = data["current_smm"]
-        new_intent_id = str(uuid.uuid4())
+        import secrets
+
+        new_intent_id = secrets.token_hex(6)
         smm["intent"].append(
             {
                 "id": new_intent_id,

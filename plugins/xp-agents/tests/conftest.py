@@ -8,12 +8,12 @@ test files.
 
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -174,7 +174,7 @@ SAMPLE_SPRINT_MD = """\
 def make_event(event_type: str = "customer_input", **kwargs) -> dict:
     """Create a valid event dict with defaults."""
     event = {
-        "id": str(uuid.uuid4()),
+        "id": secrets.token_hex(6),
         "ts": "2026-03-12T00:00:00+00:00",
         "type": event_type,
         "agent_id": "main",
@@ -284,7 +284,7 @@ def write_smm_fixture(
 
     def _make(content: str, **extra: str) -> dict:
         return {
-            "id": str(uuid.uuid4()),
+            "id": secrets.token_hex(6),
             "content": content,
             "source": "seed",
             "ts": "2026-01-01T00:00:00+00:00",

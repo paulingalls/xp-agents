@@ -114,18 +114,14 @@ class TestAppendIntegration(_TempRepoTestCase):
         r = self._run_append("--type", "question", "--agent", "main", "--content", "x")
         self.assertNotEqual(r.returncode, 0)
 
-    def test_event_has_uuid_and_timestamp(self):
+    def test_event_has_id_and_timestamp(self):
         r = self._run_append(
             "--type", "discovery", "--agent", "main", "--content", "found it"
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         events = self._read_events()
         event = events[0]
-        # UUID v4 format
-        self.assertRegex(
-            event["id"],
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-        )
+        self.assertRegex(event["id"], r"^[0-9a-f]{12}$")
         # ISO 8601 with timezone
         self.assertIn("T", event["ts"])
         self.assertIn("+", event["ts"])

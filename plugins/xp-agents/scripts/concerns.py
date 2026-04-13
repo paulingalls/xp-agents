@@ -231,8 +231,7 @@ def detect_conflicts(
     for qid, pos in question_positions.items():
         if qid not in answered_ids and (total - pos - 1) >= 20:
             _add_concern(
-                f"Stale question: blocking question (id {qid[:8]}) "
-                f"has not been answered.",
+                f"Stale question: blocking question (id {qid}) has not been answered.",
                 "medium",
             )
 
@@ -270,7 +269,7 @@ def detect_conflicts(
         supersedes = curr_dec.get("metadata", {}).get("supersedes") or []
         prev_id = prev_dec.get("id", "")
         if prev_id and any(
-            prev_id == s or prev_id.startswith(s) or s.startswith(prev_id[:8])
+            prev_id == s or prev_id.startswith(s) or s.startswith(prev_id)
             for s in supersedes
         ):
             continue

@@ -10,12 +10,12 @@ and CLI). This module is stateful — it touches the filesystem.
 """
 
 import json
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 import materialize
 from _append_impl import write_text_atomic
+from event_builder import generate_id
 from resolution import resolve_prefix
 from smm_schema import PILLARS, empty_smm, validate_entry, validate_smm
 
@@ -85,11 +85,11 @@ def add_item(
     source: str = "curated",
     source_event_id: str | None = None,
 ) -> str:
-    """Add a new entry to a pillar. Returns the generated UUID."""
+    """Add a new entry to a pillar. Returns the generated ID."""
     if pillar not in PILLARS:
         raise ValueError(f"Unknown pillar: {pillar!r}")
 
-    item_id = str(uuid.uuid4())
+    item_id = generate_id()
     ts = datetime.now(timezone.utc).isoformat()
 
     entry: dict = {"id": item_id, "content": content, "source": source, "ts": ts}

@@ -14,11 +14,9 @@ from pathlib import Path
 MAX_RETRO_HISTORY = 2
 MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
 
-# 8+ char hex token — matches short IDs in Try text ("close debt 9cdd4617").
-# Hyphenated UUIDs are tokenized into head+tail fragments (the head is the
-# 8-char short ID, which hits the resolutions_map directly). Dict lookup
-# downstream filters false positives from unrelated hex (commit SHAs etc).
-_HEX_ID_RE = re.compile(r"\b[0-9a-f]{8,}\b")
+# 12+ char hex token — matches event IDs in Try text.
+# Dict lookup downstream filters false positives (commit SHAs etc).
+_HEX_ID_RE = re.compile(r"\b[0-9a-f]{12,}\b")
 
 
 def _slim_try_item(item) -> dict:
@@ -86,7 +84,7 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
         tokens = set(_HEX_ID_RE.findall(content)) | set(refs)
         hit = None
         for token in tokens:
-            hit = resolutions_map.get(token[:8])
+            hit = resolutions_map.get(token)
             if hit:
                 break
         if hit:

@@ -33,7 +33,7 @@ def main() -> None:
             and e.get("id", "") not in resolved_ids
         ):
             found = True
-            eid = e.get("id", "")[:8]
+            eid = e.get("id", "")
             severity = e.get("severity", "medium")
             content = e.get("content", "")[:200]
             print(f"- [{severity}] {content} [{eid}]")

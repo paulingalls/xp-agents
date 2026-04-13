@@ -20,13 +20,13 @@ from conftest import _PLUGIN_ROOT
 # Helpers for building valid test fixtures
 # ---------------------------------------------------------------------------
 
-_VALID_UUID = "11111111-2222-4333-8444-555555555555"
-_VALID_UUID_2 = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-_VALID_UUID_3 = "12345678-9abc-4def-8012-3456789abcde"
+_VALID_ID = "1a2b3c4d5e6f"
+_VALID_ID_2 = "aabbccddeeff"
+_VALID_ID_3 = "123456789abc"
 _VALID_TS = "2026-04-09T02:15:28.155493+00:00"
 
 
-def _entry(id_=_VALID_UUID, content="test", source="seed", ts=_VALID_TS, **extra):
+def _entry(id_=_VALID_ID, content="test", source="seed", ts=_VALID_TS, **extra):
     """Build a valid base entry with overrides."""
     e = {"id": id_, "content": content, "source": source, "ts": ts}
     e.update(extra)
@@ -213,14 +213,18 @@ class TestValidateSMMEntryBase(unittest.TestCase):
         errors = smm_schema.validate_smm(_smm(intent=[e]))
         self.assertTrue(any("ts" in err for err in errors))
 
-    def test_entry_id_must_be_uuid4(self):
-        # uuid v1-style string (no '4' in the version slot)
-        e = _entry(id_="11111111-2222-1333-8444-555555555555")
+    def test_entry_id_must_be_12_char_hex(self):
+        e = _entry(id_="zzzzzzzzzzzz")
         errors = smm_schema.validate_smm(_smm(intent=[e]))
         self.assertTrue(any("id" in err for err in errors))
 
     def test_entry_id_short_rejected(self):
-        e = _entry(id_="not-a-uuid")
+        e = _entry(id_="abcdef")
+        errors = smm_schema.validate_smm(_smm(intent=[e]))
+        self.assertTrue(any("id" in err for err in errors))
+
+    def test_entry_id_old_uuid_rejected(self):
+        e = _entry(id_="11111111-2222-4333-8444-555555555555")
         errors = smm_schema.validate_smm(_smm(intent=[e]))
         self.assertTrue(any("id" in err for err in errors))
 
@@ -234,7 +238,7 @@ class TestValidateSMMEntryBase(unittest.TestCase):
         self.assertEqual(smm_schema.validate_smm(_smm(intent=[e])), [])
 
     def test_source_event_valid(self):
-        e = _entry(source="event", type="goal", source_event_id=_VALID_UUID_2)
+        e = _entry(source="event", type="goal", source_event_id=_VALID_ID_2)
         self.assertEqual(smm_schema.validate_smm(_smm(intent=[e])), [])
 
     def test_source_curated_valid(self):
@@ -357,14 +361,14 @@ class TestValidateSMMCrossPillarIDs(unittest.TestCase):
 
     def test_unique_ids_across_pillars_valid(self):
         smm = _smm(
-            intent=[_entry(id_=_VALID_UUID, type="goal")],
-            constraints=[_entry(id_=_VALID_UUID_2, type="convention")],
-            risks=[_entry(id_=_VALID_UUID_3, type="concern", severity="problem")],
+            intent=[_entry(id_=_VALID_ID, type="goal")],
+            constraints=[_entry(id_=_VALID_ID_2, type="convention")],
+            risks=[_entry(id_=_VALID_ID_3, type="concern", severity="problem")],
         )
         self.assertEqual(smm_schema.validate_smm(smm), [])
 
     def test_duplicate_ids_across_pillars_rejected(self):
-        dup = _VALID_UUID
+        dup = _VALID_ID
         smm = _smm(
             intent=[_entry(id_=dup, type="goal")],
             risks=[_entry(id_=dup, type="concern", severity="problem")],
@@ -375,7 +379,7 @@ class TestValidateSMMCrossPillarIDs(unittest.TestCase):
         )
 
     def test_duplicate_ids_within_pillar_rejected(self):
-        dup = _VALID_UUID
+        dup = _VALID_ID
         smm = _smm(
             intent=[
                 _entry(id_=dup, type="goal"),

@@ -19,22 +19,22 @@ class TestAnnotateTryDisposition(_HookTestCase):
     def _make_resolutions_map(self, target_id, resolver_id, content, disposition=None):
         entry = {
             "type": "decision",
-            "resolver_id": resolver_id[:8],
+            "resolver_id": resolver_id,
             "resolver_content": content,
         }
         if disposition is not None:
             entry["disposition"] = disposition
-        return {target_id[:8]: entry}
+        return {target_id: entry}
 
     def test_adopted_try_gets_disposition_adopted(self):
-        target_id = "aabbccdd-1111-2222-3333-444444444444"
-        resolver_id = "eeffaabb-5555-6666-7777-888888888888"
+        target_id = "aabbccdd1111"
+        resolver_id = "eeffaabb5555"
         resolutions_map = self._make_resolutions_map(
             target_id, resolver_id, "Adopted retro Try: kickoff exemption"
         )
         retros = [
             {
-                "try": [{"content": f"implement {target_id[:8]}", "event_refs": []}],
+                "try": [{"content": f"implement {target_id}", "event_refs": []}],
                 "keep": [],
                 "fix": [],
             }
@@ -45,14 +45,14 @@ class TestAnnotateTryDisposition(_HookTestCase):
         self.assertEqual(status.get("disposition"), "adopted")
 
     def test_dropped_try_gets_disposition_dropped(self):
-        target_id = "aabbccdd-1111-2222-3333-444444444444"
-        resolver_id = "eeffaabb-5555-6666-7777-888888888888"
+        target_id = "aabbccdd1111"
+        resolver_id = "eeffaabb5555"
         resolutions_map = self._make_resolutions_map(
             target_id, resolver_id, "Dropped retro Try: not worth it", "dropped"
         )
         retros = [
             {
-                "try": [{"content": f"try {target_id[:8]}", "event_refs": []}],
+                "try": [{"content": f"try {target_id}", "event_refs": []}],
                 "keep": [],
                 "fix": [],
             }
@@ -63,14 +63,14 @@ class TestAnnotateTryDisposition(_HookTestCase):
         self.assertEqual(status["disposition"], "dropped")
 
     def test_deferred_try_gets_disposition_deferred(self):
-        target_id = "aabbccdd-1111-2222-3333-444444444444"
-        resolver_id = "eeffaabb-5555-6666-7777-888888888888"
+        target_id = "aabbccdd1111"
+        resolver_id = "eeffaabb5555"
         resolutions_map = self._make_resolutions_map(
             target_id, resolver_id, "Deferred retro Try: next session", "deferred"
         )
         retros = [
             {
-                "try": [{"content": f"try {target_id[:8]}", "event_refs": []}],
+                "try": [{"content": f"try {target_id}", "event_refs": []}],
                 "keep": [],
                 "fix": [],
             }
@@ -95,14 +95,14 @@ class TestAnnotateTryDisposition(_HookTestCase):
 
     def test_decision_resolver_without_disposition_defaults_to_adopted(self):
         """A decision event without explicit disposition metadata is an adoption."""
-        target_id = "aabbccdd-1111-2222-3333-444444444444"
-        resolver_id = "eeffaabb-5555-6666-7777-888888888888"
+        target_id = "aabbccdd1111"
+        resolver_id = "eeffaabb5555"
         resolutions_map = self._make_resolutions_map(
             target_id, resolver_id, "Adopted retro Try: something"
         )
         retros = [
             {
-                "try": [{"content": f"try {target_id[:8]}", "event_refs": []}],
+                "try": [{"content": f"try {target_id}", "event_refs": []}],
                 "keep": [],
                 "fix": [],
             }
@@ -118,7 +118,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
     def test_disposition_propagated_from_resolver_metadata(self):
         from retrospective import _build_resolutions_map
 
-        target_id = "aabbccdd-1111-2222-3333-444444444444"
+        target_id = "aabbccdd1111"
         resolver = make_event(
             "status",
             content="Dropped retro Try: not useful",
@@ -136,13 +136,13 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
             "question_answers": {},
         }
         result = _build_resolutions_map(resolutions)
-        entry = result[target_id[:8]]
+        entry = result[target_id]
         self.assertEqual(entry["disposition"], "dropped")
 
     def test_no_disposition_when_resolver_has_none(self):
         from retrospective import _build_resolutions_map
 
-        target_id = "aabbccdd-1111-2222-3333-444444444444"
+        target_id = "aabbccdd1111"
         resolver = make_event(
             "decision",
             content="Adopted retro Try: something",
@@ -157,7 +157,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
             "question_answers": {},
         }
         result = _build_resolutions_map(resolutions)
-        entry = result[target_id[:8]]
+        entry = result[target_id]
         self.assertNotIn("disposition", entry)
 
 

@@ -328,14 +328,14 @@ class TestDetectConflictsCommon(_HookTestCase):
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 0)
 
-    def test_supersedes_metadata_short_prefix_matches(self):
-        """8-char prefix in supersedes is enough — matches resolve_prefix convention."""
+    def test_supersedes_metadata_full_id_matches(self):
+        """Full 12-char ID in supersedes matches exactly."""
         d1 = make_event("decision", topic="db", content="Use Postgres")
         d2 = make_event(
             "decision",
             topic="db",
             content="Use MySQL",
-            metadata={"supersedes": [d1["id"][:8]]},
+            metadata={"supersedes": [d1["id"]]},
         )
         found = concerns.detect_conflicts([d1, d2], "main")
         superseded = [c for c in found if "superseded" in c["content"].lower()]
@@ -486,7 +486,7 @@ class TestDetectConflictsCommon(_HookTestCase):
         existing_concern = make_event(
             "concern",
             content="Stale question: blocking question "
-            f"(id {q['id'][:8]}) has not been answered.",
+            f"(id {q['id']}) has not been answered.",
         )
         events = [q, *filler, existing_concern]
         found = concerns.detect_conflicts(events, "main")

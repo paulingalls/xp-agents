@@ -24,16 +24,16 @@
     }
   },
   "$defs": {
-    "uuid4_pattern": {
+    "id_pattern": {
       "type": "string",
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-      "description": "UUID v4 identifier"
+      "pattern": "^[0-9a-f]{12}$",
+      "description": "12-char hex identifier"
     },
     "base_entry": {
       "type": "object",
       "required": ["id", "content", "source", "ts"],
       "properties": {
-        "id": { "$ref": "#/$defs/uuid4_pattern" },
+        "id": { "$ref": "#/$defs/id_pattern" },
         "content": { "type": "string", "minLength": 1 },
         "source": {
           "type": "string",
@@ -45,7 +45,7 @@
           "description": "ISO 8601 timestamp"
         },
         "source_event_id": {
-          "$ref": "#/$defs/uuid4_pattern",
+          "$ref": "#/$defs/id_pattern",
           "description": "Originating event id (only set when source == 'event')"
         }
       }

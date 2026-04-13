@@ -23,7 +23,7 @@ def _minimal_smm(**overrides):
 
 
 _VALID_ENTRY = {
-    "id": "11111111-2222-4333-8444-555555555555",
+    "id": "111122224333",
     "content": "TDD always",
     "source": "seed",
     "ts": "1970-01-01T00:00:00+00:00",
@@ -140,7 +140,7 @@ class TestSaveSMM(_StoreTestCase):
         entry = {
             **_VALID_ENTRY,
             "type": "goal",
-            "source_event_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            "source_event_id": "aaabbbcccddd",
         }
         data = _minimal_smm(intent=[entry])
         smm_store.save_smm(self.smm_dir, data)
@@ -158,12 +158,9 @@ class TestSaveSMM(_StoreTestCase):
 
 
 class TestAddItem(_StoreTestCase):
-    def test_generates_uuid(self):
+    def test_generates_id(self):
         uid = smm_store.add_item(self.smm_dir, "wisdom", "TDD always")
-        self.assertRegex(
-            uid,
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-        )
+        self.assertRegex(uid, r"^[0-9a-f]{12}$")
 
     def test_appends_to_correct_pillar(self):
         smm_store.add_item(self.smm_dir, "wisdom", "TDD always")
@@ -224,7 +221,7 @@ class TestAddItem(_StoreTestCase):
         self.assertEqual(entry["severity"], "problem")
 
     def test_with_source_event_id(self):
-        event_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        event_id = "aaabbbcccddd"
         smm_store.add_item(
             self.smm_dir,
             "wisdom",
@@ -290,7 +287,7 @@ class TestUpdateItem(_StoreTestCase):
         with self.assertRaises(ValueError):
             smm_store.update_item(
                 self.smm_dir,
-                "00000000-0000-4000-8000-000000000000",
+                "000000000000",
                 content="nope",
             )
 
@@ -325,7 +322,7 @@ class TestRemoveItem(_StoreTestCase):
 
     def test_raises_for_unknown_id(self):
         with self.assertRaises(ValueError):
-            smm_store.remove_item(self.smm_dir, "00000000-0000-4000-8000-000000000000")
+            smm_store.remove_item(self.smm_dir, "000000000000")
 
     def test_leaves_other_entries(self):
         uid1 = smm_store.add_item(self.smm_dir, "wisdom", "First")
@@ -394,11 +391,10 @@ class TestPromoteEvent(_SMMTestCase):
         smm = smm_store.load_smm(self.smm_dir)
         self.assertEqual(len(smm["wisdom"]), 1)
 
-    def test_resolves_prefix(self):
+    def test_resolves_full_id(self):
         event = make_event("goal", content="Ship v1")
         self._write_events([event])
-        prefix = event["id"][:8]
-        uid = smm_store.promote_event(self.smm_dir, prefix)
+        uid = smm_store.promote_event(self.smm_dir, event["id"])
         smm = smm_store.load_smm(self.smm_dir)
         self.assertEqual(len(smm["intent"]), 1)
         self.assertEqual(smm["intent"][0]["source_event_id"], event["id"])
@@ -409,19 +405,19 @@ class TestPromoteEvent(_SMMTestCase):
         with self.assertRaises(ValueError) as ctx:
             smm_store.promote_event(
                 self.smm_dir,
-                "00000000-0000-4000-8000-000000000000",
+                "000000000000",
             )
         self.assertIn("not found", str(ctx.exception).lower())
 
     def test_raises_for_ambiguous_prefix(self):
         e1 = make_event(
             "goal",
-            id="aabbccdd-1111-4111-8111-111111111111",
+            id="aabbccdd1111",
             content="First",
         )
         e2 = make_event(
             "goal",
-            id="aabbccdd-2222-4222-8222-222222222222",
+            id="aabbccdd2222",
             content="Second",
         )
         self._write_events([e1, e2])
@@ -429,15 +425,11 @@ class TestPromoteEvent(_SMMTestCase):
             smm_store.promote_event(self.smm_dir, "aabbccdd")
         self.assertIn("ambiguous", str(ctx.exception).lower())
 
-    def test_returns_generated_uuid(self):
+    def test_returns_generated_id(self):
         event = make_event("goal", content="Ship v1")
         self._write_events([event])
         uid = smm_store.promote_event(self.smm_dir, event["id"])
-        self.assertRegex(
-            uid,
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-"
-            r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-        )
+        self.assertRegex(uid, r"^[0-9a-f]{12}$")
         self.assertNotEqual(uid, event["id"])
 
     def test_explicit_pillar_override(self):

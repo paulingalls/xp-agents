@@ -153,8 +153,8 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(len(result["concern_resolutions"]), 0)
         self.assertEqual(len(result["debt_resolutions"]), 0)
 
-    def test_resolve_via_short_id_prefix(self):
-        """metadata.resolves with 8-char prefix should match full UUID."""
+    def test_resolve_via_full_id(self):
+        """metadata.resolves with full 12-char ID matches exactly."""
         concern = make_event("concern", content="Test failure")
         goal = make_event("goal", content="Fix tests")
         debt = make_event("debt", content="Legacy code", files=["old.py"])
@@ -164,9 +164,9 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={
                 "resolves": [
-                    concern["id"][:8],
-                    goal["id"][:8],
-                    debt["id"][:8],
+                    concern["id"],
+                    goal["id"],
+                    debt["id"],
                 ]
             },
         )

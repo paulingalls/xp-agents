@@ -17,10 +17,10 @@ from conftest import _HookTestCase, make_event
 
 def _entry(content, source="seed", **extra):
     """Build a valid entry with a fresh id."""
-    import uuid
+    import secrets
 
     e = {
-        "id": str(uuid.uuid4()),
+        "id": secrets.token_hex(6),
         "content": content,
         "source": source,
         "ts": "2026-04-09T02:15:28+00:00",
@@ -149,12 +149,12 @@ def _valid_smm_json(**overrides) -> str:
 
 def _smm_with_intent(content: str = "Ship v1") -> str:
     """Build an SMM JSON with one intent entry."""
-    import uuid
+    import secrets
 
     data = smm_schema.empty_smm()
     data["intent"] = [
         {
-            "id": str(uuid.uuid4()),
+            "id": secrets.token_hex(6),
             "content": content,
             "source": "seed",
             "ts": "2026-01-01T00:00:00+00:00",
@@ -295,7 +295,7 @@ class TestAddItemCommand(_HookTestCase):
         self.assertEqual(len(smm["wisdom"]), 1)
         self.assertEqual(smm["wisdom"][0]["content"], "TDD always")
 
-    def test_prints_uuid(self):
+    def test_prints_id(self):
         import io
         from unittest.mock import patch
 
@@ -315,10 +315,7 @@ class TestAddItemCommand(_HookTestCase):
                 )
             )
         output = mock_out.getvalue().strip()
-        self.assertRegex(
-            output,
-            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-        )
+        self.assertRegex(output, r"^[0-9a-f]{12}$")
 
     def test_error_on_invalid_type(self):
         import io

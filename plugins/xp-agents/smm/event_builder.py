@@ -9,12 +9,17 @@ Extracted from _append_impl.py for module size management.
 
 import argparse
 import json
+import secrets
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
 from event_schema import MAX_JSON_ARG_SIZE, VALID_TYPES
+
+
+def generate_id() -> str:
+    """12-char hex ID for events and SMM entries."""
+    return secrets.token_hex(6)
 
 
 def parse_json_arg(value: str, name: str) -> list | dict:
@@ -39,7 +44,7 @@ def build_event(args: argparse.Namespace) -> dict:
     Does not validate required fields — that's validate_event's job.
     """
     event: dict = {
-        "id": str(uuid4()),
+        "id": generate_id(),
         "ts": datetime.now(timezone.utc).isoformat(),
         "type": args.type,
         "agent_id": args.agent,

@@ -1020,9 +1020,9 @@ class TestRetrospectiveResolvedConcerns(_HookTestCase):
             data = json.load(f)
         signal_ids = {e["id"] for e in data["digest"]["signal_events"]}
         # Resolved concern excluded
-        self.assertNotIn(c1["id"][:8], signal_ids)
+        self.assertNotIn(c1["id"], signal_ids)
         # Unresolved concern included
-        self.assertIn(c2["id"][:8], signal_ids)
+        self.assertIn(c2["id"], signal_ids)
 
     def test_resolved_concerns_counted_in_digest(self):
         import retrospective
@@ -1108,10 +1108,10 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
         )
         resolutions = data["digest"]["resolutions"]
-        self.assertIn(debt["id"][:8], resolutions)
-        entry = resolutions[debt["id"][:8]]
+        self.assertIn(debt["id"], resolutions)
+        entry = resolutions[debt["id"]]
         self.assertEqual(entry["type"], "debt")
-        self.assertEqual(entry["resolver_id"], resolver["id"][:8])
+        self.assertEqual(entry["resolver_id"], resolver["id"])
         self.assertIn("Debt closed", entry["resolver_content"])
 
     def test_digest_includes_question_answers(self):
@@ -1125,8 +1125,8 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         data = self._run_and_load(
             [q, resolver] + [make_event(content=f"e{i}") for i in range(4)]
         )
-        self.assertIn(q["id"][:8], data["digest"]["resolutions"])
-        self.assertEqual(data["digest"]["resolutions"][q["id"][:8]]["type"], "question")
+        self.assertIn(q["id"], data["digest"]["resolutions"])
+        self.assertEqual(data["digest"]["resolutions"][q["id"]]["type"], "question")
 
     def test_digest_includes_all_resolution_types(self):
         goal = make_event("goal", content="Ship feature X")
@@ -1151,10 +1151,10 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             + [make_event(content=f"e{i}") for i in range(4)]
         )
         resolutions = data["digest"]["resolutions"]
-        self.assertEqual(resolutions[goal["id"][:8]]["type"], "goal")
-        self.assertEqual(resolutions[assumption["id"][:8]]["type"], "assumption")
-        self.assertEqual(resolutions[concern["id"][:8]]["type"], "concern")
-        self.assertEqual(resolutions[decision["id"][:8]]["type"], "decision")
+        self.assertEqual(resolutions[goal["id"]]["type"], "goal")
+        self.assertEqual(resolutions[assumption["id"]]["type"], "assumption")
+        self.assertEqual(resolutions[concern["id"]]["type"], "concern")
+        self.assertEqual(resolutions[decision["id"]]["type"], "decision")
 
     def test_resolutions_resolver_content_truncated_to_200(self):
         debt = make_event("debt", content="Thing")
@@ -1169,7 +1169,7 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
         )
         self.assertEqual(
-            len(data["digest"]["resolutions"][debt["id"][:8]]["resolver_content"]),
+            len(data["digest"]["resolutions"][debt["id"]]["resolver_content"]),
             200,
         )
 
@@ -1185,7 +1185,7 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             [debt, resolver] + [make_event(content=f"e{i}") for i in range(4)]
         )
         for key in data["digest"]["resolutions"]:
-            self.assertEqual(len(key), 8, f"key {key!r} is not 8 chars")
+            self.assertEqual(len(key), 12, f"key {key!r} is not 12 chars")
 
     def test_resolutions_single_bucket_invariant(self):
         debt = make_event("debt", content="Thing 1")
@@ -1202,8 +1202,8 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         resolutions = data["digest"]["resolutions"]
         # Each target ID lands in exactly one bucket — no duplication across types.
         self.assertEqual(len(resolutions), 2)
-        self.assertEqual(resolutions[debt["id"][:8]]["type"], "debt")
-        self.assertEqual(resolutions[goal["id"][:8]]["type"], "goal")
+        self.assertEqual(resolutions[debt["id"]]["type"], "debt")
+        self.assertEqual(resolutions[goal["id"]]["type"], "goal")
 
 
 class TestGatherRetroHistoryTryShape(_HookTestCase):
@@ -1286,11 +1286,10 @@ class TestAnnotateTryStatus(_HookTestCase):
             working_on=[],
             metadata={"resolves": [debt["id"]]},
         )
-        short = debt["id"][:8]
         retro_data = {
             "keep": [],
             "fix": [],
-            "try": [{"content": f"close debt {short} in first commit"}],
+            "try": [{"content": f"close debt {debt['id']} in first commit"}],
         }
         data = self._run_and_load_with_retro(
             retro_data,
@@ -1299,7 +1298,7 @@ class TestAnnotateTryStatus(_HookTestCase):
         try_status = data["previous_retros"][0]["try_status"]
         self.assertEqual(len(try_status), 1)
         self.assertTrue(try_status[0]["resolved_this_session"])
-        self.assertEqual(try_status[0]["resolver_id"], resolver["id"][:8])
+        self.assertEqual(try_status[0]["resolver_id"], resolver["id"])
 
     def test_annotate_try_with_event_refs_only(self):
         debt = make_event("debt", content="Fix later")
@@ -1361,7 +1360,7 @@ class TestAnnotateTryStatus(_HookTestCase):
             working_on=[],
             metadata={"resolves": [debt["id"]]},
         )
-        short = debt["id"][:8]
+        short = debt["id"]
         # Two previous retros — only the most recent gets try_status
         old_retro = {
             "keep": [],

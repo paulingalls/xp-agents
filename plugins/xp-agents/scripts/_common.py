@@ -367,11 +367,12 @@ def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
 
 def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     """Build a minimal SMM event dict with standard fields."""
-    import uuid
     from datetime import datetime, timezone
 
+    from event_builder import generate_id
+
     event = {
-        "id": str(uuid.uuid4()),
+        "id": generate_id(),
         "ts": datetime.now(timezone.utc).isoformat(),
         "type": event_type,
         "agent_id": agent_id,

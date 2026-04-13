@@ -8,16 +8,14 @@ based on what's detected (or missing).
 Only runs if shared_mental_model.json does not already exist.
 """
 
+import hashlib
 import subprocess
 import sys
-import uuid
 from pathlib import Path
 
 from smm_schema import SOURCE_SEED, empty_smm
 from smm_store import SMM_FILENAME, save_smm
 
-# Fixed namespace for deterministic seed UUIDs (uuid5).
-_SEED_NS = uuid.UUID("a1b2c3d4-e5f6-4789-abcd-ef0123456789")
 _SEED_TS = "1970-01-01T00:00:00+00:00"
 
 # ---------------------------------------------------------------------------
@@ -304,9 +302,9 @@ def has_ci(root: Path) -> bool:
 
 
 def _seed_entry(pillar: str, content: str, **extra: str) -> dict:
-    """Build a seed entry with a deterministic UUID from content."""
+    """Build a seed entry with a deterministic ID from content."""
     entry = {
-        "id": str(uuid.uuid5(_SEED_NS, f"seed:{pillar}:{content}")),
+        "id": hashlib.sha256(f"seed:{pillar}:{content}".encode()).hexdigest()[:12],
         "content": content,
         "source": SOURCE_SEED,
         "ts": _SEED_TS,
