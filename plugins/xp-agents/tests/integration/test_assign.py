@@ -453,9 +453,7 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
     def _stop_input(self, **overrides) -> dict:
         data = {
             "session_id": "t",
-            "agent_id": "teammate-1",
-            "agent_type": "xp-teammate",
-            "cwd": str(self.tmpdir),
+            "cwd": str(self.tmpdir).rstrip("/") + "/.claude/worktrees/teammate-1/src",
         }
         data.update(overrides)
         return data

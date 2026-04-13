@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection via dispatch table + teammate detection:
+Tiered injection via dispatch table:
 - Explore: Intent + Constraints pillars (~200 tokens)
-- Teammate (custom agent_type): SMM + teammate guide
-- Default (Plan/general-purpose/background): Full SMM
+- Default (Plan/general-purpose/custom): Full SMM
 - xp-* forked agents: values only (data comes from preloads)
 
 XP values (~250 tokens) are injected universally for ALL subagents,
@@ -19,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import coordination
 import smm_cli
 
 
@@ -35,64 +33,9 @@ def _inject_full(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     return [_common.wrap_smm_context(rendered)] if rendered.strip() else []
 
 
-def _inject_teammate_core(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """Shared teammate injection: coordination + system context + SMM."""
-    agent_id = input_data.get("agent_id", "")
-    if agent_id and smm_dir:
-        coordination.update_coordination(smm_dir, agent_id, [])
-    parts: list[str] = []
-    ctx_path = smm_dir / "system_context.md"
-    if ctx_path.exists() and not ctx_path.is_symlink():
-        try:
-            ctx_content = ctx_path.read_text(encoding="utf-8")
-            if ctx_content.strip():
-                parts.append(f"## System Context\n{ctx_content}")
-        except OSError:
-            pass  # Graceful degradation
-    rendered = smm_cli.render_markdown(smm)
-    if rendered.strip():
-        parts.append(_common.wrap_smm_context(rendered))
-    return parts
-
-
-def _inject_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """Agent Teams teammate: SMM + teammate guide."""
-    parts = _inject_teammate_core(smm, smm_dir, input_data)
-    guide = _common.load_teammate_guide()
-    if guide:
-        parts.append(guide)
-    return parts
-
-
-def _inject_xp_teammate(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """xp-teammate: SMM + system context (instructions in agent .md)."""
-    return _inject_teammate_core(smm, smm_dir, input_data)
-
-
 def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """xp-* forked agents: values only (data comes from preloads)."""
     return []
-
-
-# ---------------------------------------------------------------------------
-# Teammate detection
-# ---------------------------------------------------------------------------
-
-_BUILTIN_TYPES = frozenset({"Explore", "Plan", "general-purpose", "Bash"})
-
-
-def is_teammate_by_agent_type(input_data: dict) -> bool:
-    """Detect teammates by agent_type exclusion.
-
-    Teammates are custom agent types — not built-in types (Explore, Plan,
-    general-purpose, Bash) and not xp-* plugin agents.
-    """
-    agent_type = input_data.get("agent_type", "")
-    if not agent_type:
-        return False
-    if agent_type in _BUILTIN_TYPES:
-        return False
-    return not agent_type.startswith("xp-")
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +44,6 @@ def is_teammate_by_agent_type(input_data: dict) -> bool:
 
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
-    "xp-teammate": _inject_xp_teammate,
-    "xp-agents:xp-teammate": _inject_xp_teammate,
 }
 
 
@@ -118,12 +59,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Dispatch: known types use their tier
     injector = _DISPATCH.get(agent_type)
     if injector is None:
-        if agent_type.startswith("xp-"):
-            injector = _inject_xp_agent
-        else:
-            # Detect teammates by agent_type, fall back to default
-            is_teammate = is_teammate_by_agent_type(input_data)
-            injector = _inject_teammate if is_teammate else _inject_full
+        injector = _inject_xp_agent if agent_type.startswith("xp-") else _inject_full
 
     # Resolve SMM dir
     smm_dir = _common.get_validated_smm_dir(smm_dir)

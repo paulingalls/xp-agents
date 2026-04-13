@@ -315,21 +315,19 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("XP Values", result)
         self.assertNotIn("Ship v1", result)
 
-    def test_teammate_gets_smm_and_guide(self):
-        """Teammate gets SMM + teammate guide (stories via spawn prompt)."""
+    def test_custom_agent_type_gets_full_smm(self):
+        """Custom agent types get full SMM (default tier), not teammate guide."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
-                "agent_id": "teammate-1",
+                "agent_id": "worker-1",
                 "agent_type": "backend-worker",
             },
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
         self.assertIn("Ship v1", result)
-        self.assertIn("Teammate Guide", result)
-        # Sprint stories NOT injected — come via spawn prompt instead
-        self.assertNotIn("sprint-001", result)
+        self.assertNotIn("Teammate Guide", result)
 
     def test_teammate_no_metadata_gets_smm_only(self):
         """Agent without assigned_stories gets default (full SMM + guide)."""
@@ -359,48 +357,6 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("XP Values", result)
-
-    def _run_xp_teammate(self) -> str | None:
-        return self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "teammate-1",
-                "agent_type": "xp-teammate",
-            },
-            smm_dir=self.smm_dir,
-        )
-
-    def test_xp_teammate_gets_smm_and_values(self):
-        """xp-teammate gets SMM + values but NOT teammate guide."""
-        result = self._run_xp_teammate()
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("Intent", result)
-        self.assertIn("Constraints", result)
-        self.assertIn("XP Values", result)
-
-    def test_xp_teammate_no_guide_or_process_or_sprint(self):
-        """xp-teammate skips guide, process guide, and sprint."""
-        result = self._run_xp_teammate()
-        self.assertIsNotNone(result)
-        self.assertNotIn("Teammate Guide", result)
-        self.assertNotIn("PROCESS_GUIDE", result)
-        self.assertNotIn("sprint-001", result)
-
-    def test_xp_teammate_plugin_prefixed_agent_type(self):
-        """Platform sends 'xp-agents:xp-teammate' — must route correctly."""
-        result = self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "teammate-2",
-                "agent_type": "xp-agents:xp-teammate",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("XP Values", result)
-        self.assertNotIn("Teammate Guide", result)
 
     def test_other_xp_agents_get_values(self):
         """xp-* agents not in dispatch table still get XP values."""
@@ -440,102 +396,6 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Intent", result)
         self.assertIn("Risks", result)
         self.assertNotIn("sprint-001", result)
-
-
-# ===========================================================================
-# System context injection tests
-# ===========================================================================
-
-
-class TestTeammateSystemContext(_HookTestCase):
-    """System context injection for teammates via _inject_teammate."""
-
-    def setUp(self):
-        super().setUp()
-        import subagent_start
-
-        self.subagent_start = subagent_start
-        write_smm_fixture(
-            self.smm_dir,
-            intent=[("Ship v1", "goal")],
-            constraints=[("Python 3.10+ only", "convention")],
-        )
-
-    def _run_teammate(self) -> str | None:
-        return self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "teammate-1",
-                "agent_type": "backend-worker",
-            },
-            smm_dir=self.smm_dir,
-        )
-
-    def test_system_context_included_when_exists(self):
-        """When system_context.md exists, its content is injected for teammates."""
-        ctx_path = self.smm_dir / "system_context.md"
-        ctx_path.write_text("Project uses microservices architecture.\n")
-        result = self._run_teammate()
-        self.assertIsNotNone(result)
-        self.assertIn("System Context", result)
-        self.assertIn("Project uses microservices architecture.", result)
-
-    def test_system_context_appears_before_smm(self):
-        """System context appears BEFORE SMM content in the output."""
-        ctx_path = self.smm_dir / "system_context.md"
-        ctx_path.write_text("CONTEXT_MARKER_FIRST\n")
-        result = self._run_teammate()
-        self.assertIsNotNone(result)
-        ctx_pos = result.index("CONTEXT_MARKER_FIRST")
-        smm_pos = result.index("Ship v1")
-        self.assertLess(ctx_pos, smm_pos, "System context should appear before SMM")
-
-    def test_no_error_when_system_context_missing(self):
-        """When system_context.md does not exist, injection works normally."""
-        result = self._run_teammate()
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-        self.assertNotIn("System Context", result)
-
-    def test_symlink_system_context_skipped(self):
-        """When system_context.md is a symlink, it is skipped."""
-        real_file = self.smm_dir / "real_context.md"
-        real_file.write_text("Symlink content should be skipped.\n")
-        ctx_path = self.smm_dir / "system_context.md"
-        ctx_path.symlink_to(real_file)
-        result = self._run_teammate()
-        self.assertIsNotNone(result)
-        self.assertNotIn("Symlink content should be skipped", result)
-        self.assertNotIn("System Context", result)
-        self.assertIn("Ship v1", result)
-
-    def test_empty_system_context_skipped(self):
-        """When system_context.md is empty/whitespace, it is not injected."""
-        ctx_path = self.smm_dir / "system_context.md"
-        ctx_path.write_text("   \n  \n")
-        result = self._run_teammate()
-        self.assertIsNotNone(result)
-        self.assertNotIn("System Context", result)
-        self.assertIn("Ship v1", result)
-
-    def _run_xp_teammate(self) -> str | None:
-        return self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "teammate-1",
-                "agent_type": "xp-teammate",
-            },
-            smm_dir=self.smm_dir,
-        )
-
-    def test_xp_teammate_gets_system_context(self):
-        """xp-teammate gets system_context.md like other teammates."""
-        ctx_path = self.smm_dir / "system_context.md"
-        ctx_path.write_text("Microservices architecture.\n")
-        result = self._run_xp_teammate()
-        self.assertIsNotNone(result)
-        self.assertIn("System Context", result)
-        self.assertIn("Microservices architecture.", result)
 
 
 if __name__ == "__main__":

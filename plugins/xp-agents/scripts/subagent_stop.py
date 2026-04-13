@@ -26,7 +26,6 @@ from event_schema import (
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
 _PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
-_TEAMMATE_AGENT_TYPES = _common.TEAMMATE_AGENT_TYPES
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
@@ -202,13 +201,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         assign_result = _handle_plan_review_done(smm_dir, input_data)
         if assign_result is not None:
             return assign_result
-
-        # xp-teammate: record completion and clear coordination.
-        # Must run before the is_xp_agent skip — teammates are xp-* agents
-        # but need completion tracking for stop gate deferral.
-        if input_data.get("agent_type", "") in _TEAMMATE_AGENT_TYPES:
-            _record_completion(smm_dir, input_data.get("agent_id", "subagent"))
-            return None
 
     if _common.is_xp_agent(input_data):
         return None

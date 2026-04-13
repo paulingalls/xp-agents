@@ -199,12 +199,10 @@ class TestTaskCompleted(_HookTestCase):
 
 
 def _make_teammate_stop_input(**overrides) -> dict:
-    """Build a canonical Stop hook input for an xp-teammate."""
+    """Build a canonical Stop hook input for a CLI teammate."""
     data = {
         "session_id": "t",
-        "agent_id": "teammate-1",
-        "agent_type": "xp-teammate",
-        "cwd": "/tmp/fake-worktree",
+        "cwd": "/proj/.claude/worktrees/teammate-1/src",
     }
     data.update(overrides)
     return data
@@ -309,7 +307,7 @@ class TestTeammateStopGate(_HookTestCase):
 
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/agent-abc12345",
+            "cwd": "/proj/.claude/worktrees/teammate-abc12345",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
@@ -320,10 +318,10 @@ class TestTeammateStopGate(_HookTestCase):
         import markers
         import teammate_stop_gate
 
-        markers.set_review_flag(self.smm_dir, "agent-abc12345", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "teammate-abc12345", "simplify_done")
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/agent-abc12345",
+            "cwd": "/proj/.claude/worktrees/teammate-abc12345",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
@@ -335,7 +333,7 @@ class TestTeammateStopGate(_HookTestCase):
 
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/agent-ffffffff",
+            "cwd": "/proj/.claude/worktrees/teammate-ffffffff",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)

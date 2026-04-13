@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Stop command hook: teammate review cycle + commit gate.
 
-Blocks xp-teammate agents from stopping if they have uncommitted changes
-without completing the review cycle (xp-simplify → quality-review →
-security-review) and committing.
+Blocks CLI teammates (detected via worktree cwd path) from stopping if
+they have uncommitted changes without completing the review cycle
+(xp-simplify → quality-review → security-review) and committing.
 """
 
 import subprocess
@@ -31,22 +31,13 @@ def _has_uncommitted_changes(cwd: str) -> bool:
         return False
 
 
-def _is_worktree_teammate(input_data: dict) -> bool:
-    """Detect worktree teammates via cwd path or agent_type."""
-    agent_type = input_data.get("agent_type", "")
-    if agent_type in _common.TEAMMATE_AGENT_TYPES:
-        return True
-    cwd = input_data.get("cwd", "")
-    return _common._WORKTREE_PATH_MARKER in cwd
-
-
 def run(
     input_data: dict,
     smm_dir: Path | None = None,
     has_uncommitted: bool | None = None,
 ) -> str | None:
     """Return block reason if teammate should not stop, None otherwise."""
-    if not _is_worktree_teammate(input_data):
+    if not _common.is_worktree_teammate(input_data):
         return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)

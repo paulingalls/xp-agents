@@ -283,57 +283,6 @@ class TestSubagentStop(_HookTestCase):
         self.assertEqual(len(concerns), 0)
 
 
-class TestXpTeammateStop(_HookTestCase):
-    """xp-teammate completion: records event + clears coordination."""
-
-    def _teammate_input(self, agent_id="teammate-1", **overrides):
-        data = {
-            "session_id": "t",
-            "agent_id": agent_id,
-            "agent_type": "xp-agents:xp-teammate",
-            "last_assistant_message": "Done",
-        }
-        data.update(overrides)
-        return data
-
-    def test_records_completion_event(self):
-        """xp-teammate records a completion status event."""
-        subagent_stop.run(self._teammate_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        self.assertEqual(len(statuses), 1)
-        self.assertIn("teammate-1", statuses[0]["content"])
-        self.assertIn("completed", statuses[0]["content"].lower())
-
-    def test_clears_coordination(self):
-        """xp-teammate clears its coordination entry on stop."""
-        import coordination
-
-        coordination.update_coordination(self.smm_dir, "teammate-1", ["src/auth.py"])
-        subagent_stop.run(self._teammate_input(), smm_dir=self.smm_dir)
-        data = coordination.read_coordination(self.smm_dir)
-        self.assertNotIn("teammate-1", data)
-
-    def test_unprefixed_agent_type_also_handled(self):
-        """agent_type 'xp-teammate' (no plugin prefix) also works."""
-        subagent_stop.run(
-            self._teammate_input(agent_type="xp-teammate"),
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        self.assertEqual(len(statuses), 1)
-
-    def test_other_xp_agents_still_skip(self):
-        """Non-teammate xp-* agents still skip completion recording."""
-        subagent_stop.run(
-            self._teammate_input(agent_type="xp-nav"),
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_raw(self.smm_dir)
-        self.assertEqual(len(events), 0)
-
-
 class TestSubagentStopPlanGate(_HookTestCase):
     """SubagentStop writes plan gate for Plan subagents (Agent tool flow)."""
 
