@@ -1,7 +1,7 @@
 ---
 name: xp-assign
 description: >-
-  Analyze sprint stories, decide execution mode (solo vs worktree subagents),
+  Analyze plan steps, decide execution mode (solo vs worktree subagents),
   and either proceed solo or spawn xp-teammate agents for parallel execution.
   Auto-run after planning completes.
 allowed-tools:
@@ -15,46 +15,44 @@ allowed-tools:
 
 # Work Assignment
 
-Analyze the sprint and decide how to execute: solo (sequential) or with worktree-isolated subagents (parallel).
+Analyze the plan and decide how to execute: solo (sequential) or with worktree-isolated subagents (parallel).
 
 ## Pre-flight Checks
 
-1. If `SPRINT_FILE` was not provided — output: "No sprint data. Run `/xp-sprint-start` first." Stop.
-2. Read the sprint file at `SPRINT_FILE` path.
-3. If all stories have status `done` or `deferred` — output: "All stories complete." Stop.
-4. Count stories with status `ready` or `in-progress`.
-5. If only 1 active story — output: "Single story — proceeding solo." Stop (solo is implicit).
+1. If `PLAN_FILE` was not provided — output: "No plan file found. Enter plan mode and create a plan first." Stop.
+2. Read the plan file at `PLAN_FILE` path.
+3. If `SPRINT_FILE` was provided, read it for story context (optional — for status tracking only).
+4. Analyze the plan's steps/tasks for parallelization potential.
 
 ## Mode Selection
 
-Evaluate the active stories and choose a mode:
+Evaluate the plan steps and choose a mode:
 
 **Solo** (sequential execution by the lead) when ANY of these apply:
-- All active stories have dependency chains between them
-- All active stories are size S
-- Story file domains overlap (shared files between stories)
-- File domains are missing from stories (can't verify independence)
+- Plan steps have sequential dependencies between them
+- Plan steps target overlapping files
+- The plan is small (3 or fewer steps)
 
 **Worktree subagents** (parallel execution) when ALL of these apply:
-- 2+ active stories with no dependencies between them
-- Stories are size M or L (worth the coordination overhead)
-- Stories have non-overlapping file domains
+- 2+ independent step groups with no dependencies between them
+- Steps target non-overlapping files
+- Steps are substantial enough to justify coordination overhead
 
 Present the recommendation to the user via `AskUserQuestion`:
 - **Mode** (Solo or Worktree Subagents) with rationale
-- For worktree mode: which stories run in parallel, which are sequential
+- For worktree mode: which step groups run in parallel, which are sequential
 
 ## Solo Mode
 
-If solo: output "Proceeding with solo execution." and stop. The lead continues working on stories sequentially — no additional orchestration needed.
+If solo: output "Proceeding with solo execution." and stop. The lead continues working on steps sequentially — no additional orchestration needed.
 
 ## Worktree Subagent Mode
 
-For each parallel story, spawn an `xp-teammate` agent:
+For each parallel step group, spawn an `xp-teammate` agent:
 
 ```
 Agent({
-  description: "Story NNN: <title>",
+  description: "Step N: <title>",
   subagent_type: "xp-teammate",
   isolation: "worktree",
   run_in_background: true,
@@ -67,19 +65,22 @@ Agent({
 Each spawn prompt must be self-contained — the teammate has no context beyond what you provide:
 
 ```
-You are implementing story-NNN: <title>
+You are implementing step N: <title>
 
 ## Context
-<inlined design context from the story>
+<inlined design context from the plan step>
 
 ## File Domain
-<list of files this story exclusively owns>
+<list of files this step exclusively owns>
+
+## What to Change
+<detailed changes from the plan step>
 
 ## Acceptance Criteria
-<list from the story>
+<derived from the plan step's goals>
 
 ## Interface Contracts
-<shared boundaries with other stories, if any>
+<shared boundaries with other steps, if any>
 
 ## SMM Directory
 SMM_DIR=<path from preload>
@@ -90,6 +91,8 @@ Run the full review cycle before each commit: /simplify, /xp-quality-review, /xp
 When done, report: what was implemented, which acceptance criteria are met,
 commits made, and any concerns or assumptions that need attention.
 ```
+
+If a sprint is active (SPRINT_FILE provided), include the relevant story ID in the spawn prompt for status tracking.
 
 ### Post-Spawn Guidance
 
@@ -120,5 +123,5 @@ For worktree mode, record an assumption per domain boundary:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "assumption" --agent "xp-assign" \
-  --content "Domain boundary: <story-A files> independent of <story-B files>"
+  --content "Domain boundary: <step-A files> independent of <step-B files>"
 ```

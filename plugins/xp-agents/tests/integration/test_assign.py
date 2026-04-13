@@ -344,7 +344,12 @@ class TestPreloadMultiStorySprint(_IntegrationTestCase):
 
 
 class TestRenderedSprintForModeSelection(_IntegrationTestCase):
-    """Verify rendered sprint content contains mode-selection-relevant data."""
+    """Verify rendered sprint content contains data relevant to mode selection.
+
+    Sprint is optional context for story tracking — not the primary input.
+    Plan steps drive mode selection. These tests verify that when sprint
+    data IS present, it renders correctly for supplementary analysis.
+    """
 
     def _get_rendered_sprint(self, sprint_json: str) -> str:
         """Write sprint, run preload, return rendered sprint content."""
@@ -424,6 +429,52 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertIn("SMM_DIR=", result.stdout)
         self.assertIn("SMM_FILE=", result.stdout)
         self.assertNotIn("SPRINT_FILE=", result.stdout)
+
+    def test_preload_plan_only_no_sprint(self):
+        """Plan file exists, no sprint -> PLAN_FILE= and SMM_DIR= but no SPRINT_FILE=.
+
+        Verifies plan-primary semantics: plan file is the primary input for
+        mode selection and does not depend on sprint data.
+        """
+        sprint_path = self.smm_dir / "sprint.json"
+        if sprint_path.exists():
+            sprint_path.unlink()
+
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        output = result.stdout
+        self.assertIn("SMM_DIR=", output)
+        self.assertIn("PLAN_FILE=", output, "Plan file should be primary input")
+        self.assertNotIn("SPRINT_FILE=", output, "No sprint -> no SPRINT_FILE")
+
+        plan_path = _extract_preload_var(output, "PLAN_FILE")
+        self.assertIsNotNone(plan_path, "PLAN_FILE= value missing")
+        self.assertTrue(
+            Path(plan_path).is_file(),
+            f"PLAN_FILE should point to a readable file: {plan_path}",
+        )
+
+    def test_preload_plan_before_sprint_in_output(self):
+        """PLAN_FILE= appears before SPRINT_FILE= in preload output.
+
+        Verifies plan-primary ordering: plan is evaluated first as the
+        primary input for mode selection.
+        """
+        (self.smm_dir / "sprint.json").write_text(_multi_story_sprint_worktree())
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        output = result.stdout
+        plan_pos = output.find("PLAN_FILE=")
+        sprint_pos = output.find("SPRINT_FILE=")
+        self.assertGreaterEqual(plan_pos, 0, "PLAN_FILE= must be present")
+        self.assertGreaterEqual(sprint_pos, 0, "SPRINT_FILE= must be present")
+        self.assertLess(
+            plan_pos,
+            sprint_pos,
+            "PLAN_FILE= should appear before SPRINT_FILE= (plan is primary)",
+        )
 
     def test_preload_clears_assign_pending_marker(self):
         """Preload clears .assign-pending marker."""

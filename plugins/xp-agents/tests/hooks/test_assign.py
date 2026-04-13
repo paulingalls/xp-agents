@@ -128,5 +128,39 @@ class TestAssignPreload(_IntegrationTestCase):
         self.assertFalse(marker.exists(), "assign-pending marker should be cleared")
 
 
+_SKILL_MD = Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"
+
+
+class TestSkillMdPlanPrimary(unittest.TestCase):
+    """SKILL.md uses plan file as primary input, sprint as optional context."""
+
+    def setUp(self):
+        self.content = _SKILL_MD.read_text()
+
+    def test_preflight_gates_on_plan_file(self):
+        """Pre-flight checks gate on PLAN_FILE, not SPRINT_FILE."""
+        self.assertIn("PLAN_FILE", self.content)
+        self.assertIn("No plan file found", self.content)
+
+    def test_preflight_does_not_gate_on_sprint(self):
+        """Pre-flight does NOT stop if sprint is missing."""
+        self.assertNotIn("No sprint data", self.content)
+        self.assertNotIn("Run `/xp-sprint-start` first", self.content)
+
+    def test_mode_selection_uses_plan_steps(self):
+        """Mode selection references plan steps, not sprint stories."""
+        self.assertIn("plan", self.content.lower())
+        self.assertIn("Mode Selection", self.content)
+
+    def test_sprint_is_optional_context(self):
+        """Sprint data is described as optional, not required."""
+        self.assertIn("optional", self.content.lower())
+
+    def test_no_session_mode_conditionals(self):
+        """No sprint-gated conditionals that would break free session mode."""
+        self.assertNotIn("all stories have status", self.content)
+        self.assertNotIn("Count stories with status", self.content)
+
+
 if __name__ == "__main__":
     unittest.main()
