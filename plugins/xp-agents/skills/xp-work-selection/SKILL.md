@@ -52,7 +52,48 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 Example topic: `retro-try-commit-after-green`, `retro-try-fix-gate-coverage`.
 Never use bare `retro-try-adopted` — always include a descriptive slug.
 
-For deferred or dropped items, record a status event noting the disposition.
+For deferred items, record a status event with `disposition` in metadata.
+If the Try item has `[refs: ...]`, include them in `metadata.resolves` so
+`annotate_try_status()` can track the deferral:
+
+With refs:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "xp-work-selection" \
+  --content "Deferred retro Try: <item summary>" \
+  --working-on '[]' \
+  --metadata '{"resolves": ["<event-ref-id>"], "disposition": "deferred"}'
+```
+
+Without refs:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "xp-work-selection" \
+  --content "Deferred retro Try: <item summary>" \
+  --working-on '[]' \
+  --metadata '{"disposition": "deferred"}'
+```
+
+For dropped items, use `"disposition": "dropped"` — this tells the retro agent
+to **never re-propose** this Try item:
+
+With refs:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "xp-work-selection" \
+  --content "Dropped retro Try: <item summary>" \
+  --working-on '[]' \
+  --metadata '{"resolves": ["<event-ref-id>"], "disposition": "dropped"}'
+```
+
+Without refs:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "xp-work-selection" \
+  --content "Dropped retro Try: <item summary>" \
+  --working-on '[]' \
+  --metadata '{"disposition": "dropped"}'
+```
 
 ## Step 2: Open Questions (if shown)
 

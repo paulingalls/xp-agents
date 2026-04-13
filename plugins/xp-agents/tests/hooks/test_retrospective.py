@@ -1448,5 +1448,52 @@ class TestRetrospectiveNudge(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestDecisionTopicsWiring(_HookTestCase):
+    """evaluate_flags receives decision topics extracted from events."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def test_decision_topics_suppress_flags(self):
+        import retrospective
+
+        decision = make_event(
+            "decision",
+            content="Adopted retro Try: kickoff exemption",
+            topic="retro-try-kickoff-exemption",
+        )
+        code_event = make_event("status", content="wrote code", working_on=["foo.py"])
+        filler = [make_event(content=f"f{i}") for i in range(55)]
+        commit = make_event("commit", content="git commit")
+        events = [decision, code_event, *filler, commit]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        flag_metrics = [f["metric"] for f in data["digest"]["flags"]]
+        self.assertNotIn("max_events_to_commit", flag_metrics)
+
+    def test_no_decision_topics_flags_fire(self):
+        import retrospective
+
+        code_event = make_event("status", content="wrote code", working_on=["foo.py"])
+        filler = [make_event(content=f"f{i}") for i in range(55)]
+        commit = make_event("commit", content="git commit")
+        events = [code_event, *filler, commit]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        flag_metrics = [f["metric"] for f in data["digest"]["flags"]]
+        self.assertIn("max_events_to_commit", flag_metrics)
+
+
 if __name__ == "__main__":
     unittest.main()

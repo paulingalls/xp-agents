@@ -84,14 +84,23 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
         content = item.get("content", "") if isinstance(item, dict) else item
         refs = item.get("event_refs", []) if isinstance(item, dict) else []
         tokens = set(_HEX_ID_RE.findall(content)) | set(refs)
-        resolver_id = None
+        hit = None
         for token in tokens:
             hit = resolutions_map.get(token[:8])
             if hit:
-                resolver_id = hit["resolver_id"]
                 break
-        if resolver_id:
-            statuses.append({"resolved_this_session": True, "resolver_id": resolver_id})
+        if hit:
+            entry: dict = {
+                "resolved_this_session": True,
+                "resolver_id": hit["resolver_id"],
+            }
+            disposition = hit.get("disposition")
+            if disposition:
+                entry["disposition"] = disposition
+            elif hit.get("type") == "decision":
+                # Decisions without explicit disposition are adoptions
+                entry["disposition"] = "adopted"
+            statuses.append(entry)
         else:
             statuses.append({"resolved_this_session": False})
     latest["try_status"] = statuses

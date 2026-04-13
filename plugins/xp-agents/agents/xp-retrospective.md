@@ -25,7 +25,7 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
      - `work_signals` — work-level correlations (see Work Analysis below)
      - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, and decision resolved this session via `metadata.resolves`. Use this to detect whether previous Try items were honored — a Try mentioning a short ID present in this map was resolved.
-   - `previous_retros` — last 2-3 retrospective summaries for trend detection. Each retro's `try` is a list of `{content, event_refs}` dicts (legacy string entries are migrated to this shape on read). The most recent retro also carries a parallel `try_status` list: `[{resolved_this_session, resolver_id?}]`, indexed in the same order as `try`.
+   - `previous_retros` — last 2-3 retrospective summaries for trend detection. Each retro's `try` is a list of `{content, event_refs}` dicts (legacy string entries are migrated to this shape on read). The most recent retro also carries a parallel `try_status` list: `[{resolved_this_session, resolver_id?, disposition?}]`, indexed in the same order as `try`. `disposition` is one of `"adopted"`, `"dropped"`, or `"deferred"` when `resolved_this_session` is true.
    - `event_type_counts` — breakdown by event type
    - `session_stats` — concern resolution ratio, decision counts, etc.
 
@@ -185,7 +185,12 @@ After saving, provide a concise Keep/Fix/Try summary that the main agent can act
 
 If `previous_retros` contains prior retrospective data:
 - Note recurring Fix items (same issue appearing across sessions)
-- Highlight Try items from previous retros that were or weren't adopted. **For the most recent retro, use `try_status[i].resolved_this_session` as the authoritative signal** — if `True`, the Try was honored this session. Do not re-propose it verbatim. If you still see ongoing evidence of the underlying problem, propose a *refined* Try, not a restatement, and reference the `resolver_id` in a Keep item acknowledging the work.
+- Highlight Try items from previous retros using `try_status[i]`:
+  - **`resolved_this_session: true`** — check `disposition` to decide what to do:
+    - `adopted`: The Try was implemented. Do not re-propose verbatim. If the underlying problem persists, propose a *refined* Try and reference the `resolver_id` in a Keep item.
+    - `dropped`: The user explicitly rejected this approach. Do **not** re-propose it — the user decided it's not worth pursuing.
+    - `deferred`: The user chose to postpone. You may re-propose it, but note how many times it has been deferred for visibility.
+  - **`resolved_this_session: false`** (or no disposition): The Try was not reviewed. Re-propose if the underlying problem still appears in this session's data.
 - Call out positive trends from Keep items
 
 ## SMM Content Trust

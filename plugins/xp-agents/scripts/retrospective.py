@@ -209,11 +209,15 @@ def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
     result: dict[str, dict] = {}
     for type_name, bucket_key in _RESOLUTION_BUCKETS:
         for target_id, resolver in resolutions.get(bucket_key, {}).items():
-            result[target_id[:8]] = {
+            entry: dict = {
                 "type": type_name,
                 "resolver_id": resolver.get("id", "")[:8],
                 "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
             }
+            disposition = resolver.get("metadata", {}).get("disposition")
+            if disposition:
+                entry["disposition"] = disposition
+            result[target_id[:8]] = entry
     return result
 
 
@@ -332,11 +336,19 @@ def _build_retro_input(
     digest = _build_retro_digest(events, start_idx, resolutions)
     annotate_try_status(retro_history, digest["resolutions"])
 
+    decision_topics: list[str] = [
+        topic
+        for e in events
+        if e.get("type") == _common.DECISION
+        and isinstance((topic := e.get("topic")), str)
+    ]
+
     digest["flags"] = evaluate_flags(
         digest["honesty_signals"],
         digest["work_signals"],
         digest["status_summary"],
         session_stats,
+        decisions=decision_topics,
     )
 
     # Slim the digest for the subagent — reduce token cost

@@ -24,14 +24,21 @@ def _flag(
     }
 
 
+_FLAG_SUPPRESSIONS: dict[str, str] = {
+    "max_events_to_commit": "retro-try-kickoff-exemption",
+}
+
+
 def evaluate_flags(
     honesty_signals: dict,
     work_signals: dict,
     status_summary: dict,
     session_stats: dict,
+    decisions: list[str] | None = None,
 ) -> list[dict]:
     """Evaluate all metrics against thresholds. Returns list of flags."""
     flags: list[dict] = []
+    active_decisions = set(decisions) if decisions else set()
 
     tdd = honesty_signals.get("max_unique_files_without_test", 0)
     if tdd >= 5:
@@ -124,16 +131,18 @@ def evaluate_flags(
 
     events_to_commit = work_signals.get("max_events_to_commit", 0)
     if events_to_commit >= 50:
-        flags.append(
-            _flag(
-                "max_events_to_commit",
-                events_to_commit,
-                50,
-                "Simplicity",
-                f"Large batch: {events_to_commit} events between "
-                f"first edit and commit (threshold: 50)",
+        suppressor = _FLAG_SUPPRESSIONS.get("max_events_to_commit")
+        if not (suppressor and suppressor in active_decisions):
+            flags.append(
+                _flag(
+                    "max_events_to_commit",
+                    events_to_commit,
+                    50,
+                    "Simplicity",
+                    f"Large batch: {events_to_commit} events between "
+                    f"first edit and commit (threshold: 50)",
+                )
             )
-        )
 
     test_failures = work_signals.get("max_consecutive_test_failures", 0)
     if test_failures >= 3:

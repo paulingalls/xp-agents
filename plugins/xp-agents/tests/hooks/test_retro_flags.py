@@ -254,5 +254,50 @@ class TestFlagStructure(unittest.TestCase):
         self.assertEqual(flags[0]["category"], "fix")
 
 
+class TestDecisionAwareSuppression(unittest.TestCase):
+    def test_max_events_to_commit_suppressed_by_decision(self):
+        h, w, s, ss = _healthy_signals()
+        w["max_events_to_commit"] = 80
+        flags = retro_flags.evaluate_flags(
+            h, w, s, ss, decisions=["retro-try-kickoff-exemption"]
+        )
+        names = [f["metric"] for f in flags]
+        self.assertNotIn("max_events_to_commit", names)
+
+    def test_unrelated_decision_does_not_suppress(self):
+        h, w, s, ss = _healthy_signals()
+        w["max_events_to_commit"] = 80
+        flags = retro_flags.evaluate_flags(
+            h, w, s, ss, decisions=["retro-try-something-else"]
+        )
+        names = [f["metric"] for f in flags]
+        self.assertIn("max_events_to_commit", names)
+
+    def test_other_flags_unaffected_by_kickoff_decision(self):
+        h, w, s, ss = _healthy_signals()
+        h["commits_without_triage"] = 2
+        w["max_events_to_commit"] = 80
+        flags = retro_flags.evaluate_flags(
+            h, w, s, ss, decisions=["retro-try-kickoff-exemption"]
+        )
+        names = [f["metric"] for f in flags]
+        self.assertNotIn("max_events_to_commit", names)
+        self.assertIn("commits_without_triage", names)
+
+    def test_backward_compat_no_decisions_param(self):
+        h, w, s, ss = _healthy_signals()
+        w["max_events_to_commit"] = 80
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        names = [f["metric"] for f in flags]
+        self.assertIn("max_events_to_commit", names)
+
+    def test_empty_decisions_list_no_suppression(self):
+        h, w, s, ss = _healthy_signals()
+        w["max_events_to_commit"] = 80
+        flags = retro_flags.evaluate_flags(h, w, s, ss, decisions=[])
+        names = [f["metric"] for f in flags]
+        self.assertIn("max_events_to_commit", names)
+
+
 if __name__ == "__main__":
     unittest.main()
