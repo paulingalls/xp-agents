@@ -20,15 +20,18 @@ Honor collective decisions — don't bypass conventions without recording a conc
 
 These are not optional. Hooks enforce some as safety nets, but follow the process proactively rather than waiting to be blocked.
 
-**Before implementing multi-file changes:**
-- Use `EnterPlanMode` for 3+ files. Run `/xp-review-plan` after exiting.
+**Plan cycle (hook-enforced):**
+- `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute
+- Use plan mode for multi-file changes (3+ files). The plan cycle ensures plans are reviewed for XP compliance and work is assigned before implementation begins.
+- Hook enforcement uses marker files, same pattern as the review cycle:
+  - `PostToolUse:ExitPlanMode` sets `.plan-awaiting-review` — blocks writes until plan is reviewed.
+  - `SubagentStop:xp-plan-reviewer` clears `.plan-awaiting-review` and sets `.assign-pending` — blocks writes until `/xp-assign` decides execution mode.
+  - `/xp-assign` clears `.assign-pending` and begins execution (solo or worktree subagents).
+- Works in both sprint and free sessions — `/xp-assign` reads the plan file's steps to decide execution mode.
 
 **Per commit (commit-gated review cycle):**
 - `/simplify` → `/xp-quality-review` → `/xp-security-triage` → `git commit`
 - The commit gate blocks if you skip a step. Non-code commits skip automatically.
-
-**After exiting plan mode:**
-- Run `/xp-review-plan` before writing any code.
 
 **Sprint iteration flow:**
 - `/xp-plan` → `/xp-sprint-start` → implement → `/xp-accept`
@@ -38,10 +41,10 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 - All XP agents are invoked via their corresponding skill, never launched directly with the Agent tool. Skills provide preload data and cleanup hooks that direct launches skip.
 - `/xp-review-plan`, `/xp-security-triage`, `/xp-run-retrospective`, `/xp-housekeeping`, `/xp-sprint-review`
 
-**Agent Teams (inline skill):**
-- `/xp-assign` is an inline skill that auto-runs after planning completes (`/xp-review-plan`). It analyzes sprint stories and decides execution mode:
-  - **Solo** — lead executes stories sequentially (dependency chains, overlapping domains, or small stories)
-  - **Worktree subagents** — spawns `xp-teammate` agents via Agent tool with `isolation: worktree` for parallel execution (independent stories with non-overlapping file domains)
+**Work assignment (plan cycle final step):**
+- `/xp-assign` is an inline skill that auto-runs as the final step of the plan cycle, after `/xp-review-plan` completes. It reads the plan file's steps and decides execution mode:
+  - **Solo** — lead executes steps sequentially (dependency chains, overlapping file targets, or small plans)
+  - **Worktree subagents** — spawns `xp-teammate` agents via Agent tool with `isolation: worktree` for parallel execution (independent steps with non-overlapping file targets)
 - Teammates receive TEAMMATE_GUIDE.md via SubagentStart injection and work independently with full TDD + review cycle.
 
 **When running tests:**
