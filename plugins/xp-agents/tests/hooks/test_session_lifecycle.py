@@ -242,6 +242,96 @@ class TestSessionEnd(_HookTestCase):
 
 
 # ===========================================================================
+# Teammate SessionEnd tests
+# ===========================================================================
+
+
+class TestTeammateSessionEnd(_HookTestCase):
+    """CLI teammate SessionEnd: resolve_agent_id + completion event."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+
+    def test_resolve_agent_id_used_in_event(self):
+        """SessionEnd event uses resolve_agent_id, not hardcoded 'main'."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        self.assertEqual(se["agent_id"], "teammate-story-001")
+
+    def test_non_teammate_uses_main(self):
+        """Non-teammate SessionEnd still uses 'main' agent_id."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": "/home/user/project"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        self.assertEqual(se["agent_id"], "main")
+
+    def test_cleanup_uses_resolved_agent_id(self):
+        """Marker cleanup uses resolved agent_id, not hardcoded 'main'."""
+        import markers
+        import session_end
+
+        agent_id = "teammate-story-001"
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, agent_id)
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, agent_id)
+        )
+
+    def test_teammate_records_completion_status(self):
+        """Teammate SessionEnd records a status event with branch metadata."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [
+            e
+            for e in events
+            if e.get("type") == "status"
+            and e.get("agent_id") == "teammate-story-001"
+            and "completed" in e.get("content", "").lower()
+        ]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("branch", statuses[0].get("metadata", {}))
+
+    def test_non_teammate_no_completion_status(self):
+        """Non-teammate SessionEnd does NOT record a completion status."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": "/home/user/project"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [
+            e
+            for e in events
+            if e.get("type") == "status" and "completed" in e.get("content", "").lower()
+        ]
+        self.assertEqual(len(statuses), 0)
+
+
+# ===========================================================================
 # pre_compact.py tests
 # ===========================================================================
 
