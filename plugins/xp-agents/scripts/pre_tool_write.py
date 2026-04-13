@@ -219,7 +219,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = _common.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
 
     parts: list[str] = []

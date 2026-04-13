@@ -24,7 +24,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = _common.resolve_agent_id(input_data)
 
     # Capture plan file path from ExitPlanMode response
     tool_response = input_data.get("tool_response", {})

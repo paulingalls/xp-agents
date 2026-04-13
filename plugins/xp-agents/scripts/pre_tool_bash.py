@@ -136,29 +136,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-
-    # DEBUG: log commit gate input for worktree investigation
-    command = input_data.get("tool_input", {}).get("command", "")
-    if security.is_git_commit(command):
-        smm_dbg = _common.get_validated_smm_dir()
-        if smm_dbg is not None:
-            import json as _json
-
-            agent_id_dbg = input_data.get("agent_id", "<missing>")
-            agent_type_dbg = input_data.get("agent_type", "<missing>")
-            cwd_dbg = input_data.get("cwd", "<missing>")
-            cycle_dbg = markers.read_review_cycle(
-                smm_dbg, input_data.get("agent_id", "main")
-            )
-            debug_event = _common.make_event(
-                _common.STATUS,
-                "commit-gate-debug",
-                f"id={agent_id_dbg} type={agent_type_dbg}"
-                f" cwd={cwd_dbg} cycle={_json.dumps(cycle_dbg)}",
-                working_on=[],
-            )
-            _common.append_safe(smm_dbg, debug_event)
-
     try:
         result = run(input_data)
     except _common.BlockedError as e:

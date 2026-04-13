@@ -46,7 +46,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if smm_dir is None:
         return None
 
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = _common.resolve_agent_id(input_data)
     error = input_data.get("error")
 
     if error:
