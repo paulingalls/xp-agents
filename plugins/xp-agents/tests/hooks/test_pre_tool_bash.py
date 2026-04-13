@@ -391,5 +391,49 @@ class TestTriageExemption(_HookTestCase):
         self.assertNotIn("exempt_reason", data)
 
 
+class TestAcceptGate(_HookTestCase):
+    """Accept gate blocks update-story done without /xp-accept."""
+
+    _SPRINT_CMD = (
+        "python3 /path/to/sprint_cli.py --smm-dir /tmp/smm update-story story-001 done"
+    )
+
+    def test_update_story_done_with_marker_blocks(self):
+        """update-story done with ACCEPT marker should block."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(command=self._SPRINT_CMD),
+                smm_dir=self.smm_dir,
+            )
+
+    def test_update_story_done_without_marker_allows(self):
+        """update-story done without ACCEPT marker should allow."""
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._SPRINT_CMD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_update_story_in_progress_with_marker_allows(self):
+        """update-story in-progress should not be blocked."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        cmd = self._SPRINT_CMD.replace("done", "in-progress")
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_non_sprint_command_with_marker_allows(self):
+        """Regular command should not be blocked by ACCEPT marker."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        result = pre_tool_bash.run(
+            _make_bash_input(command="python3 -m unittest -v"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

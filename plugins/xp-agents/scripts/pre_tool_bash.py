@@ -93,6 +93,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             else:
                 security.write_security_triaged(smm_dir, exempt_reason="no-code-files")
 
+    if (
+        smm_dir is not None
+        and re.search(r"update-story\s+\S+\s+done\b", command)
+        and markers.marker_exists(smm_dir, markers.ACCEPT)
+    ):
+        raise _common.BlockedError(
+            "Run /xp-accept to verify acceptance criteria before marking stories done.",
+            "Acceptance verification required.",
+        )
+
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:
         target_files = detect_bash_target_files(command)
