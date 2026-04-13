@@ -43,11 +43,40 @@ GUPP_STARTUP = (
 # ---------------------------------------------------------------------------
 
 
+def _run_teammate(smm_dir: Path | None) -> str | None:
+    """Teammate SessionStart: XP Values + Teammate Guide + SMM. No markers."""
+    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    parts: list[str] = []
+    values = _common.load_xp_values()
+    if values:
+        parts.append(values)
+    guide = _common.load_teammate_guide()
+    if guide:
+        parts.append(guide)
+    if smm_dir is not None:
+        ctx_path = smm_dir / "system_context.md"
+        if ctx_path.exists() and not ctx_path.is_symlink():
+            try:
+                ctx = ctx_path.read_text(encoding="utf-8")
+                if ctx.strip():
+                    parts.append(f"## System Context\n{ctx}")
+            except OSError:
+                pass
+        smm_data = smm_store.load_smm(smm_dir)
+        rendered = smm_cli.render_markdown(smm_data)
+        if rendered.strip():
+            parts.append(rendered)
+    return "\n\n".join(parts) if parts else None
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core session_start logic. Returns additionalContext string or None."""
     # Recursion prevention
     if _common.is_xp_agent(input_data):
         return None
+
+    if _common.is_worktree_teammate(input_data):
+        return _run_teammate(smm_dir)
 
     source = input_data.get("source", "")
 

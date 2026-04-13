@@ -582,6 +582,99 @@ class TestPluginConfig(unittest.TestCase):
 
 
 # ===========================================================================
+# Teammate SessionStart tests
+# ===========================================================================
+
+
+class TestTeammateSessionStart(_HookTestCase):
+    """CLI teammate SessionStart: inject Values + Guide + SMM, skip markers."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+
+    def setUp(self):
+        super().setUp()
+        import session_start
+
+        self.session_start = session_start
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+        )
+
+    def _run_teammate(self, source="startup", **overrides):
+        data = {
+            "session_id": "test",
+            "source": source,
+            "cwd": self._TEAMMATE_CWD,
+            **overrides,
+        }
+        return self.session_start.run(data, smm_dir=self.smm_dir)
+
+    def test_teammate_gets_values_and_guide(self):
+        """Teammate gets XP Values + Teammate Guide."""
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertIn("Teammate Guide", result)
+
+    def test_teammate_gets_smm(self):
+        """Teammate gets rendered SMM content."""
+        result = self._run_teammate()
+        self.assertIn("Ship v1", result)
+        self.assertIn("Intent", result)
+
+    def test_teammate_no_gupp(self):
+        """Teammate does NOT get kickoff prompt."""
+        result = self._run_teammate()
+        self.assertNotIn("xp-kickoff", result)
+
+    def test_teammate_no_markers(self):
+        """Teammate SessionStart does NOT set any markers."""
+        import markers
+
+        self._run_teammate()
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.KICKOFF))
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.NEEDS_SPRINT))
+
+    def test_non_teammate_worktree_normal_path(self):
+        """Non-teammate worktree gets normal SessionStart behavior."""
+        import markers
+
+        self._write_events([make_event()])
+        result = self._run_teammate(
+            cwd="/home/user/project/.claude/worktrees/explore-abc/src"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-kickoff", result)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.KICKOFF))
+
+    def test_teammate_compact_reinjects(self):
+        """Compact source for teammates reinjects full context."""
+        result = self._run_teammate(source="compact")
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertIn("Teammate Guide", result)
+        self.assertIn("Ship v1", result)
+
+    def test_teammate_gets_system_context(self):
+        """Teammate gets system_context.md when present."""
+        (self.smm_dir / "system_context.md").write_text("Microservices arch.\n")
+        result = self._run_teammate()
+        self.assertIn("System Context", result)
+        self.assertIn("Microservices arch.", result)
+
+    def test_teammate_no_system_context_ok(self):
+        """Teammate works without system_context.md."""
+        result = self._run_teammate()
+        self.assertNotIn("System Context", result)
+        self.assertIn("XP Values", result)
+
+
+# ===========================================================================
 # Teammate guide content tests
 # ===========================================================================
 
