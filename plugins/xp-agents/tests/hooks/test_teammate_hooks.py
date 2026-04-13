@@ -316,12 +316,11 @@ class TestTeammateStopGate(_HookTestCase):
         self.assertIn("/xp-simplify", result)
 
     def test_worktree_cwd_resolves_agent_id(self):
-        """Worktree cwd resolves agent_id from marker file prefix."""
+        """Worktree cwd resolves agent_id from worktree directory name."""
         import markers
         import teammate_stop_gate
 
-        full_id = "abc12345deadbeef9"
-        markers.set_review_flag(self.smm_dir, full_id, "simplify_done")
+        markers.set_review_flag(self.smm_dir, "agent-abc12345", "simplify_done")
         inp = {
             "session_id": "t",
             "cwd": "/proj/.claude/worktrees/agent-abc12345",
@@ -341,6 +340,32 @@ class TestTeammateStopGate(_HookTestCase):
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
         self.assertIn("/xp-simplify", result)
+
+    def test_cli_teammate_worktree_detected(self):
+        """CLI teammate worktree path (teammate-*) is detected."""
+        import teammate_stop_gate
+
+        inp = {
+            "session_id": "t",
+            "cwd": "/proj/.claude/worktrees/teammate-story-001",
+        }
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-simplify", result)
+
+    def test_cli_teammate_resolves_agent_id_for_markers(self):
+        """CLI teammate uses resolve_agent_id for marker scoping."""
+        import markers
+        import teammate_stop_gate
+
+        markers.set_review_flag(self.smm_dir, "teammate-story-001", "simplify_done")
+        inp = {
+            "session_id": "t",
+            "cwd": "/proj/.claude/worktrees/teammate-story-001",
+        }
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
 
     def test_no_smm_dir_graceful(self):
         """Missing SMM dir exits cleanly."""
