@@ -177,6 +177,9 @@ def block_output(reason: str, system_message: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+TEAMMATE_AGENT_TYPES = frozenset({"xp-teammate", "xp-agents:xp-teammate"})
+
+
 def is_xp_agent(input_data: dict) -> bool:
     """Check if this is one of our own agent hooks (xp- prefix)."""
     agent_type = input_data.get("agent_type", "")

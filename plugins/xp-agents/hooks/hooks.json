@@ -242,6 +242,11 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end_warning.py",
             "statusMessage": "Checking session-end checklist..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_stop_gate.py",
+            "statusMessage": "Checking teammate review cycle..."
           }
         ]
       }

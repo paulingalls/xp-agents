@@ -193,5 +193,126 @@ class TestTaskCompleted(_HookTestCase):
         self.assertIsNone(result)
 
 
+# ===========================================================================
+# teammate_stop_gate.py — Stop gate: review cycle + commit before stop
+# ===========================================================================
+
+
+def _make_teammate_stop_input(**overrides) -> dict:
+    """Build a canonical Stop hook input for an xp-teammate."""
+    data = {
+        "session_id": "t",
+        "agent_id": "teammate-1",
+        "agent_type": "xp-teammate",
+        "cwd": "/tmp/fake-worktree",
+    }
+    data.update(overrides)
+    return data
+
+
+class TestTeammateStopGate(_HookTestCase):
+    """Stop gate blocks teammates without completed review cycle + commit."""
+
+    def _set_review_flags(self, **flags):
+        """Set review cycle marker flags for teammate-1."""
+        import markers
+
+        data = markers.read_review_cycle(self.smm_dir, "teammate-1")
+        data.update(flags)
+        markers.write_review_cycle(self.smm_dir, "teammate-1", data)
+
+    def test_non_teammate_skips(self):
+        """Non-teammate agent_type exits cleanly."""
+        import teammate_stop_gate
+
+        inp = _make_teammate_stop_input(agent_type="xp-plan-reviewer")
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_agent_type_skips(self):
+        """Missing agent_type exits cleanly."""
+        import teammate_stop_gate
+
+        inp = _make_teammate_stop_input(agent_type="")
+        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_no_uncommitted_changes_allows_stop(self):
+        """Teammate with no uncommitted changes can stop."""
+        import teammate_stop_gate
+
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=False,
+        )
+        self.assertIsNone(result)
+
+    def test_uncommitted_no_review_blocks_simplify(self):
+        """Uncommitted changes + no review cycle → block: run /simplify."""
+        import teammate_stop_gate
+
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("/simplify", result)
+
+    def test_simplify_done_blocks_quality(self):
+        """simplify done but not quality → block: run /xp-quality-review."""
+        import teammate_stop_gate
+
+        self._set_review_flags(simplify_done=True)
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_quality_done_blocks_security(self):
+        """simplify + quality done but not security → block: run /xp-security-triage."""
+        import teammate_stop_gate
+
+        self._set_review_flags(simplify_done=True, quality_review_done=True)
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-security-triage", result)
+
+    def test_full_review_blocks_commit(self):
+        """Full review cycle done but uncommitted → block: commit."""
+        import teammate_stop_gate
+
+        self._set_review_flags(
+            simplify_done=True,
+            quality_review_done=True,
+            security_review_done=True,
+        )
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("commit", result.lower())
+
+    def test_no_smm_dir_graceful(self):
+        """Missing SMM dir exits cleanly."""
+        import teammate_stop_gate
+
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=Path("/nonexistent/smm"),
+        )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

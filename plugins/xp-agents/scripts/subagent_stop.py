@@ -26,7 +26,7 @@ from event_schema import (
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
 _PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
-_TEAMMATE_AGENT_TYPES = {"xp-teammate", "xp-agents:xp-teammate"}
+_TEAMMATE_AGENT_TYPES = _common.TEAMMATE_AGENT_TYPES
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
