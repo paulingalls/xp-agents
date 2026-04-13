@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.8.1 — Close Retro Fix/Try Feedback Loop
+
+### Fixed
+- **Defer/drop now have downstream effect.** Work-selection skill records defer/drop with `metadata.resolves` and a `disposition` field, so `annotate_try_status()` can distinguish adopted/deferred/dropped. Previously both were generic status events that nothing read.
+- **Dropped Try items are never re-proposed.** Retro agent prompt uses `try_status[i].disposition` to decide: `dropped` = never re-propose, `deferred` = may re-propose with deferral count, `adopted` = don't repeat verbatim.
+- **Decision-aware flag suppression.** `evaluate_flags()` accepts a `decisions` parameter. `_FLAG_SUPPRESSIONS` mapping suppresses flags when a matching decision topic is active (e.g., `max_events_to_commit` suppressed by `retro-try-kickoff-exemption`). Closes the Adopt→Fix loop where adopting a Try created a decision but the same Fix kept firing.
+- **Commit-to-story attribution.** `_file_matches_domain()` handles path suffix matching (`plugins/xp-agents/scripts/foo.py` matches domain `scripts/foo.py`) and test-to-source mapping (`test_foo.py` matches `foo.py`). Previously strict set intersection missed all prefixed and test file paths.
+
+### Changed
+- **`_build_resolutions_map()`** propagates `disposition` from resolver event metadata into the resolutions map.
+- **`retrospective.py`** extracts decision topics from events and passes them to `evaluate_flags()`.
+
 ## v2.8.0 — Merge Sprint Retro into Session Retro
 
 ### Sprint-010: Milestone 3
