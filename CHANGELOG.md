@@ -82,7 +82,7 @@
 
 ### Architecture
 - **xp-teammate agent.** New worktree-isolated subagent for parallel story implementation. Spawned with `isolation: worktree`, runs full TDD + review cycle independently, commits to its own branch. The lead merges branches after completion.
-- **xp-assign inline skill.** Renamed from xp-spawn-team and converted from forked agent to inline skill. Directly analyzes sprint stories, decides execution mode (Solo vs Worktree subagents), and spawns xp-teammate agents via the Agent tool. Auto-runs after plan review completes.
+- **xp-assign inline skill.** Renamed from xp-spawn-team and converted from forked agent to inline skill. Analyzes the plan's steps, decides execution mode (Solo vs Worktree subagents), and spawns xp-teammate agents via the Agent tool. Auto-runs after plan review completes.
 - **Assign-pending gate.** When plan review completes, SubagentStop sets `.assign-pending` marker and nudges the agent to run `/xp-assign`. PreToolUse:Write blocks implementation until the marker is cleared. Mirrors the plan-review gate pattern.
 
 ### Added

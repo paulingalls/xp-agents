@@ -161,7 +161,7 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
 
     return (
         "IMPORTANT: Run the /xp-assign skill NOW to decide execution mode "
-        "(solo vs worktree subagents). The skill analyzes sprint stories "
+        "(solo vs worktree subagents). The skill analyzes the plan's steps "
         "and spawns teammates if parallel execution is appropriate."
     )
 

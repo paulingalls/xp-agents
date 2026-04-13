@@ -85,6 +85,6 @@ If the user says "skip" at any earlier step, still run housekeeping.
 
 Kickoff is complete. **Do NOT stop.**
 
-**If stories were selected in step 5**, enter plan mode and begin planning. After planning completes and the plan is reviewed (`/xp-review-plan`), run `/xp-assign` automatically — it analyzes the sprint stories and decides whether to proceed solo or spawn worktree subagents for parallel execution.
+**If stories were selected in step 5**, follow the plan cycle: enter plan mode, run `/xp-review-plan` after exiting, then run `/xp-assign` — it reads the plan's steps to decide execution mode (solo or worktree subagents). This works in both sprint and free sessions.
 
 **If no sprint is active or the user chose free session**, begin working on the session goals.

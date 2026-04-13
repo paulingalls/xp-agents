@@ -408,7 +408,7 @@ TeammateIdle and TaskCompleted enforce TDD — tests must pass before going idle
 **Worktree subagent mode** — parallel execution via `xp-teammate` agents. Chosen when 2+ independent stories have non-overlapping file domains and are worth the coordination overhead (size M/L).
 
 Flow:
-1. `/xp-assign` analyzes sprint stories (dependencies, file domains, sizing)
+1. `/xp-assign` analyzes the plan's steps (dependencies, file targets, scope)
 2. Presents mode recommendation to user for confirmation
 3. If worktree mode: spawns `xp-teammate` agents via Agent tool with `isolation: worktree` and `run_in_background: true`
 4. Each teammate gets a self-contained spawn prompt (story context, file domain, acceptance criteria, interface contracts)

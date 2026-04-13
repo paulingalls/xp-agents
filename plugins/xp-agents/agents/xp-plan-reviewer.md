@@ -110,19 +110,18 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ### 9. Execution Mode Recommendation
 
-When sprint data is available in your context, assess how the plan should be executed:
+Assess how the plan should be executed based on its steps:
 
-- **Solo** (single agent): The plan has 1 story or all tasks are sequential with overlapping file domains. Most plans fall here.
-- **Subagents** (Agent tool): The plan has 2-3 independent stories with non-overlapping file domains. Tasks can run in parallel via the Agent tool.
-- **Agent Team** (`/xp-assign`): The plan has 4+ independent stories, clear file domain separation, and the coordination overhead is justified by parallelism gains.
+- **Solo** (sequential): The plan has few steps, steps are sequential with overlapping file targets, or the scope is small. Most plans fall here.
+- **Worktree subagents** (parallel): The plan has 2+ independent step groups with non-overlapping file targets. Steps can run in parallel via worktree-isolated subagents.
 
 **Assessment criteria:**
-- How many stories does the sprint have? (1 = solo, 2-3 independent = consider subagents, 4+ = consider team)
-- Do story file domains overlap? (overlapping = solo, separate = parallelizable)
-- Are there dependency chains? (sequential deps = solo, parallel-safe = subagents/team)
-- Is the work large enough to justify coordination overhead? (small tasks = solo even if parallelizable)
+- How many independent step groups does the plan have? (1 = solo, 2+ non-overlapping = consider subagents)
+- Do step file targets overlap? (overlapping = solo, separate = parallelizable)
+- Are there dependency chains between steps? (sequential deps = solo, parallel-safe = subagents)
+- Is the work substantial enough to justify coordination overhead? (small steps = solo even if parallelizable)
 
-Include your recommendation in the output under an "Execution mode" heading. If no sprint data is present, skip this section.
+Include your recommendation in the output under an "Execution mode" heading.
 
 ## Output — Guidance for the Main Agent
 

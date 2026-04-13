@@ -260,7 +260,7 @@ The retrospective runs at session *start*, not session end — resilient to forc
 
 ### Sprint Execution: Solo and Worktree Subagents
 
-After planning, the `/xp-assign` skill analyzes sprint stories and selects an execution mode:
+After planning, the `/xp-assign` skill analyzes the plan's steps and selects an execution mode:
 
 **Solo** (sequential) — the lead executes stories one at a time. Best when stories have dependencies between them, overlapping file domains, or are all small (S-sized). This is the default and most common mode.
 
