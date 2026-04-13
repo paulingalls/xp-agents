@@ -64,12 +64,14 @@ def compute_resolutions(events: list[dict]) -> dict:
       - debt_resolutions: dict mapping debt event ID → resolving event
       - decision_resolutions: dict mapping decision event ID → resolving event
       - assumption_resolutions: dict mapping assumption event ID → resolving event
+      - other_resolutions: dict mapping any other event type ID → resolving event
       - answered_question_ids: set of answered question IDs
       - resolved_concern_ids: set of resolved concern IDs
       - resolved_goal_ids: set of resolved goal IDs
       - resolved_debt_ids: set of resolved debt IDs
       - resolved_decision_ids: set of resolved decision IDs
       - resolved_assumption_ids: set of resolved assumption IDs
+      - resolved_other_ids: set of resolved other event IDs
     """
     by_id: dict[str, dict] = {}
     question_answers: dict[str, dict] = {}
@@ -78,6 +80,7 @@ def compute_resolutions(events: list[dict]) -> dict:
     debt_resolutions: dict[str, dict] = {}
     decision_resolutions: dict[str, dict] = {}
     assumption_resolutions: dict[str, dict] = {}
+    other_resolutions: dict[str, dict] = {}
 
     for event in events:
         event_id = event.get("id", "")
@@ -112,6 +115,8 @@ def compute_resolutions(events: list[dict]) -> dict:
                     decision_resolutions[full_id] = event
                 case "assumption":
                     assumption_resolutions[full_id] = event
+                case _:
+                    other_resolutions[full_id] = event
 
     return {
         "question_answers": question_answers,
@@ -126,6 +131,8 @@ def compute_resolutions(events: list[dict]) -> dict:
         "resolved_debt_ids": set(debt_resolutions.keys()),
         "resolved_decision_ids": set(decision_resolutions.keys()),
         "resolved_assumption_ids": set(assumption_resolutions.keys()),
+        "other_resolutions": other_resolutions,
+        "resolved_other_ids": set(other_resolutions.keys()),
     }
 
 

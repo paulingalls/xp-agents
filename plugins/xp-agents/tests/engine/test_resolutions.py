@@ -193,6 +193,39 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(len(result["assumption_resolutions"]), 0)
         self.assertEqual(len(result["resolved_assumption_ids"]), 0)
 
+    def test_status_event_resolved_via_metadata_resolves(self):
+        """Resolving a status/sprint event should be tracked (Try item refs)."""
+        sprint_evt = make_event(
+            "sprint",
+            content="Sprint completed",
+            metadata={"sprint_id": "sprint-013", "action": "end"},
+        )
+        dropper = make_event(
+            "status",
+            content="Dropped retro Try: truncated UUID bug already fixed",
+            working_on=[],
+            metadata={"resolves": [sprint_evt["id"]], "disposition": "dropped"},
+        )
+        result = _append_impl.compute_resolutions([sprint_evt, dropper])
+        self.assertIn(sprint_evt["id"], result["other_resolutions"])
+        self.assertIn(sprint_evt["id"], result["resolved_other_ids"])
+
+    def test_other_resolution_includes_disposition(self):
+        """Resolutions of non-standard types preserve metadata like disposition."""
+        status_evt = make_event(
+            "status",
+            content="Some status event",
+            working_on=[],
+        )
+        resolver = make_event(
+            "decision",
+            content="Adopted retro Try item",
+            topic="retro-try-fix",
+            metadata={"resolves": [status_evt["id"]]},
+        )
+        result = _append_impl.compute_resolutions([status_evt, resolver])
+        self.assertIn(status_evt["id"], result["other_resolutions"])
+
     def test_resolve_prefix_ambiguous_skipped(self):
         """If a prefix matches multiple events, skip it (ambiguous)."""
         c1 = make_event("concern", content="First concern")

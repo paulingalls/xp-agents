@@ -139,6 +139,32 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
         entry = result[target_id]
         self.assertEqual(entry["disposition"], "dropped")
 
+    def test_other_resolutions_included_in_map(self):
+        """Resolutions of status/sprint events should appear in the map."""
+        from retrospective import _build_resolutions_map
+
+        target_id = "aabbccdd1111"
+        resolver = make_event(
+            "status",
+            content="Dropped retro Try: already fixed",
+            metadata={
+                "resolves": [target_id],
+                "disposition": "dropped",
+            },
+        )
+        resolutions = {
+            "concern_resolutions": {},
+            "goal_resolutions": {},
+            "debt_resolutions": {},
+            "decision_resolutions": {},
+            "assumption_resolutions": {},
+            "question_answers": {},
+            "other_resolutions": {target_id: resolver},
+        }
+        result = _build_resolutions_map(resolutions)
+        self.assertIn(target_id, result)
+        self.assertEqual(result[target_id]["disposition"], "dropped")
+
     def test_no_disposition_when_resolver_has_none(self):
         from retrospective import _build_resolutions_map
 

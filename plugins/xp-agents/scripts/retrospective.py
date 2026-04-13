@@ -196,6 +196,7 @@ _RESOLUTION_BUCKETS = (
     (_common.QUESTION, "question_answers"),
     (_common.ASSUMPTION, "assumption_resolutions"),
     (_common.DECISION, "decision_resolutions"),
+    ("other", "other_resolutions"),
 )
 
 

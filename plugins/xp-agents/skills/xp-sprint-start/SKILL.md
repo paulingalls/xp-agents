@@ -70,7 +70,7 @@ For each story, produce the enhanced format:
 Then the enriched sections:
 
 - **Context**: 2+ sentences of inlined design context. Synthesize from the milestone's Design Details + what you learned in the codebase dive. This is NOT a pointer — it's the actual design rationale the agent needs. Can be multiple paragraphs for complex stories.
-- **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories.
+- **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain.
 - **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
 - **Acceptance Criteria**: 3-5 testable conditions. At least one E2E prefixed with "E2E:".
 
