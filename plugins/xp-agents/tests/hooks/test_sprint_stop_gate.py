@@ -240,5 +240,33 @@ class TestSprintStopGatePostReview(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestSprintStopGateWorktreeAgentId(_HookTestCase):
+    """Worktree cwd uses resolve_agent_id for deferral checks."""
+
+    def test_worktree_cwd_reads_correct_review_cycle(self):
+        """Mid-review deferral uses worktree-derived agent_id."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        markers.write_review_cycle(
+            self.smm_dir,
+            "teammate-story-001",
+            {
+                "simplify_done": True,
+                "quality_review_done": False,
+                "security_review_done": False,
+                "last_review_commit": "abc123",
+            },
+        )
+        inp = _make_stop_input(
+            agent_id="",
+            cwd="/proj/.claude/worktrees/teammate-story-001",
+        )
+        result = sprint_stop_gate.run(inp, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

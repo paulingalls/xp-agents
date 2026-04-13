@@ -106,7 +106,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     # Defer if mid-workflow — only pay the cost when we'd otherwise block
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = _common.resolve_agent_id(input_data)
     if _deferred(smm_dir, agent_id):
         return None
 
