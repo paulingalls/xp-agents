@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.10.0 — Teammate Review Cycle
+
+### Sprint-013: Milestones 3 + 4
+- **Teammate-compatible review cycle.** Stop gate and nudge messages updated from `/simplify` → `/xp-simplify` and `/xp-security-triage` → `/security-review`. Teammates can now complete the full review cycle without spawning sub-agents.
+- **Agent definition updated.** `xp-teammate.md` Review Cycle section references inline-compatible skills (`/xp-simplify`, `/security-review`). `xp-assign/SKILL.md` spawn prompt template updated to match.
+- **Review nudge consistency.** `review_cycle_done.py` `_NEXT_STEP` dict now nudges `/security-review` (works for both main agent and teammates) instead of `/xp-security-triage`.
+
+### Sprint-012: Milestones 1 + 2
+- **xp-simplify inline skill.** Single-pass code review covering reuse, quality, and efficiency without spawning sub-agents. No "skip if false positive" escape hatch — every finding must be applied or recorded as debt.
+- **Plan archive command.** `plan_cli.py archive` moves completed execution plans to `plans/` directory. `xp-plan` SKILL.md update flow includes "Archive and start fresh" option.
+
+### Tests
+- **xp-simplify detection tests.** Characterization tests verify `review_cycle_done.py` handles `xp-simplify` and `xp-agents:xp-simplify` via substring matching.
+- **E2E review cycle test.** Integration test walks through the full 5-step stop gate sequence: `/xp-simplify` → `/xp-quality-review` → `/security-review` → commit → stop.
+
 ## v2.9.0 — Plan-Driven /xp-assign + Teammate Gates
 
 ### Sprint-011: Milestone 4
