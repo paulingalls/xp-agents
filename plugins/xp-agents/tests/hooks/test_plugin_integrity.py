@@ -33,6 +33,7 @@ _ALL_SKILL_NAMES = (
     "xp-review-plan",
     "xp-run-retrospective",
     "xp-security-triage",
+    "xp-simplify",
     "xp-assign",
     "xp-sprint-review",
     "xp-sprint-start",

@@ -138,29 +138,30 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 1. Read the full plan from `EXECUTION_PLAN=<path>` using `Read`.
 2. Show the user a summary (milestone counts from preload, titles from file).
-3. Ask what to change via `AskUserQuestion`: "Add milestones", "Refine existing", "Add sources", "Done".
-4. For new milestones, use the CLI to add:
+3. Ask what to change via `AskUserQuestion`: "Add milestones", "Refine existing", "Add sources", "Archive and start fresh", "Done".
+4. For archive: run `python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive`, then switch to the **Create Flow** (step 1 above) so the user can start a new plan.
+5. For new milestones, use the CLI to add:
    ```bash
    cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-milestone
    {"number": N, "name": "...", "status": "planned", "delivered_sprint": null, ...}
    EOF
    ```
-5. For new sources:
+6. For new sources:
    ```bash
    cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-source
    {"label": "...", "location": "...", "type": "repo", "content": null}
    EOF
    ```
-6. For overview changes:
+7. For overview changes:
    ```bash
    echo "New overview text" | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> set-overview
    ```
-7. **NEVER modify `delivered` milestones** — only `/xp-sprint-review` does that.
-8. Render and **output the plan as text** for review:
+8. **NEVER modify `delivered` milestones** — only `/xp-sprint-review` does that.
+9. Render and **output the plan as text** for review:
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
    ```
-9. Record a status event describing what changed.
+10. Record a status event describing what changed.
 
 ## Guidelines
 
