@@ -334,7 +334,7 @@ class TestPreloadMultiStorySprint(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         sprint_path = _extract_preload_var(result.stdout, "SPRINT_FILE")
-        self.assertIsNotNone(sprint_path, "SPRINT_FILE= not found in output")
+        assert sprint_path is not None, "SPRINT_FILE= not found in output"
         sprint_file = Path(sprint_path)
         self.assertTrue(sprint_file.is_file(), f"Sprint file not found: {sprint_file}")
 
@@ -357,7 +357,7 @@ class TestRenderedSprintForModeSelection(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         sprint_path = _extract_preload_var(result.stdout, "SPRINT_FILE")
-        self.assertIsNotNone(sprint_path, "SPRINT_FILE= not found")
+        assert sprint_path is not None, "SPRINT_FILE= not found"
         return Path(sprint_path).read_text()
 
     def test_rendered_sprint_includes_file_domains(self):
@@ -449,7 +449,7 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertNotIn("SPRINT_FILE=", output, "No sprint -> no SPRINT_FILE")
 
         plan_path = _extract_preload_var(output, "PLAN_FILE")
-        self.assertIsNotNone(plan_path, "PLAN_FILE= value missing")
+        assert plan_path is not None, "PLAN_FILE= value missing"
         self.assertTrue(
             Path(plan_path).is_file(),
             f"PLAN_FILE should point to a readable file: {plan_path}",
