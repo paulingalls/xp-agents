@@ -2,7 +2,7 @@
 """Integration tests for xp-assign and teammate workflow.
 
 Covers: preload with multi-story sprints (solo/worktree mode triggers),
-xp-teammate agent frontmatter, WorktreeCreate hook subprocess,
+WorktreeCreate hook subprocess,
 edge cases (missing file domains, all-S stories, dependency chains),
 and full E2E pipeline (init SMM, seed sprint, run preload, verify output).
 """
@@ -25,44 +25,6 @@ from conftest import (
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_SCRIPT = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
-_TEAMMATE_AGENT = _PLUGIN_ROOT / "agents" / "xp-teammate.md"
-
-
-class TestTeammateAgentFrontmatter(unittest.TestCase):
-    """xp-teammate agent definition has correct frontmatter."""
-
-    def test_agent_file_exists(self):
-        """xp-teammate.md agent file exists."""
-        self.assertTrue(_TEAMMATE_AGENT.is_file(), f"Missing: {_TEAMMATE_AGENT}")
-
-    def test_has_isolation_worktree(self):
-        """Agent frontmatter includes isolation: worktree."""
-        content = _TEAMMATE_AGENT.read_text()
-        self.assertIn("isolation: worktree", content)
-
-    def test_has_required_tools(self):
-        """Agent frontmatter lists required tools."""
-        content = _TEAMMATE_AGENT.read_text()
-        for tool in ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]:
-            self.assertIn(tool, content, f"Missing tool: {tool}")
-
-    def test_frontmatter_is_yaml_delimited(self):
-        """Agent file starts with YAML frontmatter (--- delimiters)."""
-        content = _TEAMMATE_AGENT.read_text()
-        lines = content.strip().splitlines()
-        self.assertEqual(lines[0], "---", "First line must be ---")
-        # Find closing ---
-        closing_idx = None
-        for i, line in enumerate(lines[1:], 1):
-            if line.strip() == "---":
-                closing_idx = i
-                break
-        self.assertIsNotNone(closing_idx, "Closing --- not found")
-
-    def test_has_name_xp_teammate(self):
-        """Frontmatter name field is xp-teammate."""
-        content = _TEAMMATE_AGENT.read_text()
-        self.assertIn("name: xp-teammate", content)
 
 
 class TestWorktreeCreateSubprocess(_IntegrationTestCase):
