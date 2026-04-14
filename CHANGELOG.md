@@ -1,6 +1,14 @@
 # Changelog
 
-## v2.12.0 — Merge + Accept + Cleanup
+## v2.12.0 — Merge + Accept + Cleanup + Documentation
+
+### Sprint-018: Milestone 5 (Documentation Update)
+- **CLAUDE.md slimmed to project-only content.** Removed "XP Practices", "Event Appending" usage, and "Resolving Events" sections (duplicated by plugin-injected PROCESS_GUIDE.md and XP_VALUES.md). Replaced per-file listings with directory-level structure. Added "Further Reading" section. Makes the repo a proper test environment for the plugin.
+- **README.md updated for CLI teammates.** All "Agent Teams" references updated. Skills table expanded from 8 to 14. SMM directory listing corrected (shared_mental_model.json, sprint.json, execution_plan.json). "behavioral guide" → "process guide" throughout. Test count updated to 2014.
+- **ARCHITECTURE.md modernized.** Replaced per-file plugin structure with directory-level descriptions. All "behavioral guide" / BEHAVIORAL_GUIDE.md references updated to "process guide" / PROCESS_GUIDE.md. Hook map verified against hooks.json. Component inventory updated.
+- **Design docs finalized.** CLI_TEAMMATE_DESIGN.md marked as fully implemented (M1-M4, Sprints 014-017). AGENT_TEAMS_DESIGN.md marked as superseded. SMM_DESIGN.md injection model updated (teammates use SessionStart, not SubagentStart).
+- **CHANGELOG v2.12.0 entry.** Documents Sprint-017 and post-sprint refactoring.
+- **First CLI teammate test.** All 5 stories executed in parallel by CLI teammates. Uncovered and fixed two spawn_teammate.py bugs before teammates could run.
 
 ### Sprint-017: Milestone 4
 - **cleanup_teammate.py.** New script verifies a teammate's branch is fully merged (`git merge-base --is-ancestor`), removes the git worktree and branch, and cleans up agent-scoped markers and report files from the SMM dir. Called by `/xp-accept` after stories pass acceptance criteria.
