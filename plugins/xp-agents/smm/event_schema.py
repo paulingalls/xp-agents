@@ -182,8 +182,11 @@ def validate_event(event: dict) -> list[str]:
         case "concern":
             if "severity" in event and event["severity"] not in VALID_SEVERITIES:
                 errors.append(
-                    f"Invalid severity: {event['severity']} (must be high/medium/low)"
+                    f"Invalid severity: {event['severity']}"
+                    f" (must be {'/'.join(sorted(VALID_SEVERITIES))})"
                 )
+            if "files" in event and not isinstance(event["files"], list):
+                errors.append("Field 'files' must be an array")
 
         case "question":
             if "priority" not in event:

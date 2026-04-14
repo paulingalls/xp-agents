@@ -108,7 +108,7 @@ Events are materialized into four pillars in the SMM:
 |------|--------|-------------|-----------------|
 | `goal` | Intent | Project north star, what we're building | content |
 | `status` | (activity) | What you're working on right now | content (working_on defaults to []) |
-| `concern` | Risks | Problem needing attention | content, severity (low/medium/high) |
+| `concern` | Risks | Problem needing attention | content, severity (low/medium/high), files (optional) |
 | `question` | Risks | Need customer input | content, priority |
 | `customer_input` | Intent | (Auto-logged by hook) | content |
 | `customer_intent` | Intent | Distilled customer request | content, intent_status (open/delivered/superseded) |

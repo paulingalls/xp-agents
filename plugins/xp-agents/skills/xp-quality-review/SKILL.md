@@ -50,7 +50,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" \
   --agent "xp-quality-review" \
   --content "Decision drift: [describe how code contradicts decision/convention]" \
-  --severity "medium"
+  --severity "medium" \
+  --files '["path/to/drifted/file.py"]'
 ```
 
 If no Constraints pillar exists in the SMM, skip this step.

@@ -59,7 +59,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "<your-agent-id>" \
   --content "What might go wrong" \
-  --severity "medium"
+  --severity "medium" \
+  --files '["path/to/affected/file.py"]'
 ```
 
 ## When Done

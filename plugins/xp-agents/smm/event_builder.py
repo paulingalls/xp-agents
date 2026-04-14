@@ -138,8 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["high", "medium", "low"],
     )
 
-    # debt specific
-    parser.add_argument("--files", help="JSON array of file paths (debt)")
+    # debt/concern specific
+    parser.add_argument("--files", help="JSON array of file paths (debt, concern)")
 
     # customer_intent specific
     parser.add_argument(

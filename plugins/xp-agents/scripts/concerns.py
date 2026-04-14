@@ -334,13 +334,13 @@ def find_related_decisions(events: list[dict], file_path: str, cwd: str) -> list
 # ---------------------------------------------------------------------------
 
 
-def find_debt_for_file(events: list[dict], file_path: str, cwd: str) -> list[dict]:
-    """Filter debt events whose files array includes the target file."""
+def find_issues_for_file(events: list[dict], file_path: str, cwd: str) -> list[dict]:
+    """Filter debt and concern events whose files array includes the target file."""
     normalized_target = normalize_path(file_path, cwd)
     return [
         e
         for e in events
-        if e.get("type") == DEBT
-        and isinstance(e.get("files", []), list)
+        if e.get("type") in (DEBT, CONCERN)
+        and isinstance(e.get("files"), list)
         and _file_list_contains(e["files"], normalized_target, cwd)
     ]

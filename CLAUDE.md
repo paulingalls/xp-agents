@@ -137,6 +137,7 @@ Some event types require additional fields:
 | `debt` | files | `--files` | `--files '["src/auth.py"]'` |
 | `decision` | topic | `--topic` | `--topic "error-handling"` |
 | `concern` | severity | `--severity` | `--severity "medium"` |
+| `concern` | files (optional) | `--files` | `--files '["src/auth.py"]'` |
 
 See PROCESS_GUIDE.md for full event type reference and examples.
 

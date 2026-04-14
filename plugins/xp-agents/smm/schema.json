@@ -82,7 +82,7 @@
     "files": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "File paths associated with the event (debt, commit)"
+      "description": "File paths associated with the event (debt, concern, commit)"
     },
     "intent_status": {
       "type": "string",
