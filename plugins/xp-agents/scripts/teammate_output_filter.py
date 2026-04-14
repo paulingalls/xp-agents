@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import coordination
 import identity
 import worktree
 
@@ -95,6 +96,7 @@ def process_stream(smm_dir: Path, teammate_id: str) -> None:
 
     report_path = write_report(smm_dir, teammate_id, result_text)
     record_completion(smm_dir, teammate_id, result)
+    coordination.clear_coordination_agent(smm_dir, teammate_id)
 
     branch = get_current_branch(str(smm_dir))
     summary = format_summary(report_path, branch or teammate_id, cost)

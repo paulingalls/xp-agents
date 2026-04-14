@@ -226,6 +226,38 @@ class TestMainE2E(_HookTestCase):
             )
         self.assertEqual(ctx.exception.code, 1)
 
+    def test_clears_coordination_on_completion(self):
+        """Teammate coordination entry cleared after stream processing."""
+        import io
+
+        import coordination
+        import teammate_output_filter
+
+        coordination.update_coordination(
+            self.smm_dir, "teammate-step-1", ["src/auth.py"]
+        )
+        coord = coordination.read_coordination(self.smm_dir)
+        self.assertIn("teammate-step-1", coord)
+
+        stdin_data = "\n".join(_MOCK_LINES) + "\n"
+        sys.stdin = io.StringIO(stdin_data)
+
+        with patch(
+            "teammate_output_filter.get_current_branch",
+            return_value="teammate-step-1",
+        ):
+            teammate_output_filter.main(
+                smm_dir=self.smm_dir,
+                teammate_id="teammate-step-1",
+            )
+
+        coord = coordination.read_coordination(self.smm_dir)
+        self.assertNotIn(
+            "teammate-step-1",
+            coord,
+            "Coordination entry should be cleared after completion",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
