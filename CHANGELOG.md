@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.12.4 — Remove xp-simplify, Test Split, Debt Cleanup
+
+- **xp-simplify skill removed.** CLI teammates run as independent `claude -p` processes with full tool access, so they use the built-in `/simplify` (3 review subagents) instead of the inline single-pass xp-simplify. Updated teammate_stop_gate, tests, README, and ARCHITECTURE.
+- **test_bash.py split.** Extracted `TestResolveStoryId` (9 tests) into `test_story_attribution.py`, reducing test_bash.py from 766 to 592 lines.
+
 ## v2.12.3 — Review Scope Fixes and Debt Cleanup
 
 - **Cross-teammate simplify scoped via Skill args.** xp-accept Step 0 now passes `args` to `/simplify` scoping the review to merged teammate changes, so it reviews the merge diffs instead of finding an empty working tree.
