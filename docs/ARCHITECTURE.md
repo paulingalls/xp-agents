@@ -127,7 +127,6 @@ Forked skills (`xp-run-retrospective`, `xp-review-plan`, `xp-security-triage`, `
 - `/xp-kickoff` — orchestrator, sequences retro → work selection → housekeeping at session start
 - `/xp-work-selection` — sprint setup, work selection, retro Try items
 - `/xp-quality-review` — post-simplify courage accountability, drift management, debt awareness
-- `/xp-simplify` — inline code review (code reuse, quality, efficiency) for CLI teammates
 - `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred

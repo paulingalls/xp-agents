@@ -247,7 +247,7 @@ class TestTeammateStopGate(_HookTestCase):
         self.assertIsNone(result)
 
     def test_uncommitted_no_review_blocks_simplify(self):
-        """Uncommitted changes + no review cycle → block: run /xp-simplify."""
+        """Uncommitted changes + no review cycle → block: run /simplify."""
         import teammate_stop_gate
 
         result = teammate_stop_gate.run(
@@ -256,7 +256,7 @@ class TestTeammateStopGate(_HookTestCase):
             has_uncommitted=True,
         )
         self.assertIsNotNone(result)
-        self.assertIn("/xp-simplify", result)
+        self.assertIn("/simplify", result)
 
     def test_simplify_done_blocks_quality(self):
         """simplify done but not quality → block: run /xp-quality-review."""
@@ -311,7 +311,7 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
-        self.assertIn("/xp-simplify", result)
+        self.assertIn("/simplify", result)
 
     def test_worktree_cwd_resolves_agent_id(self):
         """Worktree cwd resolves agent_id from worktree directory name."""
@@ -337,7 +337,7 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
-        self.assertIn("/xp-simplify", result)
+        self.assertIn("/simplify", result)
 
     def test_cli_teammate_worktree_detected(self):
         """CLI teammate worktree path (teammate-*) is detected."""
@@ -349,7 +349,7 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
-        self.assertIn("/xp-simplify", result)
+        self.assertIn("/simplify", result)
 
     def test_cli_teammate_resolves_agent_id_for_markers(self):
         """CLI teammate uses resolve_agent_id for marker scoping."""

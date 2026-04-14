@@ -531,7 +531,7 @@ class TestBashPostToolGreenNudge(_HookTestCase):
             _make_bash_input(
                 command="python3 -m pytest tests/",
                 stdout="===== 5 passed in 0.3s =====",
-                agent_type="xp-simplify",
+                agent_type="simplify",
             ),
             smm_dir=self.smm_dir,
         )

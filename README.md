@@ -194,7 +194,6 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
-| `/xp-simplify` | Inline code review — reuse, quality, efficiency (single-pass, no sub-agents) | Before commit (CLI teammates) |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
 | `/xp-security-triage` | Security review of pending changes | Before commits |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |

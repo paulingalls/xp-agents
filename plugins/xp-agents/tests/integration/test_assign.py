@@ -468,10 +468,10 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
 
         inp = self._stop_input()
 
-        # Step 1: uncommitted changes, no review → block for /xp-simplify
+        # Step 1: uncommitted changes, no review → block for /simplify
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
-        self.assertIn("/xp-simplify", result)
+        self.assertIn("/simplify", result)
 
         # Step 2: simplify done → block for /xp-quality-review
         markers.set_review_flag(self.smm_dir, "teammate-1", "simplify_done")

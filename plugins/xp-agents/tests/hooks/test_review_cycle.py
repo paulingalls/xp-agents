@@ -92,28 +92,6 @@ class TestReviewCycleDone(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
-    def test_xp_simplify_sets_flag(self):
-        """xp-simplify (inline teammate skill) sets simplify_done flag."""
-        review_cycle_done.run(self._skill_input("xp-simplify"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertTrue(cycle["simplify_done"])
-
-    def test_xp_simplify_nudges_quality_review(self):
-        """After /xp-simplify, nudge to run /xp-quality-review."""
-        result = review_cycle_done.run(
-            self._skill_input("xp-simplify"), smm_dir=self.smm_dir
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("/xp-quality-review", result)
-
-    def test_qualified_xp_simplify_name(self):
-        """Plugin-qualified xp-simplify also matches."""
-        review_cycle_done.run(
-            self._skill_input("xp-agents:xp-simplify"), smm_dir=self.smm_dir
-        )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertTrue(cycle["simplify_done"])
-
     def test_ignores_other_skills(self):
         review_cycle_done.run(self._skill_input("xp-kickoff"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
