@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import commits
 import coordination
+import identity
 import markers
 import security
 import worktree
@@ -52,7 +53,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
 
     tool_input = input_data.get("tool_input", {})
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
     command = tool_input.get("command", "")
 

@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import identity
 import markers
 
 
@@ -24,7 +25,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
 
     # Capture plan file path from ExitPlanMode response
     tool_response = input_data.get("tool_response", {})

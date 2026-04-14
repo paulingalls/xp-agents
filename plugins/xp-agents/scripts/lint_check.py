@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import identity
 import worktree
 
 # ---------------------------------------------------------------------------
@@ -294,7 +295,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
 
     file_path = _common.extract_file_path(tool_name, tool_input)

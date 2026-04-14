@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
+import identity
 import markers
 import sprint_state
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
@@ -106,7 +107,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     # Defer if mid-workflow — only pay the cost when we'd otherwise block
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
     if _deferred(smm_dir, agent_id):
         return None
 

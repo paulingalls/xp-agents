@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import _common
+import identity
 import worktree
 
 
@@ -64,7 +64,7 @@ def run(input_data: dict) -> str:
 
     # Branch from current branch if it differs from default
     branch = f"worktree-{name}"
-    current = _common.get_current_branch(cwd)
+    current = identity.get_current_branch(cwd)
     default = _get_default_branch(cwd)
 
     cmd = ["git", "worktree", "add", "-b", branch, worktree_path]

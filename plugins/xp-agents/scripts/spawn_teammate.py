@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import _common
+import identity
 import worktree
 
 
@@ -38,7 +38,7 @@ def create_worktree(name: str, cwd: str) -> str:
     wt_path = str(wt)
 
     cmd = ["git", "worktree", "add", "-b", name, wt_path]
-    current = _common.get_current_branch(cwd)
+    current = identity.get_current_branch(cwd)
     if current:
         cmd.append(current)
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _append_impl
 import _common
 import coordination
+import identity
 import markers
 import resolution
 from event_builder import generate_id
@@ -96,7 +97,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     events = _common.read_events_raw(smm_dir)
     summary = _compute_summary(events)
 
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
 
     # Build session_end event directly (avoids subprocess + shell escaping)
     event = {
@@ -125,8 +126,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     except _append_impl.LockTimeoutError as e:
         print(f"session_end lock error: {e}", file=sys.stderr)
 
-    if _common.is_worktree_teammate(input_data):
-        branch = _common.get_current_branch(input_data.get("cwd", ".")) or "unknown"
+    if identity.is_worktree_teammate(input_data):
+        branch = identity.get_current_branch(input_data.get("cwd", ".")) or "unknown"
         completion = {
             "id": generate_id(),
             "ts": datetime.now(timezone.utc).isoformat(),

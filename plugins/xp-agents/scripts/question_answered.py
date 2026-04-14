@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import identity
 import markers
 
 
@@ -46,7 +47,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if smm_dir is None:
         return None
 
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
     error = input_data.get("error")
 
     if error:

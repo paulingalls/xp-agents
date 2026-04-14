@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import identity
 import markers
 import security
 
@@ -54,7 +55,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
 
     # Plan review: nudge task creation (not part of commit review cycle)
     if _is_plan_review(skill_name):

@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import identity
 import markers
 
 
@@ -37,7 +38,7 @@ def run(
     has_uncommitted: bool | None = None,
 ) -> str | None:
     """Return block reason if teammate should not stop, None otherwise."""
-    if not _common.is_worktree_teammate(input_data):
+    if not identity.is_worktree_teammate(input_data):
         return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
@@ -50,7 +51,7 @@ def run(
     if not has_uncommitted:
         return None
 
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
     cycle = markers.read_review_cycle(smm_dir, agent_id) if agent_id else {}
 
     if not cycle.get("simplify_done"):

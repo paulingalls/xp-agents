@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import execution_plan_store
+import identity
 import markers
 import smm_cli
 import smm_store
@@ -75,7 +76,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if _common.is_worktree_teammate(input_data):
+    if identity.is_worktree_teammate(input_data):
         return _run_teammate(smm_dir)
 
     source = input_data.get("source", "")

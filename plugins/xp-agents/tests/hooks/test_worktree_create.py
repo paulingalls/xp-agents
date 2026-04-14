@@ -14,7 +14,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-import _common
+import identity
 import worktree
 
 # Real platform input format
@@ -48,7 +48,7 @@ class TestWorktreeCreate(unittest.TestCase):
         data = input_data or _INPUT
         with (
             mock.patch.object(
-                _common,
+                identity,
                 "get_current_branch",
                 return_value=current,
             ),
@@ -129,7 +129,7 @@ class TestWorktreeCreate(unittest.TestCase):
         """CalledProcessError propagates when git worktree add fails."""
         with (
             mock.patch.object(
-                _common,
+                identity,
                 "get_current_branch",
                 return_value="v2",
             ),

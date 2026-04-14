@@ -21,9 +21,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import identity
 import worktree
 
-get_current_branch = _common.get_current_branch
+get_current_branch = identity.get_current_branch
 
 
 def parse_result_event(lines: list[str]) -> dict | None:

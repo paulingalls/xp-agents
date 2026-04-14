@@ -16,6 +16,7 @@ import re
 import _common
 import commits
 import concerns
+import identity
 import markers
 import security
 import worktree
@@ -177,7 +178,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})
-    agent_id = _common.resolve_agent_id(input_data)
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
 
     command = tool_input.get("command", "")
