@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.11.0 — CLI Teammate Spawning
+
+### Sprint-016: Milestone 3
+- **spawn_teammate.py.** New launcher script creates git worktrees and starts independent `claude -p` processes for CLI teammates. Pre-spawn cleanup removes stale worktrees/branches for idempotent spawning. Uses `_common.resolve_git_root()` (cached). Detects plugin mode (inline vs marketplace) for correct `--plugin-dir` flag.
+- **teammate_output_filter.py.** New filter script captures `type:result` events from `--output-format stream-json` output. Writes report files to SMM dir, appends cost/duration/turns events for velocity tracking and retro analysis.
+- **xp-assign rewritten for CLI spawning.** SKILL.md replaced Agent tool `xp-teammate` spawning with `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`. Mode selection logic preserved. Preload exports `PLUGIN_ROOT`.
+- **xp-accept next steps.** Accept skill now directs to `/xp-sprint-review` when sprint is complete, rather than relying solely on the stop gate.
+- **Documentation debt cleared.** All stale references to removed `is_teammate_by_agent_type()`, `TEAMMATE_AGENT_TYPES`, and `xp-teammate` agent updated across CLAUDE.md, ARCHITECTURE.md, SMM_DESIGN.md, PROCESS_GUIDE.md, README.md, and CLI_TEAMMATE_DESIGN.md. Terminology updated from "Agent Teams" / "worktree subagents" to "CLI teammates".
+
+### Sprint-015: Milestone 2
+- **CLI teammate session lifecycle.** TEAMMATE_GUIDE.md rewritten for CLI teammates with full review cycle. SessionStart detects worktree teammates via `is_worktree_teammate()` and injects XP Values + guide + rendered SMM. SessionEnd records completion event with branch name. SubagentStart teammate injection and xp-teammate agent definition removed.
+- **resolve_agent_id consolidation.** Duplicate `get_current_branch()` helpers consolidated into `_common.get_current_branch()`.
+
 ## v2.10.0 — Teammate Review Cycle
 
 ### Sprint-013: Milestones 3 + 4

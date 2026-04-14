@@ -58,4 +58,6 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 4: Summary
 
-Present a summary: how many stories marked done, how many deferred. If all stories are now done or deferred, note that the sprint is complete.
+Present a summary: how many stories marked done, how many deferred.
+
+**If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate to catch it. The sprint review records velocity, updates the execution plan, and triggers sizing metrics for the next retrospective.
