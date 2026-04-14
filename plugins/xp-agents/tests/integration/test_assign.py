@@ -617,5 +617,50 @@ class TestCleanupTeammateE2E(_IntegrationTestCase):
         super().tearDown()
 
 
+_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
+
+
+class TestAcceptPreloadTeammate(_IntegrationTestCase):
+    """xp-accept preload detects teammate worktrees."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Feature", "M", "in-progress")],
+                sprint_id="sprint-017",
+                started="2026-04-13",
+            )
+        )
+
+    def test_preload_shows_teammate_worktrees(self):
+        """Preload lists teammate worktrees when they exist."""
+        import spawn_teammate
+
+        name = "teammate-story-001"
+        spawn_teammate.create_worktree(name, str(self.tmpdir))
+
+        result = self._run_preload(_ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("TEAMMATE_WORKTREES", result.stdout)
+        self.assertIn(name, result.stdout)
+
+    def test_preload_no_worktrees_no_section(self):
+        """Preload omits TEAMMATE_WORKTREES when none exist."""
+        result = self._run_preload(_ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("TEAMMATE_WORKTREES", result.stdout)
+
+    def test_preload_outputs_plugin_root(self):
+        """Preload outputs PLUGIN_ROOT for cleanup script access."""
+        result = self._run_preload(_ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PLUGIN_ROOT=", result.stdout)
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
+
+
 if __name__ == "__main__":
     unittest.main()

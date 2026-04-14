@@ -31,3 +31,12 @@ consume_marker ACCEPT
 echo "### STORIES_TO_ACCEPT"
 echo "Sprint has ${in_progress_count} in-progress stories to verify."
 echo "SPRINT_FILE=${SPRINT_FILE}"
+echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
+
+# Detect teammate worktrees
+teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/teammate-" | sed 's/^worktree //' || true)
+if [ -n "$teammate_wts" ]; then
+    echo ""
+    echo "### TEAMMATE_WORKTREES"
+    echo "$teammate_wts"
+fi

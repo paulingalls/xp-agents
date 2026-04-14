@@ -18,6 +18,18 @@ The preload above shows the sprint state: in-progress count + `SPRINT_FILE=<path
 
 **If the preload shows "ERROR" or "NO_IN_PROGRESS"**, explain the situation and stop. There is nothing to accept.
 
+## Step 0: Cross-Teammate Review (if TEAMMATE_WORKTREES shown)
+
+If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged into the current branch. Run a cross-teammate review cycle on the merged code to catch inter-story issues:
+
+1. Run `/simplify` — review the combined changes across all teammate contributions
+2. Run `/xp-quality-review` — check for drift against SMM constraints and inter-story debt
+3. Run `/xp-security-triage` — combined security review of all merged code
+
+This catches issues that individual teammate reviews might miss (e.g., duplicated patterns across stories, conflicting approaches, or combined security implications).
+
+If no TEAMMATE_WORKTREES section is shown, skip to Step 1.
+
 ## Step 1: Review Each In-Progress Story
 
 Read the sprint file using the `SPRINT_FILE` path from the preload output. For each story with `**Status:** in-progress`:
@@ -59,5 +71,20 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ## Step 4: Summary
 
 Present a summary: how many stories marked done, how many deferred.
+
+## Step 5: Cleanup Teammate Worktrees (if TEAMMATE_WORKTREES shown)
+
+If the preload showed **TEAMMATE_WORKTREES**, clean up each accepted story's worktree:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
+  --name teammate-story-NNN --smm-dir <SMM_DIR>
+```
+
+The script verifies the branch is merged before removing the worktree, branch, agent markers, and report file. Only clean up worktrees for stories marked **done** — leave deferred story worktrees intact for re-entry.
+
+If cleanup fails (unmerged commits), report the error and skip that worktree.
+
+## Step 6: Sprint Review
 
 **If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate to catch it. The sprint review records velocity, updates the execution plan, and triggers sizing metrics for the next retrospective.
