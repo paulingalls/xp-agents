@@ -27,7 +27,7 @@ fi
 # If marker didn't contain a valid file path, glob for the latest plan
 if [ -z "$PLAN_PATH" ] || [ ! -f "$PLAN_PATH" ]; then
     # shellcheck disable=SC2012
-    PLAN_PATH=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1)
+    PLAN_PATH=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1 || true)
 fi
 
 if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then

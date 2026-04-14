@@ -14,7 +14,7 @@ fi
 
 # Plan file — primary input for mode selection
 # shellcheck disable=SC2012
-PLAN_PATH=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1)
+PLAN_PATH=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1 || true)
 if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
     echo "PLAN_FILE=${PLAN_PATH}"
 fi
