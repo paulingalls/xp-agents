@@ -22,7 +22,7 @@ The preload above shows the sprint state: in-progress count + `SPRINT_FILE=<path
 
 If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged into the current branch. Run a cross-teammate review cycle on the merged code to catch inter-story issues:
 
-1. Run `/simplify` — review the combined changes across all teammate contributions
+1. Run `/simplify` scoped to the merged teammate changes — use `Skill(skill: "simplify", args: "the merged teammate changes since before the teammate merges")` so the review covers the merge diffs, not the empty working tree
 2. Run `/xp-quality-review` — check for drift against SMM constraints and inter-story debt
 3. Run `/xp-security-triage` — combined security review of all merged code
 
