@@ -24,7 +24,7 @@ If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged into 
 
 1. Run `/simplify` scoped to the merged teammate changes — use `Skill(skill: "simplify", args: "the merged teammate changes since before the teammate merges")` so the review covers the merge diffs, not the empty working tree
 2. Run `/xp-quality-review` — check for drift against SMM constraints and inter-story debt
-3. Run `/xp-security-triage` — combined security review of all merged code
+3. Run `/security-review` scoped to the merged teammate changes — use `Skill(skill: "security-review", args: "the merged teammate changes since before the teammate merges")` so the review covers the merge diffs, not the entire branch history
 
 This catches issues that individual teammate reviews might miss (e.g., duplicated patterns across stories, conflicting approaches, or combined security implications).
 

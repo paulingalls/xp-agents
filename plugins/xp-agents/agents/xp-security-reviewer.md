@@ -18,13 +18,13 @@ The built-in `/security-review` command performs its own git diff analysis. You 
 
 ## Step 1: Run Security Review
 
-Use the Skill tool:
+Use the Skill tool, scoped to uncommitted changes:
 
 ```
-Skill(skill: "security-review")
+Skill(skill: "security-review", args: "only uncommitted changes: staged, unstaged, and new untracked files")
 ```
 
-This is a **built-in Claude Code command**. Invoke it as `security-review`, NOT as `xp-agents:security-review`.
+This is a **built-in Claude Code command**. Invoke it as `security-review`, NOT as `xp-agents:security-review`. The args scope the review to the current working tree — do NOT review the entire branch history.
 
 ## Step 2: Record the Result
 
