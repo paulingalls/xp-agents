@@ -6,7 +6,6 @@ and final status — then appends a session_end event.
 """
 
 import contextlib
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,21 +81,6 @@ def _compute_summary(events: list[dict]) -> dict:
     }
 
 
-def _get_branch_name(cwd: str) -> str:
-    """Get current git branch name, or 'unknown' on failure."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.stdout.strip() or "unknown"
-    except (subprocess.SubprocessError, OSError):
-        return "unknown"
-
-
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
     """Core session_end logic. Appends session_end event."""
     # Recursion prevention
@@ -142,7 +126,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         print(f"session_end lock error: {e}", file=sys.stderr)
 
     if _common.is_worktree_teammate(input_data):
-        branch = _get_branch_name(input_data.get("cwd", "."))
+        branch = _common.get_current_branch(input_data.get("cwd", ".")) or "unknown"
         completion = {
             "id": generate_id(),
             "ts": datetime.now(timezone.utc).isoformat(),

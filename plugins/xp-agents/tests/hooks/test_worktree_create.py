@@ -7,8 +7,14 @@ creates a branch worktree-<name> from the current branch (not origin/HEAD).
 """
 
 import subprocess
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
+import _common
 
 # Real platform input format
 _INPUT = {
@@ -25,11 +31,7 @@ class TestWorktreeCreate(unittest.TestCase):
 
     def setUp(self):
         import importlib
-        import sys
-        from pathlib import Path
 
-        scripts = Path(__file__).parent.parent.parent / "scripts"
-        sys.path.insert(0, str(scripts))
         import worktree_create
 
         importlib.reload(worktree_create)
@@ -45,8 +47,8 @@ class TestWorktreeCreate(unittest.TestCase):
         data = input_data or _INPUT
         with (
             mock.patch.object(
-                self.worktree_create,
-                "_get_current_branch",
+                _common,
+                "get_current_branch",
                 return_value=current,
             ),
             mock.patch.object(
@@ -126,8 +128,8 @@ class TestWorktreeCreate(unittest.TestCase):
         """CalledProcessError propagates when git worktree add fails."""
         with (
             mock.patch.object(
-                self.worktree_create,
-                "_get_current_branch",
+                _common,
+                "get_current_branch",
                 return_value="v2",
             ),
             mock.patch.object(

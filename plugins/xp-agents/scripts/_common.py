@@ -54,6 +54,21 @@ class BlockedError(Exception):
 _WORKTREE_PATH_MARKER = "/.claude/worktrees/"
 
 
+def get_current_branch(cwd: str) -> str:
+    """Get current git branch name, or empty string on failure."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
 def _extract_worktree_name(cwd: str) -> str | None:
     """Extract worktree directory name from cwd, or None if not in worktree."""
     idx = cwd.find(_WORKTREE_PATH_MARKER)

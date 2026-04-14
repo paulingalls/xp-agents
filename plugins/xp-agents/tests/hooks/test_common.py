@@ -172,6 +172,36 @@ class TestIsWorktreeTeammate(unittest.TestCase):
         self.assertFalse(_common.is_worktree_teammate({}))
 
 
+class TestGetCurrentBranch(unittest.TestCase):
+    """get_current_branch returns branch name or empty string."""
+
+    def test_returns_branch_in_git_repo(self):
+        import subprocess
+        import tempfile
+
+        td = tempfile.mkdtemp()
+        subprocess.run(["git", "init", td], capture_output=True)
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=td,
+            capture_output=True,
+            env={
+                **os.environ,
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+        result = _common.get_current_branch(td)
+        self.assertIsInstance(result, str)
+        self.assertTrue(len(result) > 0)
+
+    def test_returns_empty_on_invalid_dir(self):
+        result = _common.get_current_branch("/nonexistent/path")
+        self.assertEqual(result, "")
+
+
 class TestResolvePluginRoot(unittest.TestCase):
     def test_from_env_var(self):
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/opt/plugins/xp"}):

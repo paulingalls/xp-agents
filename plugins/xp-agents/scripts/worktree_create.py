@@ -19,18 +19,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 
-def _get_current_branch(cwd: str) -> str:
-    """Get current branch name. Returns empty string on detached HEAD."""
-    try:
-        return subprocess.check_output(
-            ["git", "branch", "--show-current"],
-            text=True,
-            cwd=cwd,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except subprocess.CalledProcessError:
-        return ""
+import _common
 
 
 def _get_default_branch(cwd: str) -> str:
@@ -84,7 +75,7 @@ def run(input_data: dict) -> str:
 
     # Branch from current branch if it differs from default
     branch = f"worktree-{name}"
-    current = _get_current_branch(cwd)
+    current = _common.get_current_branch(cwd)
     default = _get_default_branch(cwd)
 
     cmd = ["git", "worktree", "add", "-b", branch, worktree_path]
