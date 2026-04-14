@@ -4,7 +4,6 @@
 Covers: preload.sh output (SMM, sprint, plan, guide), graceful degradation.
 """
 
-import os
 import sys
 import tempfile
 import unittest
@@ -59,22 +58,10 @@ _SAMPLE_PLAN = """\
 class TestAssignPreload(_IntegrationTestCase):
     """xp-assign preload: dumps SMM + sprint + plan paths."""
 
-    def setUp(self):
-        super().setUp()
-        # Create a temp plans directory to avoid polluting real ~/.claude/plans/
-        self._plans_dir = Path(tempfile.mkdtemp())
-        self._orig_home = os.environ.get("HOME")
-
-    def tearDown(self):
-        # Clean up temp plans
-        import shutil
-
-        shutil.rmtree(self._plans_dir, ignore_errors=True)
-        super().tearDown()
-
     def _write_plan(self, content: str = _SAMPLE_PLAN) -> Path:
-        """Write a plan file to a temp location and return its path."""
-        plan_file = self._plans_dir / "test-plan.md"
+        """Write a plan file and return its path."""
+        _, path = tempfile.mkstemp(suffix=".md")
+        plan_file = Path(path)
         plan_file.write_text(content)
         return plan_file
 
@@ -87,7 +74,7 @@ class TestAssignPreload(_IntegrationTestCase):
     def test_preload_outputs_plan_file_path(self):
         """PLAN_FILE= path output, NOT full plan content."""
         plan_path = self._write_plan()
-        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        (self.smm_dir / ".last-plan-path").write_text(str(plan_path))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PLAN_FILE=", result.stdout)

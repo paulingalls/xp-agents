@@ -32,6 +32,8 @@ fi
 
 if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
     echo "PLAN_FILE=${PLAN_PATH}"
+    # Persist plan path for xp-assign (marker is cleared below)
+    echo "$PLAN_PATH" > "${SMM_DIR}/.last-plan-path"
 fi
 
 # Clear plan review gate — this reviewer is running

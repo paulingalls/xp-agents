@@ -12,11 +12,13 @@ if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
     echo "SMM_FILE=$(smm_render_to_tempfile)"
 fi
 
-# Plan file — primary input for mode selection
-# shellcheck disable=SC2012
-PLAN_PATH=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1 || true)
-if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
-    echo "PLAN_FILE=${PLAN_PATH}"
+# Plan file — read path persisted by xp-review-plan preload
+PLAN_MARKER="${SMM_DIR}/.last-plan-path"
+if [ -f "$PLAN_MARKER" ]; then
+    PLAN_PATH=$(cat "$PLAN_MARKER")
+    if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
+        echo "PLAN_FILE=${PLAN_PATH}"
+    fi
 fi
 
 # Sprint data — optional context for story tracking

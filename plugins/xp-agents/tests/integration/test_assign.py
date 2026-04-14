@@ -344,6 +344,13 @@ class TestRenderedSprintForModeSelection(_IntegrationTestCase):
 class TestPreloadE2EPipeline(_IntegrationTestCase):
     """Full E2E: init SMM, seed sprint, run preload, verify output paths."""
 
+    def _seed_plan(self, content: str = "# Test Plan\n## Step 1\nDo things\n"):
+        """Create a plan file and .last-plan-path marker."""
+        plan_file = self.smm_dir / "test-plan.md"
+        plan_file.write_text(content)
+        (self.smm_dir / ".last-plan-path").write_text(str(plan_file))
+        return plan_file
+
     def test_full_pipeline_with_smm_and_sprint(self):
         """Complete pipeline: SMM + sprint -> preload outputs both paths."""
         # Seed SMM
@@ -386,6 +393,7 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         Verifies plan-primary semantics: plan file is the primary input for
         mode selection and does not depend on sprint data.
         """
+        self._seed_plan()
         sprint_path = self.smm_dir / "sprint.json"
         if sprint_path.exists():
             sprint_path.unlink()
@@ -411,6 +419,7 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         Verifies plan-primary ordering: plan is evaluated first as the
         primary input for mode selection.
         """
+        self._seed_plan()
         (self.smm_dir / "sprint.json").write_text(_multi_story_sprint_worktree())
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
