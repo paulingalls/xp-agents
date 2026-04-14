@@ -172,10 +172,10 @@ plugins/xp-agents/
 ├── TEAMMATE_GUIDE.md             ← rules for CLI teammates
 ├── hooks/hooks.json              ← all hook registrations
 ├── scripts/                      ← ~47 command hooks + shared modules
-├── agents/                       ← 6 subagent definitions (.md files)
+├── agents/                       ← 7 subagent definitions (.md files)
 ├── skills/                       ← 14 skills (forked + inline)
 ├── smm/                          ← SMM engine (append, compact, materialize, sprint)
-└── tests/                        ← ~2014 tests across 4 suites (hooks, integration, engine, smm)
+└── tests/                        ← ~2041 tests across 4 suites (hooks, integration, engine, smm)
 ```
 
 ## Error Handling
@@ -311,4 +311,4 @@ tests/
 - `README.md` — overview, install, how it works
 - `docs/ARCHITECTURE.md` — hook map, event types, injection model, platform constraints
 - `docs/SMM_DESIGN.md` — four-pillar Shared Mental Model design
-- `docs/CLI_TEAMMATE_DESIGN.md` — CLI teammate mechanism
+- `docs/completed/CLI_TEAMMATE_DESIGN.md` — CLI teammate mechanism

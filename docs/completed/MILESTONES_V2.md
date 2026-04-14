@@ -14,7 +14,7 @@ Migration is additive — no data migration needed. First kickoff with new code 
 
 ### M1: Marker Infrastructure + Review Cycle Marker
 
-> **Design ref:** [Commit-Gated Review Cycle](../AGENT_TEAMS_DESIGN.md#commit-gated-review-cycle) — marker file format, gate logic, flag lifecycle
+> **Design ref:** [Commit-Gated Review Cycle](AGENT_TEAMS_DESIGN.md#commit-gated-review-cycle) — marker file format, gate logic, flag lifecycle
 
 Create `markers.py` module consolidating all marker file operations, then add the review cycle marker.
 
@@ -52,7 +52,7 @@ Common operations: `path()`, `read()`, `write()` (atomic), `exists()`, `consume(
 
 ### M2: Commit-Gated Review Cycle
 
-> **Design ref:** [Commit-Gated Review Cycle](../AGENT_TEAMS_DESIGN.md#commit-gated-review-cycle) — PreToolUse:Bash gate logic, PostToolUse:Bash bookkeeping, SubagentStop flag updates; [Gate Architecture](../AGENT_TEAMS_DESIGN.md#gate-architecture) — full gate chain; [Key Design Points](../AGENT_TEAMS_DESIGN.md#key-design-points) — why commit-gated, not stop-gated
+> **Design ref:** [Commit-Gated Review Cycle](AGENT_TEAMS_DESIGN.md#commit-gated-review-cycle) — PreToolUse:Bash gate logic, PostToolUse:Bash bookkeeping, SubagentStop flag updates; [Gate Architecture](AGENT_TEAMS_DESIGN.md#gate-architecture) — full gate chain; [Key Design Points](AGENT_TEAMS_DESIGN.md#key-design-points) — why commit-gated, not stop-gated
 
 Move simplify, quality review, and security triage enforcement from Stop to commit time.
 
@@ -83,7 +83,7 @@ Move simplify, quality review, and security triage enforcement from Stop to comm
 
 ### M3: Remove Stop Gates for Simplify/Quality Review
 
-> **Design ref:** [Remaining TeammateIdle/TaskCompleted Gates](../AGENT_TEAMS_DESIGN.md#remaining-teammateidletaskcompleted-gates) — TDD stays at Stop, simplify/quality/security move to commit-gated
+> **Design ref:** [Remaining TeammateIdle/TaskCompleted Gates](AGENT_TEAMS_DESIGN.md#remaining-teammateidletaskcompleted-gates) — TDD stays at Stop, simplify/quality/security move to commit-gated
 
 **Refactor (cleanup):**
 - Remove `simplify_gate.py` and `quality_review_gate.py` entirely (dead code now)
@@ -217,7 +217,7 @@ Fix `normalize_path()` so `.coordination.json` conflict detection works across w
 
 ### M5: Sprint Event Type [SHIPPED]
 
-> **Design ref:** [New Event Types — `sprint`](../AGENT_TEAMS_DESIGN.md#sprint) — event format, start/end metadata; [Compaction Rules for Sprint Events](../AGENT_TEAMS_DESIGN.md#compaction-rules-for-sprint-events) — retention policy
+> **Design ref:** [New Event Types — `sprint`](AGENT_TEAMS_DESIGN.md#sprint) — event format, start/end metadata; [Compaction Rules for Sprint Events](AGENT_TEAMS_DESIGN.md#compaction-rules-for-sprint-events) — retention policy
 
 Add `sprint` event type to the event schema for boundary markers.
 
@@ -240,7 +240,7 @@ Add `sprint` event type to the event schema for boundary markers.
 
 ### M6: Product Spec Skill (`/xp-product-spec`) [SHIPPED]
 
-> **Design ref:** [`product_spec.md` Format](../AGENT_TEAMS_DESIGN.md#product_specmd-format) — file format with `[planned]`/`[delivered]` markers; [File Lifecycle](../AGENT_TEAMS_DESIGN.md#file-lifecycle) — created by this skill, updated by sprint review
+> **Design ref:** [`product_spec.md` Format](AGENT_TEAMS_DESIGN.md#product_specmd-format) — file format with `[planned]`/`[delivered]` markers; [File Lifecycle](AGENT_TEAMS_DESIGN.md#file-lifecycle) — created by this skill, updated by sprint review
 
 Design and implement the skill that creates/refines `product_spec.md`.
 
@@ -255,7 +255,7 @@ Design and implement the skill that creates/refines `product_spec.md`.
 
 ### M7: Sprint Start Skill (`/xp-sprint-start`)
 
-> **Design ref:** [`sprint.md` Format](../AGENT_TEAMS_DESIGN.md#sprintmd-format) — file format with stories, status, acceptance criteria; [Sprint Start](../AGENT_TEAMS_DESIGN.md#sprint-start-first-iteration) — planning flow; [Planning Hierarchy](../AGENT_TEAMS_DESIGN.md#planning-hierarchy) — three levels of persistence; [Failed Stories](../AGENT_TEAMS_DESIGN.md#failed-stories) — deferred story handling
+> **Design ref:** [`sprint.md` Format](AGENT_TEAMS_DESIGN.md#sprintmd-format) — file format with stories, status, acceptance criteria; [Sprint Start](AGENT_TEAMS_DESIGN.md#sprint-start-first-iteration) — planning flow; [Planning Hierarchy](AGENT_TEAMS_DESIGN.md#planning-hierarchy) — three levels of persistence; [Failed Stories](AGENT_TEAMS_DESIGN.md#failed-stories) — deferred story handling
 
 Design and implement the skill that creates `sprint.md` from `product_spec.md`.
 
@@ -283,7 +283,7 @@ Design and implement the skill that creates `sprint.md` from `product_spec.md`.
 
 ### M8a: Sprint State Detection Hooks
 
-> **Design ref:** [Mid-Sprint Iterations](../AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [Solo Iteration](../AGENT_TEAMS_DESIGN.md#solo-iteration) — gated lifecycle
+> **Design ref:** [Mid-Sprint Iterations](AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [Solo Iteration](AGENT_TEAMS_DESIGN.md#solo-iteration) — gated lifecycle
 
 Add sprint state detection to the deterministic hooks that run before and after kickoff. These are mechanical checks — no judgment.
 
@@ -312,7 +312,7 @@ Add sprint state detection to the deterministic hooks that run before and after 
 
 ### M8b: Sprint-Aware Kickoff Skill
 
-> **Design ref:** [Mid-Sprint Iterations](../AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [On-Site Customer](../AGENT_TEAMS_DESIGN.md#on-site-customer) — customer availability / assumption handling
+> **Design ref:** [Mid-Sprint Iterations](AGENT_TEAMS_DESIGN.md#mid-sprint-iterations-subsequent-sessions) — full kickoff flow; [On-Site Customer](AGENT_TEAMS_DESIGN.md#on-site-customer) — customer availability / assumption handling
 
 Update `/xp-kickoff` skill for sprint-aware orchestration.
 
@@ -346,7 +346,7 @@ No standalone question triage — questions handled in the phase where they natu
 
 ### M8c: Accept Skill + Gate
 
-> **Design ref:** [Solo Iteration — Accept](../AGENT_TEAMS_DESIGN.md#solo-iteration) — accept flow + Stop gate; [Team Iteration — Accept](../AGENT_TEAMS_DESIGN.md#team-iteration) — PR review → merge → e2e; [Goal Completion](../AGENT_TEAMS_DESIGN.md#goal-completion) — story status lifecycle; [Gate Architecture](../AGENT_TEAMS_DESIGN.md#gate-architecture) — accept gate in the full chain
+> **Design ref:** [Solo Iteration — Accept](AGENT_TEAMS_DESIGN.md#solo-iteration) — accept flow + Stop gate; [Team Iteration — Accept](AGENT_TEAMS_DESIGN.md#team-iteration) — PR review → merge → e2e; [Goal Completion](AGENT_TEAMS_DESIGN.md#goal-completion) — story status lifecycle; [Gate Architecture](AGENT_TEAMS_DESIGN.md#gate-architecture) — accept gate in the full chain
 
 (Previously M8b — renumbered after M8 split.)
 
@@ -398,7 +398,7 @@ The skill does the judgment work (verifying criteria, running tests, updating st
 
 ### M9: Sprint Pillar in Housekeeping
 
-> **Design ref:** [Sprint-Aware Curated View](../AGENT_TEAMS_DESIGN.md#sprint-aware-curated-view) — Sprint pillar format; [Housekeeping Sprint Curation](../AGENT_TEAMS_DESIGN.md#housekeeping-sprint-curation) — what it computes
+> **Design ref:** [Sprint-Aware Curated View](AGENT_TEAMS_DESIGN.md#sprint-aware-curated-view) — Sprint pillar format; [Housekeeping Sprint Curation](AGENT_TEAMS_DESIGN.md#housekeeping-sprint-curation) — what it computes
 
 Add Sprint section to the curated SMM.
 
@@ -428,7 +428,7 @@ Add Sprint section to the curated SMM.
 
 ### M10: Tiered Sprint Context Injection
 
-> **Design ref:** [Context Injection by Role](../AGENT_TEAMS_DESIGN.md#context-injection-by-role) — who gets what; [Collective Code Ownership](../AGENT_TEAMS_DESIGN.md#collective-code-ownership) — cross-teammate communication via native messaging
+> **Design ref:** [Context Injection by Role](AGENT_TEAMS_DESIGN.md#context-injection-by-role) — who gets what; [Collective Code Ownership](AGENT_TEAMS_DESIGN.md#collective-code-ownership) — cross-teammate communication via native messaging
 
 Update SubagentStart to inject sprint context by role. Also update the plan reviewer to recommend execution mode, and add PostCompact sprint reinjection.
 
@@ -470,7 +470,7 @@ Update SubagentStart to inject sprint context by role. Also update the plan revi
 
 ### M11: Sprint Review Skill (`/xp-sprint-review`)
 
-> **Design ref:** [Sprint End](../AGENT_TEAMS_DESIGN.md#sprint-end-all-stories-done-or-deferred) — review flow, velocity stats; [File Lifecycle](../AGENT_TEAMS_DESIGN.md#file-lifecycle) — sprint review updates product_spec.md
+> **Design ref:** [Sprint End](AGENT_TEAMS_DESIGN.md#sprint-end-all-stories-done-or-deferred) — review flow, velocity stats; [File Lifecycle](AGENT_TEAMS_DESIGN.md#file-lifecycle) — sprint review updates product_spec.md
 
 Design and implement the forked skill that runs at sprint end.
 
@@ -508,7 +508,7 @@ Subagent writes when judgment is needed (mapping stories → features). Hook han
 
 ### M12: Sprint Retro Skill (`/xp-sprint-retro`)
 
-> **Design ref:** [Retrospective](../AGENT_TEAMS_DESIGN.md#retrospective) — two retro levels, sprint retro data sources; [Sustainable Pace](../AGENT_TEAMS_DESIGN.md#sustainable-pace) — velocity tracking, carry-over signals
+> **Design ref:** [Retrospective](AGENT_TEAMS_DESIGN.md#retrospective) — two retro levels, sprint retro data sources; [Sustainable Pace](AGENT_TEAMS_DESIGN.md#sustainable-pace) — velocity tracking, carry-over signals
 
 Design and implement the forked cross-iteration retrospective (same pattern as existing session retro).
 
@@ -539,7 +539,7 @@ Design and implement the forked cross-iteration retrospective (same pattern as e
 
 ### M13: Teammate Hooks
 
-> **Design ref:** [Hook Compatibility — Empirical Results](../AGENT_TEAMS_DESIGN.md#hook-compatibility--empirical-results-2026-03-23) — what fires for teammates; [Remaining TeammateIdle/TaskCompleted Gates](../AGENT_TEAMS_DESIGN.md#remaining-teammateidletaskcompleted-gates) — TDD enforcement; [Teammate Detection](../AGENT_TEAMS_DESIGN.md#teammate-detection) — detection patterns; [Output Mechanism Differences](../AGENT_TEAMS_DESIGN.md#output-mechanism-differences) — exit 2 + stderr
+> **Design ref:** [Hook Compatibility — Empirical Results](AGENT_TEAMS_DESIGN.md#hook-compatibility--empirical-results-2026-03-23) — what fires for teammates; [Remaining TeammateIdle/TaskCompleted Gates](AGENT_TEAMS_DESIGN.md#remaining-teammateidletaskcompleted-gates) — TDD enforcement; [Teammate Detection](AGENT_TEAMS_DESIGN.md#teammate-detection) — detection patterns; [Output Mechanism Differences](AGENT_TEAMS_DESIGN.md#output-mechanism-differences) — exit 2 + stderr
 
 Implement TeammateIdle and TaskCompleted hooks.
 
@@ -568,7 +568,7 @@ Implement TeammateIdle and TaskCompleted hooks.
 
 ### M14: Teammate Behavioral Guide
 
-> **Design ref:** [Teammate Behavioral Guide](../AGENT_TEAMS_DESIGN.md#teammate-behavioral-guide) — DO/DON'T/SKIP/KEEP rules; [Teammates vs Subagents](../AGENT_TEAMS_DESIGN.md#teammates-vs-subagents) — key differences; [Collective Code Ownership](../AGENT_TEAMS_DESIGN.md#collective-code-ownership) — "message the lead immediately" for urgent discoveries
+> **Design ref:** [Teammate Behavioral Guide](AGENT_TEAMS_DESIGN.md#teammate-behavioral-guide) — DO/DON'T/SKIP/KEEP rules; [Teammates vs Subagents](AGENT_TEAMS_DESIGN.md#teammates-vs-subagents) — key differences; [Collective Code Ownership](AGENT_TEAMS_DESIGN.md#collective-code-ownership) — "message the lead immediately" for urgent discoveries
 
 Update SubagentStart to detect teammates and inject appropriate guide.
 
@@ -596,7 +596,7 @@ Update SubagentStart to detect teammates and inject appropriate guide.
 
 ### M15: Spawn Team Skill (`/xp-spawn-team`)
 
-> **Design ref:** [Team Launch Mechanism](../AGENT_TEAMS_DESIGN.md#team-launch-mechanism) — skill flow, spawn prompt content; [Team Iteration](../AGENT_TEAMS_DESIGN.md#team-iteration) — full team lifecycle; [When to Use Agent Teams](../AGENT_TEAMS_DESIGN.md#when-to-use-agent-teams) — decision criteria; [Worktree Strategy](../AGENT_TEAMS_DESIGN.md#worktree-strategy) — tradeoffs, decision criteria; [Best Practices](../AGENT_TEAMS_DESIGN.md#best-practices) — team size, domain separation, context feeding
+> **Design ref:** [Team Launch Mechanism](AGENT_TEAMS_DESIGN.md#team-launch-mechanism) — skill flow, spawn prompt content; [Team Iteration](AGENT_TEAMS_DESIGN.md#team-iteration) — full team lifecycle; [When to Use Agent Teams](AGENT_TEAMS_DESIGN.md#when-to-use-agent-teams) — decision criteria; [Worktree Strategy](AGENT_TEAMS_DESIGN.md#worktree-strategy) — tradeoffs, decision criteria; [Best Practices](AGENT_TEAMS_DESIGN.md#best-practices) — team size, domain separation, context feeding
 
 Design and implement the forked skill that structures an Agent Team from the sprint plan.
 
@@ -630,7 +630,7 @@ Does NOT spawn the team directly — instructs the lead on exactly what to do.
 
 ### M16: Update v2 Documentation
 
-> **Design ref:** [Three-File Architecture](../AGENT_TEAMS_DESIGN.md#three-file-architecture) — SMM storage model; [Platform Findings](../AGENT_TEAMS_DESIGN.md#platform-findings-from-docs-and-empirical-testing-2026-03-23) — confirmed behaviors + limitations; [v1 Limitations That Affect v2](../AGENT_TEAMS_DESIGN.md#v1-limitations-that-affect-v2) — full change list
+> **Design ref:** [Three-File Architecture](AGENT_TEAMS_DESIGN.md#three-file-architecture) — SMM storage model; [Platform Findings](AGENT_TEAMS_DESIGN.md#platform-findings-from-docs-and-empirical-testing-2026-03-23) — confirmed behaviors + limitations; [v1 Limitations That Affect v2](AGENT_TEAMS_DESIGN.md#v1-limitations-that-affect-v2) — full change list
 
 - Update ARCHITECTURE.md with full v2 design (sprint lifecycle, three-file architecture, new hooks, new skills, updated enforcement)
 - Update SMM_DESIGN.md (Sprint pillar, tiered injection, product_spec.md/sprint.md)

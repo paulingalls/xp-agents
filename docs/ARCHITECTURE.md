@@ -110,10 +110,11 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 
 ### Plugin Subagents (agents/ directory)
 
-Six subagents with full tool access. Each wrapped by a forked skill with `!` preloads for deterministic SMM state injection.
+Seven subagents with full tool access. Each wrapped by a forked skill with `!` preloads for deterministic SMM state injection, or spawned directly by an inline skill.
 
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
+| `xp-code-reviewer` | `/xp-quality-review` skill (inline) | Agent tool | Independent code review — simplify accountability, drift management, debt awareness, XP-lens review |
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
 | `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
 | `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
@@ -126,7 +127,7 @@ Six subagents with full tool access. Each wrapped by a forked skill with `!` pre
 Forked skills (`xp-run-retrospective`, `xp-review-plan`, `xp-security-triage`, `xp-housekeeping`, `xp-sprint-review`, `xp-system-context`) delegate to a subagent above. Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent):
 - `/xp-kickoff` — orchestrator, sequences retro → work selection → housekeeping at session start
 - `/xp-work-selection` — sprint setup, work selection, retro Try items
-- `/xp-quality-review` — post-simplify courage accountability, drift management, debt awareness
+- `/xp-quality-review` — orchestrator: spawns `xp-code-reviewer` subagent for independent review (simplify accountability, drift, debt, XP-lens), resolves plan concerns inline
 - `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred
@@ -152,7 +153,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Commit-gated review cycle (blocks until simplify/quality-review/security-triage done), file-modification conflict heuristic (advisory) |
-| Subagent spawn | Tiered context: Explore→Intent+Constraints; Plan/general-purpose→full SMM+process guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.json |
+| Subagent spawn | Tiered context: Explore→Intent+Constraints; xp-code-reviewer→full SMM; Plan/general-purpose→full SMM+process guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.json |
 | After compaction | Full SMM re-injection |
 
 Injection order in SessionStart `additionalContext`:
@@ -228,6 +229,7 @@ Note: Review cycle enforcement (simplify, quality review, security triage) moved
 ```
 SubagentStart → subagent_start.py: tiered context injection + watermark
                 Explore: Intent+Constraints only (~200 tokens)
+                xp-code-reviewer: full SMM (needs Constraints for drift management)
                 xp-plan-reviewer/xp-retrospective: full SMM + process guide + sprint.json
                 CLI teammates: use SessionStart path instead (XP Values + TEAMMATE_GUIDE + rendered SMM)
                 Default (Plan/general-purpose): full SMM + process guide
@@ -245,14 +247,14 @@ plugins/xp-agents/
 ├── PROCESS_GUIDE.md                 ← process rules for lead/solo agents (skills, commit gates, sprint flow)
 ├── TEAMMATE_GUIDE.md                ← DO/DON'T/SKIP/KEEP rules for CLI teammates
 ├── hooks/hooks.json                 ← all hook registrations (command hooks only)
-├── agents/                          ← 6 plugin subagents (full tool access)
+├── agents/                          ← 7 plugin subagents (full tool access)
 ├── skills/                          ← 14 skills (8 inline + 6 forked), each with SKILL.md + scripts/
 │   └── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
 ├── scripts/                         ← ~47 command hooks + shared modules (Python 3.10+, stdlib only)
 └── smm/                             ← ~20 SMM engine modules (append, compact, materialize, schema, CLI tools)
 ```
 
-**Component inventory:** ~47 scripts, 6 agents, 14 skills, ~2014 tests.
+**Component inventory:** ~47 scripts, 7 agents, 14 skills, ~2041 tests.
 
 ## Platform Constraints
 

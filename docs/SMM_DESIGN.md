@@ -210,7 +210,7 @@ Housekeeping writes the curated `shared_mental_model.json` via `smm_cli.py save`
 During the session, lightweight context is injected at specific moments:
 
 - **UserPromptSubmit:** Prompt nugget — new signal events since last prompt (watermark-based, ~50-100 tokens)
-- **SubagentStart:** Tiered context injection — Explore subagents get Intent+Constraints only (~200 tokens), all others get full curated SMM + process guide (~1000 tokens)
+- **SubagentStart:** Tiered context injection — Explore subagents get Intent+Constraints only (~200 tokens); xp-code-reviewer gets full SMM (for drift management); all others get full curated SMM + process guide (~1000 tokens)
 - **After housekeeping:** Process guide via PostToolUse:Skill hook
 
 Conflicts are handled by PreToolUse hooks (blocking for Write, advisory for Bash) — not as context injection. No per-tool-call event log reads. The agent has the full SMM from housekeeping. Nuggets surface only what's new and actionable.
@@ -304,7 +304,7 @@ New since last prompt:
 
 ### SubagentStart
 
-Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. Plan/general-purpose subagents get the full curated SMM (~500 tokens). All rendered from `shared_mental_model.json` via `smm_cli.py`.
+Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. `xp-code-reviewer` gets the full SMM (overriding the xp-* default of values-only) because it needs Constraints for drift management. Plan/general-purpose subagents get the full curated SMM (~500 tokens). All rendered from `shared_mental_model.json` via `smm_cli.py`.
 
 **Note:** CLI teammates do NOT use SubagentStart — they are independent `claude -p` processes, not Agent tool subagents. Teammate context (XP Values + TEAMMATE_GUIDE.md + rendered SMM) is injected via the SessionStart hook when `is_worktree_teammate()` detects a worktree path.
 
