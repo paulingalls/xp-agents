@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.13.0 — Independent Code Reviewer Subagent
+
+- **xp-code-reviewer agent.** New subagent spawned by `/xp-quality-review` for independent code review. The quality review skill previously ran inline — the same agent reviewed its own code. Now it spawns `xp-code-reviewer` with fresh context to evaluate changes through 4 review areas: simplify accountability (holding skipped findings accountable), drift management (checking code against SMM Constraints), debt awareness (evaluating existing debt for changed files), and XP-lens code review (covering 10 gaps /simplify misses: premature generalization, naming quality, test quality, workarounds, dead code, hidden assumptions, silent failures, and more).
+- **SubagentStart dispatch override.** `xp-code-reviewer` gets full SMM injection (overriding the xp-* default of values-only) so it can independently check for drift against Constraints.
+- **Quality review skill restructured.** Reduced from 7 inline steps to 4-step orchestrator: spawn subagent, resolve plan concerns, act on findings, record summary. Agent tool added to allowed-tools.
+- **Duplicate tests removed.** Removed 2 duplicate test methods from `TestPluginIntegrity` (agent file existence + skill file existence already tested in dedicated classes) and 1 near-duplicate test from `TestSubagentStart`. Consolidated code reviewer dispatch tests using `subTest`.
+
 ## v2.12.4 — Remove xp-simplify, Test Split, Debt Cleanup
 
 - **xp-simplify skill removed.** CLI teammates run as independent `claude -p` processes with full tool access, so they use the built-in `/simplify` (3 review subagents) instead of the inline single-pass xp-simplify. Updated teammate_stop_gate, tests, README, and ARCHITECTURE.
