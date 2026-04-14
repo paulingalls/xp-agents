@@ -9,7 +9,8 @@ Usage:
     python3 spawn_teammate.py \
         --name teammate-step-1 \
         --smm-dir /path/to/smm \
-        --prompt-file /tmp/prompt.txt
+        --prompt-file /tmp/prompt.txt \
+        [--plugin-dir /path/to/plugin]
 """
 
 import argparse
@@ -68,10 +69,12 @@ _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 def build_command(
     name: str,
-    prompt_file: str,
     plugin_dir: str | None,
 ) -> list[str]:
-    """Construct the claude -p command for a teammate."""
+    """Construct the claude -p command for a teammate.
+
+    Prompt is piped via stdin, not passed as a CLI flag.
+    """
     cmd = [
         "claude",
         "-p",
@@ -83,32 +86,37 @@ def build_command(
         "--output-format",
         "stream-json",
         "--verbose",
-        "--input-file",
-        prompt_file,
     ]
     if plugin_dir:
         cmd.extend(["--plugin-dir", plugin_dir])
     return cmd
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Parse args and spawn the teammate."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
     parser.add_argument("--name", required=True)
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("--prompt-file", required=True)
-    args = parser.parse_args(argv)
+    parser.add_argument("--plugin-dir", default=None)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Parse args and spawn the teammate."""
+    args = parse_args(argv)
 
     cwd = os.getcwd()
     wt_path = create_worktree(args.name, cwd)
-    plugin_dir = detect_plugin_mode()
-    cmd = build_command(args.name, args.prompt_file, plugin_dir)
+    plugin_dir = args.plugin_dir or detect_plugin_mode()
+    cmd = build_command(args.name, plugin_dir)
 
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir
     env["TEAMMATE_ID"] = args.name
 
-    subprocess.run(cmd, cwd=wt_path, env=env, check=True)
+    with open(args.prompt_file) as prompt_stdin:
+        subprocess.run(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, check=True)
 
 
 if __name__ == "__main__":

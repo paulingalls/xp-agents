@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for spawn_teammate.py — CLI teammate launcher.
 
-Covers: cleanup_existing, create_worktree, detect_plugin_mode, build_command.
+Covers: cleanup_existing, create_worktree, detect_plugin_mode,
+build_command, parse_args.
 """
 
 import os
@@ -180,7 +181,6 @@ class TestBuildCommand(unittest.TestCase):
 
         cmd = spawn_teammate.build_command(
             name="teammate-step-1",
-            prompt_file="/tmp/prompt.txt",
             plugin_dir=None,
         )
         self.assertIn("claude", cmd[0])
@@ -200,7 +200,6 @@ class TestBuildCommand(unittest.TestCase):
 
         cmd = spawn_teammate.build_command(
             name="teammate-step-1",
-            prompt_file="/tmp/prompt.txt",
             plugin_dir=None,
         )
         self.assertIn("--allowedTools", cmd)
@@ -215,7 +214,6 @@ class TestBuildCommand(unittest.TestCase):
 
         cmd = spawn_teammate.build_command(
             name="teammate-step-1",
-            prompt_file="/tmp/prompt.txt",
             plugin_dir="/path/to/plugin",
         )
         self.assertIn("--plugin-dir", cmd)
@@ -228,23 +226,57 @@ class TestBuildCommand(unittest.TestCase):
 
         cmd = spawn_teammate.build_command(
             name="teammate-step-1",
-            prompt_file="/tmp/prompt.txt",
             plugin_dir=None,
         )
         self.assertNotIn("--plugin-dir", cmd)
 
-    def test_prompt_file_as_stdin_redirect(self):
-        """Command includes prompt file for stdin redirection."""
+    def test_no_input_file_flag(self):
+        """Command does not include --input-file (prompt piped via stdin)."""
         import spawn_teammate
 
         cmd = spawn_teammate.build_command(
             name="teammate-step-1",
-            prompt_file="/tmp/my-prompt.txt",
             plugin_dir=None,
         )
-        self.assertIn("--input-file", cmd)
-        idx = cmd.index("--input-file")
-        self.assertEqual(cmd[idx + 1], "/tmp/my-prompt.txt")
+        self.assertNotIn("--input-file", cmd)
+
+
+class TestPluginDirArg(unittest.TestCase):
+    """--plugin-dir CLI arg overrides env var detection."""
+
+    def test_plugin_dir_arg_used_when_provided(self):
+        """Explicit --plugin-dir takes precedence over detect_plugin_mode()."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            [
+                "--name",
+                "teammate-step-1",
+                "--smm-dir",
+                "/tmp/smm",
+                "--prompt-file",
+                "/tmp/prompt.txt",
+                "--plugin-dir",
+                "/path/to/dev/plugin",
+            ]
+        )
+        self.assertEqual(args.plugin_dir, "/path/to/dev/plugin")
+
+    def test_plugin_dir_optional(self):
+        """--plugin-dir is optional, defaults to None."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            [
+                "--name",
+                "teammate-step-1",
+                "--smm-dir",
+                "/tmp/smm",
+                "--prompt-file",
+                "/tmp/prompt.txt",
+            ]
+        )
+        self.assertIsNone(args.plugin_dir)
 
 
 if __name__ == "__main__":
