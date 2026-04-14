@@ -28,18 +28,6 @@ All scripts start with `#!/usr/bin/env python3`.
 
 **Keep files small and focused.** Target 500 lines max per file. Each module should have a single responsibility. When a file grows past 500 lines, look for a cohesive group of functions to extract into its own module (e.g., `coordination.py`, `security.py`, `concerns.py` were extracted from `_common.py`). Test files follow the same rule — split by the script or feature they test, not by milestone or chronology.
 
-## XP Practices (Follow These)
-
-**TDD.** Write the test first. Run it, watch it fail. Then write the implementation. No exceptions. If you're about to write a function, ask: where's the test?
-
-**Small commits.** One logical change per commit. If you're thinking "and also" — that's two commits.
-
-**Simple design.** Solve today's problem. Don't build abstractions for tomorrow's. If a function has more than one responsibility, split it.
-
-**Refactor continuously.** After green, clean up. Rename unclear variables, extract repeated logic, remove dead code. Every commit should leave the code better than you found it.
-
-**Courage.** If something is wrong, fix it now. Don't leave a TODO for later. If a design decision is proving wrong, say so — raise a concern.
-
 ## Hook Patterns
 
 ### Command Hook Input (stdin)
@@ -116,19 +104,7 @@ git_common = subprocess.check_output(
 
 All scripts resolve the SMM path this way. Never hardcode paths. Never use `.claude/smm/` — the SMM is at user level, not project level.
 
-## Event Appending
-
-Use `smm/append.sh` for all event writes. Never write directly to `events.jsonl`. ANSI escape codes are stripped from content automatically at write time.
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "status" \
-  --agent "$AGENT_ID" \
-  --content "Description here" \
-  --working-on '["src/api/users.ts"]'
-```
-
-### Type-Specific Fields
+## Event Appending — Type-Specific Fields
 
 Some event types require additional fields:
 
@@ -140,21 +116,6 @@ Some event types require additional fields:
 | `concern` | files (optional) | `--files` | `--files '["src/auth.py"]'` |
 
 See PROCESS_GUIDE.md for full event type reference and examples.
-
-### Resolving Events
-
-To resolve a goal, concern, or debt item, include `metadata.resolves`:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "status" \
-  --agent "xp-housekeeping" \
-  --content "Goal completed: description" \
-  --working-on '[]' \
-  --metadata '{"resolves": ["target-event-id"]}'
-```
-
-Resolution is the sole lifecycle mechanism — no aging, no pruning. Housekeeping curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and omits resolved items.
 
 ## Hook Registration (hooks.json)
 
@@ -205,32 +166,16 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 
 ```
 plugins/xp-agents/
-├── .claude-plugin/plugin.json         ← plugin manifest
-├── XP_VALUES.md                       ← XP values (Honesty, Communication, Simplicity, Feedback, Courage, Respect)
-├── PROCESS_GUIDE.md                   ← Process rules for lead/solo agents (skills, commit gates, sprint flow)
-├── TEAMMATE_GUIDE.md                  ← DO/DON'T/SKIP/KEEP rules for Agent Team teammates
-├── hooks/hooks.json                   ← all hook registrations
-├── scripts/*.py                       ← command hooks + shared modules
-├── agents/*.md                        ← subagent definitions (6 agents: retrospective, plan-reviewer,
-│                                        security-reviewer, sprint-reviewer, assign, system-context)
-├── skills/                            ← forked + inline skills
-│   ├── xp-kickoff/SKILL.md           ← session start orchestrator
-│   ├── xp-run-retrospective/SKILL.md ← forked, delegates to xp-retrospective agent
-│   ├── xp-question-triage/SKILL.md   ← inline, questions + retro Try items
-│   ├── xp-goal-collection/SKILL.md   ← inline, session goals
-│   ├── xp-housekeeping/SKILL.md      ← inline, four-pillar SMM curation
-│   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
-│   ├── xp-security-triage/SKILL.md   ← forked, delegates to xp-security-reviewer agent
-│   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
-│   ├── xp-plan/SKILL.md              ← inline, execution planning (execution_plan.json)
-│   ├── xp-system-context/SKILL.md    ← forked, system context analysis (system_context.md)
-│   ├── xp-sprint-start/SKILL.md      ← inline, sprint creation (sprint.json)
-│   ├── xp-accept/SKILL.md            ← inline, acceptance testing gate
-│   ├── xp-sprint-review/SKILL.md     ← forked, delegates to xp-sprint-reviewer agent
-│   └── xp-assign/SKILL.md            ← inline, mode selection + worktree spawn
-└── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
-         resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,
-         sprint_store.py,sprint_schema.py,sprint_cli.py,schema.json}
+├── .claude-plugin/plugin.json    ← plugin manifest
+├── XP_VALUES.md                  ← XP values (injected into sessions by plugin)
+├── PROCESS_GUIDE.md              ← process rules for lead/solo agents
+├── TEAMMATE_GUIDE.md             ← rules for CLI teammates
+├── hooks/hooks.json              ← all hook registrations
+├── scripts/                      ← ~47 command hooks + shared modules
+├── agents/                       ← 6 subagent definitions (.md files)
+├── skills/                       ← 14 skills (forked + inline)
+├── smm/                          ← SMM engine (append, compact, materialize, sprint)
+└── tests/                        ← ~2014 tests across 4 suites (hooks, integration, engine, smm)
 ```
 
 ## Error Handling
@@ -360,3 +305,10 @@ tests/
 - No prep script for xp-assign — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
 - CLI teammates over Agent Teams for sprint-driven parallel execution — each teammate is an independent `claude -p` process in a git worktree with full hook lifecycle, TDD + review cycle + commits
+
+## Further Reading
+
+- `README.md` — overview, install, how it works
+- `docs/ARCHITECTURE.md` — hook map, event types, injection model, platform constraints
+- `docs/SMM_DESIGN.md` — four-pillar Shared Mental Model design
+- `docs/CLI_TEAMMATE_DESIGN.md` — CLI teammate mechanism
