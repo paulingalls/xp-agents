@@ -1,13 +1,14 @@
 ---
 name: xp-assign
 description: >-
-  Analyze plan steps, decide execution mode (solo vs worktree subagents),
-  and either proceed solo or spawn xp-teammate agents for parallel execution.
+  Analyze plan steps, decide execution mode (solo vs CLI teammates),
+  and either proceed solo or spawn teammates for parallel execution.
   Auto-run after planning completes.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
+  - Bash(*/scripts/spawn_teammate.py *)
   - Read
 ---
 
@@ -15,7 +16,7 @@ allowed-tools:
 
 # Work Assignment
 
-Analyze the plan and decide how to execute: solo (sequential) or with worktree-isolated subagents (parallel).
+Analyze the plan and decide how to execute: solo (sequential) or with CLI teammates (parallel).
 
 ## Pre-flight Checks
 
@@ -33,39 +34,31 @@ Evaluate the plan steps and choose a mode:
 - Plan steps target overlapping files
 - The plan is small (3 or fewer steps)
 
-**Worktree subagents** (parallel execution) when ALL of these apply:
+**CLI teammates** (parallel execution) when ALL of these apply:
 - 2+ independent step groups with no dependencies between them
 - Steps target non-overlapping files
 - Steps are substantial enough to justify coordination overhead
 
 Present the recommendation to the user via `AskUserQuestion`:
-- **Mode** (Solo or Worktree Subagents) with rationale
-- For worktree mode: which step groups run in parallel, which are sequential
+- **Mode** (Solo or CLI Teammates) with rationale
+- For teammate mode: which step groups run in parallel, which are sequential
 
 ## Solo Mode
 
 If solo: output "Proceeding with solo execution." and stop. The lead continues working on steps sequentially — no additional orchestration needed.
 
-## Worktree Subagent Mode
+## CLI Teammate Mode
 
-For each parallel step group, spawn an `xp-teammate` agent:
+For each parallel step group, write a prompt file and spawn a teammate:
 
-```
-Agent({
-  description: "Step N: <title>",
-  subagent_type: "xp-teammate",
-  isolation: "worktree",
-  run_in_background: true,
-  prompt: "<spawn prompt below>"
-})
-```
+### Step 1: Write the Prompt File
 
-### Spawn Prompt Template
+Write a self-contained prompt to a temp file. The teammate has no prior context:
 
-Each spawn prompt must be self-contained — the teammate has no context beyond what you provide:
-
-```
-You are implementing step N: <title>
+```bash
+Write({
+  file_path: "/tmp/prompt-step-N.txt",
+  content: "You are implementing step N: <title>
 
 ## Context
 <inlined design context from the plan step>
@@ -83,29 +76,47 @@ You are implementing step N: <title>
 <shared boundaries with other steps, if any>
 
 ## SMM Directory
-SMM_DIR=<path from preload>
+SMM_DIR=<SMM_DIR from preload>
 
 Follow strict TDD: write failing test, make it pass, refactor, commit.
-Run the full review cycle before each commit: /xp-simplify, /xp-quality-review, /security-review.
+Run the full review cycle before each commit: /simplify, /xp-quality-review, /xp-security-triage.
 
 When done, report: what was implemented, which acceptance criteria are met,
-commits made, and any concerns or assumptions that need attention.
+commits made, and any concerns or assumptions that need attention."
+})
 ```
 
-If a sprint is active (SPRINT_FILE provided), include the relevant story ID in the spawn prompt for status tracking.
+If a sprint is active (SPRINT_FILE provided), include the relevant story ID in the prompt for status tracking.
+
+### Step 2: Spawn the Teammate
+
+Launch each teammate via Bash with `run_in_background`:
+
+```bash
+Bash({
+  command: "python3 ${PLUGIN_ROOT}/scripts/spawn_teammate.py --name teammate-step-N --smm-dir ${SMM_DIR} --prompt-file /tmp/prompt-step-N.txt 2>&1 | python3 ${PLUGIN_ROOT}/scripts/teammate_output_filter.py --smm-dir ${SMM_DIR} --teammate-id teammate-step-N",
+  run_in_background: true
+})
+```
+
+spawn_teammate.py creates a git worktree and launches `claude -p`. teammate_output_filter.py captures the result, writes a report file, and records cost/duration to the SMM.
+
+Spawn all teammates in parallel (multiple Bash calls in one message, each with `run_in_background: true`).
 
 ### Post-Spawn Guidance
 
 After spawning teammates, guide the lead:
 
-1. **Wait** for all teammates to complete (they send completion messages)
-2. **Review** each teammate's branch and merge:
+1. **Wait** for Bash task notifications as each teammate completes
+2. **Read** the task output for branch name, report file path, and cost
+3. **Read** the report file for the teammate's summary
+4. **Merge** each teammate's branch:
    ```
-   git merge <worktree-branch> --no-ff
+   git merge teammate-step-N --no-ff
    ```
-3. **Resolve** any merge conflicts (file domains should prevent these)
-4. **Run** the full test suite on the merged result
-5. **Run** `/xp-accept` to verify acceptance criteria
+5. **Resolve** any merge conflicts (file domains should prevent these)
+6. **Run** the full test suite on the merged result
+7. **Run** `/xp-accept` to verify acceptance criteria
 
 ## Recording Events
 
@@ -114,11 +125,11 @@ Record the mode decision:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" --agent "xp-assign" \
-  --content "Execution mode: <Solo|Worktree subagents> — <rationale>" \
+  --content "Execution mode: <Solo|CLI teammates> — <rationale>" \
   --topic "execution-mode"
 ```
 
-For worktree mode, record an assumption per domain boundary:
+For teammate mode, record an assumption per domain boundary:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \

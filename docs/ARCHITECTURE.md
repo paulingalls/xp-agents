@@ -135,7 +135,7 @@ Inline skills run in the main agent for full tool access (AskUserQuestion, Bash,
 - `/xp-system-context` — create/update system context description (`system_context.md`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred
-- `/xp-assign` — analyze sprint stories, decide execution mode (solo vs worktree subagents), spawn `xp-teammate` agents for parallel execution. Auto-runs after planning completes
+- `/xp-assign` — analyze plan steps, decide execution mode (solo vs CLI teammates), spawn teammates via `spawn_teammate.py` for parallel execution. Auto-runs after planning completes
 
 All subagents preload `xp-smm-protocol` skill. XP values are covered by the behavioral guide (injected at SubagentStart).
 
@@ -232,8 +232,7 @@ Note: Review cycle enforcement (simplify, quality review, security triage) moved
 SubagentStart → subagent_start.py: tiered context injection + watermark
                 Explore: Intent+Constraints only (~200 tokens)
                 xp-plan-reviewer/xp-retrospective: full SMM + behavioral guide + sprint.json
-                xp-teammate: SMM + TEAMMATE_GUIDE.md + filtered stories (assigned story only)
-                Other teammates (custom agent_type): SMM + TEAMMATE_GUIDE.md + filtered stories
+                CLI teammates: use SessionStart path instead (XP Values + TEAMMATE_GUIDE + rendered SMM)
                 Default (Plan/general-purpose): full SMM + behavioral guide
                 xp-* agents not in dispatch: skipped (use own preloads)
 SubagentStop  → subagent_stop.py: record, conflicts, security check
@@ -253,8 +252,7 @@ plugins/xp-agents/
 │   ├── xp-plan-reviewer.md
 │   ├── xp-security-reviewer.md
 │   ├── xp-sprint-reviewer.md
-│   ├── xp-sprint-retro.md
-│   └── xp-teammate.md              ← worktree-isolated teammate for parallel story execution
+│   └── xp-system-context.md
 ├── skills/                          ← forked skills wrap subagents, inline skills for lifecycle
 │   ├── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
 │   ├── xp-smm-protocol/SKILL.md
@@ -380,11 +378,11 @@ Compaction runs at three points: after the curated SMM is written (`smm_cli.py s
 
 Only events before the curation watermark are eligible. Events after the watermark are retained unconditionally.
 
-## Agent Teams
+## CLI Teammates
 
 SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global:
 
-- Every teammate gets prompt nuggets at each user prompt and tiered context at subagent spawn
+- Every teammate gets prompt nuggets at each user prompt
 - Every teammate's code gets quality reviewer subagent nudges
 - Every teammate's `working_on` is tracked for conflict detection
 - Every teammate's decisions are visible to all others
@@ -392,12 +390,13 @@ SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees 
 
 ### Teammate Detection and Enforcement
 
-Teammates are detected by `is_teammate_by_agent_type()` — custom agent_type (not Explore, Plan, general-purpose, Bash, and not xp-* agents). SubagentStart injects `TEAMMATE_GUIDE.md` instead of the solo behavioral guide.
+Teammates are detected by `is_worktree_teammate()` — checks if the session's `cwd` contains `/.claude/worktrees/teammate-`. Each teammate is an independent `claude -p` CLI process in a git worktree with full hook lifecycle support.
 
-**Hooks that fire for teammates:** SubagentStart, SubagentStop, PreToolUse, PostToolUse, TeammateIdle, TaskCompleted.
-**Hooks that do NOT fire:** Stop, SessionStart, SessionEnd, UserPromptSubmit (lead-only).
+**Hooks that fire for teammates:** SessionStart, SessionEnd, Stop, PreToolUse, PostToolUse, UserPromptSubmit (all hooks fire — full session).
+**SessionStart path:** Injects XP Values + TEAMMATE_GUIDE.md + rendered SMM (no kickoff markers, no GUPP).
+**SessionEnd path:** Records "teammate completed" event with branch name.
 
-TeammateIdle and TaskCompleted enforce TDD — tests must pass before going idle or completing a task (exit 2 + stderr).
+The teammate stop gate (`teammate_stop_gate.py`) blocks teammates from stopping with uncommitted changes or incomplete review cycle.
 
 ### Team Spawn Flow
 
@@ -405,13 +404,13 @@ TeammateIdle and TaskCompleted enforce TDD — tests must pass before going idle
 
 **Solo mode** — lead executes stories sequentially. Chosen when stories have dependency chains, overlapping file domains, or are all small (size S).
 
-**Worktree subagent mode** — parallel execution via `xp-teammate` agents. Chosen when 2+ independent stories have non-overlapping file domains and are worth the coordination overhead (size M/L).
+**CLI teammate mode** — parallel execution via `spawn_teammate.py`. Chosen when 2+ independent step groups have non-overlapping file domains and are worth the coordination overhead (size M/L).
 
 Flow:
 1. `/xp-assign` analyzes the plan's steps (dependencies, file targets, scope)
 2. Presents mode recommendation to user for confirmation
-3. If worktree mode: spawns `xp-teammate` agents via Agent tool with `isolation: worktree` and `run_in_background: true`
-4. Each teammate gets a self-contained spawn prompt (story context, file domain, acceptance criteria, interface contracts)
+3. If teammate mode: spawns teammates via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`
+4. Each teammate gets a self-contained prompt (plan steps, story context, file domain, acceptance criteria)
 5. Each teammate works independently: TDD, review cycle, commits — all in its own worktree
 6. Lead merges teammate branches, resolves conflicts, runs full test suite
 7. Lead runs `/xp-accept` to verify acceptance criteria
@@ -457,9 +456,9 @@ Single gate: `kickoff_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-kic
 
 ## Future Vision: Autonomous Teams (3.0)
 
-**Prerequisite:** v2.0 shipped (sprint lifecycle + Agent Teams), dogfooded on a real project for multiple weeks.
+**Prerequisite:** v2.0 shipped (sprint lifecycle + CLI teammates), dogfooded on a real project for multiple weeks.
 
-**Goal:** Agent Teams execute a requirements document with minimal human intervention. Human approves goals and priorities once, then reviews outputs.
+**Goal:** CLI teammates execute a requirements document with minimal human intervention. Human approves goals and priorities once, then reviews outputs.
 
 ### What v2.0 Provides
 

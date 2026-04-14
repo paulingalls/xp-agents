@@ -306,7 +306,7 @@ These docs need updating as part of the implementation:
 - **ARCHITECTURE.md** — update teammate spawning mechanism, hook map changes, lifecycle diagram.
 - **PROCESS_GUIDE.md** — update teammate references if any (mostly lead-facing, may be minimal).
 - **TEAMMATE_GUIDE.md** — replace with enhanced version that includes review cycle (full `/simplify`, not inline) and event recording protocol. Remove Agent Teams framing.
-- **xp-teammate.md** agent definition — may be deprecated or repurposed. The CLI approach doesn't use agent definitions. Keep if we want to support both modes, remove if CLI-only.
+- **xp-teammate.md** agent definition — removed (CLI teammates don't use agent definitions; teammate context is injected via SessionStart).
 - **xp-assign/SKILL.md** — rewrite spawning section: Agent tool → `spawn_teammate.py` via Bash.
 - **xp-accept/SKILL.md** — add merged-code review cycle as first step, add worktree cleanup step.
 - **CHANGELOG.md** — new version entry documenting the CLI teammate approach.

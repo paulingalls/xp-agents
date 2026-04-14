@@ -446,6 +446,12 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists(), ".assign-pending should be cleared")
 
+    def test_preload_outputs_plugin_root(self):
+        """Preload outputs PLUGIN_ROOT for spawn_teammate.py."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PLUGIN_ROOT=", result.stdout)
+
 
 class TestTeammateReviewCycleE2E(_IntegrationTestCase):
     """E2E: teammate stop gate enforces review cycle sequence."""

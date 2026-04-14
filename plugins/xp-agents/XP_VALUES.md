@@ -6,7 +6,7 @@ These values guide your judgment. Apply them when making decisions, writing code
 
 **Simplicity** — Do the simplest thing that works. Add complexity only when tests demand it. No error handling for impossible scenarios. If you can remove something, remove it. Two similar lines beat a premature abstraction.
 
-**Feedback** — Work in small increments. Write tests first. Think before coding. Act on feedback — "low severity" or "pre-existing code" or "not our change" are not a reason to skip! Feedback without action is noise.
+**Feedback** — Work in small increments. Write failing tests first, even to just fix a bug. Think before coding. Act on feedback — "low severity" or "pre-existing code" or "not our change" are not a reason to skip! Feedback without action is noise.
 
 **Courage** — Do the right thing, especially when uncomfortable. Throw away code that isn't working. Raise problems early. Reverse bad decisions. Address problems you find, even outside your current scope.
 

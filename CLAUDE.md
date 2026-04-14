@@ -355,7 +355,7 @@ tests/
 - Four-file architecture: events.jsonl + system_context.md + execution_plan.json + sprint.json (execution plan is JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
-- Teammates detected by `is_teammate_by_agent_type()` — custom agent_type exclusion
+- Teammates detected by `is_worktree_teammate()` — cwd-based detection via `/.claude/worktrees/teammate-` prefix
 - No prep script for xp-assign — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
-- Worktree subagents over Agent Teams for sprint-driven parallel execution — Agent Teams' "do not commit" restriction makes the lead a serial bottleneck; worktree subagents run full TDD + review cycle + commits independently
+- CLI teammates over Agent Teams for sprint-driven parallel execution — each teammate is an independent `claude -p` process in a git worktree with full hook lifecycle, TDD + review cycle + commits

@@ -3,8 +3,8 @@ name: xp-simplify
 description: >-
   Inline code review covering code reuse, code quality, and efficiency.
   Single-pass alternative to /simplify that works without spawning sub-agents.
-  Use in worktree subagents (xp-teammate) where nested agent spawning is
-  prohibited by the platform.
+  Use in CLI teammates where nested agent spawning is prohibited by the
+  platform.
 effort: high
 allowed-tools:
   - Read

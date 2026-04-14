@@ -242,7 +242,7 @@ The `shared_mental_model.json` is written by housekeeping (with judgment) via `s
 
 ---
 
-## Progressive Curation (Agent Teams)
+## Progressive Curation (CLI Teammates)
 
 The SMM is a shared document at user level, visible to all agents across worktrees. Each agent's housekeeping run incorporates everyone's contributions:
 

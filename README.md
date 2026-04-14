@@ -264,9 +264,9 @@ After planning, the `/xp-assign` skill analyzes the plan's steps and selects an 
 
 **Solo** (sequential) — the lead executes stories one at a time. Best when stories have dependencies between them, overlapping file domains, or are all small (S-sized). This is the default and most common mode.
 
-**Worktree Subagents** (parallel) — each independent story gets its own `xp-teammate` agent running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`, `/xp-security-triage`), and commit independently. The lead merges branches after all teammates complete.
+**CLI Teammates** (parallel) — each independent step group gets its own `claude -p` process running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`, `/xp-security-triage`), and commit independently. The lead merges branches after all teammates complete.
 
-`/xp-assign` chooses worktree subagents when two or more stories are size M or L, have no dependencies between them, and have non-overlapping file domains. The mode decision is presented to the user for confirmation before spawning.
+`/xp-assign` chooses CLI teammates when two or more step groups are substantial, have no dependencies between them, and have non-overlapping file domains. The mode decision is presented to the user for confirmation before spawning.
 
 Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
 

@@ -162,5 +162,29 @@ class TestSkillMdPlanPrimary(unittest.TestCase):
         self.assertNotIn("Count stories with status", self.content)
 
 
+class TestSkillMdCliSpawning(unittest.TestCase):
+    """SKILL.md uses CLI teammate spawning via spawn_teammate.py."""
+
+    def setUp(self):
+        self.content = _SKILL_MD.read_text()
+
+    def test_references_spawn_teammate_script(self):
+        """Spawning uses spawn_teammate.py, not Agent tool."""
+        self.assertIn("spawn_teammate.py", self.content)
+
+    def test_references_output_filter(self):
+        """Output piped through teammate_output_filter.py."""
+        self.assertIn("teammate_output_filter.py", self.content)
+
+    def test_uses_run_in_background(self):
+        """Teammates spawned with run_in_background."""
+        self.assertIn("run_in_background", self.content)
+
+    def test_no_agent_tool_spawning(self):
+        """No Agent tool with xp-teammate subagent_type."""
+        self.assertNotIn('subagent_type: "xp-teammate"', self.content)
+        self.assertNotIn('subagent_type: "xp-teammate"', self.content)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -44,8 +44,8 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 **Work assignment (plan cycle final step):**
 - `/xp-assign` is an inline skill that auto-runs as the final step of the plan cycle, after `/xp-review-plan` completes. It reads the plan file's steps and decides execution mode:
   - **Solo** — lead executes steps sequentially (dependency chains, overlapping file targets, or small plans)
-  - **Worktree subagents** — spawns `xp-teammate` agents via Agent tool with `isolation: worktree` for parallel execution (independent steps with non-overlapping file targets)
-- Teammates receive TEAMMATE_GUIDE.md via SubagentStart injection and work independently with full TDD + review cycle.
+  - **CLI teammates** — spawns teammates via `spawn_teammate.py` (independent `claude -p` processes in git worktrees) for parallel execution (independent steps with non-overlapping file targets)
+- Teammates receive values, guide, and rendered SMM via SessionStart and work independently with full TDD + review cycle.
 
 **When running tests:**
 - Check for FAIL/ERROR in the output first. Never re-run the full suite just to find failure names — capture them from the first run.

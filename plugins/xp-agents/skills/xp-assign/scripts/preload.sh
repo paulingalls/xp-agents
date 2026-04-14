@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
+echo "PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-}"
 
 # SMM for mode selection context
 if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
