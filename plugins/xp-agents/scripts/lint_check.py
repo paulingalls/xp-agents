@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import worktree
 
 # ---------------------------------------------------------------------------
 # Linter detection
@@ -300,9 +301,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not file_path:
         return None
 
-    normalized = _common.normalize_path(file_path, cwd)
+    normalized = worktree.normalize_path(file_path, cwd)
 
-    git_root = _common.resolve_git_root(cwd) or cwd
+    git_root = worktree.resolve_git_root(cwd) or cwd
 
     config = detect_linter_config(cwd, git_root, file_path=normalized)
 

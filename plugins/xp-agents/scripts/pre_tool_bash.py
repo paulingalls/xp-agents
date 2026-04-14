@@ -13,6 +13,7 @@ import commits
 import coordination
 import markers
 import security
+import worktree
 
 # ---------------------------------------------------------------------------
 # Bash file-modification heuristic
@@ -109,13 +110,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if target_files:
             coord_data = coordination.read_coordination(smm_dir)
             for target_file in target_files:
-                normalized_target = _common.normalize_path(target_file, cwd)
+                normalized_target = worktree.normalize_path(target_file, cwd)
                 for aid, entry in coord_data.items():
                     if aid == agent_id:
                         continue
                     for f in entry.get("working_on", []):
                         try:
-                            if _common.normalize_path(f, cwd) == normalized_target:
+                            if worktree.normalize_path(f, cwd) == normalized_target:
                                 parts.append(
                                     f"Advisory: Agent '{aid}' may be working on "
                                     f"'{target_file}'. Coordinate before modifying."

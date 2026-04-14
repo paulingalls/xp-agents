@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import worktree
 
 get_current_branch = _common.get_current_branch
 
@@ -39,7 +40,7 @@ def parse_result_event(lines: list[str]) -> dict | None:
 
 def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:
     """Write teammate report file. Returns the file path."""
-    path = _common.teammate_report_path(smm_dir, teammate_id)
+    path = worktree.teammate_report_path(smm_dir, teammate_id)
     path.write_text(result_text)
     return path
 

@@ -18,6 +18,7 @@ import commits
 import concerns
 import markers
 import security
+import worktree
 from test_parsing import is_test_run, parse_test_results
 
 # ---------------------------------------------------------------------------
@@ -34,10 +35,10 @@ def _resolve_lint_on_commit(
 
     import lint_check
 
-    git_root = _common.resolve_git_root(cwd) or cwd
+    git_root = worktree.resolve_git_root(cwd) or cwd
 
     for file_path in files:
-        normalized = _common.normalize_path(file_path, cwd)
+        normalized = worktree.normalize_path(file_path, cwd)
         config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
         if config is None:
             continue

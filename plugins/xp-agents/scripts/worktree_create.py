@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import worktree
 
 
 def _get_default_branch(cwd: str) -> str:
@@ -57,7 +58,7 @@ def run(input_data: dict) -> str:
             file=sys.stderr,
         )
 
-    wt = _common.worktree_path(name, cwd)
+    wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)
     worktree_path = str(wt)
 

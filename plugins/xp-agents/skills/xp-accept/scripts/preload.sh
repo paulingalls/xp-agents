@@ -34,7 +34,7 @@ echo "SPRINT_FILE=${SPRINT_FILE}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 
 # Detect teammate worktrees
-teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/teammate-" | sed 's/^worktree //' || true)
+teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/teammate-" | sed 's|.*/||' || true)
 if [ -n "$teammate_wts" ]; then
     echo ""
     echo "### TEAMMATE_WORKTREES"

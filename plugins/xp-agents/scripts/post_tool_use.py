@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import coordination
+import worktree
 
 # ---------------------------------------------------------------------------
 # Main run function
@@ -42,7 +43,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not file_path:
         return None
 
-    normalized = _common.normalize_path(file_path, cwd)
+    normalized = worktree.normalize_path(file_path, cwd)
 
     # Read events for conflict detection and semantic enrichment
     events = _common.read_events_raw(smm_dir)

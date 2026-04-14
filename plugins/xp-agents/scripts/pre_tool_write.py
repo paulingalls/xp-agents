@@ -16,6 +16,7 @@ import coordination
 import markers
 import security
 import sprint_state
+import worktree
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
@@ -120,14 +121,14 @@ def check_working_on_overlap(
     Returns conflict message or None.
     """
     coord_data = coordination.read_coordination(smm_dir)
-    normalized_target = _common.normalize_path(file_path, cwd)
+    normalized_target = worktree.normalize_path(file_path, cwd)
 
     for aid, entry in coord_data.items():
         if aid == agent_id:
             continue
         for f in entry.get("working_on", []):
             try:
-                if _common.normalize_path(f, cwd) == normalized_target:
+                if worktree.normalize_path(f, cwd) == normalized_target:
                     return (
                         f"CONFLICT: Agent '{aid}' is currently "
                         f"working on '{f}'. "

@@ -27,9 +27,9 @@ from _common import (
     STATUS,
     bulk_append_safe,
     make_event,
-    normalize_path,
     read_events_raw,
 )
+from worktree import normalize_path
 
 # ---------------------------------------------------------------------------
 # Test concern pattern (shared by bash_post_tool.py and tdd_stop_gate.py)

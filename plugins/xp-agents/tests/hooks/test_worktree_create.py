@@ -15,6 +15,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import _common
+import worktree
 
 # Real platform input format
 _INPUT = {
@@ -57,7 +58,7 @@ class TestWorktreeCreate(unittest.TestCase):
                 return_value=default,
             ),
             mock.patch.object(
-                _common,
+                worktree,
                 "resolve_git_root",
                 return_value="/repo",
             ),
@@ -138,7 +139,7 @@ class TestWorktreeCreate(unittest.TestCase):
                 return_value="main",
             ),
             mock.patch.object(
-                _common,
+                worktree,
                 "resolve_git_root",
                 return_value="/repo",
             ),

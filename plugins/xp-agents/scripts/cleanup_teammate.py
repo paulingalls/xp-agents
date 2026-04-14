@@ -20,8 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-import _common
 import markers
+import worktree
 
 
 def verify_merged(name: str, cwd: str) -> bool:
@@ -36,9 +36,9 @@ def verify_merged(name: str, cwd: str) -> bool:
 
 def cleanup(name: str, cwd: str, smm_dir: Path) -> None:
     """Remove worktree, branch, agent markers, and report file."""
-    _common.remove_worktree(name, cwd)
+    worktree.remove_worktree(name, cwd)
     markers.cleanup_agent_markers(smm_dir, name)
-    report = _common.teammate_report_path(smm_dir, name)
+    report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):
         report.unlink()
 
@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--smm-dir", required=True)
     args = parser.parse_args(argv)
 
-    cwd = _common.resolve_git_root(os.getcwd())
+    cwd = worktree.resolve_git_root(os.getcwd())
     if not cwd:
         print("Not in a git repository.", file=sys.stderr)
         return 1

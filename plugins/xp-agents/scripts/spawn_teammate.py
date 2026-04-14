@@ -21,18 +21,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import worktree
 
 
 def cleanup_existing(name: str, cwd: str) -> None:
     """Remove existing worktree and branch if present."""
-    _common.remove_worktree(name, cwd, force_branch=True)
+    worktree.remove_worktree(name, cwd, force_branch=True)
 
 
 def create_worktree(name: str, cwd: str) -> str:
     """Create a git worktree for a teammate. Returns worktree path."""
     cleanup_existing(name, cwd)
 
-    wt = _common.worktree_path(name, cwd)
+    wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)
     wt_path = str(wt)
 
