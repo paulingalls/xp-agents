@@ -1,5 +1,16 @@
 # CLI Teammate Design
 
+> **Implementation Status:** All 4 milestones delivered (Sprints 014–017).
+> - **M1** (Sprint 014): Teammate detection via `is_worktree_teammate()`, SessionStart injection, kickoff gate bypass
+> - **M2** (Sprint 015): `spawn_teammate.py` launcher, `teammate_output_filter.py`, `/xp-assign` spawning via Bash `run_in_background`
+> - **M3** (Sprint 016): TeammateIdle/TaskCompleted TDD gates, commit-gated review cycle enforcement for teammates
+> - **M4** (Sprint 017): `/xp-accept` with worktree cleanup (`cleanup_teammate.py`), teammate branch merge workflow
+>
+> **Divergences from design:**
+> - `resolve_agent_id()` was extracted into `identity.py` (not inline in `_common.py` as described)
+> - Worktree helpers were extracted into `worktree.py` (not inline in `_common.py`)
+> - The `xp-teammate.md` agent definition was removed as planned — teammate context is purely SessionStart-injected
+
 ## Problem
 
 Worktree subagents spawned via the Agent tool have platform limitations that prevent reliable hook enforcement:
