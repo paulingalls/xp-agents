@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.12.3 — Review Scope Fixes and Debt Cleanup
+
+- **Cross-teammate simplify scoped via Skill args.** xp-accept Step 0 now passes `args` to `/simplify` scoping the review to merged teammate changes, so it reviews the merge diffs instead of finding an empty working tree.
+- **Security review scoped to working tree.** `xp-security-reviewer` agent now passes args to `/security-review` to scope to uncommitted changes (staged, unstaged, and new untracked files) instead of diffing the entire branch history. xp-accept Step 0 similarly calls `/security-review` directly with args scoped to the merged teammate changes.
+
 ## v2.12.2 — Retro Try Items: Metrics, CI Tests, Stop Gate Fix
 
 - **Event gap metric fixed.** `_has_code_changes()` in `work_signals.py` now uses `security.is_code_file()` to filter, so only source code writes (not sprint.json, plan .md files) start the events-to-commit counter. The metric was inflated by 80% status events from hook-generated writes to non-code files.
