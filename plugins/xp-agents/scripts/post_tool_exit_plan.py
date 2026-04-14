@@ -6,13 +6,13 @@ After the agent exits plan mode, inject context telling it to run
 marker so pre_tool_write.py can nudge on writes if the agent ignores this.
 """
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import identity
 import markers
 
 
@@ -21,13 +21,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
 
     # Capture plan file path from ExitPlanMode response
     tool_response = input_data.get("tool_response", {})
@@ -59,11 +57,5 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     result = run(input_data)
     if result:
-        output = {
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": result,
-            }
-        }
-        print(json.dumps(output))
+        _common.hook_output("PostToolUse", result)
     sys.exit(0)

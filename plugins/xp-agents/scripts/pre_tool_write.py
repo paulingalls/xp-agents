@@ -13,7 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
+import identity
 import markers
+import security
+import sprint_state
+import worktree
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
@@ -118,14 +122,14 @@ def check_working_on_overlap(
     Returns conflict message or None.
     """
     coord_data = coordination.read_coordination(smm_dir)
-    normalized_target = _common.normalize_path(file_path, cwd)
+    normalized_target = worktree.normalize_path(file_path, cwd)
 
     for aid, entry in coord_data.items():
         if aid == agent_id:
             continue
         for f in entry.get("working_on", []):
             try:
-                if _common.normalize_path(f, cwd) == normalized_target:
+                if worktree.normalize_path(f, cwd) == normalized_target:
                     return (
                         f"CONFLICT: Agent '{aid}' is currently "
                         f"working on '{f}'. "
@@ -157,10 +161,15 @@ def check_tdd_order(
         return None
 
     # Load existing tracker
-    tracker = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id) or {
-        "writes": [],
-        "test_written": False,
-    }
+    raw = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id)
+    tracker: dict = (
+        raw
+        if isinstance(raw, dict)
+        else {
+            "writes": [],
+            "test_written": False,
+        }
+    )
 
     changed = False
 
@@ -170,6 +179,10 @@ def check_tdd_order(
             changed = True
         if changed:
             markers.marker_write(smm_dir, markers.TDD_TRACKER, tracker, agent_id)
+        return None
+
+    # Non-code files (md, json, yaml, etc.) don't count for TDD tracking
+    if not security.is_code_file(file_path):
         return None
 
     # Implementation file
@@ -204,13 +217,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
 
     parts: list[str] = []
@@ -250,11 +261,44 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Plan review required before implementation.",
         )
 
+    # Assign gate — block writes until /xp-assign decides execution mode.
+    # Plan files (.claude/plans/) are exempt — same as plan review gate.
+    assign_marker = (
+        smm_dir
+        and not is_plan_file
+        and markers.marker_exists(smm_dir, markers.ASSIGN_PENDING)
+    )
+    if assign_marker:
+        raise _common.BlockedError(
+            "Run /xp-assign to decide execution mode "
+            "(solo vs worktree subagents) before writing code.",
+            "Work assignment required before implementation.",
+        )
+
+    # Question gate — block writes until blocking question is answered.
+    question_gate = smm_dir and markers.marker_exists(smm_dir, markers.QUESTION_GATE)
+    if question_gate:
+        raise _common.BlockedError(
+            "A blocking question needs your answer. "
+            "Use AskUserQuestion to ask the user, then proceed.",
+            "Blocking question requires user answer.",
+        )
+
     # TDD order check
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)
         if tdd_nudge:
             parts.append(tdd_nudge)
+
+    # Accept marker — signal "needs acceptance" when writing during active sprint.
+    # Plan files are exempt (writing a plan isn't iteration work).
+    if (
+        smm_dir
+        and not is_plan_file
+        and sprint_state.has_in_progress_stories(smm_dir)
+        and not markers.marker_exists(smm_dir, markers.ACCEPT)
+    ):
+        markers.marker_write(smm_dir, markers.ACCEPT, "done")
 
     if not parts:
         return None

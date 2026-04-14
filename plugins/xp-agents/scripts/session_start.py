@@ -17,7 +17,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import execution_plan_store
+import identity
 import markers
+import smm_cli
+import smm_store
+import sprint_state
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -33,17 +38,36 @@ GUPP_STARTUP = (
     "\n\n---\nRun /xp-kickoff before doing anything else, and start immediately."
 )
 
-SKILLS_TEXT = (
-    "\n\n---\n"
-    "**Available Skills (invoke these regularly):**\n"
-    "- `/xp-smm-protocol` — Event recording reference. Invoke when recording "
-    "decisions, questions, concerns, assumptions, discoveries, or debt"
-)
-
 
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
+
+def _run_teammate(smm_dir: Path | None) -> str | None:
+    """Teammate SessionStart: XP Values + Teammate Guide + SMM. No markers."""
+    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    parts: list[str] = []
+    values = _common.load_xp_values()
+    if values:
+        parts.append(values)
+    guide = _common.load_teammate_guide()
+    if guide:
+        parts.append(guide)
+    if smm_dir is not None:
+        ctx_path = smm_dir / "system_context.md"
+        if ctx_path.exists() and not ctx_path.is_symlink():
+            try:
+                ctx = ctx_path.read_text(encoding="utf-8")
+                if ctx.strip():
+                    parts.append(f"## System Context\n{ctx}")
+            except OSError:
+                pass
+        smm_data = smm_store.load_smm(smm_dir)
+        rendered = smm_cli.render_markdown(smm_data)
+        if rendered.strip():
+            parts.append(rendered)
+    return "\n\n".join(parts) if parts else None
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -51,6 +75,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Recursion prevention
     if _common.is_xp_agent(input_data):
         return None
+
+    if identity.is_worktree_teammate(input_data):
+        return _run_teammate(smm_dir)
 
     source = input_data.get("source", "")
 
@@ -74,8 +101,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
-        # Graceful: return GUPP + skills even without SMM
-        return GUPP_STARTUP + SKILLS_TEXT
+        # Graceful: return GUPP even without SMM
+        return GUPP_STARTUP
 
     # Write .needs-kickoff marker on fresh starts.
     # "startup" = new session (block until kickoff), "clear" = mid-session
@@ -83,16 +110,38 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # "resume" and "compact" fire mid-session — no marker needed.
     if source in ("startup", "clear"):
         markers.marker_write(smm_dir, markers.KICKOFF, source)
+        markers.marker_consume(smm_dir, markers.ACCEPT)
+        if not sprint_state.has_remaining_work(smm_dir):
+            execution_plan_store.archive(smm_dir)
+            markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)
+        if not sprint_state.system_context_exists(smm_dir):
+            markers.marker_write(smm_dir, markers.NEEDS_SYSTEM_CONTEXT, source)
+        needs_sprint = not sprint_state.has_active_stories(smm_dir)
+        if needs_sprint:
+            markers.marker_write(smm_dir, markers.NEEDS_SPRINT, source)
 
-    # Build context: GUPP (source-dependent) + skills.
+    # Build context: GUPP (source-dependent) + skills + XP values.
     gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME
     parts: list[str] = []
     parts.append(gupp)
-    parts.append(SKILLS_TEXT)
+    # XP values are always available from the first prompt.
+    values = _common.load_xp_values()
+    if values:
+        parts.append("\n\n" + values)
 
-    # BEHAVIORAL_GUIDE.md is now injected by kickoff_done.py
-    # (PostToolUse:Skill hook) after /xp-kickoff completes,
-    # together with the fresh SMM.
+    # PROCESS_GUIDE.md is injected by kickoff_done.py after /xp-kickoff
+    # completes, together with the fresh SMM.
+
+    # M10: Reinject SMM + sprint.md + process guide after compaction
+    # so the lead's context retains project state and workflow rules.
+    if source == "compact":
+        smm_data = smm_store.load_smm(smm_dir)
+        rendered = smm_cli.render_markdown(smm_data)
+        if rendered.strip():
+            parts.append("\n\n" + rendered)
+        process = _common.load_process_guide()
+        if process:
+            parts.append("\n\n" + process)
 
     return "".join(parts)
 

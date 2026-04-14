@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for subagent hooks and user prompt logging.
+"""Tests for subagent_stop and user_prompt_log hooks.
 
-Split from the monolithic test_hooks.py.
+SubagentStart tests moved to test_subagent_tiers.py.
 Review cycle tests in test_review_cycle.py.
 """
 
@@ -17,216 +17,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import subagent_stop
 import user_prompt_log
-from conftest import _HookTestCase, make_event
-
-# ===========================================================================
-# subagent_start.py tests
-# ===========================================================================
-
-
-class TestSubagentStart(_HookTestCase):
-    def test_xp_agent_skips(self):
-        import subagent_start
-
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "exp-1", "agent_type": "xp-nav"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_missing_smm_dir(self):
-        import subagent_start
-
-        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "exp-1"},
-            smm_dir=fake_dir,
-        )
-        self.assertIsNone(result)
-
-    def test_returns_guide_without_smm_file(self):
-        """Without curated SMM file, non-Explore agent still gets behavioral guide."""
-        import subagent_start
-
-        self._write_events([make_event()])
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
-            smm_dir=self.smm_dir,
-        )
-        # Non-Explore agent gets behavioral guide even without SMM
-        self.assertIsNotNone(result)
-        self.assertIn("Behavioral Guide", result)
-
-    def test_reads_curated_smm_from_disk(self):
-        """M5: SubagentStart reads curated SMM from disk when available."""
-        import subagent_start
-
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n\n## Intent\n- Ship v1\n")
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
-
-    def test_empty_events_still_gets_guide(self):
-        import subagent_start
-
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
-            smm_dir=self.smm_dir,
-        )
-        # Non-Explore agent gets behavioral guide even with empty events
-        self.assertIsNotNone(result)
-        self.assertIn("Behavioral Guide", result)
-
-    def test_default_agent_id(self):
-        """Default agent_id is 'subagent' — used in start event."""
-        import subagent_start
-
-        self._write_events([make_event()])
-        subagent_start.run(
-            {"session_id": "test"},
-            smm_dir=self.smm_dir,
-        )
-        # Start event should use "subagent" as default agent_id
-        events = self._read_events()
-        start_events = [
-            e for e in events if "Subagent subagent started" in e.get("content", "")
-        ]
-        self.assertEqual(len(start_events), 1)
-
-    def test_falls_back_to_guide_without_smm_file(self):
-        """Without curated SMM, non-Explore agent gets behavioral guide."""
-        import subagent_start
-
-        self._write_events([make_event("goal", content="Ship v1")])
-        # No SHARED_MENTAL_MODEL.md on disk
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Behavioral Guide", result)
-
-
-class TestSubagentStartEvent(_HookTestCase):
-    """Tests for SubagentStart event recording (async agent timing fix)."""
-
-    def test_start_records_status_event(self):
-        import subagent_start
-
-        self._write_events([make_event()])
-        subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
-            smm_dir=self.smm_dir,
-        )
-        events = self._read_events()
-        # Should have original event + new start event
-        self.assertEqual(len(events), 2)
-        start_ev = events[1]
-        self.assertEqual(start_ev["type"], "status")
-        self.assertEqual(start_ev["agent_id"], "explorer-1")
-        self.assertEqual(start_ev["content"], "Subagent explorer-1 started")
-
-    def test_xp_agent_no_event(self):
-        import subagent_start
-
-        self._write_events([make_event()])
-        subagent_start.run(
-            {"session_id": "test", "agent_id": "xp-nav-1", "agent_type": "xp-nav"},
-            smm_dir=self.smm_dir,
-        )
-        events = self._read_events()
-        # xp- agents should not write start events
-        self.assertEqual(len(events), 1)
-
-
-# ===========================================================================
-# SubagentStart tiered injection tests
-# ===========================================================================
-
-
-class TestSubagentStartTieredInjection(_HookTestCase):
-    """SubagentStart injects tiered context based on agent type."""
-
-    def setUp(self):
-        super().setUp()
-        import subagent_start
-
-        self.subagent_start = subagent_start
-        # Write a curated SMM with all four pillars
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text(
-            "# Shared Mental Model\n\n"
-            "## Intent\n- Ship v1\n\n"
-            "## Constraints\n- Python 3.10+ only\n\n"
-            "## Risks\n- Auth module fragile\n\n"
-            "## Wisdom\n- TDD always\n"
-        )
-
-    def test_explore_gets_only_intent_and_constraints(self):
-        """Explore agent gets Intent + Constraints only, not Risks or Wisdom."""
-        result = self.subagent_start.run(
-            {"session_id": "t", "agent_id": "explore-1", "agent_type": "Explore"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Intent", result)
-        self.assertIn("Ship v1", result)
-        self.assertIn("Constraints", result)
-        self.assertIn("Python 3.10+", result)
-        self.assertNotIn("Risks", result)
-        self.assertNotIn("Auth module fragile", result)
-        self.assertNotIn("Wisdom", result)
-        self.assertNotIn("TDD always", result)
-
-    def test_explore_no_behavioral_guide(self):
-        """Explore agent does not get the behavioral guide."""
-        result = self.subagent_start.run(
-            {"session_id": "t", "agent_id": "explore-1", "agent_type": "Explore"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        # Behavioral guide contains "Honesty Principle" or "Courage"
-        # The key point: Explore should NOT include the guide
-        self.assertNotIn("BEHAVIORAL_GUIDE", result)
-
-    def test_general_agent_gets_full_smm_and_guide(self):
-        """General-purpose agent gets full SMM + behavioral guide."""
-        result = self.subagent_start.run(
-            {"session_id": "t", "agent_id": "task-1"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Intent", result)
-        self.assertIn("Constraints", result)
-        self.assertIn("Risks", result)
-        self.assertIn("Wisdom", result)
-
-    def test_plan_agent_gets_full_smm_and_guide(self):
-        """Plan agent gets full SMM + behavioral guide."""
-        result = self.subagent_start.run(
-            {"session_id": "t", "agent_id": "plan-1", "agent_type": "Plan"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("Intent", result)
-        self.assertIn("Constraints", result)
-        self.assertIn("Risks", result)
-        self.assertIn("Wisdom", result)
-
-    def test_explore_wraps_in_smm_context(self):
-        """Explore injection is wrapped in <smm-context> tags."""
-        result = self.subagent_start.run(
-            {"session_id": "t", "agent_id": "explore-1", "agent_type": "Explore"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("<smm-context>", result)
-        self.assertIn("</smm-context>", result)
-
+from conftest import (
+    _HookTestCase,
+    _s,
+    _sprint_json,
+    make_event,
+    write_smm_fixture,
+)
 
 # ===========================================================================
 # user_prompt_log.py tests — Milestone 3.4
@@ -308,6 +105,39 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
+
+    def test_clears_asking_user_marker(self):
+        """UserPromptSubmit clears .asking-user so Stop gate resumes normal blocking."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "continue"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
+
+    def test_clears_asking_user_marker_on_empty_prompt(self):
+        """Even empty/whitespace prompts clear the marker — user is still engaged."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "   "},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
+
+    def test_xp_agent_prompt_does_not_clear_marker(self):
+        """xp-agent prompts must not clear the main agent's dialogue marker."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
+        user_prompt_log.run(
+            {"session_id": "t", "prompt": "hi", "agent_type": "xp-housekeeping"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
 
 
 # ===========================================================================
@@ -505,16 +335,179 @@ class TestSubagentStopNoReviewerNudge(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_xp_agent_returns_none(self):
+    def test_xp_non_special_agent_returns_none(self):
+        """xp-* agents without special handlers return None."""
         result = subagent_stop.run(
             {
                 "session_id": "t",
                 "agent_id": "task-1",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-retrospective",
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,
         )
+        self.assertIsNone(result)
+
+
+class TestHousekeepingDone(_HookTestCase):
+    """subagent_stop._handle_housekeeping_done runs after xp-housekeeper fork."""
+
+    def _housekeeping_input(self, agent_type: str = "xp-housekeeper") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "housekeeper-1",
+            "agent_type": agent_type,
+            "last_assistant_message": "SMM curated.",
+        }
+
+    def test_injects_smm_file_content(self):
+        """Should inject curated SMM content after housekeeping."""
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
+        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+
+    def test_matches_qualified_agent_type(self):
+        """Should match agent_type 'xp-agents:xp-housekeeper' too."""
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
+        result = subagent_stop.run(
+            self._housekeeping_input(agent_type="xp-agents:xp-housekeeper"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Ship v1", result)
+
+    def test_injects_process_guide(self):
+        """Should inject PROCESS_GUIDE.md content after housekeeping."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("EnterPlanMode", result)
+
+    def test_no_xp_values_in_housekeeping_done(self):
+        """Values injected at session start, not housekeeping done."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertNotIn("XP Values", result)
+
+    def test_graceful_without_smm_file(self):
+        """No SMM file — still returns process guide."""
+        (self.smm_dir / "shared_mental_model.json").unlink(missing_ok=True)
+        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("EnterPlanMode", result)
+
+    def test_deletes_kickoff_marker(self):
+        """Should delete .needs-kickoff marker after handling."""
+        marker = self.smm_dir / ".needs-kickoff"
+        marker.touch()
+        self._write_events([make_event("goal", content="Ship v1")])
+        subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertFalse(marker.exists())
+
+    def test_nudges_when_no_in_progress_stories(self):
+        """When sprint has no in-progress stories, add nudge."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-001", "x", "M", "ready")])
+        )
+        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("No stories marked", result)
+
+    def test_no_nudge_when_in_progress_exists(self):
+        """No nudge when an in-progress story exists."""
+        self._write_events([make_event("goal", content="Ship v1")])
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-001", "x", "M", "in-progress")])
+        )
+        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertNotIn("No stories marked", result)
+
+
+_SPRINT_REVIEW_MIXED = _sprint_json(
+    [
+        _s("story-001", "Login", "M", "done"),
+        _s("story-002", "Register", "S", "done"),
+        _s("story-003", "Logout", "S", "deferred"),
+        _s("story-004", "Profile", "L", "ready"),
+    ],
+    sprint_id="sprint-001",
+    started="2026-03-15",
+    goal="Build auth system",
+)
+
+
+class TestSprintReviewerDone(_HookTestCase):
+    """subagent_stop._handle_sprint_review_done runs after xp-sprint-reviewer."""
+
+    def _reviewer_input(self, agent_type: str = "xp-sprint-reviewer") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "reviewer-1",
+            "agent_type": agent_type,
+            "last_assistant_message": "Review complete.",
+        }
+
+    def _seed_sprint(self, content: str = _SPRINT_REVIEW_MIXED) -> None:
+        (self.smm_dir / "sprint.json").write_text(content)
+
+    def test_returns_none_no_nudge(self):
+        """M6: After sprint-reviewer finishes, returns None — sprint retro
+        now runs at next session start, not end of session."""
+        self._seed_sprint()
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_matches_qualified_agent_type(self):
+        """Should match agent_type 'xp-agents:xp-sprint-reviewer' too —
+        writes the sprint_end event even if return value is None."""
+        self._seed_sprint()
+        subagent_stop.run(
+            self._reviewer_input(agent_type="xp-agents:xp-sprint-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        self.assertEqual(len(sprint_events), 1)
+
+    def test_logs_sprint_end_event(self):
+        """Sprint end event has type=sprint, action=end, velocity metadata."""
+        self._seed_sprint()
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        self.assertEqual(len(sprint_events), 1)
+        meta = sprint_events[0].get("metadata", {})
+        self.assertEqual(meta["action"], "end")
+        self.assertEqual(meta["sprint_id"], "sprint-001")
+        self.assertIn("stories_planned", meta)
+        self.assertIn("stories_delivered", meta)
+        self.assertIn("stories_carried", meta)
+
+    def test_sprint_end_velocity_values(self):
+        """Velocity in sprint end event matches sprint.json data."""
+        self._seed_sprint()
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        meta = sprint_events[0]["metadata"]
+        self.assertEqual(meta["stories_planned"], 4)
+        self.assertEqual(meta["stories_delivered"], 2)
+        self.assertEqual(meta["stories_carried"], 1)
+
+    def test_cleans_up_input_file(self):
+        """Removes .sprint-review-input.json after handling."""
+        self._seed_sprint()
+        (self.smm_dir / ".sprint-review-input.json").write_text("{}")
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".sprint-review-input.json").exists())
+
+    def test_no_sprint_graceful(self):
+        """M6: No sprint.json → still returns None (no nudge), no crash."""
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
 

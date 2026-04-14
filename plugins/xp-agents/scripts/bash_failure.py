@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import concerns
+import identity
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -34,13 +36,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if not framework:
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
     try:
         _common._validate_agent_id(agent_id)
     except ValueError:
@@ -61,7 +61,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     concern = _common.make_event(
         _common.CONCERN,
         agent_id,
-        f"Test command failed ({framework}): {first_line}",
+        f"{concerns.TEST_COMMAND_FAILED_PREFIX} ({framework}): {first_line}",
         severity="high",
     )
     _common.append_safe(smm_dir, concern)

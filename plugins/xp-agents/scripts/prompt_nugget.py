@@ -14,7 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
 import read_delta
+from resolution import compute_resolutions
 
 # Signal types worth surfacing, in priority order.
 # Higher priority = more likely to affect the agent's current work.
@@ -29,6 +31,14 @@ _NUGGET_PRIORITY = {
 
 _MAX_NUGGETS = 3
 _WATERMARK_ID = "prompt-nugget"
+
+# Concern patterns already visible in tool output — filter from nuggets.
+_NOISY_CONCERN_PREFIXES = (
+    concerns.TEST_COMMAND_FAILED_PREFIX,
+    concerns.TEST_FAILURES_PREFIX,
+    concerns.LINT_CONCERN_PREFIX,
+    concerns.LINT_RESOLVED_PREFIX,
+)
 
 
 def _truncate(text: str, max_len: int = 120) -> str:
@@ -46,9 +56,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
@@ -60,7 +68,29 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except Exception:
         return None
 
-    signals = [e for e in new_events if e.get("type") in _NUGGET_PRIORITY]
+    # Filter out resolved concerns/debt/decisions — read full history
+    # to catch resolutions from earlier delta windows
+    all_events = _common.read_events_raw(smm_dir)
+    resolved = compute_resolutions(all_events)
+    resolved_ids = (
+        resolved.get("resolved_concern_ids", set())
+        | resolved.get("resolved_debt_ids", set())
+        | resolved.get("resolved_decision_ids", set())
+        | resolved.get("resolved_goal_ids", set())
+        | resolved.get("resolved_assumption_ids", set())
+        | resolved.get("answered_question_ids", set())
+    )
+
+    signals = [
+        e
+        for e in new_events
+        if e.get("type") in _NUGGET_PRIORITY
+        and e.get("id") not in resolved_ids
+        and not (
+            e.get("type") == _common.CONCERN
+            and e.get("content", "").startswith(_NOISY_CONCERN_PREFIXES)
+        )
+    ]
     if not signals:
         return None
 

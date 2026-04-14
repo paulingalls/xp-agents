@@ -152,41 +152,19 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
     def setUp(self):
         self.agents_dir = Path(__file__).parent.parent.parent / "agents"
 
-    # AC 4: first session asks for goals (now in skill)
-    def test_goal_collection_skill(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-goal-collection"
-        )
+    # AC 4: first session asks for goals (now in xp-work-selection)
+    def test_work_selection_has_goal_recording(self):
+        skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-work-selection"
         content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("Goal Collection", content)
         self.assertIn('--type "goal"', content)
 
-    # AC 5: question triage distills intents (now in skill)
-    def test_question_triage_intent_distillation(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-question-triage"
-        )
+    # AC 5-8: question triage + intent reconciliation (now in
+    # xp-work-selection for questions, xp-housekeeper for intents)
+    def test_work_selection_has_question_triage(self):
+        skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-work-selection"
         content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("Intent Reconciliation", content)
-        self.assertIn("customer_input", content)
-        self.assertIn("--intent-status", content)
-
-    # AC 7: delivered intents by event log activity
-    def test_question_triage_delivery_by_events(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-question-triage"
-        )
-        content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("delivered", content)
-        self.assertIn("recent events", content.lower())
-
-    # AC 8: ambiguous keeps intent open
-    def test_question_triage_err_toward_open(self):
-        skill_dir = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-question-triage"
-        )
-        content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn("Err toward keeping intents open", content)
+        self.assertIn("Open Questions", content)
+        self.assertIn('--type "answer"', content)
 
     # AC 12: retrospective escalates aging debt
     def test_retrospective_escalates_aging_debt(self):
@@ -289,14 +267,21 @@ class TestHooksJsonM54(_HooksJsonTestCase):
             "tdd_stop_gate.py command hook missing from Stop",
         )
 
-    def test_stop_has_one_hook(self):
+    def test_stop_has_four_hooks(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
         self.assertEqual(
-            len(all_hooks), 1, f"Expected 1 Stop hook (TDD only), got {len(all_hooks)}"
+            len(all_hooks),
+            4,
+            "Expected 4 Stop hooks (TDD + sprint + warning"
+            f" + teammate), got {len(all_hooks)}",
         )
+        commands = [h["command"] for h in all_hooks if "command" in h]
+        self.assertTrue(any("sprint_stop_gate.py" in c for c in commands))
+        self.assertTrue(any("session_end_warning.py" in c for c in commands))
+        self.assertTrue(any("teammate_stop_gate.py" in c for c in commands))
 
 
 # ===========================================================================
@@ -330,6 +315,24 @@ class TestHooksJsonGapFixes(_HooksJsonTestCase):
             "bash_failure.py missing from PostToolUseFailure",
         )
 
+    def test_post_tool_use_failure_has_ask_user_question_matcher(self):
+        entries = self.data["hooks"]["PostToolUseFailure"]
+        matchers = [e.get("matcher") for e in entries]
+        self.assertIn(
+            "AskUserQuestion",
+            matchers,
+            "AskUserQuestion missing from PostToolUseFailure",
+        )
+
+    def test_post_tool_use_failure_ask_user_has_question_answered(self):
+        entries = self.data["hooks"]["PostToolUseFailure"]
+        ask_entry = next(e for e in entries if e.get("matcher") == "AskUserQuestion")
+        commands = [h["command"] for h in ask_entry.get("hooks", [])]
+        self.assertTrue(
+            any("question_answered.py" in c for c in commands),
+            "question_answered.py missing from PostToolUseFailure",
+        )
+
     def test_session_start_includes_clear_matcher(self):
         entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
         self.assertIsNotNone(entry, "SessionStart matcher should include 'clear'")
@@ -353,6 +356,17 @@ class TestHooksJsonM65(_HooksJsonTestCase):
                         "agent",
                         f"Found agent hook in {event_name}: {hook}",
                     )
+
+    def test_hooks_json_has_worktree_create(self):
+        """WorktreeCreate hook must be registered."""
+        self.assertIn("WorktreeCreate", self.data["hooks"])
+
+    def test_worktree_create_command(self):
+        """WorktreeCreate must reference worktree_create.py."""
+        entry = self._find_default_entry("WorktreeCreate")
+        self.assertIsNotNone(entry, "No default WorktreeCreate entry")
+        cmds = [h["command"] for h in entry["hooks"]]
+        self.assertTrue(any("worktree_create.py" in c for c in cmds))
 
     def test_only_command_and_prompt_types(self):
         """All hooks should be type: command or type: prompt."""

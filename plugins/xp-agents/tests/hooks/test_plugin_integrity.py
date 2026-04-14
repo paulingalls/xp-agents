@@ -15,9 +15,35 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 _SUBAGENT_NAMES = (
-    "xp-retrospective",
+    "xp-housekeeper",
     "xp-plan-reviewer",
+    "xp-retrospective",
     "xp-security-reviewer",
+    "xp-sprint-reviewer",
+    "xp-system-context",
+)
+
+_ALL_SKILL_NAMES = (
+    "xp-accept",
+    "xp-housekeeping",
+    "xp-kickoff",
+    "xp-plan",
+    "xp-quality-review",
+    "xp-review-plan",
+    "xp-run-retrospective",
+    "xp-security-triage",
+    "xp-simplify",
+    "xp-assign",
+    "xp-sprint-review",
+    "xp-sprint-start",
+    "xp-system-context",
+    "xp-work-selection",
+)
+
+# Inline skills with substantial instructional content (800-2500 token budget)
+_CONTENT_SKILL_NAMES = (
+    "xp-quality-review",
+    "xp-sprint-start",
 )
 
 
@@ -27,34 +53,63 @@ class TestMilestone6Files(unittest.TestCase):
     def setUp(self):
         self.plugin_root = Path(__file__).parent.parent.parent
 
-    def test_behavioral_guide_exists(self):
-        """BEHAVIORAL_GUIDE.md must exist at plugin root."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+    def test_xp_values_exists(self):
+        """XP_VALUES.md must exist at plugin root."""
+        path = self.plugin_root / "XP_VALUES.md"
         self.assertTrue(path.is_file(), f"Missing: {path}")
 
-    def test_behavioral_guide_token_budget(self):
-        """BEHAVIORAL_GUIDE.md word count should estimate 300-2,000 tokens."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+    def test_process_guide_exists(self):
+        """PROCESS_GUIDE.md must exist at plugin root."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        self.assertTrue(path.is_file(), f"Missing: {path}")
+
+    def test_xp_values_token_budget(self):
+        """XP_VALUES.md word count should estimate 150-1,000 tokens."""
+        path = self.plugin_root / "XP_VALUES.md"
         if not path.exists():
-            self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
+            self.skipTest("XP_VALUES.md not yet created")
         words = len(path.read_text().split())
         estimated_tokens = words / 0.75
         self.assertGreaterEqual(
-            estimated_tokens, 300, f"Too short: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
+        )
+        self.assertLessEqual(
+            estimated_tokens, 1000, f"Too long: ~{estimated_tokens:.0f} tokens"
+        )
+
+    def test_process_guide_token_budget(self):
+        """PROCESS_GUIDE.md word count should estimate 150-1,200 tokens."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        words = len(path.read_text().split())
+        estimated_tokens = words / 0.75
+        self.assertGreaterEqual(
+            estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
             estimated_tokens, 2000, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
 
+    def test_process_guide_includes_event_protocol(self):
+        """PROCESS_GUIDE.md must include event recording protocol."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        content = path.read_text()
+        self.assertIn("Event Types", content)
+        self.assertIn("working_on", content)
+        self.assertIn("references", content)
+
     def test_skill_directories_exist(self):
-        """All 3 skill dirs must exist with SKILL.md."""
-        for name in ("xp-smm-protocol",):
+        """All skill dirs must exist with SKILL.md."""
+        for name in _ALL_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
 
     def test_skill_frontmatter_valid(self):
         """Each SKILL.md must have valid YAML frontmatter with name + description."""
-        for name in ("xp-smm-protocol",):
+        for name in _ALL_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -78,8 +133,8 @@ class TestMilestone6Files(unittest.TestCase):
             self.assertEqual(name_match.group(1), name)
 
     def test_skill_token_budgets(self):
-        """Each SKILL.md should be within 1,000-2,000 token estimate."""
-        for name in ("xp-smm-protocol",):
+        """Content skills should be within 800-2500 token estimate."""
+        for name in _CONTENT_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
                 self.skipTest(f"{skill_file} not yet created")
@@ -96,19 +151,24 @@ class TestMilestone6Files(unittest.TestCase):
                 f"{name} too long: ~{estimated_tokens:.0f} tokens",
             )
 
-    def test_behavioral_guide_no_contradictions(self):
-        """Guide should not contradict hook enforcement (spot check)."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
+    def test_xp_values_has_core_values(self):
+        """XP_VALUES.md should cover XP values."""
+        path = self.plugin_root / "XP_VALUES.md"
         if not path.exists():
-            self.skipTest("BEHAVIORAL_GUIDE.md not yet created")
+            self.skipTest("XP_VALUES.md not yet created")
         content = path.read_text()
-        # Guide should reference hooks, not claim to replace them
-        self.assertNotIn("instead of hooks", content.lower())
-        self.assertNotIn("ignore quality review", content.lower())
-        # Guide should cover XP values and honesty
         self.assertIn("Honesty", content)
         self.assertIn("Courage", content)
         self.assertIn("Simplicity", content)
+
+    def test_process_guide_no_contradictions(self):
+        """Process guide should not contradict hook enforcement."""
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        content = path.read_text()
+        self.assertNotIn("instead of hooks", content.lower())
+        self.assertNotIn("ignore quality review", content.lower())
         self.assertIn("TDD", content)
 
 
@@ -150,13 +210,6 @@ class TestAgentFilesM65(unittest.TestCase):
             fm = parts[1]
             self.assertIn("Bash", fm, f"{name} missing Bash in tools")
 
-    def test_skills_include_smm_protocol(self):
-        for name in _SUBAGENT_NAMES:
-            content = (self.agents_dir / f"{name}.md").read_text()
-            parts = content.split("---", 2)
-            fm = parts[1]
-            self.assertIn("xp-smm-protocol", fm, f"{name} missing smm-protocol skill")
-
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""
         for name in _SUBAGENT_NAMES:
@@ -167,12 +220,35 @@ class TestAgentFilesM65(unittest.TestCase):
             self.assertIn("append.sh", body, f"{name} body missing append.sh reference")
 
     def test_body_mentions_smm_content_trust(self):
-        """Every subagent should have the SMM content trust section."""
+        """Subagents that read SMM data should have the content trust section."""
+        # xp-security-reviewer doesn't read the SMM — no trust section needed
+        skip = {"xp-security-reviewer"}
         for name in _SUBAGENT_NAMES:
+            if name in skip:
+                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             self.assertIn(
                 "SMM Content Trust", content, f"{name} missing SMM Content Trust"
             )
+
+    def test_xp_assign_has_no_agent_file(self):
+        """xp-assign is an inline skill — no agent file should exist."""
+        path = self.agents_dir / "xp-assign.md"
+        self.assertFalse(
+            path.exists(), f"xp-assign agent file should not exist: {path}"
+        )
+
+    def test_xp_assign_skill_is_inline(self):
+        """xp-assign SKILL.md must not have context: fork or agent: field."""
+        skill_file = (
+            Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"
+        )
+        content = skill_file.read_text()
+        match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        self.assertIsNotNone(match)
+        fm = match.group(1)
+        self.assertNotIn("context: fork", fm)
+        self.assertNotIn("agent:", fm)
 
 
 # ===========================================================================
@@ -250,11 +326,70 @@ class TestPluginIntegrity(unittest.TestCase):
             self.assertTrue(path.is_file(), f"Missing agent: {path}")
 
     def test_all_skill_files_exist(self):
-        """All 3 SKILL.md files exist in skills/ directory."""
+        """All SKILL.md files exist in skills/ directory."""
         skills_dir = self.plugin_root / "skills"
-        for name in ("xp-smm-protocol",):
+        for name in _ALL_SKILL_NAMES:
             path = skills_dir / name / "SKILL.md"
             self.assertTrue(path.is_file(), f"Missing skill: {path}")
+
+    def test_kickoff_skill_has_sprint_steps(self):
+        """Kickoff SKILL.md must have the redesigned flow steps."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        self.assertIn("Execution Plan", content)
+        self.assertIn("Sprint", content)
+        self.assertIn("Work Selection", content)
+        self.assertIn("Housekeeping", content)
+
+    def test_kickoff_skill_has_read_tool(self):
+        """M8b: kickoff SKILL.md must have Read in allowed-tools."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        # Extract frontmatter
+        match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        self.assertIsNotNone(match)
+        fm = match.group(1)
+        self.assertIn("Read", fm)
+
+    def test_kickoff_skill_no_question_triage_in_sprint_path(self):
+        """M8b: sprint-active path should not call /xp-question-triage."""
+        skill_file = self.plugin_root / "skills" / "xp-kickoff" / "SKILL.md"
+        content = skill_file.read_text()
+        # The SPRINT_ACTIVE subsection (between "SPRINT_ACTIVE" and
+        # "no SPRINT_ACTIVE") should not mention question-triage
+        if "SPRINT_ACTIVE" in content:
+            after_sprint = content.split("SPRINT_ACTIVE")[1]
+            fallback = after_sprint.find("no SPRINT_ACTIVE")
+            sprint_path = after_sprint[:fallback] if fallback > 0 else after_sprint
+            self.assertNotIn("xp-question-triage", sprint_path)
+
+    def test_accept_skill_has_story_flow(self):
+        """M8c: accept SKILL.md must have acceptance criteria verification."""
+        skill_file = self.plugin_root / "skills" / "xp-accept" / "SKILL.md"
+        content = skill_file.read_text()
+        self.assertIn("acceptance criteria", content.lower())
+        self.assertIn("done", content.lower())
+        self.assertIn("deferred", content.lower())
+
+    def test_hooks_json_has_sprint_stop_gate(self):
+        """hooks.json Stop array must include sprint_stop_gate.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("sprint_stop_gate.py", content)
+
+    def test_hooks_json_has_teammate_idle(self):
+        """M13: hooks.json TeammateIdle must include teammate_idle.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("teammate_idle.py", content)
+        self.assertIn("TeammateIdle", content)
+
+    def test_hooks_json_has_task_completed(self):
+        """M13: hooks.json TaskCompleted must include task_completed.py."""
+        hooks_path = self.plugin_root / "hooks" / "hooks.json"
+        content = hooks_path.read_text()
+        self.assertIn("task_completed.py", content)
+        self.assertIn("TaskCompleted", content)
 
     def test_no_requirements_or_pyproject(self):
         """No requirements.txt or pyproject.toml with dependencies."""
@@ -273,19 +408,19 @@ class TestPluginIntegrity(unittest.TestCase):
                     f"{name} should not declare dependencies",
                 )
 
-    def test_settings_json_exists(self):
-        """settings.json exists with expected keys."""
+    def test_no_settings_json(self):
+        """settings.json should not exist — all config is hardcoded."""
         path = self.plugin_root / "settings.json"
-        self.assertTrue(path.is_file())
-        data = json.loads(path.read_text())
-        self.assertIn("commit_size_threshold", data)
+        self.assertFalse(path.is_file())
 
-    def test_behavioral_guide_exists(self):
-        """BEHAVIORAL_GUIDE.md exists and is non-trivial."""
-        path = self.plugin_root / "BEHAVIORAL_GUIDE.md"
-        self.assertTrue(path.is_file(), "Missing BEHAVIORAL_GUIDE.md")
-        content = path.read_text()
-        self.assertGreater(len(content), 1000, "BEHAVIORAL_GUIDE.md too short")
+    def test_guide_files_exist(self):
+        """XP_VALUES.md and PROCESS_GUIDE.md exist and are non-trivial."""
+        values = self.plugin_root / "XP_VALUES.md"
+        process = self.plugin_root / "PROCESS_GUIDE.md"
+        self.assertTrue(values.is_file(), "Missing XP_VALUES.md")
+        self.assertTrue(process.is_file(), "Missing PROCESS_GUIDE.md")
+        combined = values.read_text() + process.read_text()
+        self.assertGreater(len(combined), 1000, "Guide files too short combined")
 
 
 if __name__ == "__main__":

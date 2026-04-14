@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreCompact hook: back up events and SMM before context compaction.
 
-Creates timestamped copies of events.jsonl and SHARED_MENTAL_MODEL.md
+Creates timestamped copies of events.jsonl and shared_mental_model.json
 in a backups/ subdirectory of the SMM directory.
 """
 
@@ -15,8 +15,10 @@ from pathlib import Path
 _MAX_BACKUPS = 10
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common  # noqa: E402
+import smm_store  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -30,9 +32,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     # Resolve SMM dir
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
@@ -50,15 +50,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         shutil.copy2(events_file, events_backup)
         os.chmod(events_backup, 0o600)
 
-    # Back up SHARED_MENTAL_MODEL.md
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    smm_backup = backups_dir / f"SMM-{ts}.md"
+    # Back up shared_mental_model.json
+    smm_file = smm_dir / smm_store.SMM_FILENAME
+    smm_backup = backups_dir / f"SMM-{ts}.json"
     with contextlib.suppress(FileNotFoundError):
         shutil.copy2(smm_file, smm_backup)
         os.chmod(smm_backup, 0o600)
 
     # Rotate old backups — keep only the most recent _MAX_BACKUPS of each type
-    for pattern in ("events-*.jsonl", "SMM-*.md"):
+    for pattern in ("events-*.jsonl", "SMM-*.json"):
         old = sorted(backups_dir.glob(pattern))[:-_MAX_BACKUPS]
         for f in old:
             with contextlib.suppress(OSError):

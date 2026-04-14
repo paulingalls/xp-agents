@@ -17,6 +17,7 @@ from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import marker_names
 from _append_impl import _validate_agent_id, write_json_atomic, write_text_atomic
 
 # ---------------------------------------------------------------------------
@@ -46,9 +47,16 @@ class MarkerDef:
 # Marker constants
 # ---------------------------------------------------------------------------
 
-KICKOFF = MarkerDef(".needs-kickoff", "text")
-SECURITY_TRIAGED = MarkerDef(".security-triaged", "json")
-PLAN_AWAITING_REVIEW = MarkerDef(".plan-awaiting-review", "text")
+KICKOFF = MarkerDef(marker_names.KICKOFF, "text")
+NEEDS_EXECUTION_PLAN = MarkerDef(marker_names.NEEDS_EXECUTION_PLAN, "text")
+NEEDS_SYSTEM_CONTEXT = MarkerDef(marker_names.NEEDS_SYSTEM_CONTEXT, "text")
+NEEDS_SPRINT = MarkerDef(marker_names.NEEDS_SPRINT, "text")
+ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
+SECURITY_TRIAGED = MarkerDef(marker_names.SECURITY_TRIAGED, "json")
+PLAN_AWAITING_REVIEW = MarkerDef(marker_names.PLAN_AWAITING_REVIEW, "text")
+QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
+ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
+ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 
@@ -108,6 +116,8 @@ def marker_write(
         raise ValueError(f"Refusing to write to symlink: {path}")
     match marker.content_type:
         case "json":
+            if not isinstance(data, dict):
+                raise TypeError(f"JSON marker requires dict, got {type(data)}")
             write_json_atomic(path, data)
         case "text":
             write_text_atomic(path, data if isinstance(data, str) else str(data))

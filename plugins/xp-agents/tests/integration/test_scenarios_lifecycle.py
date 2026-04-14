@@ -32,7 +32,6 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         # Should have GUPP + skills (no SMM, no nudges)
         self.assertIn("xp-kickoff", ctx)
-        self.assertIn("xp-smm-protocol", ctx)
         # Marker written
         self.assertTrue((self.smm_dir / ".needs-kickoff").exists())
 
@@ -230,6 +229,63 @@ class TestThreeSessionAccumulation(_IntegrationTestCase):
             data3["previous_retros"][0]["keep"][0],
             "Good TDD practice",
         )
+
+
+# ===========================================================================
+# M10: Sprint-aware SubagentStart + compact reinjection
+# ===========================================================================
+
+
+class TestSprintTieredInjection(_IntegrationTestCase):
+    """M10: SubagentStart injects sprint context by agent type."""
+
+    _SPRINT_MD = (
+        "# Sprint: Build API\n\n"
+        "- **Sprint ID:** sprint-001\n\n"
+        "## Stories\n\n"
+        "### story-001: Registration\n"
+        "- **Status:** done\n"
+    )
+
+    def _write_sprint_and_smm(self):
+        from conftest import write_smm_fixture
+
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("TDD", "convention")],
+            wisdom=["Commit often"],
+        )
+        sprint_file = self.smm_dir / "sprint.json"
+        sprint_file.write_text(self._SPRINT_MD)
+
+    def test_plan_reviewer_gets_values_subprocess(self):
+        """SubagentStart subprocess: plan reviewer gets XP values."""
+        self._write_sprint_and_smm()
+        result = self._run_script(
+            "subagent_start.py",
+            {
+                "session_id": "int-test",
+                "agent_id": "plan-rev-1",
+                "agent_type": "xp-plan-reviewer",
+            },
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("XP Values", result.stdout)
+
+    def test_compact_reinjects_smm_not_sprint(self):
+        """SessionStart compact reinjects SMM but not sprint.json."""
+        self._write_sprint_and_smm()
+        self._seed_events([make_event()])
+        result = self._run_script(
+            "session_start.py",
+            {"session_id": "int-test", "source": "compact"},
+        )
+        self.assertEqual(result.returncode, 0)
+        output = json.loads(result.stdout)
+        ctx = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Ship v1", ctx)  # SMM content
+        self.assertNotIn("sprint-001", ctx)  # sprint.json not injected
 
 
 if __name__ == "__main__":

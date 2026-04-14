@@ -1,0 +1,9 @@
+{
+  "include": ["scripts", "smm"],
+  "extraPaths": ["scripts", "smm"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportAttributeAccessIssue": "error",
+  "reportIndexIssue": "error"
+}

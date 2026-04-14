@@ -2,31 +2,67 @@
 """Event schema: type constants, validation rules, and field constraints.
 
 Single source of truth for what constitutes a valid event. No I/O, no
-file operations — pure validation logic.
+file operations — pure validation logic and shared constants.
 
 Extracted from _append_impl.py for module size management.
 """
+
+import bisect
+
+# ---------------------------------------------------------------------------
+# Session aging utility
+# ---------------------------------------------------------------------------
+
+
+def sessions_since_event(se_timestamps: list[str], event_ts: str) -> int:
+    """Count session_end events that occurred after *event_ts*.
+
+    *se_timestamps* must be sorted ascending (ISO-8601 strings).
+    Returns 0 when there are no session_end timestamps or the event
+    is newer than all of them.
+    """
+    return len(se_timestamps) - bisect.bisect_right(se_timestamps, event_ts)
+
 
 # ---------------------------------------------------------------------------
 # Event type and field constants
 # ---------------------------------------------------------------------------
 
+EVENT_TYPE_ANSWER = "answer"
+EVENT_TYPE_ASSUMPTION = "assumption"
+EVENT_TYPE_COMMIT = "commit"
+EVENT_TYPE_CONCERN = "concern"
+EVENT_TYPE_CONVENTION = "convention"
+EVENT_TYPE_CUSTOMER_INPUT = "customer_input"
+EVENT_TYPE_CUSTOMER_INTENT = "customer_intent"
+EVENT_TYPE_DEBT = "debt"
+EVENT_TYPE_DECISION = "decision"
+EVENT_TYPE_DISCOVERY = "discovery"
+EVENT_TYPE_GOAL = "goal"
+EVENT_TYPE_QUESTION = "question"
+EVENT_TYPE_RETROSPECTIVE = "retrospective"
+EVENT_TYPE_SESSION_END = "session_end"
+EVENT_TYPE_SPRINT = "sprint"
+EVENT_TYPE_STATUS = "status"
+
 VALID_TYPES = sorted(
     [
-        "customer_input",
-        "customer_intent",
-        "debt",
-        "goal",
-        "status",
-        "decision",
-        "convention",
-        "concern",
-        "discovery",
-        "question",
-        "answer",
-        "assumption",
-        "session_end",
-        "retrospective",
+        EVENT_TYPE_ANSWER,
+        EVENT_TYPE_ASSUMPTION,
+        EVENT_TYPE_COMMIT,
+        EVENT_TYPE_CONCERN,
+        EVENT_TYPE_CONVENTION,
+        EVENT_TYPE_CUSTOMER_INPUT,
+        EVENT_TYPE_CUSTOMER_INTENT,
+        EVENT_TYPE_DEBT,
+        EVENT_TYPE_DECISION,
+        EVENT_TYPE_DISCOVERY,
+        EVENT_TYPE_GOAL,
+        EVENT_TYPE_QUESTION,
+        EVENT_TYPE_RETROSPECTIVE,
+        EVENT_TYPE_SESSION_END,
+        EVENT_TYPE_SPRINT,
+        EVENT_TYPE_STATUS,
     ]
 )
 
@@ -35,7 +71,22 @@ PRIORITY_ASSUMED = "\U0001f7e1"  # 🟡
 PRIORITY_INFO = "\U0001f7e2"  # 🟢
 VALID_PRIORITIES = frozenset({PRIORITY_BLOCKING, PRIORITY_ASSUMED, PRIORITY_INFO})
 VALID_SEVERITIES = frozenset({"high", "medium", "low"})
+SPRINT_ACTION_START = "start"
+SPRINT_ACTION_END = "end"
+VALID_SPRINT_ACTIONS = frozenset({SPRINT_ACTION_START, SPRINT_ACTION_END})
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
+
+# Status event metadata.action discriminators — used by cascading gates
+# to identify specific lifecycle events without scanning content strings.
+STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
+STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
+
+# Retrospective event metadata.action discriminators — distinguish session
+# retros from sprint retros so the session-start watermark scanner only
+# advances on session retros. Without this, a sprint retro at end of session
+# poisons the next session's retro detection.
+RETRO_ACTION_SESSION_DONE = "session_retro_done"
+RETRO_ACTION_SPRINT_DONE = "sprint_retro_done"
 
 
 MAX_JSON_ARG_SIZE = 65536
@@ -122,12 +173,20 @@ def validate_event(event: dict) -> list[str]:
                 errors.append(f"Field 'topic' is required for type '{event_type}'")
             elif not isinstance(event["topic"], str):
                 errors.append("Field 'topic' must be a string")
+            elif event["topic"] == "retro-try-adopted":
+                errors.append(
+                    "Topic 'retro-try-adopted' is too generic — use"
+                    " 'retro-try-<slug>' (e.g. 'retro-try-answer-recording')"
+                )
 
         case "concern":
             if "severity" in event and event["severity"] not in VALID_SEVERITIES:
                 errors.append(
-                    f"Invalid severity: {event['severity']} (must be high/medium/low)"
+                    f"Invalid severity: {event['severity']}"
+                    f" (must be {'/'.join(sorted(VALID_SEVERITIES))})"
                 )
+            if "files" in event and not isinstance(event["files"], list):
+                errors.append("Field 'files' must be an array")
 
         case "question":
             if "priority" not in event:
@@ -138,23 +197,42 @@ def validate_event(event: dict) -> list[str]:
                     " (must be \U0001f534/\U0001f7e1/\U0001f7e2)"
                 )
 
+        case "commit":
+            if "files" in event and not isinstance(event["files"], list):
+                errors.append("Field 'files' must be an array")
+
         case "session_end":
             _check = {
                 "duration_seconds": (int, float),
                 "event_count": int,
                 "unresolved_items": list,
                 "working_on": list,
-                "final_status_recorded": bool,
             }
             _labels = {
                 (int, float): "a number",
                 int: "an integer",
                 list: "an array",
-                bool: "a boolean",
             }
             for _f, _t in _check.items():
                 if _f in event and not isinstance(event[_f], _t):
                     errors.append(f"Field '{_f}' must be {_labels[_t]}")
+
+        case "sprint":
+            meta = event.get("metadata")
+            if not isinstance(meta, dict):
+                errors.append("Field 'metadata' is required for type 'sprint'")
+            else:
+                sprint_id = meta.get("sprint_id")
+                if not sprint_id or not isinstance(sprint_id, str):
+                    errors.append(
+                        "Field 'metadata.sprint_id' is required and must be "
+                        "a non-empty string for type 'sprint'"
+                    )
+                action = meta.get("action")
+                if action not in VALID_SPRINT_ACTIONS:
+                    errors.append(
+                        f"Invalid metadata.action: {action} (must be start/end)"
+                    )
 
         case "retrospective":
             for field in ("keep", "fix", "try"):

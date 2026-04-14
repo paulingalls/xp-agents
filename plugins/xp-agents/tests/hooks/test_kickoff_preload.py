@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Tests for check_session_needs.sh: kickoff preload sprint-aware output."""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_MIXED,
+    _IntegrationTestCase,
+)
+
+_PRELOAD_SCRIPT = (
+    Path(__file__).parent.parent.parent
+    / "skills"
+    / "xp-kickoff"
+    / "scripts"
+    / "check_session_needs.sh"
+)
+
+
+class TestKickoffPreloadSprintAware(_IntegrationTestCase):
+    """M8b: check_session_needs.sh outputs sprint marker and state info."""
+
+    def test_outputs_needs_execution_plan_when_missing(self):
+        """No execution_plan.md — emit NEEDS_EXECUTION_PLAN flag."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
+
+    def test_no_execution_plan_flag_when_active_plan(self):
+        """execution_plan.json with remaining work — no flag."""
+        import json
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("NEEDS_EXECUTION_PLAN", result.stdout)
+
+    def test_execution_plan_flag_when_all_delivered(self):
+        """execution_plan.json with all delivered — emit flag."""
+        import json
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M",
+                    "status": "delivered",
+                    "delivered_sprint": "sprint-001",
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
+
+    def test_outputs_needs_sprint_when_marker_exists(self):
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
+
+    def test_no_sprint_section_when_active_stories(self):
+        """No marker, sprint.json with ready stories — no flag."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("NEEDS_SPRINT", result.stdout)
+
+    def test_outputs_needs_sprint_when_no_file(self):
+        """No marker, no sprint.json — emit flag from file check."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
+
+    def test_outputs_needs_sprint_when_all_done_no_marker(self):
+        """No marker, sprint.json all done — emit flag."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
+
+    def test_outputs_sprint_active_when_ready_stories(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("SPRINT_ACTIVE", result.stdout)
+        self.assertIn("story-002", result.stdout)
+
+    def test_no_sprint_active_when_no_sprint_file(self):
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("SPRINT_ACTIVE", result.stdout)
+
+    def test_no_sprint_active_when_all_done(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("SPRINT_ACTIVE", result.stdout)
+
+    def test_no_markers_no_sprint(self):
+        """No markers, no sprint/spec files — flags from file-existence."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("SMM_DIR=", result.stdout)
+        # File-existence checks emit flags even without markers
+        self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)
+        self.assertIn("NEEDS_SPRINT", result.stdout)
+        self.assertNotIn("SPRINT_ACTIVE", result.stdout)
+
+    def test_sprint_active_shows_only_ready_titles(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        # Ready stories should appear
+        self.assertIn("story-002", result.stdout)
+        self.assertIn("story-003", result.stdout)
+        self.assertIn("2 ready stories", result.stdout)
+
+    def test_outputs_retro_needed_when_input_exists(self):
+        """M3: .retro-input.json triggers RETRO_NEEDED flag (covers both
+        session and sprint retros — sprint sizing is in the same file)."""
+        (self.smm_dir / ".retro-input.json").write_text('{"unanalyzed_count": 6}')
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RETRO_NEEDED", result.stdout)
+
+    def test_sprint_retro_input_ignored(self):
+        """M3: .sprint-retro-input.json is a stale artifact from the old
+        separate sprint retro path — preload does not check for it."""
+        (self.smm_dir / ".sprint-retro-input.json").write_text('{"sprint_id": "s-1"}')
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("RETRO_NEEDED", result.stdout)
+        self.assertNotIn("SPRINT_RETRO_NEEDED", result.stdout)
+
+    def test_no_retro_flag_when_no_input_files(self):
+        """M3: with no .retro-input.json, no retro flag fires."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("RETRO_NEEDED", result.stdout)
+
+    def test_outputs_needs_system_context_when_missing(self):
+        """Reports NEEDS_SYSTEM_CONTEXT when system_context.md missing."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
+
+    def test_no_system_context_flag_when_exists(self):
+        """No flag when system_context.md exists."""
+        (self.smm_dir / "system_context.md").write_text("# System Context: Test")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

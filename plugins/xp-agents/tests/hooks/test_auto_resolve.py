@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
 import concerns
 import lint_check
+import worktree
 from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
 
 
@@ -163,7 +163,7 @@ class TestAutoResolveLintConcerns(_HookTestCase):
 
     def _normalized(self, rel_path: str) -> str:
         """Return the normalized absolute path lint_check will use."""
-        return _common.normalize_path(rel_path, str(self._lint_tmpdir))
+        return worktree.normalize_path(rel_path, str(self._lint_tmpdir))
 
     def _run_lint_clean(self, file_path="src/app.py"):
         """Run lint_check with a clean lint result for file_path."""

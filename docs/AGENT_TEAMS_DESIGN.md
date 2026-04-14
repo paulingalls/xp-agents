@@ -1,5 +1,11 @@
 # Agent Teams Design — Sprint-Driven XP
 
+> **Superseded.** This design was replaced by CLI teammates (`claude -p` in git worktrees).
+> See [CLI_TEAMMATE_DESIGN.md](CLI_TEAMMATE_DESIGN.md) for the implemented approach.
+> Agent Teams had platform limitations (no sub-agent spawning, unreliable Stop hooks,
+> no `agent_type` in Stop input) that prevented reliable hook enforcement.
+> This document is preserved as historical design reference.
+
 ## Overview
 
 This document maps XP sprint practices to Claude Code Agent Teams. The core insight: Agent Teams provide the parallel execution engine, xp-agents provides the persistence, ceremony, and coordination layer. Neither alone delivers sprint-driven development — together they do.
@@ -13,7 +19,7 @@ Agent Teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`), with know
 | Term | Definition |
 |---|---|
 | **Session** | A single Claude Code invocation. Has a start (SessionStart hook), work period, and end (SessionEnd hook). Ephemeral — context window, Agent Teams, and all runtime state die at session end. The atomic unit of compute. |
-| **Iteration** | One complete plan/work/accept cycle. Maps 1:1 to a session. Not split across sessions. |
+| **Iteration** | One complete plan/work/accept cycle. Cannot cross session boundaries, but multiple iterations can occur within a single session (e.g., accept story A, then plan and implement story B). Marked by an `iteration_complete` status event from `accept_done.py`. |
 | **Sprint** | A unit of deliverable work toward a goal. One or more iterations. Persists across sessions via SMM. Has a goal, user stories, and a definition of done. Ends when all stories are done or remaining stories are deferred. |
 | **User story** | A customer-meaningful unit of work within a sprint. Has acceptance criteria including e2e test definitions. Right-sized to fit within one iteration (XL stories are split during sprint planning). Persists in `sprint.md` across sessions. |
 | **Task** | An implementation step within a story. File-level, TDD-ordered. Ephemeral to the iteration — created during iteration planning, maps to Agent Teams platform tasks. |
@@ -25,16 +31,16 @@ Agent Teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`), with know
 
 ## Sprint Lifecycle (Cross-Session)
 
-A sprint spans one or more iterations (sessions). The sprint persists in the SMM; each session is ephemeral.
+A sprint spans one or more iterations. An iteration cannot cross session boundaries, but a session may contain multiple iterations (each a complete plan/work/accept cycle). The sprint persists in the SMM; each session is ephemeral.
 
 ### Sprint Start (First Iteration)
 
 ```
-Prerequisite: product_spec.md exists (created via /xp-product-spec)
+Prerequisite: execution_plan.md exists (created via /xp-plan)
 
-/xp-sprint-start reads product_spec.md
-  → Selects [planned] features by priority for this sprint
-  → Decomposes selected features into user stories
+/xp-sprint-start reads execution_plan.md
+  → Selects [planned] milestones for this sprint
+  → Decomposes selected milestone into user stories with context gradient
   → Each story gets acceptance criteria (including e2e test definitions)
   → T-shirt size each story:
       XL → split into smaller stories
@@ -54,7 +60,7 @@ For the very first session, `/xp-kickoff` detects no active sprint (no `sprint.m
 ```
 Kickoff (sprint-aware /xp-kickoff)
   → Session retro (reflect before planning — surfaces unanswered questions, Try items)
-  → Product spec check: product_spec.md exists? NO → /xp-product-spec
+  → Execution plan check: execution_plan.md exists? NO → /xp-plan
   → Sprint check: sprint.md exists? NO → /xp-sprint-start
   → Housekeeping with Sprint pillar (curates SMM, surfaces unverified assumptions in Risks)
   → Story selection: show ready stories, lead picks for this iteration
@@ -90,7 +96,7 @@ Stop
 Sprint review (/xp-sprint-review)
   → What shipped vs what was planned (reads sprint.md)
   → Stories completed, deferred, or added mid-sprint
-  → Updates product_spec.md: delivered features marked [delivered: sprint-XXX]
+  → Updates execution_plan.md: delivered milestones marked [delivered: sprint-XXX]
   → Writes sprint end event to events.jsonl (velocity stats)
 
 Sprint retro (/xp-sprint-retro)
@@ -101,8 +107,8 @@ Sprint retro (/xp-sprint-retro)
   → Process improvements for next sprint
 
 Prepare next sprint
-  → Deferred stories carry forward (remain in product_spec.md as [planned])
-  → /xp-sprint-start reads updated product_spec.md for next sprint
+  → Deferred stories carry forward to the next sprint
+  → /xp-sprint-start reads updated execution_plan.md for next sprint
 ```
 
 ### Failed Stories
@@ -113,7 +119,7 @@ A story that fails acceptance goes back to `ready` with failure notes. If time a
 
 | What | Where | Purpose |
 |---|---|---|
-| Product requirements | `product_spec.md` | Full product vision with feature status — feeds sprint planning |
+| Execution plan | `execution_plan.md` | Full product vision with feature status — feeds sprint planning |
 | Sprint goal + stories | `sprint.md` | Current sprint backlog with status, acceptance criteria, priority |
 | Velocity data | SMM (`sprint` end event) | Stories planned vs delivered, for future sizing |
 | Constraints, risks, wisdom | SMM (curated four-pillar view) | Accumulated project knowledge |
@@ -123,7 +129,7 @@ A story that fails acceptance goes back to `ready` with failure notes. If time a
 
 | Level | When | Produces | Granularity | Persists? |
 |---|---|---|---|---|
-| **Product spec** | Project start | Features with requirements, priorities | Product-level | Yes — `product_spec.md` |
+| **Execution plan** | Project start | Milestones with change/impact zones | Project-level | Yes — `execution_plan.md` |
 | **Sprint planning** | Sprint start | User stories with acceptance criteria, T-shirt sizes, priority order | Customer-meaningful | Yes — `sprint.md` |
 | **Iteration planning** | Each session | Tasks with file domains, TDD ordering, parallelization analysis | Implementation-level | No — ephemeral to session |
 
@@ -132,15 +138,15 @@ Sprint planning answers: **which** features are we building now and **how do we 
 Iteration planning answers: **how** do we build it and **who** does what?
 
 Three levels of persistence:
-- **`product_spec.md`** — full product requirements with delivery status. Persists across sprints.
+- **`execution_plan.md`** — ordered milestones with change zones and delivery status. Persists across sprints.
 - **`sprint.md`** — current sprint's stories with acceptance criteria and status. Persists across sessions within a sprint.
 - **Platform task list** — `~/.claude/tasks/{team-name}/`. Ephemeral, per-team.
 
-The `/xp-spawn-team` skill bridges sprint.md and the platform: it reads stories and creates platform tasks. The lead closes the loop during Accept by verifying acceptance criteria and updating story status in sprint.md.
+The `/xp-assign` skill bridges sprint.md and the platform: it reads stories and creates platform tasks. The lead closes the loop during Accept by verifying acceptance criteria and updating story status in sprint.md.
 
 ---
 
-## Iteration Lifecycle (Single Session)
+## Iteration Lifecycle (Plan/Work/Accept Cycle)
 
 An iteration is one complete cycle within a session. Every session follows this structure:
 
@@ -196,7 +202,7 @@ When the plan review recommends Agent Teams (cleanly separable domains, genuinel
      - Acceptance criteria per user story AND for the integrated result
 
 3. Spawn
-   → Lead runs /xp-spawn-team
+   → Lead runs /xp-assign
    → Skill reads plan, structures tasks with domains and criteria
    → Lead creates Agent Team with tasks
 
@@ -246,7 +252,7 @@ Agent Teams are the heavy option. Most work should stay solo or use subagents.
 The plan reviewer is in the right position to make this call. It sees the full plan and knows whether the work is sequential, parallelizable, or a mix. It can recommend the execution mode:
 - "This is sequential work, execute it in order" → solo
 - "Steps 2 and 3 are independent research" → subagents
-- "This decomposes into 3 independent modules with no file overlap — consider `/xp-spawn-team`" → teams
+- "This decomposes into 3 independent modules with no file overlap — consider `/xp-assign`" → teams
 
 ---
 
@@ -306,7 +312,7 @@ Key implication: we cannot define plugin agent files with frontmatter to control
 The lead **does not write code**. It orchestrates:
 
 - **Sprint start**: goal setting, spec gathering, planning game
-- **Mid-sprint**: spawn teammates via `/xp-spawn-team`, handle questions, unblock dependencies, review PRs, merge
+- **Mid-sprint**: spawn teammates via `/xp-assign`, handle questions, unblock dependencies, review PRs, merge
 - **Sprint end**: review, retrospective, prepare next sprint
 - **Interrupt-driven**: responds to teammate messages, `TeammateIdle` events, `TaskCompleted` events, customer questions
 
@@ -341,7 +347,7 @@ The planning game is where this gets decided. If the plan can't be decomposed in
 
 ### Plan First, Then Hand Off
 
-The most effective pattern is: plan first (plan mode), review the plan (`/xp-review-plan`), then hand the plan to a team for parallel execution (`/xp-spawn-team`). Don't jump straight into spawning teammates. Get the architecture and task breakdown right first.
+The most effective pattern is: plan first (plan mode), review the plan (`/xp-review-plan`), then hand the plan to a team for parallel execution (`/xp-assign`). Don't jump straight into spawning teammates. Get the architecture and task breakdown right first.
 
 ### Feed Context Into Task Descriptions
 
@@ -379,7 +385,7 @@ Worktree isolation for teammates is available but prompt-driven — the lead req
 
 ### Decision Criteria
 
-The `/xp-spawn-team` skill should choose based on the plan:
+The `/xp-assign` skill should choose based on the plan:
 
 - **No worktrees** (default): clean domain separation, teammates work on completely different files. `.coordination.json` prevents overlap. Best for most cases, especially when the planning game produces non-overlapping task assignments.
 - **Worktrees**: when tasks involve git-heavy workflows (branching, PRs), when the lead wants formal PR review, or when git operation isolation is important (larger teams where `git add .` risk is higher).
@@ -397,14 +403,14 @@ Fix: normalize to repo-relative paths using `git rev-parse --show-toplevel` to s
 
 ## Team Launch Mechanism
 
-### `/xp-spawn-team` Skill
+### `/xp-assign` Skill
 
 A lead-invoked skill that reads the current plan and creates an Agent Team. The plan reviewer recommends it when the plan has genuinely parallelizable, cleanly separable work.
 
 **Flow:**
 1. Plan reviewer reviews the plan, identifies parallel groups with non-overlapping file domains
-2. Plan reviewer tells the lead: "This plan has 3 independent modules — run `/xp-spawn-team`"
-3. Lead runs `/xp-spawn-team`
+2. Plan reviewer tells the lead: "This plan has 3 independent modules — run `/xp-assign`"
+3. Lead runs `/xp-assign`
 4. Skill preload reads the plan file, prepares task structure
 5. Skill prompt tells the lead:
    - How many teammates to spawn (based on parallel group count, capped at 5)
@@ -583,7 +589,7 @@ Note: user stories are NOT event types — they live in `sprint.md`, not `events
 In 1.0, goal completion flows through the user — housekeeping asks "are any of these done?" For Agent Teams, the lead manages story lifecycle directly:
 
 - **User stories** have acceptance criteria defined in `sprint.md`. During Accept, the lead verifies criteria are met (runs e2e tests, reviews PRs) and updates story status directly in `sprint.md`.
-- **Sprint goals** are complete when all stories in `sprint.md` are done or deferred. The lead writes the `sprint` end event and `/xp-sprint-review` updates `product_spec.md`.
+- **Sprint goals** are complete when all stories in `sprint.md` are done or deferred. The lead writes the `sprint` end event and `/xp-sprint-review` updates `execution_plan.md`.
 - **Session goals** are resolved by agents mid-session when the work ships. In sprint mode, story selection replaces per-session goal collection.
 
 Story status lifecycle in `sprint.md`: `ready` → `in-progress` → `done` | `deferred`
@@ -778,7 +784,7 @@ TeammateIdle and TaskCompleted use exit 2 + stderr to block. They do NOT support
 
 ### Three Layers
 
-1. **Planning** — `/xp-spawn-team` decomposes work into non-overlapping file domains. Each task gets a `file_domain` declaring which files/directories it owns. This is the primary mechanism — if domains are clean, conflicts don't happen.
+1. **Planning** — `/xp-assign` decomposes work into non-overlapping file domains. Each task gets a `file_domain` declaring which files/directories it owns. This is the primary mechanism — if domains are clean, conflicts don't happen.
 
 2. **Coordination** — `.coordination.json` blocks overlapping writes at PreToolUse time. Deterministic, real-time, already works for teammates. This is the safety net that catches domain violations.
 
@@ -835,11 +841,11 @@ Every phase of the iteration is gated: kickoff (UserPromptSubmit) → plan revie
 
 | Skill | Purpose |
 |---|---|
-| `/xp-product-spec` | Create or refine `product_spec.md` — conversation with customer to build full requirements. Can ingest existing docs (PRDs, issues). |
-| `/xp-sprint-start` | Read `product_spec.md` → select features → decompose into stories → write `sprint.md` |
-| `/xp-spawn-team` | Read plan, analyze file domains, structure tasks, instruct lead to create team |
+| `/xp-plan` | Create or refine `execution_plan.md` — collaborative milestone decomposition from external sources. |
+| `/xp-sprint-start` | Read `execution_plan.md` → select milestone → deep codebase dive → decompose into stories → write `sprint.md` |
+| `/xp-assign` | Read plan, analyze file domains, structure tasks, instruct lead to create team |
 | `/xp-accept` | Verify acceptance criteria for in-progress stories, run e2e tests, update `sprint.md`. Gated at Stop. |
-| `/xp-sprint-review` | Compare delivered stories against sprint goal, update `product_spec.md` with delivered features |
+| `/xp-sprint-review` | Compare delivered stories against sprint goal, update `execution_plan.md` milestone status |
 | `/xp-sprint-retro` | Cross-session retrospective for the sprint |
 
 ### Teammate Behavioral Guide
@@ -862,7 +868,7 @@ Teammate guide should include:
 
 ## SMM Changes
 
-### Three-File Architecture
+### Four-File Architecture
 
 Sprint and product state live in dedicated files, not the event log. This keeps the curated SMM lightweight — subagents that don't need sprint details (simplify, lint) aren't burdened with them.
 
@@ -870,7 +876,8 @@ Sprint and product state live in dedicated files, not the event log. This keeps 
 smm/
 ├── events.jsonl              ← organic signals (status, concerns, decisions, sprint boundary markers)
 ├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view (lightweight summary)
-├── product_spec.md           ← full product requirements with delivery status
+├── system_context.md          ← product/system description
+├── execution_plan.md          ← milestones with change zones and delivery status
 └── sprint.md                 ← current sprint: goal, stories with acceptance criteria and status
 ```
 
@@ -930,10 +937,10 @@ User stories are no longer in the event log — no compaction rules needed for t
 
 | File | Created by | Updated by | Lifecycle |
 |---|---|---|---|
-| `product_spec.md` | `/xp-product-spec` | `/xp-product-spec` (new features), `/xp-sprint-review` (marks delivered) | Persists across sprints, grows over project lifetime |
+| `execution_plan.md` | `/xp-plan` | `/xp-plan` (new milestones), `/xp-sprint-review` (marks delivered) | Persists across sprints |
 | `sprint.md` | `/xp-sprint-start` | Lead (story status during Accept) | Rewritten at each sprint start, deferred stories carry forward |
 
-### `product_spec.md` Format
+### `execution_plan.md` Format
 
 ```markdown
 # Product Spec: User Management System
@@ -977,7 +984,7 @@ and admin capabilities.
 - Rate limiting on login (5 attempts/minute)
 ```
 
-Feature status markers: `[planned]`, `[delivered: sprint-XXX]`. `/xp-sprint-start` filters on `[planned]` to know what's left to build. New features added via `/xp-product-spec` always enter as `[planned]`.
+Milestone status markers: `[planned]`, `[in-progress]`, `[delivered: sprint-XXX]`. `/xp-sprint-start` filters on `[planned]` to know what's left to build. New milestones added via `/xp-plan` always enter as `[planned]`.
 
 ### `sprint.md` Format
 
@@ -1048,7 +1055,7 @@ Priority is implicit by order — first story = highest priority. Story status: 
 | Lead is fixed | Can't rotate coach role | Lead is always the main session |
 | Teammates don't inherit lead's history | Teammates lack planning context | SubagentStart injects SMM + behavioral guide; task descriptions embed specifics |
 | Shutdown can be slow | Session end delayed | Design for graceful degradation |
-| No PR/merge workflow | No integration mechanism | Lead manages merges; `/xp-spawn-team` structures the approach |
+| No PR/merge workflow | No integration mechanism | Lead manages merges; `/xp-assign` structures the approach |
 | Prompt nuggets don't work for teammates | No mid-session signal injection | SubagentStart provides initial context; direct messaging for urgent updates |
 | Same model for all teammates | Can't optimize cost with smaller models | Accept until platform adds per-role model selection |
 
@@ -1077,7 +1084,7 @@ The 2.0 vision in ARCHITECTURE.md outlines M9 (Backlog & Planning Game), M10 (Re
 | ARCHITECTURE.md Vision | This Design |
 |---|---|
 | `user_story` event type | Stories live in `sprint.md`, not event log. Richer format with acceptance criteria, sizes, dependencies. |
-| Planning game at SessionStart | Sprint-scoped planning game driven by `product_spec.md` |
+| Planning game at SessionStart | Sprint-scoped planning game driven by `execution_plan.md` |
 | Plan reviewer validates against backlog | Unchanged — plan reviewer checks items are right-sized, TDD-ordered. Also recommends execution mode (solo/subagent/team). |
 | Burn down rendering | Sprint section in curated SMM with progress summary (reads `sprint.md`) |
 | Requirements decomposition subagent | `/xp-product-spec` skill — conversation-driven spec gathering, produces `product_spec.md` |
@@ -1100,3 +1107,61 @@ The key addition: **the sprint as a first-class lifecycle** that wraps the exist
 | **Kickoff doesn't check sprint status** | Lead needs to know if mid-sprint or starting new | Add sprint status check to kickoff |
 | **Path normalization uses absolute paths** | `.coordination.json` fails across worktrees | Normalize to repo-relative paths |
 | **context:fork doesn't reliably delegate** | Plan reviewer and retro subagents sometimes run inline | v1 issue, still present — fallback instructions mitigate |
+
+---
+
+## Worktree Subagent Findings (M1/M2)
+
+### Empirical Testing (2026-04-10)
+
+We tested native Agent Teams with parallel sprint stories. The key finding: **the commit restriction makes the lead a serial bottleneck.** In Agent Teams, only the lead can commit. Teammates implement code but depend on the lead to stage, review, and commit their work. This serializes what should be parallel work and creates context-window pressure as the lead juggles multiple teammates' output.
+
+The review cycle (`/simplify` -> `/xp-quality-review` -> `/xp-security-triage`) compounds this. Each teammate's commit requires three review steps, all gated through the lead. With 3-4 teammates producing commits, the lead spends most of its time in review cycles rather than coordinating.
+
+### Why Worktree Subagents Are Better for Sprint Work
+
+Worktree subagents solve the bottleneck by giving each teammate full autonomy:
+
+| Capability | Agent Teams | Worktree Subagents |
+|---|---|---|
+| **Commits** | Lead only (serial bottleneck) | Each teammate commits independently |
+| **Review cycle** | Lead runs reviews for each teammate's changes | Each teammate runs its own review cycle |
+| **Git isolation** | Shared checkout or prompt-driven worktrees | Automatic worktree per teammate (`isolation: worktree`) |
+| **TDD** | PreToolUse hooks fire, but commit gate is lead-only | Full TDD cycle including commit gate per teammate |
+| **Merge** | N/A (shared branch) | Lead merges branches after completion |
+| **Context pressure** | Lead context fills with teammate output | Each teammate has its own context window |
+
+The `xp-teammate` agent definition (`plugins/xp-agents/agents/xp-teammate.md`) provides the behavioral contract: strict TDD, review cycle before every commit, stay within assigned file domain, record decisions and concerns to the SMM.
+
+### Two-Mode Model
+
+The `/xp-assign` skill selects the execution mode after analyzing sprint stories:
+
+**Solo** (sequential) — the lead executes stories directly. Selected when:
+- Stories have dependency chains between them
+- File domains overlap between stories
+- All stories are size S (coordination overhead not worth it)
+- File domains are missing from story definitions
+
+**Worktree Subagents** (parallel) — each story gets an `xp-teammate` agent. Selected when:
+- 2+ stories have no dependencies between them
+- Stories are size M or L
+- Stories have non-overlapping file domains
+
+The mode decision is presented to the user for confirmation before spawning. `/xp-assign` auto-runs after planning completes.
+
+### Platform Constraints Discovered
+
+Two platform issues were discovered during M1/M2 implementation:
+
+1. **`isolation: worktree` silently ignored with `team_name`** ([anthropics/claude-code#33045](https://github.com/anthropics/claude-code/issues/33045)) — when an agent is spawned with both `isolation: worktree` and a `team_name`, the worktree isolation is silently dropped. Workaround: use `isolation: worktree` without `team_name`, treating teammates as independent subagents rather than Agent Team members.
+
+2. **WorktreeCreate stdout must be clean** ([anthropics/claude-code#27467](https://github.com/anthropics/claude-code/issues/27467)) — any stdout from `WorktreeCreate` hooks is interpreted as the worktree path. Hook scripts must avoid writing to stdout during worktree creation, or the worktree setup fails silently.
+
+### Recommendation
+
+**Use worktree subagents for sprint-driven parallel execution.** They provide full teammate autonomy (TDD, review, commits) without the serial bottleneck of Agent Teams' lead-only commit model.
+
+**Use native Agent Teams for ad-hoc collaborative work** outside the sprint flow — exploratory tasks, shared investigation, or work that benefits from the built-in task list and messaging primitives without needing independent commits.
+
+The original Agent Teams design in this document remains valid for its coordination patterns (SMM sharing, conflict detection, behavioral guide injection). The worktree subagent model reuses all of these patterns — it changes the execution primitive (subagent with worktree isolation instead of Agent Team teammate), not the coordination architecture.

@@ -20,6 +20,16 @@
             "statusMessage": "Checking commit constraints..."
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_skill.py",
+            "statusMessage": "Preparing review guidance..."
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -47,7 +57,7 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end.py",
             "timeout": 2500,
             "statusMessage": "Recording session end...",
-            "async": true
+            "async": false
           },
           {
             "type": "command",
@@ -126,6 +136,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/question_answered.py",
+            "timeout": 2500,
+            "statusMessage": "Recording clarification..."
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -166,12 +187,6 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_cycle_done.py",
             "timeout": 5000,
             "statusMessage": "Updating review cycle..."
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/kickoff_done.py",
-            "timeout": 10000,
-            "statusMessage": "Loading session context..."
           }
         ]
       },
@@ -183,6 +198,17 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_exit_plan.py",
             "timeout": 5000,
             "statusMessage": "Preparing plan review..."
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/question_answered.py",
+            "timeout": 2500,
+            "statusMessage": "Recording answer..."
           }
         ]
       }
@@ -206,6 +232,54 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/tdd_stop_gate.py",
             "statusMessage": "Checking test coverage..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sprint_stop_gate.py",
+            "statusMessage": "Checking sprint lifecycle gate..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end_warning.py",
+            "statusMessage": "Checking session-end checklist..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_stop_gate.py",
+            "statusMessage": "Checking teammate review cycle..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_idle.py",
+            "statusMessage": "Checking TDD status..."
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/task_completed.py",
+            "statusMessage": "Checking TDD status..."
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/worktree_create.py",
+            "statusMessage": "Setting up worktree branch base..."
           }
         ]
       }

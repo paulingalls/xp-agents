@@ -30,10 +30,10 @@ def main() -> None:
 
     found = False
     for file_path in args.files:
-        debts = concerns.find_debt_for_file(events, file_path, ".")
+        debts = concerns.find_issues_for_file(events, file_path, ".")
         for d in debts:
             found = True
-            eid = d.get("id", "")[:8]
+            eid = d.get("id", "")
             content = d.get("content", "")[:120]
             print(f"- **{file_path}**: {content} [{eid}]")
 

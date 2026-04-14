@@ -7,7 +7,6 @@ and final status — then appends a session_end event.
 
 import contextlib
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,8 +16,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _append_impl
 import _common
 import coordination
+import identity
 import markers
 import resolution
+from event_builder import generate_id
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -73,19 +74,11 @@ def _compute_summary(events: list[dict]) -> dict:
         files = latest_status[agent_id].get("working_on", [])
         all_working_on.extend(files)
 
-    # Final status: is the last event from "main" agent a status?
-    final_status_recorded = False
-    for e in reversed(events):
-        if e.get("agent_id") == "main":
-            final_status_recorded = e.get("type") == _common.STATUS
-            break
-
     return {
         "duration_seconds": duration_seconds,
         "event_count": event_count,
         "unresolved_items": unresolved,
         "working_on": all_working_on,
-        "final_status_recorded": final_status_recorded,
     }
 
 
@@ -96,9 +89,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     # Resolve SMM dir
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
@@ -106,19 +97,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     events = _common.read_events_raw(smm_dir)
     summary = _compute_summary(events)
 
+    agent_id = identity.resolve_agent_id(input_data)
+
     # Build session_end event directly (avoids subprocess + shell escaping)
     event = {
-        "id": str(uuid.uuid4()),
+        "id": generate_id(),
         "ts": datetime.now(timezone.utc).isoformat(),
         "type": _common.SESSION_END,
-        "agent_id": "main",
+        "agent_id": agent_id,
         "content": f"Session ended: {input_data.get('reason', 'unknown')}",
         "schema_version": 1,
         "duration_seconds": summary["duration_seconds"],
         "event_count": summary["event_count"],
         "unresolved_items": summary["unresolved_items"],
         "working_on": summary["working_on"],
-        "final_status_recorded": summary["final_status_recorded"],
     }
 
     # Validate
@@ -134,8 +126,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     except _append_impl.LockTimeoutError as e:
         print(f"session_end lock error: {e}", file=sys.stderr)
 
+    if identity.is_worktree_teammate(input_data):
+        branch = identity.get_current_branch(input_data.get("cwd", ".")) or "unknown"
+        completion = {
+            "id": generate_id(),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": _common.STATUS,
+            "agent_id": agent_id,
+            "content": f"Teammate {agent_id} completed on branch {branch}",
+            "schema_version": 1,
+            "working_on": [],
+            "metadata": {"branch": branch},
+        }
+        with contextlib.suppress(_append_impl.LockTimeoutError):
+            _append_impl.append_event(smm_dir, completion)
+
     # Clear agent's coordination entry and agent-scoped markers
-    agent_id = input_data.get("agent_id", "main")
     coordination.clear_coordination_agent(smm_dir, agent_id)
     markers.cleanup_agent_markers(smm_dir, agent_id)
 

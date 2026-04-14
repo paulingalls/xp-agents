@@ -92,6 +92,28 @@ class TestReviewCycleDone(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
+    def test_xp_simplify_sets_flag(self):
+        """xp-simplify (inline teammate skill) sets simplify_done flag."""
+        review_cycle_done.run(self._skill_input("xp-simplify"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_xp_simplify_nudges_quality_review(self):
+        """After /xp-simplify, nudge to run /xp-quality-review."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-simplify"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("/xp-quality-review", result)
+
+    def test_qualified_xp_simplify_name(self):
+        """Plugin-qualified xp-simplify also matches."""
+        review_cycle_done.run(
+            self._skill_input("xp-agents:xp-simplify"), smm_dir=self.smm_dir
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
     def test_ignores_other_skills(self):
         review_cycle_done.run(self._skill_input("xp-kickoff"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
@@ -113,13 +135,13 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-    def test_quality_review_nudges_security_triage(self):
-        """After /xp-quality-review, nudge to run /xp-security-triage."""
+    def test_quality_review_nudges_security_review(self):
+        """After /xp-quality-review, nudge to run /security-review."""
         result = review_cycle_done.run(
             self._skill_input("xp-quality-review"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
-        self.assertIn("/xp-security-triage", result)
+        self.assertIn("/security-review", result)
 
     def test_security_triage_nudges_commit(self):
         """After /xp-security-triage, nudge to commit."""
@@ -152,6 +174,19 @@ class TestReviewCycleDone(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("TaskCreate", result)
+
+    def test_worktree_cwd_scopes_markers(self):
+        """Worktree cwd uses resolve_agent_id for marker scoping."""
+        inp = self._skill_input(
+            "simplify",
+            agent_id="",
+            cwd="/proj/.claude/worktrees/teammate-story-001",
+        )
+        review_cycle_done.run(inp, smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "teammate-story-001")
+        self.assertTrue(cycle["simplify_done"])
+        main_cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(main_cycle.get("simplify_done", False))
 
 
 class TestSubagentStopReviewFlags(_HookTestCase):
@@ -213,6 +248,45 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
+
+
+class TestPlanReviewerSetsAssignPending(_HookTestCase):
+    """SubagentStop for xp-plan-reviewer sets .assign-pending marker."""
+
+    def _stop_input(self, agent_id: str, agent_type: str = "") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+            "last_assistant_message": "Review complete",
+        }
+
+    def test_plan_reviewer_sets_assign_marker(self):
+        """xp-plan-reviewer completion creates .assign-pending marker."""
+        subagent_stop.run(
+            self._stop_input("review-1", agent_type="xp-plan-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".assign-pending"
+        self.assertTrue(marker.exists(), "assign-pending marker not created")
+
+    def test_plan_reviewer_returns_nudge(self):
+        """xp-plan-reviewer completion returns additionalContext nudge."""
+        result = subagent_stop.run(
+            self._stop_input("review-1", agent_type="xp-plan-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-assign", result)
+
+    def test_non_reviewer_no_assign_marker(self):
+        """Other xp-* agents don't set assign-pending marker."""
+        subagent_stop.run(
+            self._stop_input("retro-1", agent_type="xp-retrospective"),
+            smm_dir=self.smm_dir,
+        )
+        marker = self.smm_dir / ".assign-pending"
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

@@ -12,32 +12,34 @@ import re
 import subprocess
 import sys
 
+from event_schema import EVENT_TYPE_ANSWER, EVENT_TYPE_QUESTION
+
 # ---------------------------------------------------------------------------
 # Event resolution tracking (shared by materialize, retrospective, hooks)
 # ---------------------------------------------------------------------------
 
-_UUID_FULL_LENGTH = 36  # Standard UUID: 8-4-4-4-12 with hyphens
+_ID_FULL_LENGTH = 12
 
 
 def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] | None:
-    """Resolve an event ID, supporting short-prefix fallback.
+    """Resolve an event ID by exact match.
 
-    If target_id is a full UUID, does an O(1) dict lookup. If it's shorter
-    (e.g. 8-char prefix from materialized output), scans keys for a unique
-    prefix match. Returns (full_id, event) or None if not found / ambiguous.
+    With 12-char hex IDs, exact match is the primary path. Prefix
+    scanning is retained as a fallback for any IDs shorter than 12 chars.
+    Returns (full_id, event) or None if not found / ambiguous.
     """
     event = by_id.get(target_id)
     if event:
         return target_id, event
 
-    if len(target_id) >= _UUID_FULL_LENGTH:
+    if len(target_id) >= _ID_FULL_LENGTH:
         return None
 
     match_id: str | None = None
     for k in by_id:
         if k.startswith(target_id):
             if match_id is not None:
-                return None  # Ambiguous — two or more matches
+                return None
             match_id = k
 
     if match_id is not None:
@@ -49,7 +51,8 @@ def compute_resolutions(events: list[dict]) -> dict:
     """Single-pass computation of question answers and event resolutions.
 
     Resolution mechanism:
-      - Questions: resolved by `answer` events that reference them
+      - Questions: resolved by `answer` events that reference them,
+        OR via `metadata.resolves` (answer events take precedence)
       - Goals, concerns, debt, decisions, assumptions: resolved via `metadata.resolves`
         array (any event with metadata.resolves: ["target-id"] resolves
         the target)
@@ -61,12 +64,14 @@ def compute_resolutions(events: list[dict]) -> dict:
       - debt_resolutions: dict mapping debt event ID → resolving event
       - decision_resolutions: dict mapping decision event ID → resolving event
       - assumption_resolutions: dict mapping assumption event ID → resolving event
+      - other_resolutions: dict mapping any other event type ID → resolving event
       - answered_question_ids: set of answered question IDs
       - resolved_concern_ids: set of resolved concern IDs
       - resolved_goal_ids: set of resolved goal IDs
       - resolved_debt_ids: set of resolved debt IDs
       - resolved_decision_ids: set of resolved decision IDs
       - resolved_assumption_ids: set of resolved assumption IDs
+      - resolved_other_ids: set of resolved other event IDs
     """
     by_id: dict[str, dict] = {}
     question_answers: dict[str, dict] = {}
@@ -75,6 +80,7 @@ def compute_resolutions(events: list[dict]) -> dict:
     debt_resolutions: dict[str, dict] = {}
     decision_resolutions: dict[str, dict] = {}
     assumption_resolutions: dict[str, dict] = {}
+    other_resolutions: dict[str, dict] = {}
 
     for event in events:
         event_id = event.get("id", "")
@@ -82,10 +88,10 @@ def compute_resolutions(events: list[dict]) -> dict:
             by_id[event_id] = event
 
         # Question-answer linking: answer events reference questions
-        if event.get("type") == "answer":
+        if event.get("type") == EVENT_TYPE_ANSWER:
             for ref_id in event.get("references", []):
                 ref_event = by_id.get(ref_id)
-                if ref_event and ref_event.get("type") == "question":
+                if ref_event and ref_event.get("type") == EVENT_TYPE_QUESTION:
                     question_answers[ref_id] = event
 
         # Explicit resolution via metadata.resolves
@@ -95,6 +101,10 @@ def compute_resolutions(events: list[dict]) -> dict:
                 continue
             full_id, target = resolved
             match target.get("type"):
+                case "question":
+                    # setdefault: answer events (added above) take
+                    # precedence over metadata.resolves
+                    question_answers.setdefault(full_id, event)
                 case "concern":
                     concern_resolutions[full_id] = event
                 case "goal":
@@ -105,6 +115,8 @@ def compute_resolutions(events: list[dict]) -> dict:
                     decision_resolutions[full_id] = event
                 case "assumption":
                     assumption_resolutions[full_id] = event
+                case _:
+                    other_resolutions[full_id] = event
 
     return {
         "question_answers": question_answers,
@@ -119,6 +131,8 @@ def compute_resolutions(events: list[dict]) -> dict:
         "resolved_debt_ids": set(debt_resolutions.keys()),
         "resolved_decision_ids": set(decision_resolutions.keys()),
         "resolved_assumption_ids": set(assumption_resolutions.keys()),
+        "other_resolutions": other_resolutions,
+        "resolved_other_ids": set(other_resolutions.keys()),
     }
 
 

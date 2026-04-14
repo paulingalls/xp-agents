@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import identity
 import markers
 import security
 
@@ -36,7 +37,7 @@ def _is_plan_review(skill_name: str) -> bool:
 
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
-    "quality_review_done": "Run /xp-security-triage next.",
+    "quality_review_done": "Run /security-review next.",
     "security_review_done": "Review cycle complete — commit your changes now.",
 }
 
@@ -54,7 +55,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     tool_input = input_data.get("tool_input", {})
     skill_name = tool_input.get("skill", "")
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
 
     # Plan review: nudge task creation (not part of commit review cycle)
     if _is_plan_review(skill_name):
@@ -64,9 +65,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if flag is None:
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
@@ -92,6 +91,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
+
+    # DEBUG: log PostToolUse:Skill input for worktree investigation
+    smm_dir = _common.get_validated_smm_dir()
+    skill_name = input_data.get("tool_input", {}).get("skill", "")
+    if smm_dir is not None and "simplify" in skill_name:
+        import json as _json
+
+        debug_event = _common.make_event(
+            _common.STATUS,
+            "review-cycle-debug",
+            f"PostToolUse:Skill keys: {sorted(input_data.keys())}"
+            f" | full: {_json.dumps(input_data, default=str)[:500]}",
+            working_on=[],
+        )
+        _common.append_safe(smm_dir, debug_event)
+
     result = run(input_data)
     if result:
         _common.hook_output("PostToolUse", result)

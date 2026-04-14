@@ -7,7 +7,6 @@ effort: high
 context: fork
 agent: xp-agents:xp-plan-reviewer
 allowed-tools:
-  - Read
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
@@ -15,6 +14,6 @@ allowed-tools:
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
 
-Review the plan in progress against the SMM state above. Check plan size, TDD ordering, milestone boundaries, and decision conflicts. Record assumptions and decisions to the event log.
+This skill should run as a forked subagent (xp-plan-reviewer). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
 
-**Show the full review output to the user** — do not summarize or act on it silently.
+If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-plan-reviewer subagent. The subagent result is returned as a tool result which is NOT visible to the user — you must output the key findings as text in your response.

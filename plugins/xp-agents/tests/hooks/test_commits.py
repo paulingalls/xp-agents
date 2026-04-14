@@ -87,6 +87,37 @@ class TestGetHeadCommitHash(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# get_commit_message_body
+# ---------------------------------------------------------------------------
+
+
+class TestGetCommitMessageBody(unittest.TestCase):
+    """Test full commit message body retrieval."""
+
+    @patch(_SUBPROCESS)
+    def test_returns_full_body(self, mock_run):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Fix the bug\n\nDetailed explanation.\n"
+        result = commits.get_commit_message_body("/tmp")
+        self.assertEqual(result, "Fix the bug\n\nDetailed explanation.")
+
+    @patch(_SUBPROCESS)
+    def test_single_line_message(self, mock_run):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "Quick fix\n"
+        self.assertEqual(commits.get_commit_message_body("/tmp"), "Quick fix")
+
+    @patch(_SUBPROCESS)
+    def test_failure_returns_none(self, mock_run):
+        mock_run.return_value.returncode = 1
+        self.assertIsNone(commits.get_commit_message_body("/tmp"))
+
+    @patch(_SUBPROCESS, side_effect=OSError("no git"))
+    def test_exception_returns_none(self, _mock):
+        self.assertIsNone(commits.get_commit_message_body("/tmp"))
+
+
+# ---------------------------------------------------------------------------
 # get_code_files_for_review
 # ---------------------------------------------------------------------------
 
@@ -163,13 +194,6 @@ class TestGetCodeFilesForReview(unittest.TestCase):
         )
         self.assertIn("src/a.py", result)
         self.assertIn("src/b.py", result)
-
-
-class TestReviewCycleThreshold(unittest.TestCase):
-    """Test threshold constant."""
-
-    def test_threshold_is_three(self):
-        self.assertEqual(commits.REVIEW_CYCLE_THRESHOLD, 3)
 
 
 # ---------------------------------------------------------------------------

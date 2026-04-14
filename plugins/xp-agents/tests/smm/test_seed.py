@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import seed_smm
+import smm_schema
 
 
 class TestDetection(unittest.TestCase):
@@ -114,12 +115,48 @@ class TestGenerateSMM(unittest.TestCase):
 
         shutil.rmtree(self.tmpdir)
 
+    def test_returns_dict(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        self.assertIsInstance(smm, dict)
+
+    def test_has_four_pillars(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        for pillar in smm_schema.PILLARS:
+            self.assertIn(pillar, smm)
+            self.assertIsInstance(smm[pillar], list)
+
+    def test_validates_against_schema(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        errors = smm_schema.validate_smm(smm)
+        self.assertEqual(errors, [], f"Schema errors: {errors}")
+
+    def test_entries_have_source_seed(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        for pillar in smm_schema.PILLARS:
+            for entry in smm[pillar]:
+                self.assertEqual(
+                    entry["source"],
+                    "seed",
+                    f"{pillar} entry missing source='seed'",
+                )
+
+    def test_entries_have_uuid_ids(self):
+        smm = seed_smm.generate_smm(self.tmpdir)
+        seen = set()
+        for pillar in smm_schema.PILLARS:
+            for entry in smm[pillar]:
+                self.assertIn("id", entry)
+                self.assertNotIn(entry["id"], seen, "duplicate id")
+                seen.add(entry["id"])
+
     def test_empty_project_has_all_risks(self):
         smm = seed_smm.generate_smm(self.tmpdir)
-        self.assertIn("No linter configured", smm)
-        self.assertIn("No test files detected", smm)
-        self.assertIn("No git commit hooks", smm)
-        self.assertIn("No CI/CD configured", smm)
+        contents = [e["content"] for e in smm["risks"]]
+        joined = " ".join(contents)
+        self.assertIn("No linter configured", joined)
+        self.assertIn("No test files detected", joined)
+        self.assertIn("No git commit hooks", joined)
+        self.assertIn("No CI/CD configured", joined)
 
     def test_project_with_everything_has_no_risks(self):
         (self.tmpdir / "ruff.toml").touch()
@@ -127,31 +164,36 @@ class TestGenerateSMM(unittest.TestCase):
         (self.tmpdir / "lefthook.yml").touch()
         (self.tmpdir / ".github" / "workflows").mkdir(parents=True)
         smm = seed_smm.generate_smm(self.tmpdir)
-        self.assertIn("none detected", smm)
+        self.assertEqual(smm["risks"], [])
 
     def test_has_xp_constraints(self):
         smm = seed_smm.generate_smm(self.tmpdir)
-        self.assertIn("TDD", smm)
-        self.assertIn("red, green, commit", smm)
-        self.assertIn("plan", smm.lower())
-        self.assertIn("Small commits", smm)
-        self.assertIn("strict linting", smm)
-        self.assertIn("commit hooks", smm)
+        contents = [e["content"] for e in smm["constraints"]]
+        joined = " ".join(contents)
+        self.assertIn("TDD", joined)
+        self.assertIn("red, green, commit", joined)
+        self.assertIn("Small commits", joined)
+        self.assertIn("strict linting", joined)
 
     def test_has_wisdom(self):
         smm = seed_smm.generate_smm(self.tmpdir)
-        self.assertIn("xp-kickoff", smm)
+        contents = [e["content"] for e in smm["wisdom"]]
+        joined = " ".join(contents)
+        self.assertIn("xp-kickoff", joined)
 
     def test_has_commit_after_green_wisdom(self):
         smm = seed_smm.generate_smm(self.tmpdir)
-        self.assertIn("Commit after every green", smm)
+        contents = [e["content"] for e in smm["wisdom"]]
+        joined = " ".join(contents)
+        self.assertIn("Commit after every green", joined)
 
-    def test_has_four_pillars(self):
-        smm = seed_smm.generate_smm(self.tmpdir)
-        self.assertIn("## Intent", smm)
-        self.assertIn("## Constraints", smm)
-        self.assertIn("## Risks", smm)
-        self.assertIn("## Wisdom", smm)
+    def test_deterministic_ids(self):
+        """Seeded ids are stable across calls (uuid5 from content)."""
+        smm1 = seed_smm.generate_smm(self.tmpdir)
+        smm2 = seed_smm.generate_smm(self.tmpdir)
+        ids1 = {e["id"] for p in smm_schema.PILLARS for e in smm1[p]}
+        ids2 = {e["id"] for p in smm_schema.PILLARS for e in smm2[p]}
+        self.assertEqual(ids1, ids2)
 
 
 if __name__ == "__main__":

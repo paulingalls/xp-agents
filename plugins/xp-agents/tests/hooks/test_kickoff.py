@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for kickoff hooks: kickoff_gate and kickoff_done.
+"""Tests for kickoff_gate hook.
 
-Split from test_session_lifecycle.py.
+Kickoff-done tests migrated to test_subagent.py::TestHousekeepingDone as
+part of the PostToolUse:Skill replacement plan — the housekeeping handler
+now lives in subagent_stop.py.
 """
 
 import sys
@@ -12,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase
 
 # ===========================================================================
 # kickoff_gate.py tests
@@ -130,69 +132,73 @@ class TestKickoffGate(_HookTestCase):
 
 
 # ===========================================================================
-# PostToolUse:Skill — kickoff_done.py
+# M8a: kickoff_gate sprint marker info tests
 # ===========================================================================
 
-import kickoff_done  # noqa: E402
 
+class TestKickoffGateSprintInfo(_HookTestCase):
+    """M8a: kickoff_gate includes sprint marker info in block message."""
 
-class TestKickoffDone(_HookTestCase):
-    """PostToolUse:Skill hook injects SMM + behavioral guide after kickoff."""
+    def test_block_includes_execution_plan_info(self):
+        import kickoff_gate
 
-    def _skill_input(self, skill: str = "xp-housekeeping", **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "tool_name": "Skill",
-            "tool_input": {"skill": skill},
-            "agent_id": "main",
-        }
-        data.update(overrides)
-        return data
-
-    def test_injects_smm_on_housekeeping(self):
-        """Should inject materialized SMM after xp-housekeeping."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("Shared Mental Model", result)
-
-    def test_injects_behavioral_guide(self):
-        """Should inject BEHAVIORAL_GUIDE.md after xp-housekeeping."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("XP Agent Behavioral Guide", result)
-
-    def test_ignores_other_skills(self):
-        """Should return None for non-housekeeping skills."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = kickoff_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_xp_agent_skips(self):
-        """Should skip for xp-agent types."""
-        result = kickoff_done.run(
-            self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        (self.smm_dir / ".needs-execution-plan").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsInstance(result, dict)
+        self.assertIn("xp-plan", result["reason"].lower())
 
-    def test_returns_behavioral_guide_only(self):
-        """Output has behavioral guide, not SMM (agent has it from housekeeping)."""
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n## Intent\n- Ship v1\n"
+    def test_block_includes_sprint_info(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
         )
-        result = kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("XP Agent Behavioral Guide", result)
-        self.assertNotIn("<smm-context>", result)
+        self.assertIsInstance(result, dict)
+        self.assertIn("sprint", result["reason"].lower())
 
-    def test_deletes_needs_session_review_marker(self):
-        """Should delete .needs-kickoff marker after injection."""
-        marker = self.smm_dir / ".needs-kickoff"
-        marker.touch()
-        self._write_events([make_event("goal", content="Ship v1")])
-        kickoff_done.run(self._skill_input(), smm_dir=self.smm_dir)
-        self.assertFalse(marker.exists())
+    def test_block_includes_both(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        (self.smm_dir / ".needs-execution-plan").write_text("startup")
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("xp-plan", result["reason"].lower())
+        self.assertIn("sprint", result["reason"].lower())
+
+    def test_block_no_sprint_markers(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, dict)
+        self.assertNotIn("product", result["reason"].lower())
+
+    def test_nudge_still_works_with_sprint_markers(self):
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("clear")
+        (self.smm_dir / ".needs-product-spec").write_text("clear")
+        (self.smm_dir / ".needs-sprint").write_text("clear")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result, "nudge")
 
 
 if __name__ == "__main__":

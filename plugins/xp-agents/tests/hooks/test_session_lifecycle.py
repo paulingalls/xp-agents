@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for session lifecycle hooks: session_end and pre_compact.
 
-Kickoff tests (kickoff_gate, kickoff_done) in test_kickoff.py.
+Kickoff gate tests in test_kickoff.py; housekeeping handler tests in
+test_subagent.py::TestHousekeepingDone.
 """
 
 import sys
@@ -14,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import smm_schema
+import smm_store
 from conftest import _HookTestCase, make_event
 
 # ===========================================================================
@@ -137,31 +140,6 @@ class TestSessionEnd(_HookTestCase):
         se = next(e for e in events if e.get("type") == "session_end")
         self.assertIn("src/app.ts", se["working_on"])
 
-    def test_final_status_recorded_true(self):
-        import session_end
-
-        s = make_event("status", agent_id="main", working_on=["f.py"])
-        self._write_events([s])
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == "session_end")
-        self.assertTrue(se["final_status_recorded"])
-
-    def test_final_status_recorded_false(self):
-        import session_end
-
-        self._write_events([make_event()])  # Not a status event from main
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == "session_end")
-        self.assertFalse(se["final_status_recorded"])
-
     def test_empty_events(self):
         import session_end
 
@@ -264,6 +242,96 @@ class TestSessionEnd(_HookTestCase):
 
 
 # ===========================================================================
+# Teammate SessionEnd tests
+# ===========================================================================
+
+
+class TestTeammateSessionEnd(_HookTestCase):
+    """CLI teammate SessionEnd: resolve_agent_id + completion event."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+
+    def test_resolve_agent_id_used_in_event(self):
+        """SessionEnd event uses resolve_agent_id, not hardcoded 'main'."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        self.assertEqual(se["agent_id"], "teammate-story-001")
+
+    def test_non_teammate_uses_main(self):
+        """Non-teammate SessionEnd still uses 'main' agent_id."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": "/home/user/project"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        self.assertEqual(se["agent_id"], "main")
+
+    def test_cleanup_uses_resolved_agent_id(self):
+        """Marker cleanup uses resolved agent_id, not hardcoded 'main'."""
+        import markers
+        import session_end
+
+        agent_id = "teammate-story-001"
+        markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, agent_id)
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, agent_id)
+        )
+
+    def test_teammate_records_completion_status(self):
+        """Teammate SessionEnd records a status event with branch metadata."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [
+            e
+            for e in events
+            if e.get("type") == "status"
+            and e.get("agent_id") == "teammate-story-001"
+            and "completed" in e.get("content", "").lower()
+        ]
+        self.assertEqual(len(statuses), 1)
+        self.assertIn("branch", statuses[0].get("metadata", {}))
+
+    def test_non_teammate_no_completion_status(self):
+        """Non-teammate SessionEnd does NOT record a completion status."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": "/home/user/project"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [
+            e
+            for e in events
+            if e.get("type") == "status" and "completed" in e.get("content", "").lower()
+        ]
+        self.assertEqual(len(statuses), 0)
+
+
+# ===========================================================================
 # pre_compact.py tests
 # ===========================================================================
 
@@ -300,10 +368,9 @@ class TestPreCompact(_HookTestCase):
         import pre_compact
 
         self._write_events([make_event()])
-        smm_md = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_md.write_text("# Test SMM")
+        smm_store.save_smm(self.smm_dir, smm_schema.empty_smm())
         pre_compact.run({"session_id": "test"}, smm_dir=self.smm_dir)
-        backups = list((self.smm_dir / "backups").glob("SMM-*.md"))
+        backups = list((self.smm_dir / "backups").glob("SMM-*.json"))
         self.assertEqual(len(backups), 1)
 
     def test_backup_content_matches(self):
@@ -322,7 +389,7 @@ class TestPreCompact(_HookTestCase):
         self._write_events([make_event()])
         pre_compact.run({"session_id": "test"}, smm_dir=self.smm_dir)
         event_backups = list((self.smm_dir / "backups").glob("events-*.jsonl"))
-        smm_backups = list((self.smm_dir / "backups").glob("SMM-*.md"))
+        smm_backups = list((self.smm_dir / "backups").glob("SMM-*.json"))
         self.assertEqual(len(event_backups), 1)
         self.assertEqual(len(smm_backups), 0)
 

@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import coordination
+import identity
+import worktree
 
 # ---------------------------------------------------------------------------
 # Main run function
@@ -25,15 +27,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
     try:
         _common._validate_agent_id(agent_id)
     except ValueError:
@@ -44,7 +44,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not file_path:
         return None
 
-    normalized = _common.normalize_path(file_path, cwd)
+    normalized = worktree.normalize_path(file_path, cwd)
 
     # Read events for conflict detection and semantic enrichment
     events = _common.read_events_raw(smm_dir)

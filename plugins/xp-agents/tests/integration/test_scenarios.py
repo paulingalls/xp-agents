@@ -24,7 +24,7 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         Verifies the full hook chain produces coherent state:
         - session_start returns SMM context
         - post_tool_use appends status with working_on
-        - session_end captures that working_on and marks final_status_recorded
+        - session_end captures that working_on
         """
         # 1. Session start
         r1 = self._run_script(
@@ -67,7 +67,6 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertEqual(len(se), 1)
 
         self.assertIn("src/feature.ts", se[0]["working_on"][0])
-        self.assertTrue(se[0]["final_status_recorded"])
         self.assertIn("task_complete", se[0]["content"])
 
     def test_prompt_subagent_roundtrip(self):
@@ -230,7 +229,8 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         )
 
     def test_append_goal_and_curation_data(self):
-        """Goal event appears in curation data under intent."""
+        """Goal event is recorded in the event log (current_smm stays empty
+        until housekeeper merges it)."""
         r = self._run_append(
             "--type", "goal", "--agent", "main", "--content", "Ship v2.0"
         )
@@ -243,11 +243,14 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         import materialize as mat
 
         data = mat.prepare_curation_data(self.smm_dir)
-        intent_contents = [i["content"] for i in data["current_smm"]["intent"]]
-        self.assertIn("Ship v2.0", intent_contents)
+        # current_smm is sourced from shared_mental_model.json, not events.
+        # An appended goal event does NOT automatically promote into
+        # current_smm until the housekeeper merges it.
+        self.assertEqual(data["health"]["intent_count"], 0)
+        self.assertEqual(data["current_smm"]["intent"], [])
 
     def test_append_debt_and_curation_data(self):
-        """Debt event appears in curation data under risks."""
+        """Debt event appears in new_since_last_curation.debt for housekeeper."""
         r = self._run_append(
             "--type",
             "debt",
@@ -268,11 +271,11 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         import materialize as mat
 
         data = mat.prepare_curation_data(self.smm_dir)
-        risk_contents = [r["content"] for r in data["current_smm"]["risks"]]
-        self.assertIn("Legacy auth module", risk_contents)
+        debt_contents = [d["content"] for d in data["new_since_last_curation"]["debt"]]
+        self.assertIn("Legacy auth module", debt_contents)
 
     def test_append_customer_intent_and_curation_data(self):
-        """Customer intent event appears in curation data under intent."""
+        """Customer intent event recorded (current_smm empty until curated)."""
         r = self._run_append(
             "--type",
             "customer_intent",
@@ -293,8 +296,8 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         import materialize as mat
 
         data = mat.prepare_curation_data(self.smm_dir)
-        intent_contents = [i["content"] for i in data["current_smm"]["intent"]]
-        self.assertIn("Need OAuth integration", intent_contents)
+        self.assertEqual(data["health"]["intent_count"], 0)
+        self.assertEqual(data["current_smm"]["intent"], [])
 
     def test_retro_includes_session_stats(self):
         """Retrospective .retro-input.json includes session_stats."""
@@ -309,6 +312,123 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         self.assertIn("session_stats", data)
         self.assertIn("status_count", data["session_stats"])
         self.assertIn("concerns_raised", data["session_stats"])
+
+
+# ===========================================================================
+# save_retrospective.py — subprocess integration
+# ===========================================================================
+
+
+class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
+    """Subprocess tests for save_retrospective.py CLI."""
+
+    _SCRIPT = "save_retrospective.py"
+
+    def _run_save_retro(self, kft_json: str, extra_args: list[str] | None = None):
+        cmd = [
+            "python3",
+            str(self.scripts_dir / self._SCRIPT),
+            "--smm-dir",
+            str(self.smm_dir),
+        ]
+        if extra_args:
+            cmd.extend(extra_args)
+        return subprocess.run(
+            cmd,
+            input=kft_json,
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=self._test_env,
+        )
+
+    def test_session_retro_writes_event_and_file(self):
+        kft = {
+            "keep": [{"content": "TDD discipline"}],
+            "fix": [{"content": "Slow CI"}],
+            "try": [{"content": "Pair more"}],
+        }
+        result = self._run_save_retro(json.dumps(kft))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("EVENT_ID=", result.stdout)
+        self.assertIn("RETRO_FILE=", result.stdout)
+
+        events = self._read_events()
+        retros = [e for e in events if e.get("type") == "retrospective"]
+        self.assertEqual(len(retros), 1)
+        self.assertIn("1 keeps, 1 fixes, 1 tries", retros[0]["content"])
+
+        retro_dir = self.smm_dir / "retrospectives"
+        retro_files = list(retro_dir.glob("*.json"))
+        self.assertEqual(len(retro_files), 1)
+
+    def test_sprint_retro_kind(self):
+        kft = {"keep": [], "fix": [], "try": []}
+        result = self._run_save_retro(json.dumps(kft), ["--retro-kind", "sprint"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
+
+    def test_cleans_up_input_file(self):
+        (self.smm_dir / ".retro-input.json").write_text("{}")
+        kft = {"keep": [], "fix": [], "try": []}
+        result = self._run_save_retro(json.dumps(kft))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+    def test_invalid_input_exits_1(self):
+        result = self._run_save_retro("not json at all")
+        self.assertEqual(result.returncode, 1)
+
+
+# ===========================================================================
+# session_end_warning.py — Stop hook integration
+# ===========================================================================
+
+
+class TestSessionEndWarningIntegration(_IntegrationTestCase):
+    """Subprocess tests for session_end_warning.py Stop hook."""
+
+    def test_returns_warning_with_unresolved_concerns(self):
+        self._seed_events(
+            [
+                make_event("concern", content="Flaky test", severity="medium"),
+            ]
+        )
+        result = self._run_script(
+            "session_end_warning.py",
+            {"session_id": "t", "agent_id": "main"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("unresolved concern", result.stdout)
+
+    def test_returns_summary_nudge_without_concerns(self):
+        self._seed_events(
+            [
+                make_event("status", content="Working on auth"),
+            ]
+        )
+        result = self._run_script(
+            "session_end_warning.py",
+            {"session_id": "t", "agent_id": "main"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Summarize", result.stdout)
+
+    def test_xp_agent_skips(self):
+        self._seed_events(
+            [
+                make_event("concern", content="Bug", severity="high"),
+            ]
+        )
+        result = self._run_script(
+            "session_end_warning.py",
+            {"session_id": "t", "agent_id": "main", "agent_type": "xp-nav"},
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
 
 
 if __name__ == "__main__":

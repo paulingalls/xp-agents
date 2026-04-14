@@ -1,5 +1,6 @@
 {
   "enabledPlugins": {
-    "plugin-dev@claude-plugins-official": true
+    "plugin-dev@claude-plugins-official": true,
+    "xp-agents@xp-agents": true
   }
 }

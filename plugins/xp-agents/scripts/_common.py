@@ -10,6 +10,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -51,6 +52,7 @@ class BlockedError(Exception):
 # ---------------------------------------------------------------------------
 
 # Event types — mirrors smm/schema.json enum
+COMMIT = "commit"
 CUSTOMER_INPUT = "customer_input"
 CUSTOMER_INTENT = "customer_intent"
 DEBT = "debt"
@@ -64,7 +66,12 @@ QUESTION = "question"
 ANSWER = "answer"
 ASSUMPTION = "assumption"
 SESSION_END = "session_end"
+SPRINT = "sprint"
 RETROSPECTIVE = "retrospective"
+
+# Shared status content patterns (used by retrospective and work_signals)
+TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
+LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
 
 
 def subagent_started_content(agent_id: str) -> str:
@@ -195,10 +202,34 @@ def resolve_plugin_root() -> Path:
 
 
 @functools.lru_cache(maxsize=1)
-def load_behavioral_guide() -> str:
-    """Load BEHAVIORAL_GUIDE.md from plugin root."""
+def load_xp_values() -> str:
+    """Load XP_VALUES.md from plugin root."""
     try:
-        guide_path = resolve_plugin_root() / "BEHAVIORAL_GUIDE.md"
+        path = resolve_plugin_root() / "XP_VALUES.md"
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
+def load_process_guide() -> str:
+    """Load PROCESS_GUIDE.md from plugin root."""
+    try:
+        path = resolve_plugin_root() / "PROCESS_GUIDE.md"
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
+def load_teammate_guide() -> str:
+    """Load TEAMMATE_GUIDE.md from plugin root."""
+    try:
+        guide_path = resolve_plugin_root() / "TEAMMATE_GUIDE.md"
         if guide_path.is_file():
             return guide_path.read_text(encoding="utf-8")
     except (OSError, ValueError):
@@ -244,73 +275,15 @@ def try_validate_smm_dir(smm_dir: Path | None) -> Path | None:
         return None
 
 
-_git_root_cache: dict[str, str | None] = {}
+def get_validated_smm_dir(smm_dir: Path | None = None) -> Path | None:
+    """Resolve and validate SMM directory in one call.
 
-
-def resolve_git_root(cwd: str) -> str | None:
-    """Return the git working tree root for the given cwd. Cached per cwd."""
-    if cwd in _git_root_cache:
-        return _git_root_cache[cwd]
-    try:
-        root = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            cwd=cwd,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
-        root = None
-    _git_root_cache[cwd] = root
-    return root
-
-
-def _clear_git_root_cache() -> None:
-    """Clear the git root cache. For testing only."""
-    _git_root_cache.clear()
-
-
-def normalize_path(file_path: str, cwd: str) -> str:
-    """Resolve a file path against cwd, return project-relative string.
-
-    Returns a path relative to git root (e.g. 'src/app.ts') for shorter
-    events and worktree-safe coordination. Falls back to absolute path
-    when git root is unavailable or path is outside the repo.
+    Combines resolve_smm_dir() + try_validate_smm_dir() to replace
+    the 3-line boilerplate pattern used in 24+ hook scripts.
     """
-    p = Path(file_path)
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    full = str(p)
-    resolved = os.path.realpath(full)
-    # Use realpath only if the path exists (avoids platform-specific
-    # resolution of fictional paths like /home on macOS → /System/Volumes/Data/home)
-    absolute = resolved if os.path.exists(resolved) else os.path.normpath(full)
-
-    # Strip git root to get project-relative path
-    git_root = resolve_git_root(cwd)
-    if git_root:
-        prefix = os.path.realpath(git_root).rstrip("/") + "/"
-        if absolute.startswith(prefix):
-            return absolute[len(prefix) :]
-        # normpath may not resolve symlinks consistently with realpath(git_root)
-        # (e.g., /var vs /private/var on macOS). For non-existent files, walk up
-        # to the nearest existing ancestor, resolve its symlinks, and retry.
-        # This fixes cross-worktree coordination where Agent A's files don't
-        # exist in Agent B's worktree.
-        if not os.path.exists(full):
-            cur = full
-            tail_parts: list[str] = []
-            while cur and not os.path.exists(cur):
-                cur, tail = os.path.split(cur)
-                if not tail:  # reached root ("/", "") — stop
-                    break
-                tail_parts.append(tail)
-            if cur and os.path.exists(cur):
-                resolved_ancestor = os.path.realpath(cur)
-                for part in reversed(tail_parts):
-                    resolved_ancestor = os.path.join(resolved_ancestor, part)
-                if resolved_ancestor.startswith(prefix):
-                    return resolved_ancestor[len(prefix) :]
-    return absolute
+    if smm_dir is None:
+        smm_dir = resolve_smm_dir()
+    return try_validate_smm_dir(smm_dir)
 
 
 def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
@@ -322,11 +295,12 @@ def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
 
 def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     """Build a minimal SMM event dict with standard fields."""
-    import uuid
     from datetime import datetime, timezone
 
+    from event_builder import generate_id
+
     event = {
-        "id": str(uuid.uuid4()),
+        "id": generate_id(),
         "ts": datetime.now(timezone.utc).isoformat(),
         "type": event_type,
         "agent_id": agent_id,
@@ -335,6 +309,25 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     }
     event.update(extra)
     return event
+
+
+def count_unresolved_concerns(events: list[dict]) -> int:
+    """Count concern events that have no resolution."""
+    from resolution import compute_resolutions
+
+    concern_ids = {e["id"] for e in events if e.get("type") == CONCERN and e.get("id")}
+    if not concern_ids:
+        return 0
+    resolved = compute_resolutions(events)["resolved_concern_ids"]
+    return len(concern_ids - resolved)
+
+
+def has_final_status(events: list[dict], agent_id: str = "main") -> bool:
+    """Check if the last event from the given agent is a status event."""
+    for e in reversed(events):
+        if e.get("agent_id") == agent_id:
+            return e.get("type") == STATUS
+    return True  # No events from this agent → nothing to warn about
 
 
 def write_json_atomic(file_path: Path, data: dict) -> None:

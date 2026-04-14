@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
 import coordination
 import pre_tool_write
+import worktree
 from conftest import _HookTestCase
 
 
@@ -173,7 +173,7 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
         import subprocess
         import tempfile
 
-        _common._clear_git_root_cache()
+        worktree._clear_git_root_cache()
         self.tmpdir = Path(tempfile.mkdtemp())
         # Create a git repo with an initial commit (required for worktree)
         subprocess.run(
@@ -217,7 +217,7 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
         import shutil
         import subprocess
 
-        _common._clear_git_root_cache()
+        worktree._clear_git_root_cache()
         if self.tmpdir.exists():
             subprocess.run(
                 [
@@ -239,7 +239,7 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
     def test_cross_worktree_overlap_detected(self):
         """Agent A stores path from main cwd, Agent B detects from worktree."""
         # Agent A (main checkout) stores a file in coordination
-        normalized_main = _common.normalize_path("src/app.py", str(self.tmpdir))
+        normalized_main = worktree.normalize_path("src/app.py", str(self.tmpdir))
         coordination.update_coordination(self.smm_dir, "agent-a", [normalized_main])
 
         # Agent B (worktree) checks for overlap — file doesn't exist in worktree
@@ -251,7 +251,7 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
 
     def test_cross_worktree_no_false_conflict(self):
         """Different files across worktrees should not conflict."""
-        normalized_main = _common.normalize_path("src/app.py", str(self.tmpdir))
+        normalized_main = worktree.normalize_path("src/app.py", str(self.tmpdir))
         coordination.update_coordination(self.smm_dir, "agent-a", [normalized_main])
 
         result = pre_tool_write.check_working_on_overlap(
@@ -261,8 +261,8 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
 
     def test_renormalize_repo_relative_from_different_cwd(self):
         """Same relative path normalizes identically from main and worktree."""
-        main_result = _common.normalize_path("src/app.py", str(self.tmpdir))
-        wt_result = _common.normalize_path("src/app.py", str(self.wt_dir))
+        main_result = worktree.normalize_path("src/app.py", str(self.tmpdir))
+        wt_result = worktree.normalize_path("src/app.py", str(self.wt_dir))
         self.assertEqual(main_result, wt_result)
         self.assertEqual(main_result, "src/app.py")
 

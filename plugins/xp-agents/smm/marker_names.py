@@ -1,0 +1,23 @@
+"""Marker filename constants — shared across sys.path boundary.
+
+This module contains only filename strings. It has no imports and no
+dependencies, which lets both `scripts/` (via sys.path insertion) and
+`skills/*/scripts/` (which only add `smm/` to sys.path) reference the
+same marker names without duplication.
+
+The full marker infrastructure (MarkerDef, marker_read, marker_write,
+marker_consume) lives in `scripts/markers.py` which imports these
+constants. Skill scripts that need to read/write marker files do so
+directly via pathlib using these constants.
+"""
+
+KICKOFF = ".needs-kickoff"
+NEEDS_SPRINT = ".needs-sprint"
+ACCEPT = ".accept"
+SECURITY_TRIAGED = ".security-triaged"
+PLAN_AWAITING_REVIEW = ".plan-awaiting-review"
+QUESTION_GATE = ".question-gate"
+ASKING_USER = ".asking-user"
+NEEDS_EXECUTION_PLAN = ".needs-execution-plan"
+NEEDS_SYSTEM_CONTEXT = ".needs-system-context"
+ASSIGN_PENDING = ".assign-pending"

@@ -2,7 +2,6 @@
 """Tests for retrospective digest, save retrospective, save SMM, and compact log."""
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -33,7 +32,7 @@ class TestRetroDigest(_HookTestCase):
             make_event("customer_input", content="Please fix"),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, set())
+        digest = retrospective._build_retro_digest(events, 0, {})
         signal_types = {e["type"] for e in digest["signal_events"]}
         self.assertIn("decision", signal_types)
         self.assertIn("concern", signal_types)
@@ -67,7 +66,7 @@ class TestRetroDigest(_HookTestCase):
             ),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, set())
+        digest = retrospective._build_retro_digest(events, 0, {})
         ss = digest["status_summary"]
         self.assertEqual(ss["total"], 4)
         self.assertEqual(ss["file_writes"], 2)
@@ -87,7 +86,7 @@ class TestRetroDigest(_HookTestCase):
             for _ in range(3)
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, set())
+        digest = retrospective._build_retro_digest(events, 0, {})
         groups = digest["concern_groups"]
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups[0]["count"], 3)
@@ -106,7 +105,7 @@ class TestRetroDigest(_HookTestCase):
             ),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, set())
+        digest = retrospective._build_retro_digest(events, 0, {})
         groups = digest["concern_groups"]
         self.assertEqual(len(groups), 3)
         for g in groups:
@@ -121,7 +120,7 @@ class TestRetroDigest(_HookTestCase):
             make_event("concern", content="Slow", severity="low"),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, set())
+        digest = retrospective._build_retro_digest(events, 0, {})
         signal_ids = {e["id"] for e in digest["signal_events"]}
         for e in events:
             self.assertIn(e["id"], signal_ids)
@@ -274,109 +273,133 @@ class TestSaveRetrospective(_HookTestCase):
         )
 
 
-class TestSaveSMM(_HookTestCase):
-    """Tests for save_smm.py helper script."""
+class TestSaveRetrospectiveParams(_HookTestCase):
+    """M12: parameterized agent, prefix, and cleanup file."""
 
     def setUp(self):
         super().setUp()
-        # Add skill scripts to path so we can import save_smm
-        skill_scripts = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
+        (self.smm_dir / "retrospectives").mkdir(exist_ok=True)
+
+    def _valid_kft(self) -> dict:
+        return {
+            "keep": [{"content": "Good"}],
+            "fix": [],
+            "try": [],
+        }
+
+    def test_custom_agent_id(self):
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            agent_id="xp-sprint-retro",
         )
-        if str(skill_scripts) not in sys.path:
-            sys.path.insert(0, str(skill_scripts))
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro["agent_id"], "xp-sprint-retro")
 
-    def test_writes_smm_file(self):
-        """save_smm.run() writes markdown content to SHARED_MENTAL_MODEL.md."""
-        import save_smm
+    def test_custom_prefix(self):
+        import save_retrospective
 
-        content = "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
-        save_smm.run(content, smm_dir=self.smm_dir)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        self.assertTrue(smm_file.exists())
-        self.assertEqual(smm_file.read_text(), content)
-
-    def test_updates_curation_watermark(self):
-        """save_smm.run() updates .curation-watermark with event count."""
-        import save_smm
-
-        # Seed some events
-        self._write_events(
-            [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
-            ]
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            prefix="Sprint retrospective",
         )
-        save_smm.run("# SMM\n", smm_dir=self.smm_dir)
-        import materialize as _mat
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertIn("Sprint retrospective", retro["content"])
 
-        wm = _mat.read_curation_watermark(self.smm_dir)
-        self.assertEqual(wm["event_count"], 2)
-        self.assertEqual(wm["agent_id"], "xp-housekeeping")
+    def test_custom_cleanup_file(self):
+        import save_retrospective
 
-    def test_overwrites_existing_smm(self):
-        """save_smm.run() overwrites an existing SHARED_MENTAL_MODEL.md."""
-        import save_smm
-
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("old content")
-        save_smm.run("new content", smm_dir=self.smm_dir)
-        self.assertEqual(smm_file.read_text(), "new content")
-
-    def test_file_permissions(self):
-        """Written SMM file has mode 0o600."""
-        import save_smm
-
-        save_smm.run("# SMM\n", smm_dir=self.smm_dir)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        mode = smm_file.stat().st_mode & 0o777
-        self.assertEqual(mode, 0o600)
-
-    def test_empty_content_writes_empty_file(self):
-        """Empty string input produces an empty file."""
-        import save_smm
-
-        save_smm.run("", smm_dir=self.smm_dir)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        self.assertTrue(smm_file.exists())
-        self.assertEqual(smm_file.read_text(), "")
-
-
-class TestCompactLog(_HookTestCase):
-    """Test compact_log.py housekeeping script via subprocess."""
-
-    def test_compact_log_subprocess(self):
-        """compact_log.py runs as subprocess and prints stats."""
-        # Seed events with a curation watermark
-        events = [make_event("status", content=f"e{i}") for i in range(5)] + [
-            make_event("session_end", content="end", working_on=[])
-        ]
-        self._write_events(events)
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-        from materialize import write_curation_watermark
-
-        write_curation_watermark(self.smm_dir, len(events), "xp-housekeeping")
-
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "compact_log.py"
+        cleanup = self.smm_dir / ".sprint-retro-input.json"
+        cleanup.write_text("{}")
+        save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            cleanup_file=".sprint-retro-input.json",
         )
-        result = subprocess.run(
-            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
-            capture_output=True,
-            text=True,
+        self.assertFalse(cleanup.exists())
+
+    def test_defaults_unchanged(self):
+        """Default agent_id and prefix match existing session retro behavior."""
+        import save_retrospective
+
+        (self.smm_dir / ".retro-input.json").write_text("{}")
+        result = save_retrospective.run(self._valid_kft(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro["agent_id"], "xp-retrospective")
+        self.assertIn("Session retrospective", retro["content"])
+        self.assertFalse((self.smm_dir / ".retro-input.json").exists())
+
+
+class TestSaveRetrospectiveRetroKind(_HookTestCase):
+    """M1a: --retro-kind flag writes metadata.action discriminator."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir(exist_ok=True)
+
+    def _valid_kft(self) -> dict:
+        return {
+            "keep": [{"content": "Good"}],
+            "fix": [],
+            "try": [],
+        }
+
+    def test_retro_kind_session_writes_session_action(self):
+        """--retro-kind session writes metadata.action=session_retro_done."""
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            retro_kind="session",
         )
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("Compacted:", result.stdout)
-        self.assertIn("archived", result.stdout)
-        self.assertIn("retained", result.stdout)
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
+
+    def test_retro_kind_sprint_writes_sprint_action(self):
+        """--retro-kind sprint puts metadata.action=sprint_retro_done on retro event."""
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+            retro_kind="sprint",
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
+
+    def test_retro_kind_default_is_session(self):
+        """No retro_kind argument defaults to session for backwards compat."""
+        import save_retrospective
+
+        result = save_retrospective.run(
+            self._valid_kft(),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro = next(e for e in events if e["type"] == "retrospective")
+        self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
+
+    def test_retro_kind_constants_exist(self):
+        """event_schema.py exposes RETRO_ACTION_SESSION_DONE/SPRINT_DONE constants."""
+        import event_schema
+
+        self.assertEqual(event_schema.RETRO_ACTION_SESSION_DONE, "session_retro_done")
+        self.assertEqual(event_schema.RETRO_ACTION_SPRINT_DONE, "sprint_retro_done")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,6 @@
 Split from the original test_post_tool.py.
 """
 
-import json
 import sys
 import tempfile
 import unittest
@@ -24,8 +23,12 @@ from conftest import _HookTestCase, _make_bash_input, make_event
 
 
 class TestBashPostTool(_HookTestCase):
-    def test_git_commit_records_status(self):
-        with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
+    def test_git_commit_records_commit_event(self):
+        with (
+            patch("commits.get_committed_files", return_value=["a", "b", "c"]),
+            patch("commits.get_commit_message_body", return_value="Add auth"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add auth'",
@@ -34,9 +37,33 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
-        self.assertEqual(len(statuses), 1)
-        self.assertIn("Add auth", statuses[0]["content"])
+        commits_ev = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(commits_ev), 1)
+        self.assertIn("Add auth", commits_ev[0]["content"])
+        self.assertEqual(commits_ev[0]["files"], ["a", "b", "c"])
+        self.assertEqual(commits_ev[0]["metadata"]["commit_hash"], "abc123")
+
+    def test_git_commit_strips_co_author_trailer(self):
+        body = (
+            "Fix the bug\n\nDetailed explanation.\n\nCo-Authored-By: Someone <x@y.com>"
+        )
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix the bug'",
+                    stdout="[main abc123] Fix the bug\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        commits_ev = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(commits_ev), 1)
+        self.assertNotIn("Co-Authored-By", commits_ev[0]["content"])
+        self.assertIn("Detailed explanation", commits_ev[0]["content"])
 
     def test_git_commit_small_no_concern(self):
         with patch("commits.get_committed_files", return_value=["a", "b", "c"]):
@@ -68,30 +95,49 @@ class TestBashPostTool(_HookTestCase):
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("12 files" in c["content"] for c in concerns))
 
-    def test_commit_threshold_from_settings(self):
-        settings_path = Path(__file__).parent.parent.parent / "settings.json"
-        original = settings_path.read_text()
-        try:
-            settings_path.write_text(json.dumps({"commit_size_threshold": 5}))
-            with patch(
+    def test_commit_code_files_has_code_commit_metadata(self):
+        """Commit event has metadata.code_commit=True when code files present."""
+        with (
+            patch(
                 "commits.get_committed_files",
-                return_value=[f"f{i}" for i in range(6)],
-            ):
-                bash_post_tool.run(
-                    _make_bash_input(
-                        command="git commit -m 'x'",
-                        stdout="[main a] x\n 6 files changed",
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == "concern"]
-            self.assertTrue(len(concerns) >= 1)
-        finally:
-            settings_path.write_text(original)
+                return_value=["src/app.py", "tests/test_app.py"],
+            ),
+            patch("commits.get_commit_message_body", return_value="Add feature"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Add feature'",
+                    stdout="[main abc123] Add feature\n 2 files changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        committed = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(committed), 1)
+        self.assertTrue(committed[0].get("metadata", {}).get("code_commit"))
 
-    def test_commit_threshold_default(self):
-        self.assertEqual(bash_post_tool.load_commit_threshold(), 10)
+    def test_commit_no_code_files_has_code_commit_false(self):
+        """Commit event has metadata.code_commit=False for docs-only commits."""
+        with (
+            patch(
+                "commits.get_committed_files",
+                return_value=["README.md", "docs/guide.md"],
+            ),
+            patch("commits.get_commit_message_body", return_value="Update docs"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Update docs'",
+                    stdout="[main abc123] Update docs\n 2 files changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        committed = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(committed), 1)
+        self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
     def test_pytest_pass(self):
         bash_post_tool.run(
@@ -392,6 +438,33 @@ class TestResolveTestConcerns(_HookTestCase):
         self.assertEqual(len(events), 0)
 
 
+class TestBashPostToolWorktreeAgentId(_HookTestCase):
+    """Worktree cwd uses resolve_agent_id for commit handling."""
+
+    def test_commit_resets_worktree_scoped_markers(self):
+        """After commit, worktree-scoped markers are reset."""
+        agent_id = "teammate-story-001"
+        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        markers.set_review_flag(self.smm_dir, agent_id, "security_review_done")
+        inp = _make_bash_input(
+            command="git commit -m 'test'",
+            stdout="[main abc123] test\n 1 file changed",
+            agent_id="",
+            cwd="/proj/.claude/worktrees/teammate-story-001",
+        )
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch(
+                "commits.get_head_commit_hash",
+                return_value="newcommit123",
+            ),
+        ):
+            bash_post_tool.run(inp, smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, agent_id)
+        self.assertEqual(cycle["last_review_commit"], "newcommit123")
+        self.assertFalse(cycle["simplify_done"])
+
+
 class TestBashPostToolGreenNudge(_HookTestCase):
     """Tests for commit-after-green nudge in bash_post_tool."""
 
@@ -474,6 +547,44 @@ class TestBashPostToolGreenNudge(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
+        self.assertIsNone(result)
+
+
+class TestBashPostToolPushWarning(_HookTestCase):
+    """Tests for git push session-end checklist nudge."""
+
+    def test_push_with_unresolved_concerns_warns(self):
+        """git push with unresolved concerns returns session-end checklist."""
+        self._write_events(
+            [make_event("concern", content="Open issue", severity="medium")]
+        )
+        result = bash_post_tool.run(
+            _make_bash_input(command="git push origin main", stdout=""),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("concern", result.lower())
+
+    def test_push_always_nudges_summary(self):
+        """git push always nudges session summary for user."""
+        self._write_events([make_event("status", content="All done")])
+        result = bash_post_tool.run(
+            _make_bash_input(command="git push origin main", stdout=""),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("summarize", result.lower())
+
+    def test_push_xp_agent_skips(self):
+        """xp- agents skip push warning."""
+        result = bash_post_tool.run(
+            _make_bash_input(
+                command="git push origin main",
+                stdout="",
+                agent_type="xp-nav",
+            ),
+            smm_dir=self.smm_dir,
+        )
         self.assertIsNone(result)
 
 

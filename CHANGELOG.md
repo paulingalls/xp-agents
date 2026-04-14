@@ -1,5 +1,640 @@
 # Changelog
 
+## v2.12.0 — Merge + Accept + Cleanup + Documentation
+
+### Sprint-018: Milestone 5 (Documentation Update)
+- **CLAUDE.md slimmed to project-only content.** Removed "XP Practices", "Event Appending" usage, and "Resolving Events" sections (duplicated by plugin-injected PROCESS_GUIDE.md and XP_VALUES.md). Replaced per-file listings with directory-level structure. Added "Further Reading" section. Makes the repo a proper test environment for the plugin.
+- **README.md updated for CLI teammates.** All "Agent Teams" references updated. Skills table expanded from 8 to 14. SMM directory listing corrected (shared_mental_model.json, sprint.json, execution_plan.json). "behavioral guide" → "process guide" throughout. Test count updated to 2014.
+- **ARCHITECTURE.md modernized.** Replaced per-file plugin structure with directory-level descriptions. All "behavioral guide" / BEHAVIORAL_GUIDE.md references updated to "process guide" / PROCESS_GUIDE.md. Hook map verified against hooks.json. Component inventory updated.
+- **Design docs finalized.** CLI_TEAMMATE_DESIGN.md marked as fully implemented (M1-M4, Sprints 014-017). AGENT_TEAMS_DESIGN.md marked as superseded. SMM_DESIGN.md injection model updated (teammates use SessionStart, not SubagentStart).
+- **CHANGELOG v2.12.0 entry.** Documents Sprint-017 and post-sprint refactoring.
+- **First CLI teammate test.** All 5 stories executed in parallel by CLI teammates. Uncovered and fixed two spawn_teammate.py bugs before teammates could run.
+
+### Sprint-017: Milestone 4
+- **cleanup_teammate.py.** New script verifies a teammate's branch is fully merged (`git merge-base --is-ancestor`), removes the git worktree and branch, and cleans up agent-scoped markers and report files from the SMM dir. Called by `/xp-accept` after stories pass acceptance criteria.
+- **xp-accept teammate workflow.** Detects teammate worktrees and prompts for branch merge before acceptance. Runs cross-teammate review cycle (`/simplify` + `/xp-quality-review` + `/xp-security-triage`) on the merged result to catch inter-story integration issues. After acceptance, calls `cleanup_teammate.py` for each verified story's worktree.
+- **spawn_teammate.py fix.** Replaced non-existent `--input-file` flag with stdin piping for prompt delivery. Added `--plugin-dir` argument for explicit plugin path passing — env var detection doesn't work outside hook execution context.
+
+### Post-Sprint Refactoring
+- **identity.py extracted from _common.py.** Agent identity resolution: `resolve_agent_id()`, `is_worktree_teammate()`, `get_current_branch()`. 48 lines.
+- **worktree.py extracted from _common.py.** Git/path operations: `resolve_git_root()`, `resolve_smm_dir()`, `worktree_path()`, `remove_worktree()`. 104 lines.
+- **_common.py reduced** from 533 to 384 lines. Both new modules are under 110 lines each.
+
+## v2.11.0 — CLI Teammate Spawning
+
+### Sprint-016: Milestone 3
+- **spawn_teammate.py.** New launcher script creates git worktrees and starts independent `claude -p` processes for CLI teammates. Pre-spawn cleanup removes stale worktrees/branches for idempotent spawning. Uses `_common.resolve_git_root()` (cached). Detects plugin mode (inline vs marketplace) for correct `--plugin-dir` flag.
+- **teammate_output_filter.py.** New filter script captures `type:result` events from `--output-format stream-json` output. Writes report files to SMM dir, appends cost/duration/turns events for velocity tracking and retro analysis.
+- **xp-assign rewritten for CLI spawning.** SKILL.md replaced Agent tool `xp-teammate` spawning with `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`. Mode selection logic preserved. Preload exports `PLUGIN_ROOT`.
+- **xp-accept next steps.** Accept skill now directs to `/xp-sprint-review` when sprint is complete, rather than relying solely on the stop gate.
+- **Documentation debt cleared.** All stale references to removed `is_teammate_by_agent_type()`, `TEAMMATE_AGENT_TYPES`, and `xp-teammate` agent updated across CLAUDE.md, ARCHITECTURE.md, SMM_DESIGN.md, PROCESS_GUIDE.md, README.md, and CLI_TEAMMATE_DESIGN.md. Terminology updated from "Agent Teams" / "worktree subagents" to "CLI teammates".
+
+### Sprint-015: Milestone 2
+- **CLI teammate session lifecycle.** TEAMMATE_GUIDE.md rewritten for CLI teammates with full review cycle. SessionStart detects worktree teammates via `is_worktree_teammate()` and injects XP Values + guide + rendered SMM. SessionEnd records completion event with branch name. SubagentStart teammate injection and xp-teammate agent definition removed.
+- **resolve_agent_id consolidation.** Duplicate `get_current_branch()` helpers consolidated into `_common.get_current_branch()`.
+
+## v2.10.0 — Teammate Review Cycle
+
+### Sprint-013: Milestones 3 + 4
+- **Teammate-compatible review cycle.** Stop gate and nudge messages updated from `/simplify` → `/xp-simplify` and `/xp-security-triage` → `/security-review`. Teammates can now complete the full review cycle without spawning sub-agents.
+- **Agent definition updated.** `xp-teammate.md` Review Cycle section references inline-compatible skills (`/xp-simplify`, `/security-review`). `xp-assign/SKILL.md` spawn prompt template updated to match.
+- **Review nudge consistency.** `review_cycle_done.py` `_NEXT_STEP` dict now nudges `/security-review` (works for both main agent and teammates) instead of `/xp-security-triage`.
+
+### Sprint-012: Milestones 1 + 2
+- **xp-simplify inline skill.** Single-pass code review covering reuse, quality, and efficiency without spawning sub-agents. No "skip if false positive" escape hatch — every finding must be applied or recorded as debt.
+- **Plan archive command.** `plan_cli.py archive` moves completed execution plans to `plans/` directory. `xp-plan` SKILL.md update flow includes "Archive and start fresh" option.
+
+### Tests
+- **xp-simplify detection tests.** Characterization tests verify `review_cycle_done.py` handles `xp-simplify` and `xp-agents:xp-simplify` via substring matching.
+- **E2E review cycle test.** Integration test walks through the full 5-step stop gate sequence: `/xp-simplify` → `/xp-quality-review` → `/security-review` → commit → stop.
+
+## v2.9.0 — Plan-Driven /xp-assign + Teammate Gates
+
+### Sprint-011: Milestone 4
+- **Plan cycle documented.** PROCESS_GUIDE.md defines the plan cycle (EnterPlanMode → /xp-review-plan → /xp-assign → execute) as a named hook-enforced sequence alongside the review cycle. Marker flow documented: `.plan-awaiting-review` → `.assign-pending`.
+- **Plan-driven /xp-assign.** SKILL.md rewritten to read plan file steps for mode selection instead of sprint stories. Works identically in sprint and free session modes. preload.sh outputs PLAN_FILE as primary input, SPRINT_FILE as optional context.
+- **Plan reviewer updated.** Section 9 (execution mode) uses plan-step terminology, Agent Team option removed per SMM constraint (Solo + Worktree subagents only).
+- **Terminology sweep.** All references to "sprint stories" in the context of /xp-assign updated across kickoff SKILL.md, subagent_stop.py, README.md, ARCHITECTURE.md, CHANGELOG.md.
+
+### New Gates
+- **Teammate stop gate.** New `teammate_stop_gate.py` blocks xp-teammate agents from stopping with uncommitted changes. Enforces review cycle in order: /simplify → /xp-quality-review → /xp-security-triage → commit. `TEAMMATE_AGENT_TYPES` extracted to `_common.py` (shared with subagent_stop.py).
+- **Accept gate.** New gate in `pre_tool_bash.py` blocks `update-story done` when ACCEPT marker exists — prevents bypassing /xp-accept acceptance criteria verification. Uses regex detection (`update-story\s+\S+\s+done\b`). /xp-accept SKILL.md updated to clear marker before updating status.
+
+### Fixed
+- **xp-plan preload permission.** Added `Bash(*/skills/*/scripts/*)` to xp-plan allowed-tools, matching all other skills. Preload script was being blocked by permission system.
+- **Pyright type narrowing.** Fixed `str | None` → `Path()` warnings in test_assign.py by using `assert` instead of `self.assertIsNotNone` for type narrowing.
+
+## v2.8.1 — Close Retro Fix/Try Feedback Loop
+
+### Fixed
+- **Defer/drop now have downstream effect.** Work-selection skill records defer/drop with `metadata.resolves` and a `disposition` field, so `annotate_try_status()` can distinguish adopted/deferred/dropped. Previously both were generic status events that nothing read.
+- **Dropped Try items are never re-proposed.** Retro agent prompt uses `try_status[i].disposition` to decide: `dropped` = never re-propose, `deferred` = may re-propose with deferral count, `adopted` = don't repeat verbatim.
+- **Decision-aware flag suppression.** `evaluate_flags()` accepts a `decisions` parameter. `_FLAG_SUPPRESSIONS` mapping suppresses flags when a matching decision topic is active (e.g., `max_events_to_commit` suppressed by `retro-try-kickoff-exemption`). Closes the Adopt→Fix loop where adopting a Try created a decision but the same Fix kept firing.
+- **Commit-to-story attribution.** `_file_matches_domain()` handles path suffix matching (`plugins/xp-agents/scripts/foo.py` matches domain `scripts/foo.py`) and test-to-source mapping (`test_foo.py` matches `foo.py`). Previously strict set intersection missed all prefixed and test file paths.
+
+### Changed
+- **`_build_resolutions_map()`** propagates `disposition` from resolver event metadata into the resolutions map.
+- **`retrospective.py`** extracts decision topics from events and passes them to `evaluate_flags()`.
+
+## v2.8.0 — Merge Sprint Retro into Session Retro
+
+### Sprint-010: Milestone 3
+- **Sprint sizing metrics.** New `sizing_metrics.py` computes per-story and per-size metrics by attributing commit events to stories via file_domain overlap. Shared attribution — a commit matching multiple stories counts for all. Metrics: commits, files_changed, in_domain_files, out_of_domain_files, domain_accuracy.
+- **Session retro handles sprint analysis.** When a sprint has ended, `retrospective.py` enriches `.retro-input.json` with a `sizing_analysis` block. The xp-retrospective agent prompt includes a conditional Sprint Analysis section (goal assessment, per-story metrics table, per-size calibration). Sprint end bypasses the 5-event retro threshold.
+- **Unified kickoff flow.** `check_session_needs.sh` and `xp-kickoff/SKILL.md` no longer check for `.sprint-retro-input.json` or route to `/xp-run-sprint-retro`. All retro work flows through `RETRO_NEEDED` → `/xp-run-retrospective`.
+- **`needs_sprint_retro()` inlined.** Detection function moved from `sprint_retro_detection.py` into `retrospective.py`. Renamed from `_needs_sprint_retro` to public API.
+
+### Removed
+- **`agents/xp-sprint-retro.md`** — sprint retro agent definition.
+- **`skills/xp-run-sprint-retro/`** — sprint retro skill + preload script.
+- **`scripts/prepare_sprint_retro_data.py`** — sprint retro data prep script.
+- **`scripts/sprint_retro_detection.py`** — detection module (inlined into retrospective.py).
+- **`_handle_sprint_retro_done`** function, constants, and call site from `subagent_stop.py`.
+- **Test files:** `test_sprint_retro.py`, `test_sprint_retro_detection.py`, `TestSprintRetroDone` class, sprint retro integration tests, sprint retro tier test.
+
+## v2.7.0 — Housekeeper Migration to Item-Level CLI
+
+### Sprint-009: Milestone 2
+- **xp-housekeeper agent rewritten for item-level API.** Agent now expresses SMM mutations as individual `add-item`, `update-item`, `remove-item`, and `complete-curation` CLI commands instead of assembling a full JSON document and piping to `smm_cli.py save`. The CLI handles identity (UUIDs, timestamps) server-side, eliminating UUID drift risk entirely.
+- **Allowed tools updated.** `xp-housekeeping` SKILL.md patterns changed from `Bash(cat *| python3 */smm_cli.py *)` to `Bash(echo *| python3 */smm_cli.py *)` and `Bash(python3 */smm_cli.py *)` for the two command forms.
+- **Merge rules simplified.** Agent prompt no longer contains UUID preservation instructions, full-doc JSON assembly templates, or entry schema requirements. Mutation verbs (add/update/remove) replace the monolithic output format.
+
+### Removed
+- **`settings.json`** deleted. The sole config value (`commit_size_threshold`) is now a hardcoded constant (`COMMIT_SIZE_THRESHOLD = 12`) in `bash_post_tool.py`, consistent with all other thresholds in the codebase.
+- **`load_commit_threshold()`** function removed from `bash_post_tool.py`.
+- **Tautological constant test** removed — asserting a constant equals a literal validates nothing.
+
+### Changed
+- **Retro metric thresholds moved to Python.** `retro_flags.py` now owns threshold definitions and comparisons instead of delegating judgment to the LLM.
+
+## v2.6.0 — Item-Level SMM API + Retro Try Fixes
+
+### Sprint-008: Milestone 1 (partial — 2/6 stories)
+- **`validate_entry(entry, pillar)`** in `smm_schema.py`. Per-item schema validation extracted from `_validate_pillar()`. Enables add/update operations to validate entries before insertion without full-document validation. `_PILLAR_SPEC_MAP` for O(1) pillar lookup.
+- **`complete_curation(smm_dir)`** in `smm_cli.py`. Extracted watermark update + compaction from `save()` into standalone function with CLI subcommand. The bookend call after item-level mutations finalize a curation cycle.
+- **`watermark_updated`** field in `compact_after_curation()` return dict. Eliminates redundant events.jsonl double-read: `complete_curation` now skips `parse_events` when compact already updated the watermark.
+
+### Fixed
+- **SessionStart hook "some events" fallback.** Sprint retro branch returned a string without a numeric count, so the regex fell back to "some." Now reports meaningful sprint-specific counts (stories and sessions). Regex updated to match both "events" and "stories."
+- **Try-item resolution wiring.** `get_try_items()` in `_preload_base.sh` now outputs `event_refs` as `[refs: id1, id2]` suffix. Work-selection SKILL.md instructs the LLM to include `--metadata '{"resolves": [...]}'` when adopting Try items. Closes the retro Try → adoption → resolution detection loop.
+- **Security triage exemption for non-code commits.** Gate auto-sets triage marker with `exempt_reason="no-code-files"` for doc-only/config-only commits. Prevents false "commits without triage" flags in retro honesty signals. `write_security_triaged()` gains optional `exempt_reason` parameter.
+
+### Changed
+- **Below-threshold commit gate restructured.** Single `security_triaged_exists` check with nested `if has_code` / `else` instead of two independent if-blocks (per simplify review finding).
+
+## v2.5.0 — Worktree Integration + GIT_DIR Safety
+
+### Milestone 3: Integration + Documentation (Sprint-007)
+- **22 integration tests** for xp-assign/teammate workflow: preload with multi-story sprints, xp-teammate agent frontmatter validation, WorktreeCreate hook subprocess, edge cases (missing file domains, all-S stories, dependency chains).
+- **ARCHITECTURE.md** updated: xp-assign moved from forked subagents to inline skills, xp-teammate.md added to agents, team spawn flow rewritten for two-mode model (solo/worktree subagents).
+- **PROCESS_GUIDE.md** updated: `/xp-assign` documented as inline skill that auto-runs after planning.
+- **README.md** updated: Agent Teams section replaced with Sprint Execution (solo + worktree subagents).
+- **AGENT_TEAMS_DESIGN.md** updated: Worktree Subagent Findings section with empirical testing results, comparison table, platform constraints.
+- **spawn-team-refactor.md**: All 6 open questions resolved with M1/M2 implementation answers.
+- **CLAUDE.md**: Added worktree subagents key decision and git env safety documentation.
+
+### Fixed
+- **WorktreeCreate hook input format.** Platform sends `{session_id, transcript_path, cwd, hook_event_name, name}` — not `{worktree_path, branch}` as originally assumed. Hook now generates path under `.claude/worktrees/<name>` and branch `worktree-<name>` from the current branch.
+- **SubagentStart dispatch for plugin-prefixed agent_type.** Platform sends `"xp-agents:xp-teammate"` but dispatch only had `"xp-teammate"`, routing teammates to the xp-agent skip path (zero context injection). Added both entries.
+- **GIT_DIR/GIT_INDEX_FILE leakage in tests.** During `git commit`, git sets `GIT_INDEX_FILE`; in worktrees, git sets `GIT_DIR`/`GIT_COMMON_DIR`. Test subprocesses that create temp git repos inherited these, operating on the parent repo instead — corrupting `.git/config`, leaking `tmp*` branches, and causing `core.bare=true` inference. Known issue: [pre-commit#3032](https://github.com/pre-commit/pre-commit/issues/3032), [lefthook#1265](https://github.com/evilmartians/lefthook/issues/1265). Fixed with two-layer defense: `env -u` in `lefthook.yml` (infrastructure) + `os.environ.pop` in `conftest.py` (defense-in-depth).
+
+### Changed
+- **`lefthook.yml`**: All test runner commands wrapped with `env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE` to prevent git environment leakage into test subprocesses.
+- **`.gitignore`**: Added `.claude/worktrees/` to prevent worktree directories from appearing in `git status`.
+
+## v2.4.0 — Worktree Teammates + Inline Work Assignment
+
+### Architecture
+- **xp-teammate agent.** New worktree-isolated subagent for parallel story implementation. Spawned with `isolation: worktree`, runs full TDD + review cycle independently, commits to its own branch. The lead merges branches after completion.
+- **xp-assign inline skill.** Renamed from xp-spawn-team and converted from forked agent to inline skill. Analyzes the plan's steps, decides execution mode (Solo vs Worktree subagents), and spawns xp-teammate agents via the Agent tool. Auto-runs after plan review completes.
+- **Assign-pending gate.** When plan review completes, SubagentStop sets `.assign-pending` marker and nudges the agent to run `/xp-assign`. PreToolUse:Write blocks implementation until the marker is cleared. Mirrors the plan-review gate pattern.
+
+### Added
+- **`xp-teammate.md` agent definition.** Worktree-isolated teammate with `isolation: worktree` frontmatter, full review cycle instructions, file domain boundaries, and SMM event recording. Story-specific context comes from the spawn prompt.
+- **`worktree_create.py` WorktreeCreate hook.** Branches worktrees from the current branch (not main/master), so teammates work on top of the lead's latest code. Registered in hooks.json.
+- **xp-teammate dispatch in `subagent_start.py`.** Dedicated `_inject_xp_teammate()` handler provides SMM + system context without the teammate guide (instructions are in the agent .md).
+- **`ASSIGN_PENDING` marker** in `marker_names.py` and `markers.py`. Gate constant for the plan-review → assign flow.
+- **`_handle_plan_review_done()` in `subagent_stop.py`.** Sets assign-pending marker and returns additionalContext nudge when xp-plan-reviewer completes.
+- **`edit-milestone` command in `plan_cli.py`.** Accepts JSON on stdin to update milestone status and delivered_sprint.
+- **`SAMPLE_SPRINT_MD` shared fixture** in `conftest.py`. Eliminates duplication across test_subagent_tiers.py and test_teammate_guide.py.
+
+### Changed
+- **xp-spawn-team → xp-assign.** Skill directory, agent file, test file, and all references renamed atomically across CLAUDE.md, PROCESS_GUIDE.md, ARCHITECTURE.md, plan-reviewer, kickoff, plugin integrity tests, subagent tier tests, and 3 design docs.
+- **xp-assign converted to inline.** Removed `context: fork` and `agent:` from frontmatter. Agent file deleted. Mode selection heuristic (dependency chains → Solo, all S-sized → Solo, overlapping domains → Solo, independent M/L → Worktree) and spawn instructions now live in SKILL.md.
+- **Kickoff step 7** auto-invokes `/xp-assign` after plan review instead of listing manual options.
+- **Sprint CLI for status updates.** Work-selection and accept skills now use `sprint_cli.py update-story` instead of direct file writes.
+- **Preload rendering via CLI.** Sprint and SMM data rendered to tempfiles via CLI for read-only preload consumers, reducing token overhead.
+- **Status keys standardized to hyphenated format** across all sprint stores (in-progress, not in_progress).
+- **TEAMMATE_GUIDE.md** rewritten for Agent Teams focus (DO/DON'T/SKIP/KEEP rules).
+- **`max_events_between_commits` → `max_events_to_commit`.** Metric renamed for clarity.
+
+### Removed
+- **`agents/xp-assign.md`** (formerly xp-spawn-team). Logic moved to inline skill.
+- **`test_spawn_team.py`** renamed to `test_assign.py`.
+
+### Stats
+- 1778 tests (up from 1747), all passing
+- Pre-commit wall time: ~25s
+- 19 commits in this release (sprint-005 + sprint-006)
+
+## v2.3.1 — Bug Fixes, SMM CLI Consolidation, Four-Pillar Cleanup
+
+### Fixed
+- **TDD stop gate teammate bug** (debt f38222aa). Gate now defers when `coordination.has_active_teammates()` finds other agents, preventing the lead from being blocked when teammates are in TDD red phase. Extracted shared `has_active_teammates()` into `coordination.py`.
+- **Sprint stop gate false deferral.** Completed review cycles (all 3 flags True) were incorrectly suppressing sprint-complete blocks. Now only defers when mid-cycle (some flags True, not all).
+- **Auto-archive completed execution plans** (debt e304b0d2). `session_start.py` now calls `execution_plan_store.archive()` when all milestones are delivered, preventing stale file-existence checks.
+- **Plan reviewer blocking free sessions** (debt ce871882). Agent now checks Intent pillar for "Free session" goal before raising sprint-scope blocking questions.
+- **Forked skill visibility.** All 9 forked skills clarified that subagent results are NOT visible to the user — agent must output text explicitly.
+- **Test noise.** Suppressed stderr from oversized JSON rejection test that was confusing grep-based result scanning.
+
+### Added
+- **`smm_cli.py` — unified SMM CLI.** Consolidates `smm_view.py` (read-only rendering) and `save_smm.py` (housekeeping writes) into one CLI following the `sprint_cli.py`/`plan_cli.py` pattern. Dispatch table, `--smm-dir` as top-level arg, `save` command with watermark update and compaction.
+- **Session mode as Intent goal.** Kickoff Step 2 now emits a `goal` event ("Free session" or "Sprint session: <id>") after user chooses. Flows into Intent pillar via housekeeping curation.
+- **`pre-commit-autofix` decision.** Run `ruff check --fix` and `ruff format` before committing to catch errors before the pre-commit hook rejects them.
+
+### Removed
+- **Sprint pillar concept.** The "five-pillar" SMM is now consistently four pillars (Intent, Constraints, Risks, Wisdom). Sprint data lives in `sprint.json` — it was never persisted in the curated SMM. Removed `_render_sprint_section()`, sprint param from `render_markdown()`, `_read_sprint_data()` from `materialize.py`.
+- **`smm_view.py` deleted.** Replaced by `smm_cli.py`.
+- **`save_smm.py` deleted.** Absorbed into `smm_cli.py save` command.
+
+### Changed
+- **Integration tests 45% faster.** Moved git repo creation to `setUpClass` in `_IntegrationTestCase` (32.6s → 17.8s for 129 tests).
+- **PROCESS_GUIDE.md** — added test output guidance, fixed `/xp-product-spec` → `/xp-plan` reference.
+- **SMM_DESIGN.md** — updated for four-file architecture (.json extensions), renamed Sprint section to "Project Files", updated materializer role.
+- **ARCHITECTURE.md** — updated `save_smm.py` references to `smm_cli.py save`.
+
+### Stats
+- 1747 tests (all passing, down from 1754 — removed redundant Sprint/session_mode tests)
+- Pre-commit wall time: ~25s (down from ~35s)
+- 27 commits in this release
+
+## v2.3.0 — Context Gradient Planning System
+
+### Architecture
+- **Four-file architecture replaces three-file.** `product_spec.md` replaced by `system_context.md` (stable product/system description) + `execution_plan.md` (ordered milestones with change/impact zones). Decision reversal: product_spec was too monolithic for change-request workflows.
+- **Context gradient model.** Sprint stories now carry layered context: broad (system context), medium (milestone design details), deep (per-story file domains + interface contracts). Subagents receive self-contained execution context for parallel work.
+
+### Added
+- **`/xp-system-context` forked skill + `xp-system-context` subagent.** Autonomous codebase analysis that produces `system_context.md` — thorough product description complementary to CLAUDE.md. Reads project structure, CLAUDE.md, and key source files.
+- **`/xp-plan` inline skill.** Replaces `/xp-product-spec`. Collaborative planning that transforms external design sources into ordered milestones with change zones, impact zones, and design details.
+- **`save_planning_doc.py` parameterized atomic writer.** Single script handles both `system_context.md` and `execution_plan.md` via `--type` parameter.
+- **Enhanced sprint format.** Stories include Milestone reference, Design Sources, Context (inlined design rationale), File Domain (exclusive file ownership), and Interface Contracts (shared boundaries). Enables parallel subagent execution.
+- **`sprint_parser.py` extended** for new fields: `milestone` (sprint-level), per-story `milestone_ref`, `design_sources`, `context`, `file_domain`, `interface_contracts`. Backward-compatible with old format.
+- **System context injection for teammates.** `subagent_start.py` reads `system_context.md` and injects it before SMM content for teammates.
+- **`check_system_context()` helper** in `_preload_base.sh` for shared preload use.
+- **Spawn-team pre-computed file domains.** Agent uses File Domain from enriched stories when available, falls back to plan-based analysis.
+
+### Removed
+- **`/xp-product-spec` skill deleted.** Replaced by `/xp-plan`.
+- **`save_product_spec.py` deleted.**
+- **`NEEDS_PRODUCT_SPEC` marker removed** from `marker_names.py` and `markers.py`.
+- **All `product_spec.md` references** removed from scripts, skills, tests, and docs.
+
+### Changed
+- **Kickoff flow** references `/xp-plan` and `/xp-system-context` instead of `/xp-product-spec`.
+- **Sprint review** marks `execution_plan.md` milestones as `[delivered: sprint-NNN]` instead of product_spec features.
+- **Sprint-start preload** checks for `execution_plan.md` (no legacy fallback).
+- **CLAUDE.md, ARCHITECTURE.md, AGENT_TEAMS_DESIGN.md** updated for four-file architecture.
+- **Spawn-team design doc** updated with Agent Teams session learnings: two-mode model (Solo + Worktree Subagents), subagent autonomy, updated mode selection heuristic.
+
+### Stats
+- 1663 tests (all passing)
+- 66 new tests added
+- Net -236 lines in cleanup commit (more deleted than added)
+
+## v2.2.1 — Skill Invocation Guidance
+
+### Added
+- **"Invoke via /skill-name, not directly" in all 7 agent descriptions.** Prevents agents from bypassing the Skill tool and missing preload data + cleanup hooks.
+- **"Forked skills" section in PROCESS_GUIDE.md.** Lists all skill-to-agent mappings and explains why direct Agent launches are incorrect.
+
+## v2.2.0 — Free-Mode Sessions & AskUserQuestion Fix
+
+### Added
+- **Free-mode session choice in `/xp-kickoff`.** After retro, kickoff always asks "Free session or Sprint session?" via AskUserQuestion. Free mode skips product-spec creation and sprint-start, falling through to work-selection's goal-collection path. Sprint mode proceeds through product-spec/sprint-start as needed. The choice is stateless — re-running kickoff presents it again.
+- **Kickoff preload file-existence detection.** `check_session_needs.sh` now checks for `product_spec.md` and `sprint.md` file existence in addition to marker files. NEEDS_PRODUCT_SPEC and NEEDS_SPRINT flags appear even after markers are consumed by housekeeping, supporting re-runs of `/xp-kickoff` in the same session.
+- **`customer_input` logging for AskUserQuestion responses.** Non-gate answers (success without question gate, and failure with partial answers) are now logged as `customer_input` events so user responses aren't lost when no blocking question was pending.
+- **`PostToolUseFailure:AskUserQuestion` hook registration.** `question_answered.py` now fires on both success and failure paths, enabling proper handling of "Chat about this..." interactions.
+
+### Fixed
+- **Stop gate false deferral after AskUserQuestion success.** ASKING_USER marker was set on every successful AskUserQuestion, causing the sprint stop gate to defer even when the agent had its answer and was legitimately stopping. The marker now only sets on failure ("Chat about this..."), where the agent needs to engage in clarification dialogue before the stop gate should fire.
+
+### Stats
+- 1565 tests (all passing)
+
+## v2.1.0 — Curated SMM as Structured JSON
+
+### Fixed
+- **Seed-wipe regression: housekeeping silently destroyed seeded Constraints and Wisdom on first run.** `seed_smm.py` wrote 7 default constraints + 8 wisdom entries directly to `SHARED_MENTAL_MODEL.md`, but `materialize.prepare_curation_data()` derived `current_smm` purely from events — the seeded content had no matching events, so the housekeeper saw `current_smm == empty`, emitted an empty-pillar SMM, and wiped everything. Every fresh install lost its seeded defaults on the first kickoff.
+
+### Architecture
+- **Curated SMM persisted as `shared_mental_model.json`** (was `SHARED_MENTAL_MODEL.md`). Schema-validated four-pillar JSON document with per-entry stable UUIDs, typed metadata (`source: seed|event|curated`, `type`, `topic`, `severity`, `source_event_id`), and cross-pillar id uniqueness enforced at write time. The old markdown file is never written by any script.
+- **New `smm/smm_schema.{json,py}` — schema + hand-rolled validator.** Mirrors the `event_schema.py` pattern: pillar/source/type/severity constants, `validate_smm(data) -> list[str]` returning an error list. No external `jsonschema` dep. Accepts UUID v4 (runtime) and v5 (deterministic seed).
+- **New `smm/smm_store.py` — load/save I/O.** `load_smm(smm_dir)` returns `empty_smm()` on missing file, raises `ValueError` on corrupt or schema-invalid JSON (fail-loud by design — silent degradation would reproduce the seed-wipe bug). `save_smm(smm_dir, data)` validates then atomic-writes via `write_text_atomic`.
+- **New `smm/smm_view.py` — pure dict→markdown rendering + shell CLI.** `render_markdown(smm, sprint=...)` generates four-pillar markdown for LLM context injection. `extract_pillar` / `extract_pillars` subset the view for Explore-tier injection. CLI subcommands `dump` / `section <name>` / `has-section <name>` consumed by `_preload_base.sh` helpers.
+- **`prepare_curation_data` reads `current_smm` from the JSON file.** The ~100 lines that derived intent/constraints/risks/wisdom from events are gone. `new_since_last_curation` still comes from events after the watermark — the housekeeper's job shifts from "re-derive pillars from raw events" to "merge new events into current pillars, preserve by id, drop resolved items."
+- **`seed_smm.py` emits a dict.** Deterministic UUID v5 per entry (`uuid5(namespace, f"seed:{pillar}:{content}")` — stable across test runs). Each seed entry has `source: "seed"` and sentinel `ts: "1970-01-01T00:00:00+00:00"` so aging never fires on them.
+- **`save_smm.py` (housekeeping writer) accepts JSON on stdin.** Parses, validates via `smm_store.save_smm`, updates watermark, compacts event log. Malformed JSON or schema-invalid data raises `ValueError` — tempfile never renamed, existing file survives.
+- **`xp-housekeeper.md` prompt rewritten for JSON output with merge rules.** Preserve existing entries unchanged unless (a) `source_event_id` in resolutions, (b) superseded by same-topic decision, (c) judgment pruning. Seeded entries removable only by judgment, never by resolution. First-ever curation path documented.
+- **Readers switch to JSON + render-on-read.** `session_start.py` (compact branch), `subagent_start.py` (tier dispatch), `subagent_stop.py` (housekeeping-done), `pre_compact.py` (backup filename), and 5 shell preloads all go through `smm_store.load_smm` + `smm_view.render_markdown`. The regex-based `_extract_pillars()` in `subagent_start.py` is deleted — `smm_view.extract_pillars` handles it.
+- **Shell preload helpers delegate to `smm_view.py` CLI.** `dump_smm`, `smm_has_section`, `smm_section` in `_preload_base.sh` now shell out to the Python CLI. `smm_render_to_tempfile` (new) writes a rendered markdown tempfile via `mktemp -p` for forked agents that `Read` the SMM file via the Read tool — unique path per call avoids concurrent-preload races.
+
+### Migration
+- No automated migration. `seed_smm.py`'s "don't seed if exists" guard now checks for `shared_mental_model.json` specifically. A stale `SHARED_MENTAL_MODEL.md` left on disk from a prior install is a harmless orphan — seeding still fires, and the old file is never read. Users who want to migrate historical markdown content can ask the agent manually.
+- **First housekeeping pass after upgrade loses any pre-watermark events that were contributing to `current_smm` under the old derivation.** Events after the watermark will be merged by the housekeeper as normal. Acceptable for test installs. Production migrations (if any) should manually curate historical events into the JSON file first.
+
+### Developer-facing changes
+- New `tests/conftest.py::write_smm_fixture(smm_dir, intent=..., constraints=..., risks=..., wisdom=...)` helper — use this instead of `.write_text("# Shared Mental Model\n...")` in test fixtures.
+- `save_smm.py` test contract: `run(content, smm_dir)` now takes JSON on stdin (was markdown).
+- UUID regex in `smm_schema` accepts both v4 and v5 (was v4 only).
+
+## v2.0.14 — Retro Digest Visibility, Explicit Overrides, Interactive Dialogue
+
+### Fixed
+- **Retro analyst false-positive "Try not honored" loop.** Debt `9cdd4617` (preload integration tests) was adopted as a retro Try and flagged as "not honored" across 3+ consecutive sessions, even though it was formally resolved via `metadata.resolves` within the same session each time. Root cause: `_build_retro_digest` computed the full 6-type resolution map via `compute_resolutions` but only extracted `resolved_concern_ids`. Status events with `metadata.resolves` closing debt/goals/questions/assumptions were invisible to the xp-retrospective agent because they weren't in `signal_events` (status events are summary-only). The agent saw "Adopted Try" decisions but not the resolution evidence, so it re-flagged the Try every session.
+- **Superseded-decision detector false positives on additive topics.** `concerns.py` pattern #5 fired "Superseded decision: topic 'X' has multiple decisions without an intervening concern" for legitimate multi-decision patterns like retro Try adoption, kickoff redesign facets, and proposal→implementation pairs. Four such false positives (`10cade72`, `725f1b02`, `b18a56a6`, `13eb9e42`) had polluted the SMM for 9+ sessions. The dedup logic couldn't help — content-keyed dedup + `resolved_content_counts` escalation meant resolving a false positive re-fired it with bumped severity.
+- **Sprint stop gate blocking interactive dialogues.** Interactive skills (`xp-sprint-start`, `xp-product-spec`, `xp-work-selection`, `xp-accept`) use `AskUserQuestion` for multi-turn dialogues. When the main agent stopped to wait for more user input mid-dialogue, `sprint_stop_gate._deferred()` had no signal distinguishing "mid-dialogue" from "done with work" — it blocked the Stop with `_REVIEW_MESSAGE` (or `_RETRO_MESSAGE` in older plugin versions) and cut off the interaction.
+
+### Architecture
+- **New `digest.resolutions` field in `.retro-input.json`.** `scripts/retrospective.py::_build_retro_digest` now exposes the full resolution map to the xp-retrospective agent: `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, and decision resolved this session. Uses `_common.*` event-type constants. `resolver_content` truncated to 200 chars to honor token-optimization intent. Single-bucket invariant from `compute_resolutions`' `match/case` locks out key collisions.
+- **`previous_retros[*].try` shape migration.** Each retro's `try` list is now `{content, event_refs}` dicts instead of content-only strings. Legacy list-of-strings retros from prior sessions are migrated on read. The old shape dropped `event_refs`, which the annotation step needs to cross-reference against the current session's resolutions.
+- **`previous_retros[0].try_status` annotation.** Parallel list attached to the most recent retro (older retros already went through a retro cycle). For each Try item, extract 8+ char hex tokens from content via `\b[0-9a-f]{8,}\b` and union with `event_refs`; if any token's 8-char prefix matches a key in the session's resolutions map, the Try is flagged as `{resolved_this_session: True, resolver_id}`. The xp-retrospective agent's "Cross-Session Trends" section now treats `try_status[i].resolved_this_session == True` as the authoritative "Try honored" signal.
+- **New `scripts/retro_history.py` module.** Extracted `gather_retro_history` and related constants from `retrospective.py` (which was at the 500-line cap) to create headroom for the digest/annotation feature work. Annotation logic (`annotate_try_status`, `_HEX_ID_RE`, `_slim_try_item`) lives here alongside the gatherer — both prepare retro-history data for the digest.
+- **Explicit override semantics via `metadata.supersedes`.** Decisions that intentionally override a prior same-topic decision can now set `metadata.supersedes: [<prior_decision_id>]` (full ID or 8-char prefix, mirroring `resolve_prefix`'s convention). Pattern #5 skips the concern when the current decision references the actual same-topic predecessor. Bogus references (nonexistent or cross-topic) still fire — you can't silence the check with a wrong reference. Documented in `PROCESS_GUIDE.md` Honesty section and `agents/xp-housekeeper.md`.
+- **"Resolved topic = accepted as additive" skip condition.** Once a superseded-decision concern on topic X is resolved via `metadata.resolves`, pattern #5 never re-fires for X. Permanent, topic-scoped acceptance — the human's explicit acknowledgment that the topic is intentionally multi-decision (retro Try adoption, proposal-implementation pairs, redesign facets). Folded into the existing concern-scan loop; no second pass. Narrow to pattern #5 only — convention violation (pattern #3) and assumption contradiction (pattern #2) retain their re-detection semantics.
+- **New `.asking-user` marker for interactive dialogue state.** Parallels `.question-gate` in the opposite direction. `PostToolUse:AskUserQuestion` (`question_answered.py`) writes the marker unconditionally; `UserPromptSubmit` (`user_prompt_log.py`) clears it via `marker_consume`. Both gated behind `is_xp_agent` so only main-agent activity affects the marker. `sprint_stop_gate._deferred()` checks the marker first (cheapest check) alongside existing review-cycle and teammates deferrals. The fix is in the generic `_deferred()` path, so it resolves the same pattern for older plugin versions that still have sprint-retro in the Stop cascade.
+
+### Migration
+- The 4 historical superseded-decision false positives (`10cade72`, `725f1b02`, `b18a56a6`, `13eb9e42`) were resolved post-commit via `append.sh` with `metadata.resolves`. Under the new skip-2 rule their topics (`kickoff-redesign`, `retro-try-answer-recording`, `retro-try-adopted`, `retro-try-topic-validation`) are marked as "accepted as additive" — pattern #5 won't re-fire on them.
+
+### Stats
+- 1460 tests (all passing) — 30 new tests: 6 for `digest.resolutions`, 9 for `try_status` annotation + legacy shape compat, 8 for `metadata.supersedes` + resolved-topic acceptance, 7 for the `.asking-user` marker write/clear/defer cycle.
+
+## v2.0.13 — Move Sprint Retro to Session Start
+
+### Fixed
+- **Sprint-retro watermark poisoning.** `save_retrospective.py` wrote `type: "retrospective"` events for both session and sprint retros, and the session-start watermark scanner (`_find_unanalyzed_start`) stopped at any retro regardless of kind. A sprint retro at end of session silently starved the next session's regular retro (empirically verified: 473 events, last retro at line 472, 1 unanalyzed → below threshold → retro skipped). Retrospective events now carry `metadata.action` (`session_retro_done` vs `sprint_retro_done`) so the scanner only stops at session retros. Legacy retros without the discriminator are treated as session retros for backwards compat.
+
+### Architecture
+- **Sprint retro runs at session start**, not end of session. Previously `sprint_stop_gate.py` had a 3-step cascade (accept → sprint-review → sprint-retro) that blocked Stop until the user ran `/xp-run-sprint-retro`. Now the cascade ends at sprint-review. At the next `SessionStart`, `retrospective.py` checks for a dangling `sprint_end` event with no matching `sprint_retro_done` and branches to sprint-retro prep, writing `.sprint-retro-input.json` instead of `.retro-input.json`. `check_session_needs.sh` reports `SPRINT_RETRO_NEEDED` vs `RETRO_NEEDED`; `xp-kickoff` Step 1 invokes the right skill. Sprint retro leverages the same session-start retro-prep infrastructure.
+- **New `scripts/sprint_retro_detection.py`** — `_needs_sprint_retro(events)` and `maybe_run_sprint_retro_branch(smm_dir, events)` handle the detection + prep short-circuit. Kept out of `retrospective.py` to stay under the 500-line cap. Scoped by `sprint_id`: the most recent `sprint_end` is the candidate; if a newer `sprint_start` follows (abandoned sprint), detection returns None and the session retro handles the events.
+- **`prepare_sprint_retro_data.py` relocated** from `skills/xp-run-sprint-retro/scripts/` to `scripts/` so the SessionStart hook can import it. Skill preload remains as an idempotent fallback that emits the existing file's path when SessionStart has already prepared it.
+- **`sprint_retro_done` status events carry `sprint_id`** — required by detection scoping. `_handle_sprint_retro_done` reads `sprint.md` via `sprint_parser`, mirrors `_handle_sprint_review_done` fallback.
+- **Sprint-id-paired compaction retention** — `compact.py _classify_pre_watermark` retains `sprint_retro_done` events whose `sprint_id` matches a retained `sprint_end`. Without this, a stale retro_done would be archived and detection would incorrectly re-fire after compaction.
+- **Reverses decision `62a35600`** from v2.0.12 ("sprint retro replacing session retro at sprint boundary is out of scope"). That reasoning was backwards — shared prep is exactly why session-start placement is clean.
+
+### Removed
+- `_RETRO_MESSAGE` and `_SPRINT_RETRO_NUDGE` constants from `sprint_stop_gate.py` / `subagent_stop.py` — cascade no longer nudges for retro at Stop.
+- `_scan_sprint_lifecycle_events` helper — replaced by simpler `_has_sprint_end_event` (no more dead `has_retro_done` tracking).
+
+### Stats
+- 1430 tests (all passing) — 26 new tests covering watermark filter, detection logic, prep-script relocation, idempotence, schema equivalence, wiring, kickoff branching, cascade simplification, and compaction retention.
+
+## v2.0.12 — Replace PostToolUse:Skill with Reliable Signals
+
+### Fixed
+- **Sprint lifecycle nudges now fire reliably.** `PostToolUse:Skill` fires at unpredictable times — sometimes when the Skill tool loads its content (before any work happens), sometimes after. For inline skills like `/xp-accept` this meant the old `accept_done.py` nudge fired ~5 minutes BEFORE stories were actually marked done, so it never saw the completed sprint and never suggested `/xp-sprint-review`. Every critical state transition now uses a reliable trigger.
+- **SessionEnd hook race condition** — Changed `session_end.py` to `async: false` so the event write completes before the process exits. Fixes the oscillating `final_status_recorded` flag that had persisted for 9+ sessions.
+
+### Architecture
+- **Unified Stop gate cascade** — New `sprint_stop_gate.py` replaces `accept_gate.py` with a single Stop hook that handles the full sprint lifecycle: in-progress + accept marker → run `/xp-accept`, sprint complete + no sprint_end → run `/xp-sprint-review`, sprint_end + no retro_done → run `/xp-run-sprint-retro`. Common deferral logic (review cycle active, teammates active) shared across all three states.
+- **Forked subagent completion via SubagentStop** — New handlers in `subagent_stop.py` (`_handle_housekeeping_done`, `_handle_sprint_review_done`, `_handle_sprint_retro_done`) run BEFORE the is_xp_agent skip, same pattern as `_update_review_cycle_flags`. Replaces `kickoff_done.py` and `sprint_review_done.py`.
+- **File-write triggers for inline skills** — `save_smm.py` now calls `compact.compact_after_curation()` directly; `save_sprint.py` handles the acceptance flow (clear `.accept` marker, record `iteration_complete` event, nudge sprint-review); `save_product_spec.py` clears `.needs-product-spec`. Covers both forked and inline execution paths.
+- **Shared marker name constants** — New `smm/marker_names.py` module with zero imports, importable from both `scripts/` and `skills/*/scripts/` across the sys.path boundary. Eliminates filename drift.
+- **Status event action discriminators** — `STATUS_ACTION_ITERATION_COMPLETE` and `STATUS_ACTION_SPRINT_RETRO_DONE` in `event_schema.py` alongside `SPRINT_ACTION_END`. New events use canonical agent_ids + `metadata.action` instead of non-standard agent_id substrings.
+
+### Removed
+- `scripts/kickoff_done.py` — logic moved to `subagent_stop._handle_housekeeping_done` + `save_smm.py` compaction
+- `scripts/accept_done.py` — logic moved to `save_sprint.py` acceptance flow
+- `scripts/accept_gate.py` — replaced by `sprint_stop_gate.py`
+- `scripts/sprint_review_done.py` — logic moved to `subagent_stop._handle_sprint_review_done`
+
+### Stats
+- 1401 tests (all passing) — 15 new cascade tests, 18 handler tests, 8 accept-flow tests, 2 compaction tests
+
+## v2.0.11 — Security Reviewer Simplification & Skill Guard Consistency
+
+### Fixed
+- **Security reviewer no longer triages** — Removed diff preloading and triage decision entirely. The built-in `/security-review` command does its own diff analysis; the agent just invokes it and records the result. Fixes the root cause of security review being skipped (agent would read diff, decide it was trivial, skip the review).
+- **Simplified security reviewer agent** — Reduced from Read/Grep/Glob/Bash/Skill to just Bash/Skill. No file reading needed since `/security-review` is self-contained.
+
+### Improved
+- **Consistent forked skill guards** — All 7 SKILL.md bodies now use identical pattern: "This skill should run as a forked subagent. Your agent definition contains all instructions — follow them, record the result, and report back." Generic "do not do this work yourself" guard reinforces the agent can't proceed without the subagent.
+- **Security triage preload minimized** — Only outputs `SMM_DIR` and writes triage marker. No diff file, no XP values (injected via SubagentStart).
+
+### Stats
+- 1397 tests (all passing)
+
+## v2.0.10 — File-Based Preloads & Universal XP Values
+
+### Architecture
+- **File-based preloads for all forked skills** — Preloads now output file paths (`SMM_FILE=`, `PLAN_FILE=`, `SPRINT_FILE=`, `DIFF_FILE=`) instead of dumping full content to stdout. Subagents read files via Read tool. Reduces main agent context bloat when `context: fork` fires in the main agent.
+- **Universal XP values via SubagentStart** — XP values (~250 tokens) injected for ALL subagents (xp-*, Explore, Plan, teammates, general-purpose). Removed `dump_values` from all 6 forked preloads. Clean separation: preloads provide skill-specific data paths, SubagentStart provides universal values.
+- **Security triage diff to file** — `dump_diff full` redirected to `.security-triage-diff.txt`; agent reads via `DIFF_FILE=` path.
+
+### Improved
+- **XP Values rewritten** — Tighter, directive language (~250 tokens, down from ~470). Values address the agent directly as guideposts. Value priority reordered: Honesty > Courage > Simplicity > Feedback > Communication.
+- **Agent definitions updated** — All 7 forked agents updated to read files via Read tool instead of assuming content is in context. Consistent "XP Values — injected automatically" across all agents.
+
+### New Tests
+- `test_review_plan.py` — 7 tests for path-based preload output
+- `test_security_triage.py` — 5 tests for diff-to-file preload
+
+### Stats
+- 1398 tests (all passing)
+
+## v2.0.9 — Critical Debt Resolution & V2 Testing Fixes
+
+### Fixed (10-session and 8-session critical debt)
+- **Topic validation** — `event_schema.py` now rejects bare `retro-try-adopted` topic at write time. Decisions must use `retro-try-<slug>` format (e.g., `retro-try-answer-recording`). Prevents superseded-decision concern noise from generic topic collisions. (10 sessions deferred)
+- **Unified question resolution** — Questions can now be resolved via `metadata.resolves` (same as goals, concerns, debt), not just answer events. Answer events still work and take precedence. Fixes 8-session streak of `questions_answered=0`. (8 sessions deferred)
+
+### Improved
+- **Housekeeping summary visibility** — Kickoff skill now explicitly instructs the agent to wait for housekeeping (do not background) and display the housekeeper's structured summary (Added/Removed/Resolved/Health) to the user.
+- **Housekeeper return format** — Structured summary template ensures consistent output the lead agent can relay directly.
+- **Review cycle threshold lowered** — `REVIEW_CYCLE_THRESHOLD` reduced from 3 to 2 code files. One production file + its test file now triggers the full review cycle (`/simplify` → `/xp-quality-review` → `/xp-security-triage`).
+- **Removed trivial constant test** — Deleted `TestReviewCycleThreshold` (asserted a constant's value).
+
+### Fixed
+- **Forked skills executing inline** — All 7 forked skill SKILL.md bodies replaced with dual-audience pattern: instructions for the forked agent to follow its agent definition, and an explicit "do not do this yourself" guard for the main agent. Prevents the main agent from executing curation/review/triage logic inline when `context: fork` isn't enforced by the platform.
+
+### Docs
+- **Spawn team refactor** — Three spawn modes (Sequential, Agent Teams, Worktree Subagents) with mode selection heuristic based on file domain analysis. Community findings documented: Agent Teams + worktree isolation bug (anthropics/claude-code#33045), WorktreeCreate stdout fragility, shared SMM across worktrees, branch base configuration.
+
+### Stats
+- 1386 tests (all passing, +2 new)
+
+## v2.0.8 — Token Optimization (Phases 3-5)
+
+Complete token optimization across all skill preloads, hook injections, and data files. Every injection point audited and optimized.
+
+### Phase 3: Inline Skill Preloads (M10-M17)
+- **Path-based preloads** — product-spec, sprint-start, and accept preloads now output file paths (`PRODUCT_SPEC=`, `SPRINT_FILE=`) instead of embedding full content. Agents read on demand via Read tool.
+- **Kickoff SMM read** — Kickoff reads SMM before product-spec/sprint-start steps so inline skills have constraint/wisdom context without duplicate injection.
+- **Merged xp-smm-protocol into PROCESS_GUIDE.md** — Full event recording protocol (event types, pillars, priority guide, working_on, references, common patterns) merged into process guide. Removed xp-smm-protocol skill entirely. All plugin users get event recording guidance without needing CLAUDE.md.
+- **Added Project Files section** to PROCESS_GUIDE.md — documents SMM_DIR, sprint.md, product_spec.md locations so agent can find them after compaction.
+
+### Phase 4: Hook Injection Audits (M18-M29)
+- **Removed sprint.md from compact re-injection** (M18) — SMM Sprint pillar summary is sufficient; agent reads full sprint on demand. Saves ~700-1,700 tokens per compact.
+- **Filtered test/lint concerns from prompt nuggets** (M19) — Test failures and lint errors are already visible in tool output. Nuggets now only surface concerns the agent hasn't seen (commit size, plan review concerns, debt).
+- **Centralized concern prefix constants** — `TEST_COMMAND_FAILED_PREFIX`, `TEST_FAILURES_PREFIX`, `LINT_RESOLVED_PREFIX` added to concerns.py. Producers and filters use shared constants.
+- **M20-M29 confirmed optimal** — All hook injections verified minimal and appropriately gated. No unnecessary injections found.
+
+### Phase 5: Data Optimization (M30-M31)
+- **Fixed TDD tracker false positives** (M31) — `check_tdd_order()` now skips non-code files (md, json, yaml, etc.) via `security.is_code_file()`. No more false nudges on product_spec.md, sprint.md, or plan files.
+- **Fixed dotfile classification bug** — `.gitignore`, `.env`, `.dockerignore`, `.editorconfig`, `.prettierignore`, `.eslintignore` were misclassified as code because `Path(".gitignore").suffix == ""`. Moved from `_NON_CODE_SUFFIXES` to `_NON_CODE_NAMES`.
+- **Sprint input JSON** (M30) — Already completed in Phase 2 (M4/M5). Both prep scripts use `sprint_md_path` references.
+
+### Other Improvements
+- **Consolidated dump_diff helper** — `dump_diff` and `get_changed_files` in `_preload_base.sh` now correctly show uncommitted changes (`git diff HEAD` + untracked) instead of previous commit (`HEAD~1`). Security triage's 30 lines of inline git commands replaced with `dump_diff full`.
+- **Removed dead `dump_guide()` function** from `_preload_base.sh`.
+- **Fixed `count_sprint_status` bug** — `grep -c || echo 0` produced `"0\n0"` when count was 0. Fixed with `|| true` + default.
+- **Added Design Quality section** to xp-plan-reviewer checklist — DRY, SRP, unnecessary abstraction, over-engineering.
+- **Simplified `post_tool_exit_plan.py`** — replaced manual JSON with `_common.hook_output()`.
+- **Expanded `is_code_file` test coverage** — 25+ languages (Python, JS/TS, Go, Rust, Java, Kotlin, Scala, Ruby, C/C++, C#, Swift, PHP, Dart, Elixir, Shell) + non-code exclusions.
+- **Consolidated test fixtures** — `_run_preload()` extracted to `_IntegrationTestCase` (removed from 11 files). `SPRINT_MIXED` and `SPRINT_MIXED_IN_PROGRESS` added to conftest.py (removed from 4 files). Net -250 lines of test code.
+- **Removed SKILLS_TEXT** from session_start.py — no longer needed after xp-smm-protocol merge.
+
+### Stats
+- 1380 tests (all passing, +34 new)
+- 13 skills (was 14 — xp-smm-protocol removed)
+- Token optimization plan: all 31 milestones complete
+
+## v2.0.7 — Accept Gate Root Cause Fix & Post-Team Checklist
+
+### Fixed
+- **Accept gate permanent deferral** — Review cycle marker persists after commit with all flags reset to false. Gate was checking `marker_exists` (always true) instead of whether any review flag is actively set. Root cause of accept never blocking after team iterations.
+
+### Improved
+- **Post-team checklist in spawn-team output** — Spawn instructions now include explicit steps for after teammates finish: commit work, run `/xp-accept`, then `/xp-sprint-review` if all stories complete.
+
+### Stats
+- 1346 tests (all passing)
+
+## v2.0.6 — Pyright, Language Coverage & SMM Seed Improvements
+
+### Added
+- **Pyright in lefthook pipeline** — Basic type checking for scripts/ and smm/. Runs in parallel with other pre-commit checks (~1s).
+- **Separate linter and formatter detection** — SMM seed now distinguishes linting (catches bugs) from formatting (consistent style) with separate constraints and risk messages.
+- **18 linter ecosystems** — Python (ruff, flake8, pylint, mypy), JS/TS (eslint), Rust (clippy), Go (golangci-lint), Ruby (rubocop), C/C++/Objective-C (clang-tidy), Java (checkstyle, pmd, spotbugs), Kotlin (detekt, ktlint), PHP (phpcs, phpstan), Dart/Flutter, Elixir (.credo.exs), C# (stylecop), Swift (swiftlint), Scala (scalafix), Lua (luacheck), Haskell (hlint), plus Gradle content checks and biome.
+- **16 formatter ecosystems** — Python (ruff format), JS/TS (prettier), Rust (rustfmt), C/C++/Objective-C (clang-format), PHP (php-cs-fixer), Ruby (rubocop), Swift (swift-format), Kotlin (editorconfig), Elixir (.formatter.exs), Scala (scalafmt), Lua (stylua), Haskell (ormolu/fourmolu), Go/Dart/Zig (built-in via source detection), plus Gradle spotless and biome.
+- **22 test patterns** — Added Objective-C/C++ (XCTest), Lua, Scala, Haskell, Zig.
+- **Design principles in seed wisdom** — SRP/DRY, fail fast/fail loud, descriptive naming, test behavior not implementation.
+- **Code smells step** in quality review skill.
+
+### Fixed
+- **10 Pyright type errors** — isinstance narrowing for marker_read returns in pre_tool_write.py, kickoff_gate.py, and TypeError guard in markers.py.
+
+### Stats
+- 1345 tests (all passing)
+
+## v2.0.5 — Accept Gate, Preload Dedup & Agent Teams Flow
+
+### Fixed
+- **Accept gate defers for active teammates** — Checks coordination.json for running agents. No more false blocking when main agent waits for background teammates.
+- **Teammate race condition** — Teammates registered in coordination.json at SubagentStart spawn, closing the window before first file write.
+- **Accept gate defers during review cycle** — No longer blocks when /simplify spawns background agents.
+- **Forked skill permissions** — Added missing `Bash(*/skills/*/scripts/*)` to xp-spawn-team, xp-sprint-review, xp-sprint-retro. Fixes preload permission errors.
+- **Session-end final_status** — session_end event always records true. Stop warning nudges user-facing summary. Removed from retro agent checks.
+- **Retro agent file management** — Removed misleading "cleans up .retro-input.json" instruction.
+
+### Improved
+- **Preload deduplication** — Added xp-spawn-team, xp-sprint-reviewer, xp-sprint-retro to SubagentStart dispatch table. Removed duplicate SMM/guide/sprint dumps from 4 preload scripts (spawn-team, sprint-review, sprint-retro, review-plan).
+- **Kickoff story branching** — Step 6 now evaluates story count and dependencies: 1 story → solo, 2+ independent → spawn team, 2+ dependent → plan first in order.
+- **Teammate guide** — Corrected review cycle instructions (teammates must invoke skills themselves).
+
+### Stats
+- 1345 tests (all passing)
+
+## v2.0.4 — Guides, SMM Seed & Quality Review Updates
+
+### Improved
+- **Behavioral guide updated for v2** — Added sprint iteration flow (product-spec, sprint-start, accept, sprint-review, sprint-retro), Agent Teams (spawn-team, teammate guide), and accept gate to stop hook section. 87 lines total.
+- **Teammate guide** — Fixed incorrect "automatic" review cycle wording. Teammates must invoke `/simplify` → `/xp-quality-review` → `/xp-security-triage` → commit themselves; hooks nudge but don't run skills for them.
+- **SMM seed constraints** — File size limits now explicit: target 300 lines, max 500.
+- **SMM seed wisdom** — Added design principles: SRP/DRY for file organization, fail fast/fail loud, descriptive naming over comments, test behavior at boundaries not implementation.
+- **Quality review** — New Step 5 code smells quick scan catches what /simplify missed: functions doing too much, deep nesting, magic values, unclear names, copy-paste patterns.
+
+### Stats
+- 1345 tests (all passing)
+
+## v2.0.3 — Accept Gate & Agent Behavior Fixes
+
+### Fixed
+- **Accept gate defers during review cycle** — No longer blocks when /simplify spawns background agents and the main agent pauses. Checks for active review cycle marker.
+- **Retro agent file management** — Removed "Cleans up .retro-input.json" instruction that caused the agent to improvise an `mv` command. Cleanup is handled by save_retrospective.py.
+
+### Stats
+- 1345 tests (all passing)
+
+## v2.0.2 — Stop Hook Schema Fix
+
+### Fixed
+- **Session-end warning Stop hook** — Was outputting `hookSpecificOutput`/`additionalContext` which Stop hooks don't support. Now uses top-level `reason` field per the Stop hook schema.
+
+### Stats
+- 1344 tests (all passing)
+
+## v2.0.1 — v2 Testing Fixes
+
+### Fixed
+- **Accept gate premature blocking** — Inverted accept marker semantics: `.accept` now means "needs acceptance" (set by pre_tool_write on code writes, cleared by accept_done). Fixes gate blocking after kickoff when no work had been done.
+- **Kickoff story selection after sprint creation** — Step 5 now handles sprints created during Step 3 (stale preload data). Previously fell through to goal collection.
+- **Kickoff Step 6** — Agent now enters plan mode immediately after story selection instead of stopping.
+
+### Improved
+- **Product spec source references** — Skill now includes `Sources:` lines pointing back to original docs when bootstrapping from existing documentation.
+- **Sprint story source references** — Stories include `Source:` field linking to product_spec.md feature. Traceable chain: story → product_spec → source docs.
+- **Sprint confirmation UX** — Compact summary table in AskUserQuestion preview (avoids truncation). Full sprint.md and product_spec.md output inline after writing.
+- **Story title flexibility** — Technical titles allowed when backing docs exist; user-story format for conversation-built specs.
+- **Sprint test fixtures** — Deduplicated to conftest.py shared module.
+
+### Stats
+- 1344 tests (all passing)
+- 7 commits since v2.0.0
+
+## v2.0.0 — Agent Teams & v2 Complete (M10–M16)
+
+### Added
+- **M10: Tiered sprint context injection** — SubagentStart dispatch table routes xp-* agents, Explore/Plan agents, and sprint-context agents to different injection tiers. Sprint data injected for sprint-aware subagents.
+- **M11: Sprint Review** — `/xp-sprint-review` skill with agent, preload, and `sprint_review_done.py` hook. `prepare_review_data()` assembles sprint data for review. Hook records sprint end event with deterministic velocity.
+- **M12: Sprint Retrospective** — `/xp-sprint-retro` skill with agent and preload. Sprint retro prep script collects session retro history. `save_retrospective.py` parameterized for both session and sprint retros. Per-story data with sizes added to sprint parser.
+- **M13: Teammate TDD Hooks** — `TeammateIdle` and `TaskCompleted` hooks enforce TDD for Agent Team teammates. Shared `tdd_check.py` module extracted. `get_validated_smm_dir()` helper adopted across all 22 hook scripts.
+- **M14: Teammate Behavioral Guide** — `is_teammate_by_agent_type()` detection function (custom agent_type, excludes built-in and xp-*). `TEAMMATE_GUIDE.md` injected via SubagentStart for detected teammates.
+- **M15: Spawn Team Skill** — `/xp-spawn-team` skill with agent and preload. Domain analysis and team sizing delegated to LLM judgment (no prep script).
+- **M16: v2 Documentation** — Architecture, SMM design, and CLAUDE.md updated for v2. Iteration/session vocabulary corrected. `iteration_complete` marker added. `iterations_completed` in session stats for retrospective.
+- **v2 test plan** — Comprehensive test plan for v2 plugin validation.
+
+### Fixed
+- **Prompt nugget** — Resolved concerns no longer shown as new in prompt nuggets.
+- **Assigned stories metadata** — Removed undocumented `metadata.assigned_stories` dependency from teammate injection. Teammates get story context from spawn prompt.
+- **Iteration/session vocabulary** — Fixed conflation of iterations and sessions throughout docs and code. Multiple iterations can occur within a single session.
+- **Session-end checklist** — Added nudge on git push for unresolved items.
+- **PLUGIN_TOOLS.md** — Consolidated platform findings into existing sections instead of appending.
+
+### Stats
+- 1337 tests (all passing)
+- M10–M16 shipped — All v2 milestones complete
+- 27 commits since v1.13.0
+
+## v1.13.0 — M9: Sprint Pillar in Housekeeping
+
+### Added
+- **M9: Sprint pillar in curated SMM** — Housekeeping now curates a Sprint section showing sprint goal, story counts by status, and blockers. Sprint appears first in the SMM for immediate visibility.
+- **M9: `sprint_parser.py`** — New `smm/` module that parses sprint.md into structured data (sprint_id, goal, started, stories_by_status, blockers). Used by `prepare_curation_data()`.
+- **M9: Sprint in curation preload** — `prepare_curation_data()` returns a `sprint` key alongside existing pillars. Missing/malformed sprint.md returns empty data gracefully.
+- **Session-end soft warning** — New `session_end_warning.py` Stop hook surfaces unresolved concerns and missing final status as `additionalContext` before session ends. Soft warning, not a block.
+- **Shared utilities** — `count_unresolved_concerns()` and `has_final_status()` extracted to `_common.py`, deduplicating `session_end.py`.
+
+### Fixed
+- **Triage coverage measurement** — `bash_post_tool.py` now adds `metadata.code_commit` to Committed events. Retrospective skips non-code commits (docs, config) when counting untriaged commits, fixing the false ~43% coverage gap in high-commit sessions.
+- **Premature marker consumption** — Removed `pre_tool_bash.py` lines that consumed `.security-triaged` marker for non-code commits before the commit succeeded. Marker consumption now happens exclusively in `bash_post_tool.py` after commit success.
+- **Integrity test coverage** — `test_plugin_integrity.py` now covers all 12 shipped skills via `_ALL_SKILL_NAMES` and `_CONTENT_SKILL_NAMES` constants.
+
+### Stats
+- 1215 tests (all passing)
+- M9 shipped — All 7 acceptance criteria met
+- 3 retro Try items addressed (triage root cause, session-end warning, integrity debt)
+
+## v1.12.0 — M8c: Accept Skill + Gate
+
+### Added
+- **M8c: `/xp-accept` skill** — Guides lead through acceptance criteria verification for in-progress stories. Presents criteria, supports e2e test execution, marks stories done or deferred, updates sprint.md.
+- **M8c: `accept_gate.py`** — Stop hook that blocks when sprint.md has in-progress stories and accept marker not set. Graceful degradation for missing/corrupt sprint.md.
+- **M8c: `accept_done.py`** — PostToolUse:Skill hook that sets accept marker when /xp-accept completes. Detects sprint completion (all done/deferred) and nudges /xp-sprint-review.
+- **M8c: `is_sprint_complete()` + `has_ready_stories()`** — Pure helpers in sprint_state.py for accept gate and done hooks.
+- **M8c: Accept marker lifecycle** — Cleared by session_start (M8a), set by accept_done, read by accept_gate.
+
+### Stats
+- 1187 tests (all passing)
+- M8c shipped — Sprint iteration loop complete (M8a detection → M8b kickoff → M8c accept)
+
+## v1.11.0 — M8b: Sprint-Aware Kickoff Skill
+
+### Added
+- **M8b: Sprint-aware kickoff** — `/xp-kickoff` SKILL.md rewritten with 6-step flow: retro → product spec check → sprint check → housekeeping → story selection. Reads M8a markers to orchestrate sprint setup.
+- **M8b: Sprint-aware preload** — `check_session_needs.sh` outputs `NEEDS_PRODUCT_SPEC`, `NEEDS_SPRINT`, and `SPRINT_ACTIVE` sections based on markers and sprint.md state.
+- **M8b: Story selection** — When sprint is active, kickoff displays ready stories and lets the lead pick stories to mark `in-progress`, replacing goal collection.
+- **M8b: Backward compatibility** — First-time projects without sprint files fall back to question triage + goal collection (existing behavior).
+
+### Stats
+- 1158 tests (all passing)
+- M8b shipped — M8c (Accept Skill + Gate) is next
+
+## v1.10.0 — M7/M8a: Sprint Start Skill & Sprint State Detection
+
+### Added
+- **M7: `/xp-sprint-start` skill** — Conversation-driven sprint planning skill that decomposes product_spec.md features into user stories with IDs, sizes, dependencies, and acceptance criteria. Customer confirms scope before writing sprint.md.
+- **M7: `save_sprint.py`** — Atomic writer for sprint.md (stdin, symlink rejection, tempfile + rename).
+- **M7: Sprint preload** — `preload.sh` detects existing sprint state, deferred stories, and calculates next sprint ID.
+- **M8a: Sprint state detection** — `session_start.py` writes `.needs-product-spec` and `.needs-sprint` markers on startup when resources are missing. `.accept` marker cleared for new iterations.
+- **M8a: `sprint_state.py`** — Pure helper module for sprint/product_spec state detection (has_active_stories, has_in_progress_stories, read_sprint_content, product_spec_exists).
+- **M8a: Enhanced kickoff gate** — `kickoff_gate.py` block message now includes resource-specific guidance (product spec or sprint needed).
+- **M8a: Sprint validation nudge** — `kickoff_done.py` nudges when sprint.md exists but no stories are in-progress after kickoff.
+- **M8a: New markers** — `NEEDS_PRODUCT_SPEC`, `NEEDS_SPRINT`, `ACCEPT` marker definitions in `markers.py`.
+
+### Stats
+- 1145 tests (all passing)
+- M7 and M8a shipped — M8b (Sprint-Aware Kickoff) is next
+
+## v1.9.0 — M5/M6: Sprint Events & Product Spec Skill
+
+### Added
+- **M5: Sprint event type** — New `sprint` event type in `event_schema.py` and `schema.json` with `sprint_id`, `action` (start/end), optional `goal` and `velocity` metadata. Compaction rules retain active sprint starts and recently ended sprints.
+- **M5: `EVENT_TYPE_*` constants** — All 15 event types now have named constants in `event_schema.py`. Production code uses constants; test fixtures keep string literals.
+- **M5: `_classify_pre_watermark()` extraction** — Refactored `compact.py` to extract retention classification into a focused helper, reducing `compact_after_curation()` complexity.
+- **M6: `/xp-product-spec` skill** — Conversation-driven requirements gathering skill that creates/refines `product_spec.md` with `[planned]`/`[delivered]` feature markers. Supports create mode, update mode, and document ingestion.
+- **M6: `save_product_spec.py`** — Atomic writer for `product_spec.md`, mirroring the `save_smm.py` pattern (stdin, symlink rejection, tempfile + rename).
+- **M6: Product spec preload** — `preload.sh` detects existing spec (with planned/delivered counts) or indicates create mode.
+
+### Fixed
+- **Session aging duplication** — Extracted `sessions_since_event()` utility to `event_schema.py`, replacing 4 identical `bisect.bisect_right` patterns across `compact.py` and `materialize.py`.
+- **Stale comments in compact.py** — Comments said "3 sessions" for thresholds that are actually `_ASSUMPTION_MAX_AGE` (5).
+
+### Stats
+- 1102 tests (all passing)
+- M5 and M6 shipped — M7 (Sprint Start) is next on the critical path
+
 ## v1.5.14
 
 ### Fixed

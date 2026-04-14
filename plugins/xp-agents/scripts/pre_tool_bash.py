@@ -11,8 +11,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import commits
 import coordination
+import identity
 import markers
 import security
+import worktree
 
 # ---------------------------------------------------------------------------
 # Bash file-modification heuristic
@@ -48,12 +50,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
 
     tool_input = input_data.get("tool_input", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
     command = tool_input.get("command", "")
 
@@ -85,16 +85,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Run /xp-security-triage before committing.",
                     "Security triage required before committing.",
                 )
-        else:
-            # Below threshold: security triage only for production code
+        elif not security.security_triaged_exists(smm_dir):
             has_code = security.has_staged_code_files(cwd, command)
-            if has_code and not security.security_triaged_exists(smm_dir):
+            if has_code:
                 raise _common.BlockedError(
                     "Run /xp-security-triage before committing.",
                     "Security triage required before committing.",
                 )
-            if not has_code:
-                security.consume_security_triaged(smm_dir)
+            else:
+                security.write_security_triaged(smm_dir, exempt_reason="no-code-files")
+
+    if (
+        smm_dir is not None
+        and re.search(r"update-story\s+\S+\s+done\b", command)
+        and markers.marker_exists(smm_dir, markers.ACCEPT)
+    ):
+        raise _common.BlockedError(
+            "Run /xp-accept to verify acceptance criteria before marking stories done.",
+            "Acceptance verification required.",
+        )
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:
@@ -102,13 +111,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if target_files:
             coord_data = coordination.read_coordination(smm_dir)
             for target_file in target_files:
-                normalized_target = _common.normalize_path(target_file, cwd)
+                normalized_target = worktree.normalize_path(target_file, cwd)
                 for aid, entry in coord_data.items():
                     if aid == agent_id:
                         continue
                     for f in entry.get("working_on", []):
                         try:
-                            if _common.normalize_path(f, cwd) == normalized_target:
+                            if worktree.normalize_path(f, cwd) == normalized_target:
                                 parts.append(
                                     f"Advisory: Agent '{aid}' may be working on "
                                     f"'{target_file}'. Coordinate before modifying."
@@ -129,7 +138,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-
     try:
         result = run(input_data)
     except _common.BlockedError as e:

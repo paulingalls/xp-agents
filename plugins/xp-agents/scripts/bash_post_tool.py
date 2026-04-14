@@ -5,18 +5,21 @@ Records commit status events, checks commit size, and records test
 pass/fail status. Nudges /simplify after commits with 3+ code files.
 """
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import re
+
 import _common
 import commits
 import concerns
+import identity
 import markers
 import security
+import worktree
 from test_parsing import is_test_run, parse_test_results
 
 # ---------------------------------------------------------------------------
@@ -33,10 +36,10 @@ def _resolve_lint_on_commit(
 
     import lint_check
 
-    git_root = _common.resolve_git_root(cwd) or cwd
+    git_root = worktree.resolve_git_root(cwd) or cwd
 
     for file_path in files:
-        normalized = _common.normalize_path(file_path, cwd)
+        normalized = worktree.normalize_path(file_path, cwd)
         config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
         if config is None:
             continue
@@ -52,14 +55,7 @@ def _resolve_lint_on_commit(
             )
 
 
-def load_commit_threshold() -> int:
-    """Load commit_size_threshold from settings.json, default 10."""
-    try:
-        settings_path = _common.resolve_plugin_root() / "settings.json"
-        data = json.loads(settings_path.read_text())
-        return int(data.get("commit_size_threshold", 10))
-    except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError):
-        return 10
+COMMIT_SIZE_THRESHOLD = 12
 
 
 # ---------------------------------------------------------------------------
@@ -85,24 +81,62 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_GIT_PUSH_RE = re.compile(r"\bgit\s+push\b")
+
+
+def _is_git_push(command: str) -> bool:
+    """Detect git push commands."""
+    return bool(_GIT_PUSH_RE.search(command))
+
+
+def _session_end_checklist(smm_dir: Path) -> str | None:
+    """Return session-end checklist nudge if issues found."""
+    events = _common.read_events_raw(smm_dir)
+    if not events:
+        return None
+
+    parts: list[str] = []
+    unresolved = _common.count_unresolved_concerns(events)
+    if unresolved:
+        parts.append(
+            f"{unresolved} unresolved concern(s) — review before ending session."
+        )
+    parts.append("Summarize what was accomplished this session for the user.")
+    return "Session-end checklist: " + " ".join(parts)
+
+
 def _handle_commit(
     smm_dir: Path, agent_id: str, cwd: str, response_text: str
 ) -> str | None:
     """Process a successful git commit: record events, consume markers, nudge."""
     committed_files: list[str] = []
+    commit_hash: str | None = None
     msg = commits.parse_commit_message(response_text)
     if msg:
-        status = _common.make_event(
-            _common.STATUS,
+        committed_files = commits.get_committed_files(cwd)
+        commit_hash = commits.get_head_commit_hash(cwd)
+        has_code = any(security.is_code_file(f) for f in committed_files)
+
+        # Full message body for richer retrospective context
+        # Strip Co-Authored-By trailers — metadata, not content
+        body = commits.get_commit_message_body(cwd) or msg
+        body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
+
+        metadata: dict = {"code_commit": has_code}
+        if commit_hash:
+            metadata["commit_hash"] = commit_hash
+
+        event = _common.make_event(
+            _common.COMMIT,
             agent_id,
-            f"Committed: {msg}",
-            working_on=[],
+            body,
+            files=committed_files,
+            metadata=metadata,
         )
-        _common.append_safe(smm_dir, status)
+        _common.append_safe(smm_dir, event)
 
         # Commit size check
-        threshold = load_commit_threshold()
-        committed_files = commits.get_committed_files(cwd)
+        threshold = COMMIT_SIZE_THRESHOLD
         file_count = len(committed_files)
         if file_count >= threshold:
             concern = _common.make_event(
@@ -120,7 +154,8 @@ def _handle_commit(
     security.consume_security_triaged(smm_dir)
 
     # Reset review cycle marker with new commit hash
-    commit_hash = commits.get_head_commit_hash(cwd)
+    if commit_hash is None:
+        commit_hash = commits.get_head_commit_hash(cwd)
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
@@ -137,15 +172,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
 
     command = tool_input.get("command", "")
@@ -158,6 +191,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Git commit detection
     if security.is_git_commit(command):
         return _handle_commit(smm_dir, agent_id, cwd, response_text)
+
+    # Git push detection — nudge session-end checklist
+    if _is_git_push(command):
+        return _session_end_checklist(smm_dir)
 
     # Test run detection
     framework = is_test_run(command)
@@ -185,7 +222,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
-                f"Test failures detected: {failed} failed ({framework})",
+                f"{concerns.TEST_FAILURES_PREFIX}: {failed} failed ({framework})",
                 severity="high",
             )
             _common.append_safe(smm_dir, concern)

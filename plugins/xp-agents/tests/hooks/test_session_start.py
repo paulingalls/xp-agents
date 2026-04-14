@@ -2,7 +2,7 @@
 """Tests for session_start hook: path validation, SMM dir validation,
 session start behavior, customer nudge, behavioral guide, plugin config.
 
-Split from test_session.py.
+Sprint detection and compact-source tests in test_session_start_sprint.py.
 """
 
 import json
@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
 # session_start.py tests — path validation
@@ -151,7 +151,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("xp-smm-protocol", result)
+        self.assertIn("xp-kickoff", result)
 
     def test_no_retro_instruction_in_output(self):
         import session_start
@@ -267,6 +267,169 @@ class TestSessionStart(_HookTestCase):
 
 
 # ===========================================================================
+# Execution plan / system context marker tests
+# ===========================================================================
+
+
+class TestSessionStartExecutionPlanMarker(_HookTestCase):
+    """session_start writes NEEDS_EXECUTION_PLAN marker when missing."""
+
+    def test_startup_no_execution_plan_writes_marker(self):
+        """Startup with no execution_plan.md writes NEEDS_EXECUTION_PLAN."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+    def test_startup_with_active_plan_no_marker(self):
+        """Startup with execution_plan.json with remaining work — no marker."""
+        import json
+
+        import markers
+        import session_start
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M1",
+                    "status": "planned",
+                    "delivered_sprint": None,
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        self._write_events([make_event()])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+    def test_startup_all_delivered_writes_marker_and_archives(self):
+        """All milestones delivered — writes marker and archives plan."""
+        import json
+
+        import markers
+        import session_start
+
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "",
+            "milestones": [
+                {
+                    "number": 1,
+                    "name": "M1",
+                    "status": "delivered",
+                    "delivered_sprint": "sprint-001",
+                    "goal": "G",
+                    "done": "D",
+                    "sources": "",
+                    "change_zones": [],
+                    "impact_zones": [],
+                    "design_details": "",
+                    "constraints": [],
+                }
+            ],
+        }
+        self._write_events([make_event()])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+        self.assertFalse((self.smm_dir / "execution_plan.json").exists())
+        plans_dir = self.smm_dir / "plans"
+        self.assertTrue(plans_dir.is_dir())
+        archived = list(plans_dir.glob("execution_plan_*.json"))
+        self.assertEqual(len(archived), 1)
+
+    def test_resume_does_not_write_execution_plan_marker(self):
+        """Resume source does not write NEEDS_EXECUTION_PLAN."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+
+
+class TestSessionStartSystemContextMarker(_HookTestCase):
+    """session_start writes NEEDS_SYSTEM_CONTEXT marker when missing."""
+
+    def test_startup_no_system_context_writes_marker(self):
+        """Startup with no system_context.md writes NEEDS_SYSTEM_CONTEXT."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_SYSTEM_CONTEXT)
+        )
+
+    def test_startup_with_system_context_no_marker(self):
+        """Startup with system_context.md present does NOT write marker."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        (self.smm_dir / "system_context.md").write_text("# System Context\n")
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_SYSTEM_CONTEXT)
+        )
+
+    def test_resume_does_not_write_system_context_marker(self):
+        """Resume source does not write NEEDS_SYSTEM_CONTEXT."""
+        import markers
+        import session_start
+
+        self._write_events([make_event()])
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_SYSTEM_CONTEXT)
+        )
+
+
+# ===========================================================================
 # M6.5: Customer nudge tests
 # ===========================================================================
 
@@ -307,15 +470,15 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 
 
 # ===========================================================================
-# session_start behavioral guide tests
+# session_start XP values injection tests
 # ===========================================================================
 
 
-class TestSessionStartBehavioralGuide(_HookTestCase):
-    """Behavioral guide moved to kickoff_done."""
+class TestSessionStartXPValues(_HookTestCase):
+    """XP values injected at session start for all sources."""
 
-    def test_session_start_no_behavioral_guide(self):
-        """session_start should NOT include behavioral guide."""
+    def test_startup_includes_xp_values(self):
+        """session_start should include XP values on startup."""
         import session_start
 
         self._write_events([make_event()])
@@ -324,7 +487,32 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertNotIn("Honesty Principle", result)
+        self.assertIn("XP Values", result)
+        self.assertIn("Courage", result)
+
+    def test_startup_no_process_guide(self):
+        """session_start should NOT include process guide (deferred to kickoff)."""
+        import session_start
+
+        self._write_events([make_event()])
+        result = session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertNotIn("EnterPlanMode", result)
+
+    def test_compact_includes_xp_values_and_process(self):
+        """compact re-injects XP values + process guide (context lost)."""
+        import session_start
+
+        self._write_events([make_event()])
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
+        result = session_start.run(
+            {"session_id": "test", "source": "compact"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn("XP Values", result)
+        self.assertIn("EnterPlanMode", result)
 
     def test_session_start_includes_skills(self):
         """Output should still contain skill names."""
@@ -335,7 +523,7 @@ class TestSessionStartBehavioralGuide(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("xp-smm-protocol", result)
+        self.assertIn("xp-kickoff", result)
 
     def test_no_smm_in_session_start(self):
         """SMM is no longer injected by session_start (deferred to kickoff)."""
@@ -387,11 +575,141 @@ class TestPluginConfig(unittest.TestCase):
         # All command paths must use ${CLAUDE_PLUGIN_ROOT}
         self.assertNotIn("scripts/", raw.replace("${CLAUDE_PLUGIN_ROOT}/scripts/", ""))
 
-    def test_settings_json_valid(self):
+    def test_no_settings_json(self):
+        """settings.json should not exist — all config is hardcoded."""
         settings_path = Path(__file__).parent.parent.parent / "settings.json"
-        with open(settings_path) as f:
-            data = json.load(f)
-        self.assertIsInstance(data, dict)
+        self.assertFalse(settings_path.is_file())
+
+
+# ===========================================================================
+# Teammate SessionStart tests
+# ===========================================================================
+
+
+class TestTeammateSessionStart(_HookTestCase):
+    """CLI teammate SessionStart: inject Values + Guide + SMM, skip markers."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+
+    def setUp(self):
+        super().setUp()
+        import session_start
+
+        self.session_start = session_start
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+        )
+
+    def _run_teammate(self, source="startup", **overrides):
+        data = {
+            "session_id": "test",
+            "source": source,
+            "cwd": self._TEAMMATE_CWD,
+            **overrides,
+        }
+        return self.session_start.run(data, smm_dir=self.smm_dir)
+
+    def test_teammate_gets_values_and_guide(self):
+        """Teammate gets XP Values + Teammate Guide."""
+        result = self._run_teammate()
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertIn("Teammate Guide", result)
+
+    def test_teammate_gets_smm(self):
+        """Teammate gets rendered SMM content."""
+        result = self._run_teammate()
+        self.assertIn("Ship v1", result)
+        self.assertIn("Intent", result)
+
+    def test_teammate_no_gupp(self):
+        """Teammate does NOT get kickoff prompt."""
+        result = self._run_teammate()
+        self.assertNotIn("xp-kickoff", result)
+
+    def test_teammate_no_markers(self):
+        """Teammate SessionStart does NOT set any markers."""
+        import markers
+
+        self._run_teammate()
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.KICKOFF))
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.NEEDS_EXECUTION_PLAN)
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.NEEDS_SPRINT))
+
+    def test_non_teammate_worktree_normal_path(self):
+        """Non-teammate worktree gets normal SessionStart behavior."""
+        import markers
+
+        self._write_events([make_event()])
+        result = self._run_teammate(
+            cwd="/home/user/project/.claude/worktrees/explore-abc/src"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("xp-kickoff", result)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.KICKOFF))
+
+    def test_teammate_compact_reinjects(self):
+        """Compact source for teammates reinjects full context."""
+        result = self._run_teammate(source="compact")
+        self.assertIsNotNone(result)
+        self.assertIn("XP Values", result)
+        self.assertIn("Teammate Guide", result)
+        self.assertIn("Ship v1", result)
+
+    def test_teammate_gets_system_context(self):
+        """Teammate gets system_context.md when present."""
+        (self.smm_dir / "system_context.md").write_text("Microservices arch.\n")
+        result = self._run_teammate()
+        self.assertIn("System Context", result)
+        self.assertIn("Microservices arch.", result)
+
+    def test_teammate_no_system_context_ok(self):
+        """Teammate works without system_context.md."""
+        result = self._run_teammate()
+        self.assertNotIn("System Context", result)
+        self.assertIn("XP Values", result)
+
+
+# ===========================================================================
+# Teammate guide content tests
+# ===========================================================================
+
+
+class TestTeammateGuideContent(unittest.TestCase):
+    """TEAMMATE_GUIDE.md has required content for CLI teammates."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.guide = _common.load_teammate_guide()
+        assert cls.guide, "load_teammate_guide() returned None"
+
+    def test_has_full_review_cycle(self):
+        """Guide includes full review cycle commands."""
+        self.assertIn("/simplify", self.guide)
+        self.assertIn("/xp-quality-review", self.guide)
+        self.assertIn("/xp-security-triage", self.guide)
+
+    def test_has_tdd_discipline(self):
+        """Guide includes TDD discipline."""
+        self.assertIn("TDD", self.guide)
+
+    def test_has_event_recording(self):
+        """Guide includes event recording via append.sh."""
+        self.assertIn("append.sh", self.guide)
+
+    def test_has_commit_conventions(self):
+        """Guide includes commit conventions."""
+        self.assertIn("ruff format", self.guide)
+
+    def test_no_plan_mode(self):
+        """Guide does NOT mention plan mode or kickoff."""
+        guide_lower = self.guide.lower()
+        self.assertNotIn("plan mode", guide_lower)
+        self.assertNotIn("kickoff", guide_lower)
 
 
 if __name__ == "__main__":

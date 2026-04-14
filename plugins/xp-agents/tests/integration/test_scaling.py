@@ -58,7 +58,6 @@ class TestCompactionReinjection(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         # Should have SMM context (materialized from empty log)
         self.assertIn("Resume immediately", ctx)
-        self.assertIn("xp-smm-protocol", ctx)
 
 
 class TestLargeEventLog(_IntegrationTestCase):

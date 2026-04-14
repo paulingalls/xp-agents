@@ -39,16 +39,27 @@ _NON_CODE_SUFFIXES = frozenset(
         ".xcscheme",
         ".lock",
         ".license",
+    }
+)
+
+# Dotfiles and special names — matched by full filename (case-insensitive).
+# Dotfiles like .gitignore have no suffix in Python (Path(".gitignore").suffix == "").
+_NON_CODE_NAMES = frozenset(
+    {
+        "license",
+        "changelog",
+        "readme",
+        "makefile",
+        "dockerfile",
         ".gitignore",
         ".gitattributes",
         ".env",
         ".env.example",
         ".dockerignore",
+        ".editorconfig",
+        ".prettierignore",
+        ".eslintignore",
     }
-)
-
-_NON_CODE_NAMES = frozenset(
-    {"license", "changelog", "readme", "makefile", "dockerfile"}
 )
 
 
@@ -135,11 +146,13 @@ def security_triaged_exists(smm_dir: Path) -> bool:
     return isinstance(data, dict) and "ts" in data
 
 
-def write_security_triaged(smm_dir: Path) -> None:
+def write_security_triaged(smm_dir: Path, *, exempt_reason: str | None = None) -> None:
     """Atomic write of the triage marker with timestamp."""
     from datetime import datetime, timezone
 
     data = {"ts": datetime.now(timezone.utc).isoformat()}
+    if exempt_reason is not None:
+        data["exempt_reason"] = exempt_reason
     markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data)
 
 

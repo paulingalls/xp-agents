@@ -130,7 +130,6 @@ class TestBuildEvent(_SMMTestCase):
             "duration_seconds": None,
             "event_count": None,
             "unresolved_items": None,
-            "final_status_recorded": None,
             "keep": None,
             "fix": None,
             "try_items": None,

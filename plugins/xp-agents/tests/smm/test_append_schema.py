@@ -5,7 +5,9 @@ Split from test_append.py — covers TestSchemaJson, TestNotificationHelpers.
 """
 
 import json
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -28,10 +30,11 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
-    def test_schema_has_14_types(self):
+    def test_schema_has_16_types(self):
         types = self.schema["properties"]["type"]["enum"]
-        self.assertEqual(len(types), 14)
+        self.assertEqual(len(types), 16)
         expected = {
+            "commit",
             "customer_input",
             "customer_intent",
             "debt",
@@ -45,6 +48,7 @@ class TestSchemaJson(unittest.TestCase):
             "answer",
             "assumption",
             "session_end",
+            "sprint",
             "retrospective",
         }
         self.assertEqual(set(types), expected)
@@ -66,7 +70,6 @@ class TestSchemaJson(unittest.TestCase):
             "duration_seconds",
             "event_count",
             "unresolved_items",
-            "final_status_recorded",
             "keep",
             "fix",
             "try",
@@ -103,6 +106,17 @@ class TestSchemaJson(unittest.TestCase):
         self.assertIn("priority", conditional_reqs.get("question", []))
         self.assertIn("files", conditional_reqs.get("debt", []))
         self.assertIn("intent_status", conditional_reqs.get("customer_intent", []))
+
+    def test_sprint_conditional_requires_metadata(self):
+        """Sprint type conditionally requires metadata field."""
+        all_of = self.schema["allOf"]
+        sprint_req = None
+        for entry in all_of:
+            if_clause = entry.get("if", {}).get("properties", {}).get("type", {})
+            if if_clause.get("const") == "sprint":
+                sprint_req = entry.get("then", {}).get("required", [])
+        self.assertIsNotNone(sprint_req, "No allOf entry for sprint type")
+        self.assertIn("metadata", sprint_req)
 
 
 class TestNotificationHelpers(unittest.TestCase):
@@ -218,6 +232,61 @@ class TestNotificationHelpers(unittest.TestCase):
             script = args[2]  # the -e argument value
             # Should not contain raw quotes in the notification text
             self.assertNotIn("drop tables\\n", script)
+
+
+class TestQuestionGate(unittest.TestCase):
+    """Test that 🔴 question events create a .question-gate file."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self.smm_dir = Path(self._tmpdir)
+        (self.smm_dir / "events.jsonl").touch()
+        (self.smm_dir / "events.lock").touch()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir)
+
+    def _make_event(self, type_: str, **kwargs):
+        event = {
+            "id": "test-question-id",
+            "ts": "2026-04-08T00:00:00+00:00",
+            "type": type_,
+            "agent_id": "xp-plan-reviewer",
+            "content": "Should we use approach A or B?",
+            "schema_version": 1,
+        }
+        event.update(kwargs)
+        return event
+
+    def test_blocking_question_creates_gate(self):
+        """Appending a 🔴 question should create .question-gate."""
+        event = self._make_event("question", priority="\U0001f534")
+        with patch("resolution.subprocess.run"):
+            _append_impl.append_event(self.smm_dir, event)
+        gate = self.smm_dir / ".question-gate"
+        self.assertTrue(gate.exists())
+
+    def test_gate_contains_event_id(self):
+        """The .question-gate file should contain the question event ID."""
+        event = self._make_event("question", priority="\U0001f534")
+        with patch("resolution.subprocess.run"):
+            _append_impl.append_event(self.smm_dir, event)
+        gate = self.smm_dir / ".question-gate"
+        self.assertEqual(gate.read_text(), "test-question-id")
+
+    def test_non_blocking_question_no_gate(self):
+        """Non-🔴 question should NOT create .question-gate."""
+        event = self._make_event("question", priority="\U0001f7e1")
+        _append_impl.append_event(self.smm_dir, event)
+        gate = self.smm_dir / ".question-gate"
+        self.assertFalse(gate.exists())
+
+    def test_non_question_no_gate(self):
+        """Non-question events should NOT create .question-gate."""
+        event = self._make_event("status", working_on=["file.py"])
+        _append_impl.append_event(self.smm_dir, event)
+        gate = self.smm_dir / ".question-gate"
+        self.assertFalse(gate.exists())
 
 
 if __name__ == "__main__":

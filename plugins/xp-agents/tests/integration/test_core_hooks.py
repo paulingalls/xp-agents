@@ -221,7 +221,7 @@ class TestLintCheckIntegration(_IntegrationTestCase):
 
 
 class TestBashPostToolIntegration(_IntegrationTestCase):
-    def test_git_commit_creates_status(self):
+    def test_git_commit_creates_commit_event(self):
         (self.tmpdir / "feature.py").write_text("print('hello')")
         subprocess.run(
             ["git", "add", "feature.py"],
@@ -253,8 +253,9 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
         self.assertEqual(result.stdout, "")
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
-        self.assertTrue(any("Add feature module" in s["content"] for s in statuses))
+        commit_events = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(commit_events), 1)
+        self.assertIn("Add feature module", commit_events[0]["content"])
 
     def test_test_results_creates_status_and_concern(self):
         result = self._run_script(

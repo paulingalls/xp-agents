@@ -6,25 +6,81 @@ have accumulated (≥5), writes .retro-input.json for the retrospective
 analyst agent hook to consume. Always exits 0.
 """
 
-import json
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import security
+import sizing_metrics
+from event_schema import (
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+    RETRO_ACTION_SESSION_DONE,
+    SPRINT_ACTION_END,
+    SPRINT_ACTION_START,
+    STATUS_ACTION_SPRINT_RETRO_DONE,
+)
+from honesty_signals import build_honesty_signals
+from retro_history import annotate_try_status, gather_retro_history
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 RETRO_THRESHOLD = 5
-MAX_RETRO_HISTORY = 2
 MAX_EVENTS_IN_RETRO = 200
-_MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
+
+
+# ---------------------------------------------------------------------------
+# Sprint detection
+# ---------------------------------------------------------------------------
+
+
+def needs_sprint_retro(events: list[dict]) -> str | None:
+    """Return the sprint_id that needs a retro, or None.
+
+    A sprint retro is needed when:
+    1. A sprint_end event exists (the most recent one).
+    2. No sprint_retro_done status event has been recorded for that sprint_id.
+    3. No newer sprint_start event exists (that would mean the user moved on
+       without retro-ing the old sprint — session retro handles it).
+    """
+    end_index = -1
+    end_sprint_id: str | None = None
+    for i in range(len(events) - 1, -1, -1):
+        event = events[i]
+        if event.get("type") != EVENT_TYPE_SPRINT:
+            continue
+        metadata = event.get("metadata", {})
+        if metadata.get("action") != SPRINT_ACTION_END:
+            continue
+        end_index = i
+        end_sprint_id = metadata.get("sprint_id")
+        break
+
+    if end_sprint_id is None:
+        return None
+
+    for event in events[end_index + 1 :]:
+        event_type = event.get("type")
+        metadata = event.get("metadata", {})
+        action = metadata.get("action")
+
+        if event_type == EVENT_TYPE_SPRINT and action == SPRINT_ACTION_START:
+            return None
+
+        if (
+            event_type == EVENT_TYPE_STATUS
+            and action == STATUS_ACTION_SPRINT_RETRO_DONE
+            and metadata.get("sprint_id") == end_sprint_id
+        ):
+            return None
+
+    return end_sprint_id
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +91,7 @@ _MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
 # Signal event types — full event dicts preserved in digest
 _SIGNAL_TYPES = frozenset(
     {
+        _common.COMMIT,
         _common.CUSTOMER_INPUT,
         _common.DECISION,
         _common.CONCERN,
@@ -50,11 +107,9 @@ _SIGNAL_TYPES = frozenset(
 
 # Status classification patterns
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = re.compile(
-    r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE
-)
+_TEST_RUN_RE = _common.TEST_RUN_RE
 _SECURITY_TRIAGE_RE = re.compile(r"Security triage (?:complete|started)", re.IGNORECASE)
-_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
+_COMMIT_RE = _common.LEGACY_COMMIT_RE
 _QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
 
@@ -127,97 +182,56 @@ def _group_concerns(
         if key not in groups:
             groups[key] = {"key": key, "count": 0, "ids": []}
         groups[key]["count"] += 1
-        groups[key]["ids"].append(e.get("id", "")[:8])
+        groups[key]["ids"].append(e.get("id", ""))
     return list(groups.values())
 
 
-def _build_honesty_signals(events: list[dict]) -> dict:
-    """Analyze event sequence for honesty red flags.
+_MAX_RESOLVER_CONTENT = 200
 
-    Looks at ordering and gaps, not just counts — gives the retro
-    concrete data to reason about instead of inferring from totals.
+# (event type, resolutions dict key) — ordered for deterministic output
+_RESOLUTION_BUCKETS = (
+    (_common.CONCERN, "concern_resolutions"),
+    (_common.DEBT, "debt_resolutions"),
+    (_common.GOAL, "goal_resolutions"),
+    (_common.QUESTION, "question_answers"),
+    (_common.ASSUMPTION, "assumption_resolutions"),
+    (_common.DECISION, "decision_resolutions"),
+    ("other", "other_resolutions"),
+)
+
+
+def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
+    """Map target IDs to resolver event info for the retro digest.
+
+    Each target ID lands in exactly one bucket — compute_resolutions uses
+    a match/case on event type so a single ID cannot appear under multiple
+    types.
     """
-    signals: dict = {}
-
-    # Track sequence for gap analysis
-    unique_files_since_test: set[str] = set()
-    max_unique_files_without_test = 0
-    commits_without_triage = 0
-    total_commits = 0
-    last_triage_seen = False
-    concern_count = 0
-    assumption_count = 0
-    file_write_count = 0
-
-    from pre_tool_write import is_test_file
-
-    for e in events:
-        etype = e.get("type", "")
-        content = e.get("content", "")
-
-        if etype == _common.STATUS:
-            if _FILE_WRITE_RE.search(content):
-                path = content.replace("Wrote to ", "").strip()
-                if security.is_code_file(path):
-                    file_write_count += 1
-                    # TDD streak: count unique production files between tests
-                    # (writing test files isn't a testing gap, and multiple
-                    # writes to the same file is normal iteration)
-                    if not is_test_file(path):
-                        unique_files_since_test.add(path)
-            elif _TEST_RUN_RE.search(content):
-                max_unique_files_without_test = max(
-                    max_unique_files_without_test, len(unique_files_since_test)
-                )
-                unique_files_since_test = set()
-            elif _SECURITY_TRIAGE_RE.search(content):
-                last_triage_seen = True
-            elif _COMMIT_RE.search(content):
-                total_commits += 1
-                if not last_triage_seen:
-                    commits_without_triage += 1
-                last_triage_seen = False  # consumed by this commit
-        elif etype == _common.CONCERN:
-            concern_count += 1
-        elif etype == _common.ASSUMPTION:
-            assumption_count += 1
-
-    # Final streak (files written after last test)
-    max_unique_files_without_test = max(
-        max_unique_files_without_test, len(unique_files_since_test)
-    )
-
-    signals["max_unique_files_without_test"] = max_unique_files_without_test
-    signals["commits_without_triage"] = commits_without_triage
-    signals["total_commits"] = total_commits
-
-    # Complexity vs scrutiny: many writes but no concerns = uncritical?
-    signals["code_file_writes"] = file_write_count
-    signals["concerns_raised"] = concern_count
-    signals["assumptions_stated"] = assumption_count
-
-    # Final status check — was the last status event before session_end?
-    has_final_status = False
-    for e in reversed(events):
-        if e.get("type") == "session_end":
-            continue
-        if e.get("type") == _common.STATUS:
-            has_final_status = True
-        break
-    signals["final_status_recorded"] = has_final_status
-
-    return signals
+    result: dict[str, dict] = {}
+    for type_name, bucket_key in _RESOLUTION_BUCKETS:
+        for target_id, resolver in resolutions.get(bucket_key, {}).items():
+            entry: dict = {
+                "type": type_name,
+                "resolver_id": resolver.get("id", ""),
+                "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
+            }
+            disposition = resolver.get("metadata", {}).get("disposition")
+            if disposition:
+                entry["disposition"] = disposition
+            result[target_id] = entry
+    return result
 
 
-def _build_retro_digest(
-    events: list[dict], start_idx: int, resolved_concern_ids: set[str]
-) -> dict:
+def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -> dict:
     """Build structured digest from unanalyzed events.
 
     Resolved concerns are excluded from signal_events and concern_groups
     and rolled up to a count — the retro doesn't need their full text.
+    The full resolutions map (all 6 types) is exposed so the retro analyst
+    can cross-reference previous Try items against this session's activity.
     """
     unanalyzed = events[start_idx:]
+    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
 
     signal_events = [
         e
@@ -229,60 +243,41 @@ def _build_retro_digest(
     ]
     status_summary = _classify_status_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
-    honesty_signals = _build_honesty_signals(unanalyzed)
+    honesty_signals = build_honesty_signals(unanalyzed)
+
+    from work_signals import build_work_signals
+
+    work_sigs = build_work_signals(unanalyzed)
 
     return {
         "signal_events": signal_events,
         "status_summary": status_summary,
         "concern_groups": concern_groups,
         "honesty_signals": honesty_signals,
+        "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
+        "resolutions": _build_resolutions_map(resolutions),
     }
 
 
 def _find_unanalyzed_start(events: list[dict]) -> int:
-    """Find the index of the first unanalyzed event (after last retro).
+    """Find the index of the first unanalyzed event (after last session retro).
+
+    Only session retrospectives advance the watermark. Sprint retros are
+    transparent — they don't mean "we reviewed these events for trends".
+    Legacy retros without metadata.action default to session (backwards
+    compat for pre-M1 event logs).
 
     Returns the start index. Unanalyzed count is len(events) - start.
     """
     for i in range(len(events) - 1, -1, -1):
-        if events[i].get("type") == _common.RETROSPECTIVE:
+        event = events[i]
+        if event.get("type") != _common.RETROSPECTIVE:
+            continue
+        action = event.get("metadata", {}).get("action")
+        if action is None or action == RETRO_ACTION_SESSION_DONE:
             return i + 1
     return 0
-
-
-def _gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[dict]:
-    """Read the last N retrospective JSON files, slimmed to content only.
-
-    Strips event_refs, values, xp_value — the retro agent only needs
-    the content strings for trend detection (recurring fixes, adopted tries).
-    """
-    retro_dir = smm_dir / "retrospectives"
-    if not retro_dir.is_dir():
-        return []
-
-    files = sorted(retro_dir.glob("*.json"), reverse=True)
-    result: list[dict] = []
-    for f in files[:limit]:
-        try:
-            if f.stat().st_size > _MAX_RETRO_FILE_SIZE:
-                continue
-            data = json.loads(f.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                # Slim: keep only content strings from each item
-                slimmed: dict = {}
-                if "timestamp" in data:
-                    slimmed["timestamp"] = data["timestamp"]
-                for field in ("keep", "fix", "try"):
-                    items = data.get(field, [])
-                    slimmed[field] = [
-                        item.get("content", item) if isinstance(item, dict) else item
-                        for item in items
-                    ]
-                result.append(slimmed)
-        except (json.JSONDecodeError, OSError):
-            continue
-    return result
 
 
 def _compute_session_stats(events: list[dict]) -> dict:
@@ -296,6 +291,7 @@ def _compute_session_stats(events: list[dict]) -> dict:
         "questions_open": 0,
         "questions_answered": 0,
         "decisions_total": 0,
+        "iterations_completed": 0,
     }
 
     question_ids: set[str] = set()
@@ -304,6 +300,8 @@ def _compute_session_stats(events: list[dict]) -> dict:
         match e.get("type", ""):
             case _common.STATUS:
                 stats["status_count"] += 1
+                if e.get("metadata", {}).get("action") == "iteration_complete":
+                    stats["iterations_completed"] += 1
             case _common.CONCERN:
                 stats["concerns_raised"] += 1
             case _common.QUESTION:
@@ -330,18 +328,35 @@ def _build_retro_input(
     Caps events_since_last_retro to MAX_EVENTS_IN_RETRO (most recent).
     """
     import resolution
+    from retro_flags import evaluate_flags
 
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
     resolutions = resolution.compute_resolutions(unanalyzed)
-    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
-    digest = _build_retro_digest(events, start_idx, resolved_concern_ids)
+    digest = _build_retro_digest(events, start_idx, resolutions)
+    annotate_try_status(retro_history, digest["resolutions"])
+
+    decision_topics: list[str] = [
+        topic
+        for e in events
+        if e.get("type") == _common.DECISION
+        and isinstance((topic := e.get("topic")), str)
+    ]
+
+    digest["flags"] = evaluate_flags(
+        digest["honesty_signals"],
+        digest["work_signals"],
+        digest["status_summary"],
+        session_stats,
+        decisions=decision_topics,
+    )
 
     # Slim the digest for the subagent — reduce token cost
     # Signal events: keep only type, content, short id
-    # Truncate customer_input (raw user prompts) to 100 chars
+    # Truncate customer_input (raw user prompts) and commit messages
     _MAX_CUSTOMER_INPUT = 100
+    _MAX_COMMIT_CONTENT = 400
     if "signal_events" in digest:
         slimmed_signals = []
         for e in digest["signal_events"]:
@@ -349,8 +364,10 @@ def _build_retro_input(
             content = e.get("content", "")
             if etype == _common.CUSTOMER_INPUT and len(content) > _MAX_CUSTOMER_INPUT:
                 content = content[:_MAX_CUSTOMER_INPUT]
+            elif etype == _common.COMMIT and len(content) > _MAX_COMMIT_CONTENT:
+                content = content[:_MAX_COMMIT_CONTENT]
             slimmed_signals.append(
-                {"type": etype, "content": content, "id": e.get("id", "")[:8]}
+                {"type": etype, "content": content, "id": e.get("id", "")}
             )
         digest["signal_events"] = slimmed_signals
     return {
@@ -427,25 +444,32 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if source == "compact":
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
     events = _common.read_events_raw(smm_dir)
+
+    sprint_id = needs_sprint_retro(events)
+
     start_idx = _find_unanalyzed_start(events)
     unanalyzed_count = len(events) - start_idx
 
-    if unanalyzed_count < RETRO_THRESHOLD:
+    if unanalyzed_count < RETRO_THRESHOLD and sprint_id is None:
         return None
 
-    retro_history = _gather_retro_history(smm_dir)
+    retro_history = gather_retro_history(smm_dir)
     retro_input = _build_retro_input(events, start_idx, retro_history)
+
+    if sprint_id is not None:
+        sizing = sizing_metrics.compute_sizing_analysis(smm_dir, events)
+        if sizing is not None:
+            retro_input["sizing_analysis"] = sizing
+
     _write_retro_input(smm_dir, retro_input)
 
-    # Main agent gets counts + health only — no event details.
-    # The retro subagent reads .retro-input.json for the full data.
+    (smm_dir / ".sprint-retro-input.json").unlink(missing_ok=True)
+
     return _build_context_summary(
         unanalyzed_count,
         retro_input["event_type_counts"],
@@ -462,11 +486,13 @@ if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
-        _match = re.search(r"(\d+) events", context)
+        _match = re.search(r"(\d+) (?:events|stories)", context)
         _count = _match.group(1) if _match else "some"
+        _matched = _match.group(0) if _match else ""
+        _label = "stories" if "stories" in _matched else "events"
         _common.hook_output(
             "SessionStart",
             context,
-            f"Kickoff data prepared — {_count} events to review.",
+            f"Kickoff data prepared — {_count} {_label} to review.",
         )
     sys.exit(0)

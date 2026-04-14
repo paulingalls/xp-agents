@@ -27,26 +27,45 @@ What a Claude Code plugin can ship, what each tool can do, and how data flows be
 
 | Event | What the agent provides (stdin JSON) | What the script can return to the agent | Effect on the agent |
 |-------|--------------------------------------|----------------------------------------|---------------------|
-| **SessionStart** | `source` (startup/resume/compact/clear), `model`, `permission_mode` | `additionalContext` string | Context injected at conversation start. Sets the stage. |
+| **SessionStart** | `source` (startup/resume/compact/clear), `model`, `permission_mode` | `additionalContext` string, `CLAUDE_ENV_FILE` | Context injected at conversation start. Sets the stage. |
 | **UserPromptSubmit** | `prompt` (the user's text) | `additionalContext` OR `{"decision": "block", "reason": "..."}` | Block erases the prompt entirely. Context adds a system reminder. |
-| **PreToolUse** | `tool_name`, `tool_input` | `additionalContext`, `permissionDecision` (allow/deny/ask), `updatedInput` | Can modify tool arguments before execution. Can auto-allow or deny tool use. |
-| **PermissionRequest** | `tool_name`, `tool_input`, `permission_suggestions` | `{"decision": {"behavior": "allow\|deny", "updatedInput": {...}}}` | Auto-approve or deny permission dialogs. Can modify input. |
-| **PostToolUse** | `tool_name`, `tool_input`, `tool_response` | `additionalContext`, `{"decision": "block"}`, `updatedMCPToolOutput` | Tool already ran. Block provides feedback. Can replace MCP tool output. |
-| **PostToolUseFailure** | `tool_name`, `tool_input`, `error`, `is_interrupt` | `additionalContext` | Tool already failed. Context-only — cannot block. |
-| **Stop** | `last_assistant_message`, `stop_hook_active` | `{"decision": "block", "reason": "..."}` | **Forces agent to continue.** Agent cannot finish until gate is satisfied. Proven pattern for forcing skill invocation. |
-| **SubagentStart** | `agent_id`, `agent_type` | `additionalContext` | Context injected into the subagent before it starts. |
-| **SubagentStop** | `agent_type`, `last_assistant_message`, `agent_transcript_path` | `{"decision": "block", "reason": "..."}` | Subagent continues with feedback. |
-| **TaskCompleted** | `task_id`, `task_subject`, `task_description` | exit 2 + stderr = block completion | Block task completion with feedback. |
+| **PreToolUse** | `tool_name`, `tool_input`, `tool_use_id` | `additionalContext`, `permissionDecision` (allow/deny/ask/defer), `updatedInput` | Can modify tool arguments before execution. Can auto-allow or deny tool use. |
+| **PermissionRequest** | `tool_name`, `tool_input`, `permission_suggestions` | `{"decision": {"behavior": "allow\|deny", "updatedInput": {...}, "updatedPermissions": [...]}}` | Auto-approve or deny permission dialogs. Can modify input and apply permission rules. |
+| **PostToolUse** | `tool_name`, `tool_input`, `tool_response`, `tool_use_id` | `additionalContext`, `{"decision": "block"}`, `updatedMCPToolOutput` | Tool already ran. Block provides feedback. Can replace MCP tool output. |
+| **PostToolUseFailure** | `tool_name`, `tool_input`, `error`, `is_interrupt`, `tool_use_id` | `additionalContext` | Tool already failed. Context-only — cannot block. |
+| **Stop** | `permission_mode`, `stop_hook_active` | `{"decision": "block", "reason": "..."}` | **Forces agent to continue.** Agent cannot finish until gate is satisfied. |
+| **SubagentStart** | `agent_id`, `agent_type` | `additionalContext` | Context injected into the subagent before it starts. **No `metadata` field** — only `agent_id` + `agent_type`. |
+| **SubagentStop** | `agent_type`, `last_assistant_message`, `agent_transcript_path`, `agent_id`, `stop_hook_active`, `permission_mode` | `{"decision": "block", "reason": "..."}` | Subagent continues with feedback. |
+| **TeammateIdle** | `teammate_name`, `team_name`, `permission_mode` | exit 2 + stderr = block idle, `{"continue": false, "stopReason": "..."}` | Can keep teammates working or stop entirely. |
+| **TaskCreated** | `task_id`, `task_subject`, `task_description` (opt), `teammate_name` (opt), `team_name` (opt), `permission_mode` | exit 2 + stderr = block creation | Enforce naming conventions, require descriptions. |
+| **TaskCompleted** | `task_id`, `task_subject`, `task_description` (opt), `teammate_name` (opt), `team_name` (opt), `permission_mode` | exit 2 + stderr = block completion | Block task completion with feedback. |
 | **Notification** | `message`, `title`, `notification_type` | `additionalContext` | Informational only. Cannot block. |
+| **PermissionDenied** | `tool_name`, `tool_input`, `tool_use_id`, `reason` | `{"hookSpecificOutput": {"retry": true}}` | Only fires in auto mode. `retry: true` tells model it may retry. |
+| **StopFailure** | Error context (rate_limit, auth, billing, server_error, max_output_tokens, unknown) | — (output ignored) | Observability only. |
 | **PreCompact** | `trigger` (manual/auto), `custom_instructions` | — | Observational only. |
 | **PostCompact** | `trigger`, `compact_summary` | — | Observational only. |
-| **SessionEnd** | `reason` (clear/logout/exit/etc.) | — | Cleanup only. 1.5s default timeout. |
 | **ConfigChange** | `source`, `file_path` | `{"decision": "block", "reason": "..."}` | Block config changes (except policy). |
+| **CwdChanged** | `new_cwd` | `CLAUDE_ENV_FILE` | Fires when working directory changes. Useful for direnv integration. |
+| **FileChanged** | `file_path`, `change_type` (matcher: filename basename) | `CLAUDE_ENV_FILE` | Fires when watched file changes on disk. |
 | **Elicitation** | `mcp_server_name`, `message`, `mode`, `requested_schema` | `{"action": "accept\|decline\|cancel", "content": {...}}` | Respond programmatically to MCP elicitations. |
+| **ElicitationResult** | MCP server name + user response | `{"action": "accept\|decline\|cancel", "content": {...}}` | Modify user response before sending to server. exit 2 blocks. |
+| **InstructionsLoaded** | `file_path`, `memory_type`, `load_reason`, `globs` (opt) | — | Observability only. Audit logging for CLAUDE.md loads. |
+| **WorktreeCreate** | Worktree context | stdout = path, `{"hookSpecificOutput": {"worktreePath": "/path"}}` | Replaces default git behavior. Non-zero exit fails creation. |
+| **WorktreeRemove** | Worktree path | — | Non-blocking. Failures logged in debug only. |
+| **SessionEnd** | `reason` (clear/logout/exit/etc.) | — | Cleanup only. 1.5s default timeout. |
 
 **Common input fields (all events):** `session_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`, `agent_id`, `agent_type`
 
 **Exit codes:** 0 = success/allow, 2 = block/deny, other = error (action proceeds, stderr logged)
+
+**Universal output fields (all events):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `continue` | boolean | Set to `false` to stop the session entirely (not just block the action). |
+| `stopReason` | string | Message when `continue: false`. |
+| `suppressOutput` | boolean | Suppress the hook's stdout from being processed. |
+| `systemMessage` | string | Notification shown to the **user** (not the agent). |
 
 ### Hook Config: `statusMessage`
 
@@ -155,15 +174,18 @@ Works with blocking output too:
 | Field | Type | Purpose |
 |-------|------|---------|
 | `name` | string | Slash command name (kebab-case, max 64 chars) |
-| `description` | string | **The only auto-trigger mechanism.** Agent matches this against conversation. |
+| `description` | string | **The only auto-trigger mechanism.** Agent matches this against conversation. Truncated at 250 chars in listing. |
 | `disable-model-invocation` | boolean | If true, only user can invoke via `/name` |
 | `user-invocable` | boolean | If false, hides from `/` menu, only agent can invoke |
 | `allowed-tools` | string[] | Pre-grant tool permissions (e.g., `Bash(python *)`) |
 | `model` | string | Override model for this skill |
+| `effort` | enum | Override effort level: `low`, `medium`, `high`, `max` |
 | `context` | enum | `fork` = run in isolated subagent (see Forked Skills below) |
 | `agent` | string | Subagent type when `context: fork` |
-| `argument-hint` | string | Hint shown in autocomplete |
+| `argument-hint` | string | Hint shown during autocomplete (e.g., `[issue-number]`) |
+| `paths` | string/list | Glob patterns limiting auto-activation to matching files |
 | `hooks` | object | Hook config scoped to this skill's lifecycle |
+| `shell` | enum | `bash` (default) or `powershell` for `!` commands |
 
 ### Arguments
 
@@ -172,7 +194,8 @@ Skills accept arguments via `/skill-name arg1 arg2`. Available as substitution v
 | Variable | Value |
 |----------|-------|
 | `$ARGUMENTS` | All arguments as a single string |
-| `$0`, `$1`, ... | Individual positional arguments |
+| `$ARGUMENTS[N]` | Access specific argument by 0-based index |
+| `$0`, `$1`, ... | Shorthand for `$ARGUMENTS[N]` |
 | `${CLAUDE_SESSION_ID}` | Current session ID |
 | `${CLAUDE_SKILL_DIR}` | Absolute path to the skill's directory |
 
@@ -272,11 +295,35 @@ This means a skill can be a curated front-end (prompt + arguments + `!`command``
 |--------|-------|
 | **Receives** | Agent prompt + task description from invoking agent |
 | **Executor** | Isolated subagent |
-| **Tools available** | Configurable via `tools` field (Read/Grep/Glob baseline, empirically confirmed) |
+| **Tools available** | Configurable via `tools` field. Use `disallowedTools` for denylist alternative. |
 | **Returns** | Result summary to invoking agent |
 | **Trigger** | Agent tool invocation — agent matches `description` against the task |
 | **Namespace** | `plugin-name:agent-name` (e.g., `xp-agents:xp-plan-reviewer`) |
 | **Background** | Caller chooses `run_in_background: true/false` — background agents cannot prompt for permissions |
+| **As teammate type** | Subagent definitions can be referenced when spawning teammates — teammate gets `tools`, `model`, and body appended to system prompt |
+
+### Subagent Frontmatter Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `name` | string | Unique identifier (lowercase, hyphens) |
+| `description` | string | When to delegate to this subagent |
+| `tools` | string/list | Allowlist of tools. Inherits all if omitted. |
+| `disallowedTools` | string/list | Denylist — tools removed from inherited set. Applied before `tools`. |
+| `model` | enum | `sonnet`, `opus`, `haiku`, full model ID, or `inherit` (default) |
+| `permissionMode` | enum | `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. **Not supported for plugin agents.** |
+| `maxTurns` | number | Maximum agentic turns before subagent stops |
+| `skills` | list | Skills preloaded into subagent context at startup (full content injected) |
+| `mcpServers` | list | MCP servers scoped to this subagent. Inline defs or name references. **Not supported for plugin agents.** |
+| `hooks` | object | Scoped hooks — only fire while this subagent is active. **Not supported for plugin agents.** |
+| `memory` | enum | Persistent memory scope: `user`, `project`, `local`. Cross-session learning. |
+| `background` | boolean | Always run as background task. Default: false. |
+| `effort` | enum | Override effort level: `low`, `medium`, `high`, `max` (Opus 4.6 only). |
+| `isolation` | enum | Set to `worktree` for isolated git worktree. Auto-cleaned if no changes. |
+| `color` | enum | Display color: red, blue, green, yellow, purple, orange, pink, cyan. |
+| `initialPrompt` | string | Auto-submitted first user turn when running as main session agent (`--agent`). |
+
+**Plugin agent constraint:** `hooks`, `mcpServers`, and `permissionMode` are **silently ignored** for plugin subagents. Use global `hooks.json` instead. To use these fields, copy the agent to `.claude/agents/` or `~/.claude/agents/`.
 
 ---
 

@@ -7,8 +7,9 @@ set -euo pipefail
 #
 # After sourcing, PLUGIN_ROOT and SMM_DIR are set.
 # Call dump_smm to output the SMM state section.
-# Call dump_guide to output the behavioral guide.
-# Call dump_diff to output git diff stats.
+# Call dump_values to output XP values only.
+# Call dump_diff to output git diff stats (or dump_diff full for complete diffs).
+# Call get_changed_files to get list of all changed file names.
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
@@ -16,51 +17,208 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
     exit 0
 }
 
+# Clean up temp files from previous preload runs.
+# These are created by smm_render_to_tempfile/sprint_render_to_tempfile
+# and are safe to remove once the previous skill has finished.
+find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" \) -exec rm -f {} + 2>/dev/null || true
+
 dump_smm() {
-    local smm_file="${SMM_DIR}/SHARED_MENTAL_MODEL.md"
-    if [ -f "$smm_file" ]; then
+    if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
         echo "## Current SMM State"
-        cat "$smm_file"
+        python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" dump 2>/dev/null
     else
         echo "## SMM State: no materialized view"
     fi
 }
 
-dump_guide() {
-    local guide="${PLUGIN_ROOT}/BEHAVIORAL_GUIDE.md"
-    if [ -f "$guide" ]; then
+smm_render_to_tempfile() {
+    # Unique tempfile per call — concurrent preloads must not race on a shared path.
+    # BSD mktemp (macOS) requires the X's at the end of the template, so no suffix.
+    # Agents Read the file via the Read tool, which is extension-agnostic.
+    local out
+    out=$(mktemp "${SMM_DIR}/.smm-rendered.XXXXXX")
+    python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" dump > "$out" 2>/dev/null
+    echo "$out"
+}
+
+sprint_render_to_tempfile() {
+    local out
+    out=$(mktemp "${SMM_DIR}/.sprint-rendered.XXXXXX")
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" render > "$out" 2>/dev/null
+    echo "$out"
+}
+
+dump_values() {
+    local values="${PLUGIN_ROOT}/XP_VALUES.md"
+    if [ -f "$values" ]; then
         echo ""
-        echo "## Behavioral Guide"
-        cat "$guide"
+        echo "## XP Values"
+        cat "$values"
     else
-        echo "## Behavioral Guide: not found"
+        echo "## XP Values: not found"
     fi
 }
 
+# List all changed files (staged + unstaged + untracked), one per line.
+# Usage: get_changed_files
+get_changed_files() {
+    { git diff HEAD --name-only 2>/dev/null
+      git ls-files --others --exclude-standard 2>/dev/null
+    } | sort -u
+}
+
+# Show uncommitted changes. Default: stat only. Pass "full" for complete diffs.
+# Usage: dump_diff        # stat + new file list
+#        dump_diff full   # staged/unstaged diffs + new files
 dump_diff() {
-    echo "## Recent Changes"
-    git diff HEAD~1 --stat 2>/dev/null || echo "(no recent diff available)"
+    local mode="${1:-stat}"
+    local staged_stat unstaged_stat untracked
+
+    staged_stat=$(git diff --cached --stat 2>/dev/null || true)
+    unstaged_stat=$(git diff --stat 2>/dev/null || true)
+    untracked=$(git ls-files --others --exclude-standard 2>/dev/null || true)
+
+    if [ -z "$staged_stat" ] && [ -z "$unstaged_stat" ] && [ -z "$untracked" ]; then
+        echo "## No Changes"
+        echo "(no staged, unstaged, or untracked changes detected)"
+        return
+    fi
+
+    if [ "$mode" = "full" ]; then
+        if [ -n "$staged_stat" ]; then
+            echo "## Staged Changes"
+            echo "$staged_stat"
+            echo ""
+            echo "## Staged Diff"
+            git diff --cached 2>/dev/null || true
+        fi
+        if [ -n "$unstaged_stat" ]; then
+            echo ""
+            echo "## Unstaged Changes"
+            echo "$unstaged_stat"
+            echo ""
+            echo "## Unstaged Diff"
+            git diff 2>/dev/null || true
+        fi
+    else
+        echo "## Recent Changes"
+        if [ -n "$staged_stat" ]; then
+            echo "Staged:"
+            echo "$staged_stat"
+        fi
+        if [ -n "$unstaged_stat" ]; then
+            echo "Unstaged:"
+            echo "$unstaged_stat"
+        fi
+    fi
+
+    if [ -n "$untracked" ]; then
+        echo ""
+        echo "## New Files (untracked)"
+        echo "$untracked"
+    fi
     echo ""
 }
 
-# Check if a section heading exists in the SMM file.
-# Usage: smm_has_section "Intent"
-# Requires SMM_FILE to be set by the caller.
-# shellcheck disable=SC2153  # SMM_FILE is set by callers, not here
 smm_has_section() {
-    grep -q "^## ${1}$" "$SMM_FILE" 2>/dev/null
+    python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" has-section "$1" 2>/dev/null
 }
 
-# Extract a markdown section from the SMM file by heading name.
-# Captures from ^## Name$ until the next ^## heading.
-# Usage: smm_section "Intent" [max_lines]
-#   smm_section "Risks" 30 | head -20   # display first 20 lines
-#   smm_section "Risks" 30 | grep -qi "question"  # search section
-# Requires SMM_FILE to be set and the file to exist.
+# Find the latest retrospective JSON file.
+# Usage: get_latest_retro "$RETRO_DIR"
+# Returns path on stdout, empty string if none found.
+get_latest_retro() {
+    find "$1" -maxdepth 1 -name "*.json" 2>/dev/null | sort -r | head -1
+}
+
+# Extract Try items from a retrospective JSON file.
+# Usage: get_try_items "$RETRO_FILE"
+# Outputs "- <content> [refs: <id1>, ...]" lines when event_refs present.
+get_try_items() {
+    python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+items = data.get('try', [])
+statuses = data.get('try_status', [])
+for i, item in enumerate(items):
+    if i < len(statuses) and statuses[i].get('resolved_this_session'):
+        continue
+    c = item.get('content', item) if isinstance(item, dict) else item
+    refs = item.get('event_refs', []) if isinstance(item, dict) else []
+    if refs:
+        print(f'- {c} [refs: {\", \".join(refs)}]')
+    else:
+        print(f'- {c}')
+" "$1" 2>/dev/null || true
+}
+
+# Sprint CLI helpers (thin wrappers over sprint_cli.py).
+sprint_exists() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" exists 2>/dev/null
+}
+
+sprint_has_active() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" has-active 2>/dev/null
+}
+
+# Count stories with a specific status. Returns a single number.
+# Usage: sprint_count_status ready
+sprint_count_status() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" count-status "$1" 2>/dev/null || echo "0"
+}
+
+# List stories, optionally filtered by status.
+# Usage: sprint_list_stories [--status ready]
+sprint_list_stories() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-stories "$@" 2>/dev/null
+}
+
+# Next sprint ID (increments current, falls back to sprint-001).
+sprint_next_id() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" next-id 2>/dev/null || echo "sprint-001"
+}
+
+sprint_count() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
+}
+
 smm_section() {
     local name="$1"
-    local max_lines="${2:-50}"
-    local first_char="${name:0:1}"
-    grep -A "$max_lines" "^## ${name}$" "$SMM_FILE" | \
-        sed "/^## [^${first_char}]/,\$d"
+    python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" section "$name" 2>/dev/null
+}
+
+# Output SYSTEM_CONTEXT=<path> if system_context.md exists (not a symlink).
+check_system_context() {
+    local ctx="${SMM_DIR}/system_context.md"
+    if [ -f "$ctx" ] && [ ! -L "$ctx" ]; then
+        echo ""
+        echo "SYSTEM_CONTEXT=${ctx}"
+    fi
+}
+
+# Execution plan CLI helpers (thin wrappers over plan_cli.py).
+plan_exists() {
+    python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" exists 2>/dev/null
+}
+
+plan_has_remaining() {
+    python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" has-remaining 2>/dev/null
+}
+
+plan_count() {
+    python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
+}
+
+# Marker helpers (thin wrappers over markers.py).
+# Usage: consume_marker ACCEPT
+consume_marker() {
+    local marker_name="$1"
+    python3 -c "
+import sys
+sys.path.insert(0, '${PLUGIN_ROOT}/scripts')
+sys.path.insert(0, '${PLUGIN_ROOT}/smm')
+from pathlib import Path
+import markers
+markers.marker_consume(Path('${SMM_DIR}'), getattr(markers, '${marker_name}'))
+" 2>/dev/null || true
 }

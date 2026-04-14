@@ -11,8 +11,8 @@ dump_diff
 
 # Surface debt events for changed files
 echo ""
-echo "## Technical Debt for Changed Files"
-changed_files=$(git diff HEAD~1 --name-only 2>/dev/null || true)
+echo "## Technical Debt and Concerns for Changed Files"
+changed_files=$(get_changed_files)
 if [ -z "$changed_files" ]; then
     echo "(no changed files detected)"
 else

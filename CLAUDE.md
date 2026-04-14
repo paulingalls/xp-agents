@@ -28,18 +28,6 @@ All scripts start with `#!/usr/bin/env python3`.
 
 **Keep files small and focused.** Target 500 lines max per file. Each module should have a single responsibility. When a file grows past 500 lines, look for a cohesive group of functions to extract into its own module (e.g., `coordination.py`, `security.py`, `concerns.py` were extracted from `_common.py`). Test files follow the same rule — split by the script or feature they test, not by milestone or chronology.
 
-## XP Practices (Follow These)
-
-**TDD.** Write the test first. Run it, watch it fail. Then write the implementation. No exceptions. If you're about to write a function, ask: where's the test?
-
-**Small commits.** One logical change per commit. If you're thinking "and also" — that's two commits.
-
-**Simple design.** Solve today's problem. Don't build abstractions for tomorrow's. If a function has more than one responsibility, split it.
-
-**Refactor continuously.** After green, clean up. Rename unclear variables, extract repeated logic, remove dead code. Every commit should leave the code better than you found it.
-
-**Courage.** If something is wrong, fix it now. Don't leave a TODO for later. If a design decision is proving wrong, say so — raise a concern.
-
 ## Hook Patterns
 
 ### Command Hook Input (stdin)
@@ -116,32 +104,18 @@ git_common = subprocess.check_output(
 
 All scripts resolve the SMM path this way. Never hardcode paths. Never use `.claude/smm/` — the SMM is at user level, not project level.
 
-## Event Appending
+## Event Appending — Type-Specific Fields
 
-Use `smm/append.sh` for all event writes. Never write directly to `events.jsonl`. ANSI escape codes are stripped from content automatically at write time.
+Some event types require additional fields:
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "status" \
-  --agent "$AGENT_ID" \
-  --content "Description here" \
-  --working-on '["src/api/users.ts"]'
-```
+| Type | Required Field | Flag | Example |
+|------|---------------|------|---------|
+| `debt` | files | `--files` | `--files '["src/auth.py"]'` |
+| `decision` | topic | `--topic` | `--topic "error-handling"` |
+| `concern` | severity | `--severity` | `--severity "medium"` |
+| `concern` | files (optional) | `--files` | `--files '["src/auth.py"]'` |
 
-### Resolving Events
-
-To resolve a goal, concern, or debt item, include `metadata.resolves`:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh \
-  --type "status" \
-  --agent "xp-housekeeping" \
-  --content "Goal completed: description" \
-  --working-on '[]' \
-  --metadata '{"resolves": ["target-event-id"]}'
-```
-
-Resolution is the sole lifecycle mechanism — no aging, no pruning. Housekeeping curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) and omits resolved items.
+See PROCESS_GUIDE.md for full event type reference and examples.
 
 ## Hook Registration (hooks.json)
 
@@ -192,24 +166,16 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 
 ```
 plugins/xp-agents/
-├── .claude-plugin/plugin.json         ← plugin manifest
-├── BEHAVIORAL_GUIDE.md                ← XP values + process rules, loaded by kickoff_done.py
-├── settings.json                      ← runtime config
-├── hooks/hooks.json                   ← all hook registrations
-├── scripts/*.py                       ← command hooks + shared modules
-├── agents/*.md                        ← subagent definitions (xp-retrospective, xp-plan-reviewer)
-├── skills/                            ← forked + inline skills
-│   ├── xp-kickoff/SKILL.md           ← session start orchestrator
-│   ├── xp-run-retrospective/SKILL.md ← forked, delegates to xp-retrospective agent
-│   ├── xp-question-triage/SKILL.md   ← inline, questions + retro Try items
-│   ├── xp-goal-collection/SKILL.md   ← inline, session goals
-│   ├── xp-housekeeping/SKILL.md      ← inline, four-pillar SMM curation
-│   ├── xp-review-plan/SKILL.md       ← forked, delegates to xp-plan-reviewer agent
-│   ├── xp-security-triage/SKILL.md   ← inline, classifies staged changes
-│   ├── xp-quality-review/SKILL.md    ← inline, post-simplify courage + drift + debt
-│   └── xp-smm-protocol/SKILL.md      ← reference guide for event types
-└── smm/{init.sh,append.sh,_append_impl.py,event_schema.py,event_builder.py,
-         resolution.py,materialize.py,read_delta.py,compact.py,seed_smm.py,schema.json}
+├── .claude-plugin/plugin.json    ← plugin manifest
+├── XP_VALUES.md                  ← XP values (injected into sessions by plugin)
+├── PROCESS_GUIDE.md              ← process rules for lead/solo agents
+├── TEAMMATE_GUIDE.md             ← rules for CLI teammates
+├── hooks/hooks.json              ← all hook registrations
+├── scripts/                      ← ~47 command hooks + shared modules
+├── agents/                       ← 6 subagent definitions (.md files)
+├── skills/                       ← 14 skills (forked + inline)
+├── smm/                          ← SMM engine (append, compact, materialize, sprint)
+└── tests/                        ← ~2014 tests across 4 suites (hooks, integration, engine, smm)
 ```
 
 ## Error Handling
@@ -224,7 +190,7 @@ Fail loud, never corrupt, always recoverable. Every script follows:
 
 ## Testing
 
-All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel:
+All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel. All test commands in lefthook.yml use `env -u` to strip git environment variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`) — without this, tests that create temp git repos would operate on the parent repo instead of the temp dir (known issue: [pre-commit#3032](https://github.com/pre-commit/pre-commit/issues/3032), [lefthook#1265](https://github.com/evilmartians/lefthook/issues/1265)). The `conftest.py` also strips these at import time as defense-in-depth.
 
 ```bash
 # Run everything:
@@ -259,9 +225,9 @@ tests/
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
 │   ├── test_review_cycle.py ← review_cycle_done, subagent review flags
 │   ├── test_gates.py        ← security triage markers
-│   ├── test_stop_gates.py   ← tdd_stop_gate
+│   ├── test_stop_gates.py   ← tdd_stop_gate, find_last_test_signal
 │   ├── test_validation.py   ← hooks.json structure and registration
-│   ├── test_plugin_integrity.py ← plugin file structure, agent files
+│   ├── test_plugin_integrity.py ← plugin file structure, agent files, skill files
 │   ├── test_auto_resolve.py ← auto-resolve logic
 │   ├── test_retrospective.py ← retrospective data preparation
 │   ├── test_retro_save.py   ← save_retrospective
@@ -269,13 +235,20 @@ tests/
 │   ├── test_lint.py         ← lint detection and execution
 │   ├── test_commits.py      ← commit helpers
 │   ├── test_coordination.py ← coordination logic
-│   └── test_prompt_nugget.py ← prompt nugget delivery
+│   ├── test_prompt_nugget.py ← prompt nugget delivery
+│   ├── test_subagent_tiers.py ← tiered SubagentStart injection (Explore, Plan, sprint)
+│   ├── test_teammate_guide.py ← M14 teammate detection + guide injection
+│   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
+│   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
+│   ├── test_sizing_metrics.py ← commit-to-story attribution, sizing aggregation
+│   └── test_assign.py       ← xp-assign preload integration
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
 │   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
 │   ├── test_scenarios.py    ← round trips, retro, new event types
 │   ├── test_scenarios_lifecycle.py ← full lifecycle, plan review, multi-session
 │   ├── test_extended.py     ← simplify gate, security review, commit gate
+│   ├── test_assign.py       ← xp-assign preload, teammate agent, WorktreeCreate hook
 │   ├── test_maintenance.py  ← repair, migration
 │   └── test_scaling.py      ← concurrency, worktrees, benchmarks
 ├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
@@ -303,6 +276,8 @@ tests/
 - **SMM foundation tests** go in `tests/smm/`. Extend `_TempRepoTestCase` for subprocess tests with init.sh/append.sh.
 - Follow TDD: write the test first, watch it fail, then implement.
 
+**Git environment safety:** Tests that create temp git repos MUST import from `conftest.py` (which strips `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE` at import time). Without this, git subprocess calls in tests will operate on the parent repo when running under lefthook or inside worktrees — corrupting config, leaking branches, and setting `core.bare=true`. All base test classes (`_IntegrationTestCase`, `_TempRepoTestCase`) already handle this via conftest import.
+
 ### Test helpers (all in `tests/conftest.py`)
 
 - `make_event(type, **kwargs)` — creates a valid event dict with defaults
@@ -311,13 +286,11 @@ tests/
 - `_TempRepoTestCase` — temp git repo for subprocess tests (init.sh, append.sh)
 - `_make_write_input(**overrides)` — canonical Write tool hook input
 - `_make_bash_input(command, stdout, **overrides)` — canonical Bash tool hook input
-- `_override_settings(overrides)` — context manager for settings.json isolation
 
 ## Key Decisions (Don't Revisit)
 
 - Hooks-first — all XP agents are hook handlers
 - SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` (shared across worktrees)
-- Install at user scope (`--scope user`)
 - Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
 - Quality reviewer is post-simplify skill (courage + drift + debt)
 - Retrospective runs at session start, not session end
@@ -325,3 +298,17 @@ tests/
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
 - Python 3.10+, stdlib only, zero dependencies
+- Four-file architecture: events.jsonl + system_context.md + execution_plan.json + sprint.json (execution plan is JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
+- Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
+- Interactive skills (sprint-start, plan) inline; review/analysis skills forked
+- Teammates detected by `is_worktree_teammate()` — cwd-based detection via `/.claude/worktrees/teammate-` prefix
+- No prep script for xp-assign — domain analysis is LLM judgment
+- Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
+- CLI teammates over Agent Teams for sprint-driven parallel execution — each teammate is an independent `claude -p` process in a git worktree with full hook lifecycle, TDD + review cycle + commits
+
+## Further Reading
+
+- `README.md` — overview, install, how it works
+- `docs/ARCHITECTURE.md` — hook map, event types, injection model, platform constraints
+- `docs/SMM_DESIGN.md` — four-pillar Shared Mental Model design
+- `docs/CLI_TEAMMATE_DESIGN.md` — CLI teammate mechanism

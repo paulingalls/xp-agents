@@ -30,7 +30,9 @@
         "question",
         "answer",
         "assumption",
+        "commit",
         "session_end",
+        "sprint",
         "retrospective"
       ]
     },
@@ -80,7 +82,7 @@
     "files": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "File paths associated with technical debt (debt)"
+      "description": "File paths associated with the event (debt, concern, commit)"
     },
     "intent_status": {
       "type": "string",
@@ -99,10 +101,6 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "IDs of unresolved questions/concerns (session_end)"
-    },
-    "final_status_recorded": {
-      "type": "boolean",
-      "description": "Whether the agent recorded a final status before session end"
     },
     "keep": {
       "type": "array",
@@ -194,6 +192,14 @@
       },
       "then": {
         "required": ["intent_status"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "sprint" } }
+      },
+      "then": {
+        "required": ["metadata"]
       }
     }
   ],

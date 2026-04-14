@@ -1,44 +1,50 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection based on agent type:
-- Explore: Intent + Constraints pillars only (~200 tokens)
-- Plan/general-purpose/background: Full SMM + behavioral guide (~1000 tokens)
-- xp-* agents: skipped (use own preloads)
+Tiered injection via dispatch table:
+- Explore: Intent + Constraints pillars (~200 tokens)
+- Default (Plan/general-purpose/custom): Full SMM
+- xp-* forked agents: values only (data comes from preloads)
+
+XP values (~250 tokens) are injected universally for ALL subagents,
+appended after tier-specific context.
 """
 
-import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import smm_cli
+
+
+def _inject_explore(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """Explore: Intent + Constraints only."""
+    extracted = smm_cli.extract_pillars(smm, {"intent", "constraints"})
+    return [_common.wrap_smm_context(extracted)] if extracted else []
+
+
+def _inject_full(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """Default: full SMM (no process guide)."""
+    rendered = smm_cli.render_markdown(smm)
+    return [_common.wrap_smm_context(rendered)] if rendered.strip() else []
+
+
+def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-* forked agents: values only (data comes from preloads)."""
+    return []
+
 
 # ---------------------------------------------------------------------------
-# SMM section extraction for Explore agents
+# Dispatch table
 # ---------------------------------------------------------------------------
 
-_PILLAR_RE = re.compile(r"^## (Intent|Constraints|Risks|Wisdom)\s*$", re.MULTILINE)
-
-
-def _extract_pillars(smm_content: str, pillars: set[str]) -> str:
-    """Extract specific pillar sections from the curated SMM."""
-    matches = list(_PILLAR_RE.finditer(smm_content))
-    if not matches:
-        return ""
-
-    parts: list[str] = []
-    for i, m in enumerate(matches):
-        if m.group(1) in pillars:
-            start = m.start()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(smm_content)
-            parts.append(smm_content[start:end].rstrip())
-
-    if not parts:
-        return ""
-    return "# Shared Mental Model\n\n" + "\n\n".join(parts) + "\n"
+_DISPATCH: dict[str, Callable[..., list[str]]] = {
+    "Explore": _inject_explore,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -47,29 +53,29 @@ def _extract_pillars(smm_content: str, pillars: set[str]) -> str:
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Core subagent_start logic. Returns additionalContext string or None."""
-    # Recursion prevention
-    if _common.is_xp_agent(input_data):
-        return None
-
-    # Resolve SMM dir
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
-    if smm_dir is None:
-        return None
-
-    agent_id = input_data.get("agent_id", "subagent")
+    """Core subagent_start logic. Returns additionalContext or None."""
     agent_type = input_data.get("agent_type", "")
 
-    # Read curated four-pillar SMM from disk (written by housekeeping)
-    smm_file = smm_dir / "SHARED_MENTAL_MODEL.md"
-    try:
-        smm_content = smm_file.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        smm_content = ""
+    # Dispatch: known types use their tier
+    injector = _DISPATCH.get(agent_type)
+    if injector is None:
+        injector = _inject_xp_agent if agent_type.startswith("xp-") else _inject_full
 
-    # Record start event (pairs with "completed" in SubagentStop)
+    # Resolve SMM dir
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
+    if smm_dir is None:
+        # Even without SMM, inject values for all subagents
+        values = _common.load_xp_values()
+        return values if values else None
+
+    agent_id = input_data.get("agent_id", "subagent")
+
+    # Read curated SMM from JSON
+    import smm_store
+
+    smm_data = smm_store.load_smm(smm_dir)
+
+    # Record start event
     start_event = _common.make_event(
         _common.STATUS,
         agent_id,
@@ -78,22 +84,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _common.append_safe(smm_dir, start_event)
 
-    # Tiered injection based on agent type
-    parts: list[str] = []
+    # Run the selected injector (tier-specific context)
+    parts = injector(smm_data, smm_dir, input_data)
 
-    if agent_type == "Explore":
-        # Explore is read-only — only needs Intent + Constraints for alignment
-        if smm_content:
-            extracted = _extract_pillars(smm_content, {"Intent", "Constraints"})
-            if extracted:
-                parts.append(_common.wrap_smm_context(extracted))
-    else:
-        # Plan, general-purpose, background — full SMM + behavioral guide
-        if smm_content:
-            parts.append(_common.wrap_smm_context(smm_content))
-        guide = _common.load_behavioral_guide()
-        if guide:
-            parts.append(guide)
+    # Universal: XP values injected for ALL subagents
+    values = _common.load_xp_values()
+    if values:
+        parts.append(values)
 
     if not parts:
         return None

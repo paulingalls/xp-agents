@@ -95,13 +95,13 @@ class TestPreToolBashCommitGate(_HookTestCase):
     def test_is_git_commit_ignores_heredocs(self):
         """is_git_commit must not match 'git commit' inside heredoc content."""
         heredoc_cmd = (
-            "cat <<'SMMEOF' | python3 save_smm.py\n"
+            "cat <<'SMMEOF' | python3 smm_cli.py\n"
             "- Run swiftlint before git commit\n"
             "SMMEOF"
         )
         self.assertFalse(security.is_git_commit(heredoc_cmd))
         # Unquoted delimiter too
-        heredoc_unquoted = "cat <<EOF | python3 save_smm.py\nbefore git commit\nEOF"
+        heredoc_unquoted = "cat <<EOF | python3 smm_cli.py\nbefore git commit\nEOF"
         self.assertFalse(security.is_git_commit(heredoc_unquoted))
 
     def test_commit_blocked_without_marker(self):
@@ -168,12 +168,67 @@ class TestCommitGateCodeFilesOnly(_HookTestCase):
         self.assertTrue(security.has_staged_code_files("/tmp", "git commit -am 'x'"))
 
     def test_is_code_file_classification(self):
-        """is_code_file correctly classifies files."""
-        self.assertTrue(security.is_code_file("src/app.ts"))
+        """is_code_file correctly classifies code files across languages."""
+        # Python
         self.assertTrue(security.is_code_file("main.py"))
+        self.assertTrue(security.is_code_file("src/utils.pyi"))
+        # JavaScript / TypeScript
+        self.assertTrue(security.is_code_file("src/app.ts"))
+        self.assertTrue(security.is_code_file("src/app.js"))
+        self.assertTrue(security.is_code_file("src/App.tsx"))
+        self.assertTrue(security.is_code_file("src/App.jsx"))
+        # Go
+        self.assertTrue(security.is_code_file("cmd/server.go"))
+        # Rust
+        self.assertTrue(security.is_code_file("src/main.rs"))
+        # Java / Kotlin / Scala
+        self.assertTrue(security.is_code_file("src/Main.java"))
+        self.assertTrue(security.is_code_file("src/Main.kt"))
+        self.assertTrue(security.is_code_file("src/Main.scala"))
+        # Ruby
+        self.assertTrue(security.is_code_file("lib/app.rb"))
+        # C / C++
+        self.assertTrue(security.is_code_file("src/main.c"))
+        self.assertTrue(security.is_code_file("src/main.cpp"))
+        self.assertTrue(security.is_code_file("include/header.h"))
+        # C#
+        self.assertTrue(security.is_code_file("src/Program.cs"))
+        # Swift
+        self.assertTrue(security.is_code_file("Sources/App.swift"))
+        # PHP
+        self.assertTrue(security.is_code_file("src/index.php"))
+        # Dart
+        self.assertTrue(security.is_code_file("lib/main.dart"))
+        # Elixir
+        self.assertTrue(security.is_code_file("lib/app.ex"))
+        self.assertTrue(security.is_code_file("lib/app.exs"))
+        # Shell
+        self.assertTrue(security.is_code_file("scripts/build.sh"))
+
+    def test_is_code_file_excludes_non_code(self):
+        """is_code_file excludes docs, config, images, and lock files."""
+        # Docs
         self.assertFalse(security.is_code_file("README.md"))
+        self.assertFalse(security.is_code_file("docs/guide.txt"))
+        self.assertFalse(security.is_code_file("docs/api.rst"))
+        # Config
         self.assertFalse(security.is_code_file("package.json"))
+        self.assertFalse(security.is_code_file("config.yaml"))
+        self.assertFalse(security.is_code_file("pyproject.toml"))
+        self.assertFalse(security.is_code_file(".gitignore"))
+        self.assertFalse(security.is_code_file(".env"))
+        self.assertFalse(security.is_code_file(".editorconfig"))
+        self.assertFalse(security.is_code_file(".prettierignore"))
+        self.assertFalse(security.is_code_file(".eslintignore"))
+        # Images
         self.assertFalse(security.is_code_file("logo.png"))
+        self.assertFalse(security.is_code_file("icon.svg"))
+        # Lock files
+        self.assertFalse(security.is_code_file("package-lock.json"))
+        # Special names
+        self.assertFalse(security.is_code_file("LICENSE"))
+        self.assertFalse(security.is_code_file("Makefile"))
+        self.assertFalse(security.is_code_file("Dockerfile"))
 
 
 class TestPreToolBashReviewCycle(_HookTestCase):
@@ -225,9 +280,9 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
 
     def test_below_threshold_blocks_without_security(self):
-        """2 code files, staged code present, no security marker -> blocks."""
+        """1 code file, staged code present, no security marker -> blocks."""
         with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py"]),
+            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
             patch("security.has_staged_code_files", return_value=True),
         ):
             with self.assertRaises(_common.BlockedError) as ctx:
@@ -235,10 +290,10 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             self.assertIn("/xp-security-triage", str(ctx.exception))
 
     def test_below_threshold_passes_with_security(self):
-        """2 code files, security marker exists -> commit allowed."""
+        """1 code file, security marker exists -> commit allowed."""
         security.write_security_triaged(self.smm_dir)
         with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py"]),
+            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
             patch("security.has_staged_code_files", return_value=True),
         ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
@@ -250,6 +305,17 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             patch("security.has_staged_code_files", return_value=False),
         ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    def test_no_code_files_preserves_security_marker(self):
+        """No-code commit should NOT consume the security marker pre-commit."""
+        security.write_security_triaged(self.smm_dir)
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch("security.has_staged_code_files", return_value=False),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        # Marker should still exist — consumption belongs in bash_post_tool
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
     def test_xp_agent_skips(self):
         """xp- agents bypass the review cycle gate."""
@@ -271,6 +337,127 @@ class TestPreToolBashReviewCycle(_HookTestCase):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
             # Verify the commit hash was passed to get_code_files_for_review
             self.assertEqual(mock.call_args[0][1], "abc123")
+
+
+class TestTriageExemption(_HookTestCase):
+    """Non-code commits auto-set triage marker with exempt_reason."""
+
+    _CODE_FILES_PATCH = "commits.get_code_files_for_review"
+    _STAGED_PATCH = "security.has_staged_code_files"
+
+    def _commit_input(self, **overrides) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m 'docs update'"},
+            "cwd": "/tmp",
+            "agent_id": "main",
+        }
+        data.update(overrides)
+        return data
+
+    def test_no_code_files_auto_sets_marker(self):
+        """Doc-only commit auto-sets triage marker with exempt_reason."""
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch(self._STAGED_PATCH, return_value=False),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        self.assertEqual(data["exempt_reason"], "no-code-files")
+
+    def test_code_files_still_require_triage(self):
+        """Commit with code files still requires manual triage."""
+        with (
+            patch(self._CODE_FILES_PATCH, return_value=[]),
+            patch(self._STAGED_PATCH, return_value=True),
+            self.assertRaises(_common.BlockedError),
+        ):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    def test_write_security_triaged_with_exempt_reason(self):
+        """write_security_triaged accepts optional exempt_reason."""
+        security.write_security_triaged(self.smm_dir, exempt_reason="no-code-files")
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        self.assertIn("ts", data)
+        self.assertEqual(data["exempt_reason"], "no-code-files")
+
+    def test_write_security_triaged_without_exempt_reason(self):
+        """write_security_triaged without exempt_reason has no exempt_reason key."""
+        security.write_security_triaged(self.smm_dir)
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        self.assertIn("ts", data)
+        self.assertNotIn("exempt_reason", data)
+
+
+class TestAcceptGate(_HookTestCase):
+    """Accept gate blocks update-story done without /xp-accept."""
+
+    _SPRINT_CMD = (
+        "python3 /path/to/sprint_cli.py --smm-dir /tmp/smm update-story story-001 done"
+    )
+
+    def test_update_story_done_with_marker_blocks(self):
+        """update-story done with ACCEPT marker should block."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(command=self._SPRINT_CMD),
+                smm_dir=self.smm_dir,
+            )
+
+    def test_update_story_done_without_marker_allows(self):
+        """update-story done without ACCEPT marker should allow."""
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._SPRINT_CMD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_update_story_in_progress_with_marker_allows(self):
+        """update-story in-progress should not be blocked."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        cmd = self._SPRINT_CMD.replace("done", "in-progress")
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_non_sprint_command_with_marker_allows(self):
+        """Regular command should not be blocked by ACCEPT marker."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        result = pre_tool_bash.run(
+            _make_bash_input(command="python3 -m unittest -v"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
+class TestPreToolBashWorktreeAgentId(_HookTestCase):
+    """Commit gate reads markers under worktree-derived agent_id."""
+
+    def test_worktree_cwd_reads_correct_markers(self):
+        """Worktree cwd resolves agent_id for commit gate markers."""
+        markers.set_review_flag(self.smm_dir, "teammate-story-001", "simplify_done")
+        markers.set_review_flag(
+            self.smm_dir, "teammate-story-001", "quality_review_done"
+        )
+        inp = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m 'test'"},
+            "cwd": "/proj/.claude/worktrees/teammate-story-001",
+            "agent_id": "",
+        }
+        with patch(
+            "commits.get_code_files_for_review",
+            return_value=["a.py", "b.py", "c.py"],
+        ):
+            with self.assertRaises(_common.BlockedError) as ctx:
+                pre_tool_bash.run(inp, smm_dir=self.smm_dir)
+            self.assertIn("/xp-security-triage", str(ctx.exception))
 
 
 if __name__ == "__main__":

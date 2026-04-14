@@ -95,13 +95,13 @@ class TestWriteWatermark(_HookTestCase):
 
 
 class TestFindDebtForFile(_HookTestCase):
-    """Tests for concerns.find_debt_for_file()."""
+    """Tests for concerns.find_issues_for_file()."""
 
     def test_matching_file(self):
         events = [
             make_event("debt", content="Legacy code", files=["/tmp/src/app.ts"]),
         ]
-        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["content"], "Legacy code")
 
@@ -109,7 +109,7 @@ class TestFindDebtForFile(_HookTestCase):
         events = [
             make_event("debt", content="Legacy code", files=["/tmp/src/other.ts"]),
         ]
-        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
     def test_multiple_debts(self):
@@ -118,7 +118,7 @@ class TestFindDebtForFile(_HookTestCase):
             make_event("debt", content="Debt 2", files=["/tmp/src/app.ts"]),
             make_event("debt", content="Debt 3", files=["/tmp/src/other.ts"]),
         ]
-        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 2)
 
     def test_path_normalization(self):
@@ -126,19 +126,49 @@ class TestFindDebtForFile(_HookTestCase):
         events = [
             make_event("debt", content="Debt", files=["src/app.ts"]),
         ]
-        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 1)
 
     def test_empty_events(self):
-        result = concerns.find_debt_for_file([], "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_issues_for_file([], "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
-    def test_non_debt_events_ignored(self):
+    def test_non_debt_non_concern_events_ignored(self):
+        events = [
+            make_event("status", content="Working"),
+            make_event("goal", content="Build app"),
+        ]
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(result, [])
+
+    def test_concern_without_files_ignored(self):
         events = [
             make_event("concern", content="Concern about app.ts"),
-            make_event("status", content="Working"),
         ]
-        result = concerns.find_debt_for_file(events, "/tmp/src/app.ts", "/tmp")
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(result, [])
+
+    def test_concern_with_files_matched(self):
+        events = [
+            make_event(
+                "concern",
+                content="Marker written in worktrees",
+                files=["/tmp/src/app.ts"],
+            ),
+        ]
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["content"], "Marker written in worktrees")
+
+    def test_concern_with_files_no_match(self):
+        events = [
+            make_event(
+                "concern",
+                content="Marker issue",
+                files=["/tmp/src/other.ts"],
+            ),
+        ]
+        result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
 
@@ -315,6 +345,140 @@ class TestDetectConflictsCommon(_HookTestCase):
         convention_concerns = [c for c in found if "convention" in c["content"].lower()]
         self.assertEqual(len(convention_concerns), 0)
 
+    def test_supersedes_metadata_skips_concern(self):
+        """metadata.supersedes referencing the prior decision suppresses pattern #5."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": [d1["id"]]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_supersedes_metadata_full_id_matches(self):
+        """Full 12-char ID in supersedes matches exactly."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": [d1["id"]]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_supersedes_metadata_wrong_id_still_fires(self):
+        """Bogus nonexistent ID in supersedes does NOT silence the check."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": ["deadbeef12345678"]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_supersedes_metadata_empty_array_still_fires(self):
+        """Empty supersedes array means no explicit override — concern still raised."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": []},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_supersedes_metadata_different_topic_still_fires(self):
+        """supersedes must reference the same-topic predecessor, not any decision."""
+        d_other = make_event(
+            "decision", topic="api", content="Use REST"
+        )  # different topic
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event(
+            "decision",
+            topic="db",
+            content="Use MySQL",
+            metadata={"supersedes": [d_other["id"]]},  # wrong topic reference
+        )
+        found = concerns.detect_conflicts([d_other, d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_resolved_superseded_concern_marks_topic_accepted(self):
+        """Resolving a superseded-decision concern marks its topic as additive."""
+        topic = "retro-try-answer-recording"
+        # Resolved concern sits at the start of the log — NOT between the
+        # most-recent decision pair. This isolates the "accepted topic" rule
+        # from the existing "intervening concern" check.
+        old_concern = make_event(
+            "concern",
+            content=f"Superseded decision: topic '{topic}' has multiple "
+            "decisions without an intervening concern.",
+        )
+        resolution = make_event(
+            "status",
+            content="Accepted as additive",
+            metadata={"resolves": [old_concern["id"]]},
+        )
+        d1 = make_event("decision", topic=topic, content="First")
+        d2 = make_event("decision", topic=topic, content="Second")
+        d3 = make_event("decision", topic=topic, content="Third")
+        events = [old_concern, resolution, d1, d2, d3]
+        found = concerns.detect_conflicts(events, "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_resolved_superseded_different_topic_does_not_cross_contaminate(self):
+        """Accepted topic acceptance is topic-scoped, not global."""
+        # Topic A: resolved superseded concern
+        accepted_concern = make_event(
+            "concern",
+            content="Superseded decision: topic 'topic-a' has multiple "
+            "decisions without an intervening concern.",
+        )
+        resolution = make_event(
+            "status",
+            content="Accepted",
+            metadata={"resolves": [accepted_concern["id"]]},
+        )
+        # Topic B: fresh pair, should still fire
+        d1 = make_event("decision", topic="topic-b", content="Use X")
+        d2 = make_event("decision", topic="topic-b", content="Use Y")
+        events = [accepted_concern, resolution, d1, d2]
+        found = concerns.detect_conflicts(events, "main")
+        b_concerns = [c for c in found if "topic 'topic-b'" in c["content"]]
+        self.assertEqual(len(b_concerns), 1)
+
+    def test_resolved_superseded_still_triggers_other_patterns(self):
+        """Accepted-topic skip is pattern-#5-only — other patterns still fire."""
+        # Resolved superseded concern for topic 'naming'
+        accepted = make_event(
+            "concern",
+            content="Superseded decision: topic 'naming' has multiple "
+            "decisions without an intervening concern.",
+        )
+        resolution = make_event(
+            "status",
+            content="Accepted",
+            metadata={"resolves": [accepted["id"]]},
+        )
+        # Convention violation on topic 'naming' — pattern #3 should still fire
+        conv = make_event("convention", topic="naming", content="Use camelCase")
+        dec = make_event("decision", topic="naming", content="Use snake_case")
+        events = [accepted, resolution, conv, dec]
+        found = concerns.detect_conflicts(events, "main")
+        convention_concerns = [c for c in found if "convention" in c["content"].lower()]
+        self.assertEqual(len(convention_concerns), 1)
+
     def test_no_duplicate_superseded_decision(self):
         """Should not re-generate concern if one already exists for same conflict."""
         d1 = make_event("decision", topic="db", content="Use Postgres")
@@ -352,7 +516,7 @@ class TestDetectConflictsCommon(_HookTestCase):
         existing_concern = make_event(
             "concern",
             content="Stale question: blocking question "
-            f"(id {q['id'][:8]}) has not been answered.",
+            f"(id {q['id']}) has not been answered.",
         )
         events = [q, *filler, existing_concern]
         found = concerns.detect_conflicts(events, "main")

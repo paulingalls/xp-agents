@@ -13,7 +13,6 @@ Retention policy (compact_after_curation):
 """
 
 import argparse
-import bisect
 import contextlib
 import json
 import sys
@@ -31,6 +30,16 @@ from _append_impl import (
     resolve_smm_dir,
     write_json_atomic,
     write_watermark,
+)
+from event_schema import (
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+    SPRINT_ACTION_END,
+    SPRINT_ACTION_START,
+    STATUS_ACTION_SPRINT_RETRO_DONE,
+    sessions_since_event,
 )
 from materialize import read_curation_watermark, write_curation_watermark
 from resolution import compute_resolutions
@@ -66,7 +75,19 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     referenced: set[str] = set()
 
     # Build session_end timestamps for decision aging
-    se_timestamps = [e.get("ts", "") for e in events if e.get("type") == "session_end"]
+    se_timestamps = [
+        e.get("ts", "") for e in events if e.get("type") == EVENT_TYPE_SESSION_END
+    ]
+
+    # Build set of ended sprint IDs for active sprint detection
+    ended_sprint_ids: set[str] = set()
+    for event in events:
+        if event.get("type") == EVENT_TYPE_SPRINT:
+            meta = event.get("metadata", {})
+            if meta.get("action") == SPRINT_ACTION_END:
+                sid = meta.get("sprint_id", "")
+                if sid:
+                    ended_sprint_ids.add(sid)
 
     for event in events:
         eid = event.get("id", "")
@@ -83,9 +104,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     continue
                 # Age-based: keep for _DECISION_MAX_AGE sessions
                 decision_ts = event.get("ts", "")
-                sessions_after = len(se_timestamps) - bisect.bisect_right(
-                    se_timestamps, decision_ts
-                )
+                sessions_after = sessions_since_event(se_timestamps, decision_ts)
                 if sessions_after < _DECISION_MAX_AGE:
                     referenced.add(eid)
             case "convention":
@@ -99,11 +118,9 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
             case "question":
                 if eid in resolutions["answered_question_ids"]:
                     continue
-                # Age-based: unanswered questions compact after 3 sessions
+                # Age-based: compact unanswered questions
                 q_ts = event.get("ts", "")
-                q_sessions = len(se_timestamps) - bisect.bisect_right(
-                    se_timestamps, q_ts
-                )
+                q_sessions = sessions_since_event(se_timestamps, q_ts)
                 if q_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case "customer_intent":
@@ -113,12 +130,18 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
             case "assumption":
                 if eid in resolutions["resolved_assumption_ids"]:
                     continue
-                # Age-based: unresolved assumptions compact after 3 sessions
+                # Age-based: compact unresolved assumptions
                 a_ts = event.get("ts", "")
-                a_sessions = len(se_timestamps) - bisect.bisect_right(
-                    se_timestamps, a_ts
-                )
+                a_sessions = sessions_since_event(se_timestamps, a_ts)
                 if a_sessions < _ASSUMPTION_MAX_AGE:
+                    referenced.add(eid)
+            case "sprint":
+                meta = event.get("metadata", {})
+                action = meta.get("action", "")
+                sprint_id = meta.get("sprint_id", "")
+                # Active sprint starts retained; ended ones archivable.
+                # Sprint ends handled by index-based retention below.
+                if action == SPRINT_ACTION_START and sprint_id not in ended_sprint_ids:
                     referenced.add(eid)
             case "retrospective":
                 # Keep last 2 for trend detection. _find_unanalyzed_start
@@ -161,6 +184,116 @@ def _read_all_curation_watermarks(smm_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Pre-watermark event classification
+# ---------------------------------------------------------------------------
+
+
+def _classify_pre_watermark(
+    pre_watermark: list[dict],
+    all_events: list[dict],
+    smm_ids: set[str],
+) -> tuple[list[dict], list[dict], int]:
+    """Classify pre-watermark events as retained or archived.
+
+    Retention rules (checked in order):
+    1. Last 3 session_end events (for aging calculations)
+    2. Last 2 retrospective events (for trend detection)
+    3. Last 1 sprint end event (for velocity data)
+    4. sprint_retro_done status events paired with retained sprint_end
+       (so needs_sprint_retro detection stays correct after compaction)
+    5. SMM-referenced events (unresolved goals, active decisions, etc.)
+    6. Everything else → archived
+
+    Returns (retained, archived, smm_ref_count).
+    """
+    # Find last 3 session_end events from pre-watermark
+    pre_session_ends = [
+        i
+        for i, e in enumerate(pre_watermark)
+        if e.get("type") == EVENT_TYPE_SESSION_END
+    ]
+    keep_session_end_indices = set(pre_session_ends[-3:])
+
+    # Keep last 2 retro events across ALL events (not just pre-watermark).
+    # Post-watermark retros count toward the cap so we don't accumulate 3+.
+    all_retro_ids = [
+        e.get("id", "") for e in all_events if e.get("type") == EVENT_TYPE_RETROSPECTIVE
+    ]
+    keep_retro_ids = set(all_retro_ids[-2:])
+    pre_retro_indices = {
+        i
+        for i, e in enumerate(pre_watermark)
+        if e.get("type") == EVENT_TYPE_RETROSPECTIVE
+        and e.get("id", "") in keep_retro_ids
+    }
+
+    # Keep last 1 sprint end event across ALL events (velocity data).
+    # Post-watermark sprint ends count toward the cap.
+    def _is_sprint_end(e: dict) -> bool:
+        return (
+            e.get("type") == EVENT_TYPE_SPRINT
+            and e.get("metadata", {}).get("action") == SPRINT_ACTION_END
+        )
+
+    all_sprint_end_ids = [e.get("id", "") for e in all_events if _is_sprint_end(e)]
+    keep_sprint_end_ids = set(all_sprint_end_ids[-1:])
+    pre_sprint_end_indices = {
+        i
+        for i, e in enumerate(pre_watermark)
+        if _is_sprint_end(e) and e.get("id", "") in keep_sprint_end_ids
+    }
+
+    # Keep sprint_retro_done events whose sprint_id matches a retained
+    # sprint_end. Sprint-id-paired rule keeps detection correct after
+    # compaction — needs_sprint_retro would otherwise re-fire on a
+    # retained sprint_end whose paired retro_done was archived.
+    retained_sprint_ids: set[str] = set()
+    for e in all_events:
+        if _is_sprint_end(e) and e.get("id", "") in keep_sprint_end_ids:
+            sid = e.get("metadata", {}).get("sprint_id")
+            if sid:
+                retained_sprint_ids.add(sid)
+
+    def _is_paired_retro_done(e: dict) -> bool:
+        if e.get("type") != EVENT_TYPE_STATUS:
+            return False
+        metadata = e.get("metadata") or {}
+        return (
+            metadata.get("action") == STATUS_ACTION_SPRINT_RETRO_DONE
+            and metadata.get("sprint_id") in retained_sprint_ids
+        )
+
+    pre_retro_done_indices = {
+        i for i, e in enumerate(pre_watermark) if _is_paired_retro_done(e)
+    }
+
+    retained: list[dict] = []
+    archived: list[dict] = []
+    smm_ref_count = 0
+
+    for i, event in enumerate(pre_watermark):
+        eid = event.get("id", "")
+
+        if (
+            i in keep_session_end_indices
+            or i in pre_retro_indices
+            or i in pre_sprint_end_indices
+            or i in pre_retro_done_indices
+        ):
+            retained.append(event)
+            continue
+
+        if eid in smm_ids:
+            retained.append(event)
+            smm_ref_count += 1
+            continue
+
+        archived.append(event)
+
+    return retained, archived, smm_ref_count
+
+
+# ---------------------------------------------------------------------------
 # Curation-based compaction
 # ---------------------------------------------------------------------------
 
@@ -177,26 +310,47 @@ def compact_after_curation(smm_dir: Path) -> dict:
 
     For teams: uses min(event_count) across all curation watermarks.
 
-    Returns {archived: N, retained: N, smm_referenced: N}.
+    Returns {archived: N, retained: N, smm_referenced: N,
+            watermark_updated: bool}.
     """
     events_file = smm_dir / "events.jsonl"
     if not events_file.exists():
-        return {"archived": 0, "retained": 0, "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": 0,
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     raw = read_with_lock(events_file)
     events = _parse_events(raw)
 
     if not events:
-        return {"archived": 0, "retained": 0, "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": 0,
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     # Find the safe compaction boundary (oldest watermark for team safety)
     watermarks = _read_all_curation_watermarks(smm_dir)
     if not watermarks:
-        return {"archived": 0, "retained": len(events), "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": len(events),
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     wm_count = watermarks[0]["event_count"]  # min across all agents
     if wm_count <= 0:
-        return {"archived": 0, "retained": len(events), "smm_referenced": 0}
+        return {
+            "archived": 0,
+            "retained": len(events),
+            "smm_referenced": 0,
+            "watermark_updated": False,
+        }
 
     # Watermark may be ahead of actual event count if housekeeping wrote
     # events after setting the watermark. Clamp to actual count.
@@ -209,42 +363,9 @@ def compact_after_curation(smm_dir: Path) -> dict:
     # Collect SMM-referenced IDs from ALL events (resolutions may span boundary)
     smm_ids = _collect_smm_referenced_ids(events)
 
-    # Find last 3 session_end events from pre-watermark
-    pre_session_ends = [
-        i for i, e in enumerate(pre_watermark) if e.get("type") == "session_end"
-    ]
-    keep_session_end_indices = set(pre_session_ends[-3:])
-
-    # Keep last 2 retro events across ALL events (not just pre-watermark).
-    # Post-watermark retros count toward the cap so we don't accumulate 3+.
-    all_retro_ids = [
-        e.get("id", "") for e in events if e.get("type") == "retrospective"
-    ]
-    keep_retro_ids = set(all_retro_ids[-2:])
-    pre_retro_indices = {
-        i
-        for i, e in enumerate(pre_watermark)
-        if e.get("type") == "retrospective" and e.get("id", "") in keep_retro_ids
-    }
-
-    # Classify pre-watermark events
-    retained: list[dict] = []
-    archived: list[dict] = []
-    smm_ref_count = 0
-
-    for i, event in enumerate(pre_watermark):
-        eid = event.get("id", "")
-
-        if i in keep_session_end_indices or i in pre_retro_indices:
-            retained.append(event)
-            continue
-
-        if eid in smm_ids:
-            retained.append(event)
-            smm_ref_count += 1
-            continue
-
-        archived.append(event)
+    retained, archived, smm_ref_count = _classify_pre_watermark(
+        pre_watermark, events, smm_ids
+    )
 
     # All post-watermark events are retained
     retained.extend(post_watermark)
@@ -299,6 +420,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
         "archived": len(archived),
         "retained": new_count,
         "smm_referenced": smm_ref_count,
+        "watermark_updated": True,
     }
 
 

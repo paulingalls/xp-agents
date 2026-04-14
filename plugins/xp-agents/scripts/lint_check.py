@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import identity
+import worktree
 
 # ---------------------------------------------------------------------------
 # Linter detection
@@ -287,24 +289,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    agent_id = input_data.get("agent_id", "main")
+    agent_id = identity.resolve_agent_id(input_data)
     cwd = input_data.get("cwd", ".")
 
     file_path = _common.extract_file_path(tool_name, tool_input)
     if not file_path:
         return None
 
-    normalized = _common.normalize_path(file_path, cwd)
+    normalized = worktree.normalize_path(file_path, cwd)
 
-    git_root = _common.resolve_git_root(cwd) or cwd
+    git_root = worktree.resolve_git_root(cwd) or cwd
 
     config = detect_linter_config(cwd, git_root, file_path=normalized)
 

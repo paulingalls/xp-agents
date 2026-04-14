@@ -87,40 +87,64 @@ class TestSeedSMM(_TempRepoTestCase):
         super().setUpClass()
         cls.smm_dir = cls._get_smm_dir()
 
+    def _load_smm(self) -> dict:
+        import json
+
+        path = self.smm_dir / "shared_mental_model.json"
+        return json.loads(path.read_text())
+
     def test_seed_creates_smm_file(self):
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        self.assertTrue(smm_file.exists(), "init.sh should seed SHARED_MENTAL_MODEL.md")
+        smm_file = self.smm_dir / "shared_mental_model.json"
+        self.assertTrue(
+            smm_file.exists(),
+            "init.sh should seed shared_mental_model.json",
+        )
 
     def test_seed_has_four_pillars(self):
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        content = smm_file.read_text()
-        self.assertIn("## Intent", content)
-        self.assertIn("## Constraints", content)
-        self.assertIn("## Risks", content)
-        self.assertIn("## Wisdom", content)
+        smm = self._load_smm()
+        for pillar in ("intent", "constraints", "risks", "wisdom"):
+            self.assertIn(pillar, smm)
+            self.assertIsInstance(smm[pillar], list)
 
     def test_seed_has_xp_constraints(self):
-        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
-        self.assertIn("TDD", content)
-        self.assertIn("plan", content.lower())
-        self.assertIn("Small commits", content)
+        smm = self._load_smm()
+        contents = [e["content"] for e in smm["constraints"]]
+        joined = " ".join(contents)
+        self.assertIn("TDD", joined)
+        self.assertIn("Small commits", joined)
 
     def test_seed_detects_missing_linter(self):
         """Fresh git repo has no linter — should be flagged as risk."""
-        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
-        self.assertIn("No linter configured", content)
+        smm = self._load_smm()
+        contents = [e["content"] for e in smm["risks"]]
+        joined = " ".join(contents)
+        self.assertIn("No linter configured", joined)
 
     def test_seed_detects_missing_hooks(self):
         """Fresh git repo has no hooks — should be flagged as risk."""
-        content = (self.smm_dir / "SHARED_MENTAL_MODEL.md").read_text()
-        self.assertIn("No git commit hooks", content)
+        smm = self._load_smm()
+        contents = [e["content"] for e in smm["risks"]]
+        joined = " ".join(contents)
+        self.assertIn("No git commit hooks", joined)
 
     def test_seed_idempotent(self):
         """Running init.sh again does not overwrite existing SMM."""
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Custom SMM\n")
+        smm_file = self.smm_dir / "shared_mental_model.json"
+        smm_file.write_text('{"custom": true}')
         self._run_init()
-        self.assertEqual(smm_file.read_text(), "# Custom SMM\n")
+        self.assertEqual(smm_file.read_text(), '{"custom": true}')
+
+    def test_seed_fires_when_only_old_md_exists(self):
+        """Old .md present but no JSON → seed fires, .md untouched."""
+        json_file = self.smm_dir / "shared_mental_model.json"
+        md_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        # Remove the JSON that setUpClass created, leave old .md
+        json_file.unlink(missing_ok=True)
+        md_file.write_text("# Old markdown SMM\n")
+        self._run_init()
+        self.assertTrue(json_file.exists(), "JSON should be seeded")
+        self.assertTrue(md_file.exists(), "Old .md should be untouched")
+        self.assertEqual(md_file.read_text(), "# Old markdown SMM\n")
 
 
 class TestValidateEvent(unittest.TestCase):
@@ -189,9 +213,25 @@ class TestValidateEvent(unittest.TestCase):
             event_count=42,
             unresolved_items=["q1"],
             working_on=["file.py"],
-            final_status_recorded=True,
         )
         self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_valid_commit_minimal(self):
+        event = self._base_event(type="commit")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_valid_commit_full(self):
+        event = self._base_event(
+            type="commit",
+            files=["src/app.py", "tests/test_app.py"],
+            metadata={"commit_hash": "abc1234def5678", "code_commit": True},
+        )
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_commit_files_must_be_list(self):
+        event = self._base_event(type="commit", files="not-a-list")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("files" in e for e in errors))
 
     def test_valid_retrospective(self):
         event = self._base_event(
@@ -247,6 +287,26 @@ class TestValidateEvent(unittest.TestCase):
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("priority" in e for e in errors))
 
+    def test_decision_bare_retro_try_adopted_rejected(self):
+        """Bare 'retro-try-adopted' topic must be rejected — use retro-try-<slug>."""
+        event = self._base_event(type="decision", topic="retro-try-adopted")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("retro-try-" in e for e in errors))
+
+    def test_decision_retro_try_with_slug_accepted(self):
+        """Specific retro-try-<slug> topics are valid."""
+        event = self._base_event(type="decision", topic="retro-try-answer-recording")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_decision_retro_try_with_short_slug_accepted(self):
+        event = self._base_event(type="decision", topic="retro-try-fix-gate")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_decision_non_retro_topic_unaffected(self):
+        """Normal topics should not be affected by retro-try validation."""
+        event = self._base_event(type="decision", topic="database-choice")
+        self.assertEqual(_append_impl.validate_event(event), [])
+
     def test_working_on_wrong_type(self):
         event = self._base_event(type="status", working_on="not-a-list")
         errors = _append_impl.validate_event(event)
@@ -301,6 +361,59 @@ class TestValidateEvent(unittest.TestCase):
             with self.subTest(status=status):
                 event = self._base_event(type="customer_intent", intent_status=status)
                 self.assertEqual(_append_impl.validate_event(event), [])
+
+    # --- Sprint event type ---
+
+    def test_valid_sprint_start(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={"sprint_id": "sprint-001", "action": "start", "goal": "Ship v1"},
+        )
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_valid_sprint_end(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": "end",
+                "stories_planned": 10,
+                "stories_delivered": 8,
+                "stories_carried": 2,
+            },
+        )
+        self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_sprint_missing_metadata(self):
+        event = self._base_event(type="sprint")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("metadata" in e for e in errors))
+
+    def test_sprint_metadata_missing_sprint_id(self):
+        event = self._base_event(type="sprint", metadata={"action": "start"})
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("sprint_id" in e for e in errors))
+
+    def test_sprint_metadata_missing_action(self):
+        event = self._base_event(type="sprint", metadata={"sprint_id": "sprint-001"})
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("action" in e for e in errors))
+
+    def test_sprint_invalid_action(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={"sprint_id": "sprint-001", "action": "pause"},
+        )
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("action" in e for e in errors))
+
+    def test_sprint_empty_sprint_id(self):
+        event = self._base_event(
+            type="sprint",
+            metadata={"sprint_id": "", "action": "start"},
+        )
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("sprint_id" in e for e in errors))
 
     # --- All three priority emojis ---
 

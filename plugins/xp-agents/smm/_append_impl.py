@@ -78,6 +78,7 @@ def _validate_agent_id(agent_id: str) -> None:
 # Event schema (re-exported from event_schema.py)
 # ---------------------------------------------------------------------------
 
+import marker_names  # noqa: E402
 from event_builder import (  # noqa: E402
     build_event,
     build_parser,
@@ -298,6 +299,10 @@ def append_event(smm_dir: Path, event: dict) -> None:
 
     # Notify on blocking questions — after write succeeds, never fails the write
     _notify_blocking_question(event)
+
+    # Write question gate for 🔴 questions — stores event ID for resolution
+    if event.get("type") == "question" and event.get("priority") == "\U0001f534":
+        (smm_dir / marker_names.QUESTION_GATE).write_text(event.get("id", ""))
 
 
 def bulk_append(smm_dir: Path, events: list[dict]) -> None:

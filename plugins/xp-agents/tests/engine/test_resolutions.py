@@ -13,7 +13,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
-import materialize
 import read_delta
 from conftest import _SMMTestCase, make_event
 
@@ -91,6 +90,47 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(q["id"], result["question_answers"])
         self.assertIn(q["id"], result["answered_question_ids"])
 
+    def test_question_resolved_via_metadata_resolves(self):
+        """Questions can be resolved via metadata.resolves too."""
+        q = make_event("question", content="Should Sprint replace Intent?")
+        resolver = make_event(
+            "status",
+            content="Resolved: decided to keep them separate",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        result = _append_impl.compute_resolutions([q, resolver])
+        self.assertIn(q["id"], result["question_answers"])
+        self.assertIn(q["id"], result["answered_question_ids"])
+
+    def test_question_answer_event_takes_precedence(self):
+        """If both answer event and metadata.resolves exist, answer event wins."""
+        q = make_event("question", content="Which DB?")
+        resolver = make_event(
+            "status",
+            content="Resolved via housekeeping",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        result = _append_impl.compute_resolutions([q, resolver, answer])
+        self.assertIn(q["id"], result["question_answers"])
+        # Answer event should be the resolution, not the metadata resolver
+        self.assertEqual(result["question_answers"][q["id"]], answer)
+
+    def test_question_answer_precedence_reverse_order(self):
+        """Answer event wins even if it appears before metadata.resolves."""
+        q = make_event("question", content="Which DB?")
+        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        resolver = make_event(
+            "status",
+            content="Resolved via housekeeping",
+            working_on=[],
+            metadata={"resolves": [q["id"]]},
+        )
+        result = _append_impl.compute_resolutions([q, answer, resolver])
+        self.assertEqual(result["question_answers"][q["id"]], answer)
+
     def test_unresolved_items_not_in_results(self):
         goal = make_event("goal", content="Ship v1.0")
         concern = make_event("concern", content="Missing tests")
@@ -113,8 +153,8 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(len(result["concern_resolutions"]), 0)
         self.assertEqual(len(result["debt_resolutions"]), 0)
 
-    def test_resolve_via_short_id_prefix(self):
-        """metadata.resolves with 8-char prefix should match full UUID."""
+    def test_resolve_via_full_id(self):
+        """metadata.resolves with full 12-char ID matches exactly."""
         concern = make_event("concern", content="Test failure")
         goal = make_event("goal", content="Fix tests")
         debt = make_event("debt", content="Legacy code", files=["old.py"])
@@ -124,9 +164,9 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={
                 "resolves": [
-                    concern["id"][:8],
-                    goal["id"][:8],
-                    debt["id"][:8],
+                    concern["id"],
+                    goal["id"],
+                    debt["id"],
                 ]
             },
         )
@@ -153,6 +193,39 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(len(result["assumption_resolutions"]), 0)
         self.assertEqual(len(result["resolved_assumption_ids"]), 0)
 
+    def test_status_event_resolved_via_metadata_resolves(self):
+        """Resolving a status/sprint event should be tracked (Try item refs)."""
+        sprint_evt = make_event(
+            "sprint",
+            content="Sprint completed",
+            metadata={"sprint_id": "sprint-013", "action": "end"},
+        )
+        dropper = make_event(
+            "status",
+            content="Dropped retro Try: truncated UUID bug already fixed",
+            working_on=[],
+            metadata={"resolves": [sprint_evt["id"]], "disposition": "dropped"},
+        )
+        result = _append_impl.compute_resolutions([sprint_evt, dropper])
+        self.assertIn(sprint_evt["id"], result["other_resolutions"])
+        self.assertIn(sprint_evt["id"], result["resolved_other_ids"])
+
+    def test_other_resolution_includes_disposition(self):
+        """Resolutions of non-standard types preserve metadata like disposition."""
+        status_evt = make_event(
+            "status",
+            content="Some status event",
+            working_on=[],
+        )
+        resolver = make_event(
+            "decision",
+            content="Adopted retro Try item",
+            topic="retro-try-fix",
+            metadata={"resolves": [status_evt["id"]]},
+        )
+        result = _append_impl.compute_resolutions([status_evt, resolver])
+        self.assertIn(status_evt["id"], result["other_resolutions"])
+
     def test_resolve_prefix_ambiguous_skipped(self):
         """If a prefix matches multiple events, skip it (ambiguous)."""
         c1 = make_event("concern", content="First concern")
@@ -170,55 +243,6 @@ class TestMetadataResolves(unittest.TestCase):
         result = _append_impl.compute_resolutions([c1, c2, resolver])
         # Ambiguous — neither should be resolved
         self.assertEqual(len(result["concern_resolutions"]), 0)
-
-
-class TestBuildIndicesResolutions(_SMMTestCase):
-    """Tests that build_indices() populates goal/debt resolution indices."""
-
-    def test_goal_resolutions_in_indices(self):
-        goal = make_event("goal", content="Ship v1.0")
-        resolver = make_event(
-            "status",
-            content="Done",
-            working_on=["app.py"],
-            metadata={"resolves": [goal["id"]]},
-        )
-        indices = materialize.build_indices([goal, resolver])
-        self.assertIn(goal["id"], indices["goal_resolutions"])
-
-    def test_decision_resolutions_in_indices(self):
-        decision = make_event("decision", content="Use Redis", topic="caching")
-        resolver = make_event(
-            "status",
-            content="Confirmed",
-            working_on=[],
-            metadata={"resolves": [decision["id"]]},
-        )
-        indices = materialize.build_indices([decision, resolver])
-        self.assertIn(decision["id"], indices["decision_resolutions"])
-
-    def test_debt_resolutions_in_indices(self):
-        debt = make_event("debt", content="Legacy code", files=["old.py"])
-        resolver = make_event(
-            "status",
-            content="Refactored",
-            working_on=["old.py"],
-            metadata={"resolves": [debt["id"]]},
-        )
-        indices = materialize.build_indices([debt, resolver])
-        self.assertIn(debt["id"], indices["debt_resolutions"])
-
-    def test_concern_resolution_uses_metadata_resolves(self):
-        """build_indices concern_resolutions uses metadata.resolves, not references."""
-        concern = make_event("concern", content="Bug found")
-        resolver = make_event(
-            "status",
-            content="Fixed",
-            working_on=["fix.py"],
-            metadata={"resolves": [concern["id"]]},
-        )
-        indices = materialize.build_indices([concern, resolver])
-        self.assertIn(concern["id"], indices["concern_resolutions"])
 
 
 class TestReadEventsFrom(_SMMTestCase):

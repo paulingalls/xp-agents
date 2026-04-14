@@ -130,8 +130,10 @@ class TestSessionEndIntegration(_IntegrationTestCase):
 class TestPreCompactIntegration(_IntegrationTestCase):
     def test_creates_backup_files(self):
         """stdin → pre_compact.py → backup files on disk."""
+        from conftest import write_smm_fixture
+
         self._seed_events([make_event()])
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text("# Test SMM\n")
+        write_smm_fixture(self.smm_dir, intent=[("Test goal", "goal")])
 
         result = self._run_script(
             "pre_compact.py",
@@ -144,7 +146,7 @@ class TestPreCompactIntegration(_IntegrationTestCase):
         backups_dir = self.smm_dir / "backups"
         self.assertTrue(backups_dir.exists())
         event_backups = list(backups_dir.glob("events-*.jsonl"))
-        smm_backups = list(backups_dir.glob("SMM-*.md"))
+        smm_backups = list(backups_dir.glob("SMM-*.json"))
         self.assertEqual(len(event_backups), 1)
         self.assertEqual(len(smm_backups), 1)
         self.assertEqual(
@@ -169,11 +171,10 @@ class TestPreCompactIntegration(_IntegrationTestCase):
 class TestSubagentStartIntegration(_IntegrationTestCase):
     def test_returns_smm_and_writes_watermark(self):
         """stdin → subagent_start.py → stdout with SMM content."""
+        from conftest import write_smm_fixture
+
         self._seed_events([make_event(), make_event()])
-        # Write a curated SMM file so subagent_start injects it
-        (self.smm_dir / "SHARED_MENTAL_MODEL.md").write_text(
-            "# Shared Mental Model\n## Intent\n- Ship v1\n"
-        )
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = self._run_script(
             "subagent_start.py",
             {
@@ -185,21 +186,20 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Shared Mental Model", ctx)
+        self.assertIn("Ship v1", ctx)
 
-    def test_xp_agent_produces_no_output(self):
+    def test_xp_agent_gets_values_only(self):
         self._seed_events([make_event()])
         result = self._run_script(
             "subagent_start.py",
             {
                 "session_id": "int-test",
-                "agent_id": "explorer-1",
+                "agent_id": "hk-1",
                 "agent_type": "xp-housekeeping",
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.strip(), "")
-        wm_file = self.smm_dir / ".watermark-explorer-1"
-        self.assertFalse(wm_file.exists())
+        self.assertIn("XP Values", result.stdout)
 
 
 class TestMilestone6Integration(_IntegrationTestCase):
@@ -216,18 +216,7 @@ class TestMilestone6Integration(_IntegrationTestCase):
         # Guide moved to kickoff_done.py
         self.assertNotIn("Honesty Principle", ctx)
         # Skills should still be present
-        self.assertIn("xp-smm-protocol", ctx)
         self.assertIn("xp-kickoff", ctx)
-
-    def test_skill_files_parseable(self):
-        """All skill SKILL.md files exist and are non-trivial."""
-        plugin_root = Path(__file__).parent.parent.parent
-        for name in ("xp-smm-protocol",):
-            skill_file = plugin_root / "skills" / name / "SKILL.md"
-            self.assertTrue(skill_file.is_file(), f"Missing: {skill_file}")
-            content = skill_file.read_text()
-            self.assertGreater(len(content), 500, f"{name} too short")
-            self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
 
 
 class TestMilestone65Integration(_IntegrationTestCase):

@@ -17,6 +17,39 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+_HOUSEKEEPING_DIR = (
+    Path(__file__).parent.parent.parent / "skills" / "xp-housekeeping" / "scripts"
+)
+
+
+def _run_prepare_curation(smm_dir: Path, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "python3",
+            str(_HOUSEKEEPING_DIR / "prepare_curation.py"),
+            "--smm-dir",
+            str(smm_dir),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+
+
+_SMM_CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
+
+
+def _run_save_smm(
+    smm_dir: Path, cwd: Path, content: str
+) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["python3", str(_SMM_CLI), "--smm-dir", str(smm_dir), "save"],
+        input=content,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+
 
 class TestCompactIntegration(_IntegrationTestCase):
     """Subprocess-level tests for compact.py."""
@@ -227,67 +260,15 @@ class TestMigrateIntegration(_IntegrationTestCase):
         self.assertEqual(migrated[0]["schema_version"], 2)
 
 
-class TestLoadContext(_IntegrationTestCase):
-    def _run_load_context(self) -> subprocess.CompletedProcess:
-        """Run load_context.sh as a subprocess."""
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "load_context.sh"
-        )
-        return subprocess.run(
-            ["bash", str(script)],
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._test_env,
-        )
-
-    def _assert_output_file_exists(
-        self, result: subprocess.CompletedProcess, prefix: str
-    ) -> str:
-        """Assert stdout has one line with prefix pointing to existing file."""
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.strip().splitlines()
-        matched = [line for line in lines if line.startswith(prefix)]
-        self.assertEqual(len(matched), 1, f"Expected one {prefix} line, got: {lines}")
-        path = matched[0].split("=", 1)[1]
-        self.assertTrue(Path(path).exists(), f"File does not exist: {path}")
-        return path
-
-    def test_outputs_smm_file_path(self):
-        """load_context.sh outputs SMM_FILE= with correct path."""
-        # Pre-create curated SMM (housekeeping writes this, not load_context)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
-        smm_file.write_text("# Shared Mental Model\n## Intent\n")
-        result = self._run_load_context()
-        self._assert_output_file_exists(result, "SMM_FILE=")
-
-    def test_outputs_guide_file_path(self):
-        """load_context.sh outputs GUIDE_FILE= pointing to existing file."""
-        result = self._run_load_context()
-        self._assert_output_file_exists(result, "GUIDE_FILE=")
+# TestLoadContext removed — load_context.sh deleted in M5 cleanup.
+# Context loading is now handled by kickoff_done.py (SMM + guide injection).
 
 
 class TestPrepareCurationIntegration(_IntegrationTestCase):
     """Integration test for prepare_curation.py preload script."""
 
     def _run_prepare_curation(self) -> subprocess.CompletedProcess:
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "prepare_curation.py"
-        )
-        return subprocess.run(
-            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-        )
+        return _run_prepare_curation(self.smm_dir, self.tmpdir)
 
     def test_empty_project_returns_valid_json(self):
         """Script outputs valid JSON with expected schema on empty project."""
@@ -304,11 +285,21 @@ class TestPrepareCurationIntegration(_IntegrationTestCase):
             self.assertIn(key, data)
 
     def test_with_events_returns_populated_data(self):
-        """Script returns populated curation data when events exist."""
+        """Script returns populated curation data when events exist.
+
+        After the JSON refactor, health counts come from the persisted
+        SMM file (not derived from events). Events show up in
+        new_since_last_curation for the housekeeper to merge.
+        """
+        from conftest import write_smm_fixture
+
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            risks=[("No tests", "concern", "problem")],
+        )
         self._seed_events(
             [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
                 make_event("customer_input", content="Add auth"),
             ]
         )
@@ -321,35 +312,28 @@ class TestPrepareCurationIntegration(_IntegrationTestCase):
 
 
 class TestSaveSMMIntegration(_IntegrationTestCase):
-    """Integration test for save_smm.py helper script."""
+    """Integration test for smm_cli.py save command."""
 
     def _run_save_smm(self, content: str) -> subprocess.CompletedProcess:
-        script = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-housekeeping"
-            / "scripts"
-            / "save_smm.py"
-        )
-        return subprocess.run(
-            ["python3", str(script), "--smm-dir", str(self.smm_dir)],
-            input=content,
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-        )
+        return _run_save_smm(self.smm_dir, self.tmpdir, content)
 
-    def test_pipe_markdown_writes_file(self):
-        """Pipe four-pillar markdown into save_smm.py, verify file written."""
-        content = "# Shared Mental Model\n\n## Intent\n- Ship v1\n"
+    def test_pipe_json_writes_file(self):
+        """Pipe JSON into smm_cli.py save, verify file written."""
+        import smm_schema
+
+        data = smm_schema.empty_smm()
+        content = json.dumps(data)
         result = self._run_save_smm(content)
         self.assertEqual(result.returncode, 0, result.stderr)
-        smm_file = self.smm_dir / "SHARED_MENTAL_MODEL.md"
+        smm_file = self.smm_dir / "shared_mental_model.json"
         self.assertTrue(smm_file.exists())
-        self.assertEqual(smm_file.read_text(), content)
+        written = json.loads(smm_file.read_text())
+        self.assertEqual(written, data)
 
     def test_watermark_updated_after_save(self):
         """Watermark reflects event count after save."""
+        import smm_schema
+
         self._seed_events(
             [
                 make_event("goal", content="Ship v1"),
@@ -357,12 +341,90 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
                 make_event("decision", topic="db", content="Use PG"),
             ]
         )
-        result = self._run_save_smm("# SMM\n")
+        result = self._run_save_smm(json.dumps(smm_schema.empty_smm()))
         self.assertEqual(result.returncode, 0, result.stderr)
         wm_file = self.smm_dir / ".curation-watermark"
         self.assertTrue(wm_file.exists())
         wm = json.loads(wm_file.read_text())
         self.assertEqual(wm["event_count"], 3)
+
+
+class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
+    """prepare_curation → hand-crafted merge → smm_cli save → re-prepare flow.
+
+    Exercises the full housekeeping data path that `TestPrepareCurationIntegration`
+    (static prepare) and `TestSaveSMMIntegration` (static save) don't chain
+    together. Closes the gap that motivated story-003: verifying the
+    watermark-driven delta actually resets after save.
+    """
+
+    def test_prepare_curation_pipe_save_smm_round_trip(self):
+        """prepare → merge → save → re-prepare reflects the saved SMM.
+
+        init.sh seeds the SMM with 7 constraints + 8 wisdom entries. A
+        realistic housekeeper merge must preserve those seed entries and
+        add new curated content on top — anything else would reproduce
+        the exact seed-wipe bug story-003 fixed. This test verifies both
+        sides of the contract: save preserves existing pillars AND
+        re-prepare reflects the new additions.
+        """
+        self._seed_events(
+            [
+                make_event("goal", content="Ship v1"),
+                make_event("concern", content="No tests"),
+                make_event("decision", topic="db", content="Use PG"),
+            ]
+        )
+
+        result = _run_prepare_curation(self.smm_dir, self.tmpdir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        initial_constraints = data["health"]["constraints_count"]
+        initial_wisdom = data["health"]["wisdom_count"]
+        self.assertGreater(initial_constraints, 0, "seed should populate constraints")
+        self.assertGreater(initial_wisdom, 0, "seed should populate wisdom")
+        self.assertEqual(data["health"]["intent_count"], 0)
+
+        smm = data["current_smm"]
+        import secrets
+
+        new_intent_id = secrets.token_hex(6)
+        smm["intent"].append(
+            {
+                "id": new_intent_id,
+                "content": "Curated: Ship v1",
+                "source": "curated",
+                "ts": "2026-04-01T00:00:00+00:00",
+                "type": "goal",
+            }
+        )
+
+        save_result = _run_save_smm(self.smm_dir, self.tmpdir, json.dumps(smm))
+        self.assertEqual(save_result.returncode, 0, save_result.stderr)
+        smm_file = self.smm_dir / "shared_mental_model.json"
+        self.assertTrue(smm_file.exists())
+        written = json.loads(smm_file.read_text())
+        self.assertEqual(len(written["intent"]), 1)
+        self.assertEqual(written["intent"][0]["content"], "Curated: Ship v1")
+        # Round-trip safety: the id we appended survives the save path unchanged.
+        self.assertEqual(written["intent"][0]["id"], new_intent_id)
+        # Seed pillars preserved through the save — the invariant story-003 enforces.
+        self.assertEqual(len(written["constraints"]), initial_constraints)
+        self.assertEqual(len(written["wisdom"]), initial_wisdom)
+
+        wm_file = self.smm_dir / ".curation-watermark"
+        self.assertTrue(wm_file.exists())
+        wm = json.loads(wm_file.read_text())
+        self.assertEqual(wm["event_count"], 3)
+
+        result_b = _run_prepare_curation(self.smm_dir, self.tmpdir)
+        self.assertEqual(result_b.returncode, 0, result_b.stderr)
+        data_b = json.loads(result_b.stdout)
+        self.assertEqual(data_b["health"]["intent_count"], 1)
+        self.assertEqual(data_b["health"]["constraints_count"], initial_constraints)
+        self.assertEqual(data_b["health"]["wisdom_count"], initial_wisdom)
+        intent_contents = [e["content"] for e in data_b["current_smm"]["intent"]]
+        self.assertIn("Curated: Ship v1", intent_contents)
 
 
 class TestCoordinationIntegration(_IntegrationTestCase):
@@ -460,26 +522,15 @@ class TestCoordinationIntegration(_IntegrationTestCase):
 class TestRetroPreloadIntegration(_IntegrationTestCase):
     """Verify preload.sh outputs digest but not raw events."""
 
-    def _run_preload(self) -> subprocess.CompletedProcess:
-        """Run the retrospective preload.sh script."""
-        preload_sh = (
+    def test_preload_outputs_paths_and_guide(self):
+        """Preload outputs SMM_DIR, RETRO_INPUT path, and behavioral guide."""
+        result = self._run_preload(
             Path(__file__).parent.parent.parent
             / "skills"
             / "xp-run-retrospective"
             / "scripts"
             / "preload.sh"
         )
-        return subprocess.run(
-            ["bash", str(preload_sh)],
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._test_env,
-        )
-
-    def test_preload_outputs_paths_and_guide(self):
-        """Preload outputs SMM_DIR, RETRO_INPUT path, and behavioral guide."""
-        result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         output = result.stdout
         self.assertIn("SMM_DIR=", output)

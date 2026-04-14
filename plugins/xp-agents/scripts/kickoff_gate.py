@@ -37,9 +37,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    if smm_dir is None:
-        smm_dir = _common.resolve_smm_dir()
-    smm_dir = _common.try_validate_smm_dir(smm_dir)
+    cwd = input_data.get("cwd", "")
+    if "/.claude/worktrees/" in cwd:
+        return None
+
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
 
@@ -66,9 +68,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if source == "clear":
         return _NUDGE
 
+    reason = _REVIEW_MESSAGE
+    extras: list[str] = []
+    if markers.marker_exists(smm_dir, markers.NEEDS_EXECUTION_PLAN):
+        extras.append("Run /xp-plan to create an execution plan.")
+    if markers.marker_exists(smm_dir, markers.NEEDS_SPRINT):
+        extras.append("Run /xp-sprint-start to plan sprint stories.")
+    if extras:
+        reason = reason + " " + " ".join(extras)
+
     return {
         "decision": "block",
-        "reason": _REVIEW_MESSAGE,
+        "reason": reason,
     }
 
 
@@ -77,7 +88,7 @@ if __name__ == "__main__":
     result = run(input_data)
     if result == _NUDGE:
         _common.hook_output("UserPromptSubmit", _REVIEW_MESSAGE)
-    elif result is not None:
+    elif isinstance(result, dict):
         result["systemMessage"] = "Session kickoff required — run /xp-kickoff."
         print(json.dumps(result))
     sys.exit(0)

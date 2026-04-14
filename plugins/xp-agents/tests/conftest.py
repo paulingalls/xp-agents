@@ -8,13 +8,22 @@ test files.
 
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-import uuid
+from collections.abc import Sequence
 from pathlib import Path
+
+# Strip git environment variables so subprocess calls in tests operate on
+# temp repos, not the parent's repo. During git commit, git sets GIT_INDEX_FILE;
+# in worktrees, git sets GIT_DIR/GIT_COMMON_DIR. Any subprocess inheriting
+# these will target the parent repo instead of its own temp dir.
+# Known issue: pre-commit#3032, lefthook#1265.
+for _git_var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+    os.environ.pop(_git_var, None)
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules
@@ -29,6 +38,135 @@ sys.path.insert(0, str(_SMM_DIR))
 
 
 # ---------------------------------------------------------------------------
+# Sprint fixtures — shared across test_accept.py, test_pre_tool_write.py, etc.
+# ---------------------------------------------------------------------------
+
+_STORY_BASE = {
+    "milestone_ref": "",
+    "design_sources": "",
+    "context": "",
+    "file_domain": [],
+    "interface_contracts": [],
+    "acceptance_criteria": [],
+}
+
+
+def _s(id: str, title: str, size: str, status: str, **kw) -> dict:
+    deps = kw.pop("dependencies", [])
+    return {
+        **_STORY_BASE,
+        "id": id,
+        "title": title,
+        "size": size,
+        "status": status,
+        "dependencies": deps,
+        **kw,
+    }
+
+
+def _sprint_json(
+    stories,
+    sprint_id="",
+    started="",
+    goal="Build auth",
+    milestone="",
+):
+    import json
+
+    return json.dumps(
+        {
+            "sprint_id": sprint_id,
+            "goal": goal,
+            "started": started,
+            "milestone": milestone,
+            "stories": stories,
+        }
+    )
+
+
+SPRINT_IN_PROGRESS = _sprint_json(
+    [_s("story-001", "As a user I can log in", "M", "in-progress")]
+)
+
+SPRINT_READY_ONLY = _sprint_json(
+    [_s("story-001", "As a user I can log in", "M", "ready")]
+)
+
+SPRINT_ALL_DONE = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-002", "As a user I can register", "S", "deferred"),
+    ]
+)
+
+SPRINT_COMPLETE_WITH_ID = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-002", "As a user I can register", "S", "deferred"),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
+
+SPRINT_MIXED = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-002", "As a user I can register", "S", "ready"),
+        _s(
+            "story-003",
+            "As an admin I can list users",
+            "L",
+            "ready",
+            dependencies=["story-002"],
+        ),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
+
+SPRINT_MIXED_IN_PROGRESS = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "M", "done"),
+        _s(
+            "story-002",
+            "As a user I can register",
+            "S",
+            "in-progress",
+        ),
+    ],
+    sprint_id="sprint-001",
+    started="2026-04-01",
+)
+
+# Rendered markdown sprint — used by preload-based tests (test_assign,
+# test_subagent_tiers, test_teammate_guide) that write to sprint.json
+# in rendered markdown format rather than raw JSON.
+SAMPLE_SPRINT_MD = """\
+# Sprint: Build user management REST API
+
+- **Sprint ID:** sprint-001
+- **Started:** 2026-03-26
+
+## Stories
+
+### story-001: User registration
+- **Size:** M
+- **Status:** done
+- **Dependencies:** none
+
+### story-002: JWT authentication
+- **Size:** M
+- **Status:** in-progress
+- **Dependencies:** story-001
+
+### story-003: Admin user list
+- **Size:** S
+- **Status:** ready
+- **Dependencies:** story-001
+"""
+
+
+# ---------------------------------------------------------------------------
 # Event factory
 # ---------------------------------------------------------------------------
 
@@ -36,7 +174,7 @@ sys.path.insert(0, str(_SMM_DIR))
 def make_event(event_type: str = "customer_input", **kwargs) -> dict:
     """Create a valid event dict with defaults."""
     event = {
-        "id": str(uuid.uuid4()),
+        "id": secrets.token_hex(6),
         "ts": "2026-03-12T00:00:00+00:00",
         "type": event_type,
         "agent_id": "main",
@@ -56,8 +194,35 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
             event["files"] = kwargs.pop("files", ["src/legacy.py"])
         case "customer_intent":
             event["intent_status"] = kwargs.pop("intent_status", "open")
+        case "sprint":
+            event["metadata"] = kwargs.pop(
+                "metadata", {"sprint_id": "sprint-001", "action": "start"}
+            )
     event.update(kwargs)
     return event
+
+
+# Canonical test-signal factories shared across integration tests that
+# exercise tdd_check.find_last_test_signal. Content strings match
+# scripts/concerns.py::TEST_CONCERN_RE and scripts/tdd_check.py::TEST_PASS_RE.
+def failing_tests_concern(**kwargs) -> dict:
+    """Concern event that find_last_test_signal classifies as 'fail'."""
+    return make_event(
+        "concern",
+        content="Test failures detected: 2 failed (pytest)",
+        severity="high",
+        **kwargs,
+    )
+
+
+def passing_tests_status(**kwargs) -> dict:
+    """Status event that find_last_test_signal classifies as 'pass'."""
+    return make_event(
+        "status",
+        content="Tests: 5 passed, 0 failed (pytest)",
+        working_on=[],
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +263,43 @@ class _SMMTestCase(unittest.TestCase):
 _HookTestCase = _SMMTestCase
 
 
+def write_smm_fixture(
+    smm_dir: Path,
+    *,
+    intent: "Sequence[tuple[str, str]] | None" = None,
+    constraints: "Sequence[tuple[str, str]] | None" = None,
+    risks: "Sequence[tuple[str, str, str]] | None" = None,
+    wisdom: "Sequence[str] | None" = None,
+) -> None:
+    """Build and save an SMM JSON fixture.
+
+    Args:
+        smm_dir: SMM directory path.
+        intent: List of (content, type) tuples — type is "goal" or "customer_intent".
+        constraints: (content, type) tuples — "decision" or "convention".
+        risks: List of (content, type, severity) tuples.
+        wisdom: List of content strings.
+    """
+    import smm_store
+
+    def _make(content: str, **extra: str) -> dict:
+        return {
+            "id": secrets.token_hex(6),
+            "content": content,
+            "source": "seed",
+            "ts": "2026-01-01T00:00:00+00:00",
+            **extra,
+        }
+
+    data: dict = {
+        "intent": [_make(c, type=t) for c, t in (intent or [])],
+        "constraints": [_make(c, type=t) for c, t in (constraints or [])],
+        "risks": [_make(c, type=t, severity=s) for c, t, s in (risks or [])],
+        "wisdom": [_make(c) for c in (wisdom or [])],
+    }
+    smm_store.save_smm(smm_dir, data)
+
+
 # ---------------------------------------------------------------------------
 # Hook input factories
 # ---------------------------------------------------------------------------
@@ -130,9 +332,47 @@ def _make_bash_input(command: str = "echo hi", stdout: str = "", **overrides) ->
     return data
 
 
+def _make_skill_input(skill: str = "test-skill", **overrides) -> dict:
+    """Build a canonical Skill tool hook input dict."""
+    data = {
+        "session_id": "t",
+        "tool_name": "Skill",
+        "tool_input": {"skill": skill},
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
 def _make_stop_input(**overrides) -> dict:
     """Build a canonical Stop hook input dict."""
     data = {"session_id": "t", "agent_id": "main"}
+    data.update(overrides)
+    return data
+
+
+def _make_teammate_idle_input(**overrides) -> dict:
+    """Build a canonical TeammateIdle hook input dict."""
+    data = {
+        "session_id": "t",
+        "teammate_name": "worker-1",
+        "team_name": "test-team",
+        "permission_mode": "bypassPermissions",
+    }
+    data.update(overrides)
+    return data
+
+
+def _make_task_completed_input(**overrides) -> dict:
+    """Build a canonical TaskCompleted hook input dict."""
+    data = {
+        "session_id": "t",
+        "task_id": "task-1",
+        "task_subject": "Implement feature",
+        "task_description": "Build the thing",
+        "teammate_name": "worker-1",
+        "team_name": "test-team",
+    }
     data.update(overrides)
     return data
 
@@ -143,64 +383,122 @@ def _make_stop_input(**overrides) -> dict:
 
 
 class _IntegrationTestCase(unittest.TestCase):
-    """Base class that creates a temp git repo and inits SMM via init.sh."""
+    """Base class that creates a temp git repo and inits SMM via init.sh.
 
-    def setUp(self):
-        self.tmpdir = Path(tempfile.mkdtemp())
-        # Create a git repo
-        subprocess.run(
-            ["git", "init"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
+    The git repo and SMM directory are created once per class (setUpClass).
+    Each test method gets a clean SMM state (events, markers, etc.) via setUp.
+
+    Invariant: test methods sharing a class must not depend on git repo state
+    beyond the initial commit. Git mutations (add, commit) from one test are
+    visible to subsequent tests in the same class.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
-        # Need an initial commit so HEAD exists
-        (self.tmpdir / "README").write_text("init")
+        (cls.tmpdir / "README").write_text("init")
         subprocess.run(
             ["git", "add", "README"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
         subprocess.run(
             ["git", "commit", "-m", "init"],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             check=True,
         )
 
-        # Init SMM — use a temp plugin data dir for test isolation
-        self._plugin_data_dir = Path(tempfile.mkdtemp())
-        self._test_env = os.environ.copy()
-        self._test_env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data_dir)
+        cls._plugin_data_dir = Path(tempfile.mkdtemp())
+        cls._test_env = os.environ.copy()
+        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
 
         init_sh = _PLUGIN_ROOT / "smm" / "init.sh"
         result = subprocess.run(
             ["bash", str(init_sh)],
-            cwd=self.tmpdir,
+            cwd=cls.tmpdir,
             capture_output=True,
             text=True,
             check=True,
-            env=self._test_env,
+            env=cls._test_env,
         )
-        self.smm_dir = Path(result.stdout.strip())
-        self.scripts_dir = _SCRIPTS_DIR
+        cls.smm_dir = Path(result.stdout.strip())
+        cls.scripts_dir = _SCRIPTS_DIR
+        # Snapshot the initial SMM state so setUp can restore it cheaply
+        cls._smm_snapshot: dict[str, bytes] = {}
+        for f in cls.smm_dir.iterdir():
+            if f.is_file():
+                cls._smm_snapshot[f.name] = f.read_bytes()
 
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir)
-        shutil.rmtree(self._plugin_data_dir, ignore_errors=True)
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+        shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
+
+    def setUp(self):
+        # Reset SMM state to the post-init snapshot so each test starts clean.
+        # Remove files/dirs added by previous tests, restore init.sh originals.
+        # Also clean tmpdir (git repo) of files created by previous tests.
+        for f in self.tmpdir.iterdir():
+            if f.name in (".git", "README"):
+                continue
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+        keep = set(self._smm_snapshot) | {"retrospectives"}
+        for f in self.smm_dir.iterdir():
+            if f.name in keep:
+                continue
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+        # Restore snapshotted files (events.jsonl, events.lock, SMM seed, etc.)
+        for name, content in self._smm_snapshot.items():
+            target = self.smm_dir / name
+            if name == "events.jsonl":
+                target.write_bytes(b"")  # Always start with empty events
+            else:
+                target.write_bytes(content)
+        # Clear retrospective files from previous tests
+        retro_dir = self.smm_dir / "retrospectives"
+        if retro_dir.is_dir():
+            for f in retro_dir.iterdir():
+                f.unlink()
+
+    def _run_preload(
+        self,
+        script_path: Path,
+        extra_env: dict | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run a preload.sh script as a subprocess."""
+        if not script_path.is_file():
+            self.skipTest(f"Preload script not found: {script_path}")
+        env = self._test_env.copy()
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            ["bash", str(script_path)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
     def _run_script(
         self, script_name: str, input_data: dict
@@ -277,16 +575,24 @@ class _TempRepoTestCase(unittest.TestCase):
         cls._plugin_data_dir = Path(tempfile.mkdtemp())
         cls._test_env = os.environ.copy()
         cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
-        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "init"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+            env=cls._test_env,
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=cls.tmpdir,
             capture_output=True,
+            env=cls._test_env,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
             cwd=cls.tmpdir,
             capture_output=True,
+            env=cls._test_env,
         )
 
     @classmethod
@@ -323,3 +629,26 @@ class _TempRepoTestCase(unittest.TestCase):
             env=env,
             cwd=str(cls.tmpdir),
         )
+
+
+# ---------------------------------------------------------------------------
+# Worktree test helpers
+# ---------------------------------------------------------------------------
+
+
+def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:
+    """Remove all worktrees matching prefix. For test tearDown."""
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=tmpdir,
+        capture_output=True,
+        text=True,
+    )
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree ") and prefix in line:
+            wt = line.split("worktree ", 1)[1]
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", wt],
+                cwd=tmpdir,
+                capture_output=True,
+            )

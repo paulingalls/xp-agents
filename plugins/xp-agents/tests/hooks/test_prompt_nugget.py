@@ -183,6 +183,124 @@ class TestPromptNugget(_HookTestCase):
         self.assertIn("[debt]", lines[1])
         self.assertIn("[decision]", lines[2])
 
+    def test_resolved_concern_excluded(self):
+        """Concern resolved by a later event should not appear in nugget."""
+        import prompt_nugget
+
+        concern = make_event("concern", content="Test failures", severity="high")
+        resolution = make_event(
+            "status",
+            content="Tests pass now",
+            working_on=[],
+            metadata={"resolves": [concern["id"]]},
+        )
+        self._write_events([concern, resolution])
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        # Concern is resolved — should not appear
+        if result:
+            self.assertNotIn("Test failures", result)
+
+    def test_unresolved_concern_still_shown(self):
+        """Unresolved concern should still appear."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event("concern", content="Real problem", severity="high"),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Real problem", result)
+
+    def test_test_failure_concern_excluded(self):
+        """Test failure concerns are filtered — already visible in tool output."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Test command failed (unittest): Exit code 1",
+                    severity="medium",
+                ),
+                make_event(
+                    "concern",
+                    content="Test failures detected: 3 failed (unittest)",
+                    severity="medium",
+                ),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_lint_concern_excluded(self):
+        """Lint concerns are filtered — already visible in edit hook output."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Lint errors in plugins/xp-agents/scripts/foo.py: 2 errors",
+                    severity="medium",
+                ),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_non_test_concern_still_shown(self):
+        """Non-test/lint concerns still appear in nuggets."""
+        import prompt_nugget
+
+        self._write_events(
+            [
+                make_event(
+                    "concern",
+                    content="Commit touches 12 files",
+                    severity="medium",
+                ),
+            ]
+        )
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Commit touches", result)
+
+    def test_resolved_debt_excluded(self):
+        """Debt resolved by a later event should not appear."""
+        import prompt_nugget
+
+        debt = make_event("debt", content="Missing test", files=["a.py"])
+        resolution = make_event(
+            "status",
+            content="Test added",
+            working_on=[],
+            metadata={"resolves": [debt["id"]]},
+        )
+        self._write_events([debt, resolution])
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("Missing test", result)
+
 
 if __name__ == "__main__":
     unittest.main()

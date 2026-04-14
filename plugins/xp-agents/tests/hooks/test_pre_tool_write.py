@@ -14,6 +14,8 @@ import _common
 import coordination
 import pre_tool_write
 from conftest import (
+    SPRINT_IN_PROGRESS,
+    SPRINT_READY_ONLY,
     _HookTestCase,
     _make_bash_input,
     _make_write_input,
@@ -222,6 +224,34 @@ class TestCheckTddOrder(_HookTestCase):
         result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")
         self.assertIsNone(result)
 
+    def test_markdown_no_tracking(self):
+        """Non-code files (md, json, yaml) should not trigger TDD nudge."""
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md", "Write")
+        result = pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "docs/DESIGN.md", "Write"
+        )
+        self.assertIsNone(result)
+
+    def test_execution_plan_no_tracking(self):
+        """execution_plan.json should not trigger TDD nudge."""
+        pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "execution_plan.json", "Write"
+        )
+        result = pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "sprint.json", "Write"
+        )
+        self.assertIsNone(result)
+
+    def test_code_after_markdown_still_nudges(self):
+        """Markdown writes don't count, but code writes after them do."""
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md", "Write")
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.py", "Write")
+        result = pre_tool_write.check_tdd_order(
+            self.smm_dir, "main", "src/utils.py", "Write"
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("TDD", result)
+
 
 class TestPreToolWriteRun(_HookTestCase):
     def test_xp_agent_skips(self):
@@ -420,6 +450,124 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
         )
         if result:
             self.assertNotIn("xp-review-plan", result)
+
+
+class TestAssignPendingGate(_HookTestCase):
+    """PreToolUse blocks writes when /xp-assign hasn't run after plan review."""
+
+    def test_assign_pending_blocks_write(self):
+        """Write with .assign-pending marker should block."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.touch()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("xp-assign", str(ctx.exception))
+
+    def test_plan_file_exempt_from_assign_gate(self):
+        """Write to .claude/plans/ allowed even with assign-pending marker."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.touch()
+        plan_input = _make_write_input(
+            session_id="t",
+            cwd="/tmp",
+            tool_input={
+                "file_path": "/Users/x/.claude/plans/my-plan.md",
+                "content": "# Plan\n1. Do stuff",
+            },
+        )
+        result = pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("xp-assign", result)
+
+    def test_no_assign_marker_no_block(self):
+        """Write without assign-pending marker should not block."""
+        result = pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("xp-assign", result)
+
+
+class TestQuestionGate(_HookTestCase):
+    """PreToolUse blocks writes when a blocking question is unanswered."""
+
+    def test_question_gate_blocks_write(self):
+        """Write with .question-gate should block."""
+        gate = self.smm_dir / ".question-gate"
+        gate.write_text("test-question-id")
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("AskUserQuestion", str(ctx.exception))
+
+    def test_no_question_gate_no_block(self):
+        """Write without .question-gate should not block."""
+        result = pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        if result:
+            self.assertNotIn("AskUserQuestion", result)
+
+
+class TestAcceptMarker(_HookTestCase):
+    """pre_tool_write sets accept marker when in-progress stories exist."""
+
+    def test_sets_accept_marker_when_in_progress_stories(self):
+        """Write + in-progress stories → marker set."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_no_marker_when_no_sprint(self):
+        """Write + no sprint → no marker."""
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_no_marker_when_no_in_progress(self):
+        """Write + all ready stories → no marker."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_idempotent_marker_setting(self):
+        """Marker already exists → no error, still exists."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue((self.smm_dir / ".accept").exists())
+
+    def test_plan_file_does_not_set_marker(self):
+        """Plan file writes should not trigger accept marker."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        plan_input = _make_write_input(
+            session_id="t",
+            cwd="/tmp",
+            tool_input={
+                "file_path": "/Users/x/.claude/plans/my-plan.md",
+                "content": "# Plan",
+            },
+        )
+        pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".accept").exists())
 
 
 if __name__ == "__main__":
