@@ -629,3 +629,26 @@ class _TempRepoTestCase(unittest.TestCase):
             env=env,
             cwd=str(cls.tmpdir),
         )
+
+
+# ---------------------------------------------------------------------------
+# Worktree test helpers
+# ---------------------------------------------------------------------------
+
+
+def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:
+    """Remove all worktrees matching prefix. For test tearDown."""
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=tmpdir,
+        capture_output=True,
+        text=True,
+    )
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree ") and prefix in line:
+            wt = line.split("worktree ", 1)[1]
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", wt],
+                cwd=tmpdir,
+                capture_output=True,
+            )

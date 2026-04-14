@@ -25,36 +25,16 @@ import _common
 
 def cleanup_existing(name: str, cwd: str) -> None:
     """Remove existing worktree and branch if present."""
-    repo_root = _common.resolve_git_root(cwd)
-    if not repo_root:
-        return
-    wt_path = Path(repo_root) / ".claude" / "worktrees" / name
-
-    if wt_path.is_dir():
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", str(wt_path)],
-            cwd=cwd,
-            capture_output=True,
-        )
-
-    subprocess.run(
-        ["git", "branch", "-D", name],
-        cwd=cwd,
-        capture_output=True,
-    )
+    _common.remove_worktree(name, cwd, force_branch=True)
 
 
 def create_worktree(name: str, cwd: str) -> str:
     """Create a git worktree for a teammate. Returns worktree path."""
     cleanup_existing(name, cwd)
 
-    repo_root = _common.resolve_git_root(cwd)
-    if not repo_root:
-        raise RuntimeError(f"Not a git repository: {cwd}")
-
-    wt_dir = Path(repo_root) / ".claude" / "worktrees"
-    wt_dir.mkdir(parents=True, exist_ok=True)
-    wt_path = str(wt_dir / name)
+    wt = _common.worktree_path(name, cwd)
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    wt_path = str(wt)
 
     cmd = ["git", "worktree", "add", "-b", name, wt_path]
     current = _common.get_current_branch(cwd)

@@ -20,6 +20,7 @@ from conftest import (
     _IntegrationTestCase,
     _s,
     _sprint_json,
+    cleanup_test_worktrees,
     write_smm_fixture,
 )
 
@@ -90,21 +91,8 @@ class TestWorktreeCreateSubprocess(_IntegrationTestCase):
         self.assertTrue(Path(wt_path).is_dir())
 
     def tearDown(self):
-        # Clean up worktrees created by tests
-        result = subprocess.run(
-            ["git", "worktree", "list", "--porcelain"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("worktree ") and "worktree-" in line:
-                wt = line.split("worktree ", 1)[1]
-                subprocess.run(
-                    ["git", "worktree", "remove", "--force", wt],
-                    cwd=self.tmpdir,
-                    capture_output=True,
-                )
+        cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
+        super().tearDown()
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +487,134 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
             inp, smm_dir=self.smm_dir, has_uncommitted=False
         )
         self.assertIsNone(result)
+
+
+class TestCleanupTeammateE2E(_IntegrationTestCase):
+    """Full lifecycle: create worktree, commit, merge, cleanup."""
+
+    def test_full_cleanup_lifecycle(self):
+        """Create worktree, merge branch, run cleanup, verify gone."""
+        import markers
+        import spawn_teammate
+
+        name = "teammate-story-e2e"
+        wt_path = spawn_teammate.create_worktree(name, str(self.tmpdir))
+        self.assertTrue(Path(wt_path).is_dir())
+
+        # Commit in the worktree
+        (Path(wt_path) / "feature.txt").write_text("feature")
+        subprocess.run(
+            ["git", "add", "feature.txt"],
+            cwd=wt_path,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Add feature"],
+            cwd=wt_path,
+            capture_output=True,
+            check=True,
+        )
+
+        # Create markers and report
+        markers.write_review_cycle(self.smm_dir, name, {"simplify_done": True})
+        report = self.smm_dir / f".teammate-report-{name}.txt"
+        report.write_text("E2E report")
+
+        # Merge into main branch
+        subprocess.run(
+            ["git", "merge", name, "--no-ff", "-m", "Merge"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+        # Run cleanup via subprocess
+        result = subprocess.run(
+            [
+                "python3",
+                str(self.scripts_dir / "cleanup_teammate.py"),
+                "--name",
+                name,
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(self.tmpdir),
+            env=self._test_env,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stderr: {result.stderr}",
+        )
+
+        # Verify everything is cleaned up
+        self.assertFalse(
+            Path(wt_path).is_dir(),
+            "Worktree dir should be removed",
+        )
+        branch_list = subprocess.run(
+            ["git", "branch", "--list", name],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            branch_list.stdout.strip(),
+            "",
+            "Branch should be deleted",
+        )
+        rc_path = markers.marker_path(self.smm_dir, markers.REVIEW_CYCLE, name)
+        self.assertFalse(rc_path.exists(), "Markers gone")
+        self.assertFalse(report.exists(), "Report gone")
+
+    def test_cleanup_rejects_unmerged(self):
+        """Cleanup exits non-zero when branch has unmerged commits."""
+        import spawn_teammate
+
+        name = "teammate-story-unmerged"
+        wt_path = spawn_teammate.create_worktree(name, str(self.tmpdir))
+
+        # Commit in worktree but DON'T merge
+        (Path(wt_path) / "wip.txt").write_text("wip")
+        subprocess.run(
+            ["git", "add", "wip.txt"],
+            cwd=wt_path,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "WIP"],
+            cwd=wt_path,
+            capture_output=True,
+            check=True,
+        )
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(self.scripts_dir / "cleanup_teammate.py"),
+                "--name",
+                name,
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(self.tmpdir),
+            env=self._test_env,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unmerged", result.stderr.lower())
+
+        # Worktree should still exist
+        self.assertTrue(Path(wt_path).is_dir())
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
 
 
 if __name__ == "__main__":

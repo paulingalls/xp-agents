@@ -39,7 +39,7 @@ def parse_result_event(lines: list[str]) -> dict | None:
 
 def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:
     """Write teammate report file. Returns the file path."""
-    path = smm_dir / f".teammate-report-{teammate_id}.txt"
+    path = _common.teammate_report_path(smm_dir, teammate_id)
     path.write_text(result_text)
     return path
 

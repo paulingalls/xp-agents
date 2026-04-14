@@ -253,6 +253,31 @@ class TestResolveGitRoot(unittest.TestCase):
         self.assertEqual(len(_common._git_root_cache), 0)
 
 
+class TestWorktreePath(unittest.TestCase):
+    def setUp(self):
+        _common._clear_git_root_cache()
+
+    def tearDown(self):
+        _common._clear_git_root_cache()
+
+    def test_returns_path_under_claude_worktrees(self):
+        """worktree_path returns {git_root}/.claude/worktrees/{name}."""
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            result = _common.worktree_path("teammate-story-001", tmpdir)
+            real = os.path.realpath(tmpdir)
+            expected = Path(real) / ".claude" / "worktrees" / "teammate-story-001"
+            self.assertEqual(result, expected)
+
+    def test_raises_for_non_git_repo(self):
+        """worktree_path raises RuntimeError outside a git repo."""
+        with self.assertRaises(RuntimeError):
+            _common.worktree_path("teammate-1", "/")
+
+
 class TestNormalizePath(unittest.TestCase):
     def setUp(self):
         _common._clear_git_root_cache()

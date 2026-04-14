@@ -38,16 +38,6 @@ def _get_default_branch(cwd: str) -> str:
         return ""
 
 
-def _get_repo_root(cwd: str) -> str:
-    """Get git repo root directory."""
-    return subprocess.check_output(
-        ["git", "rev-parse", "--show-toplevel"],
-        text=True,
-        cwd=cwd,
-        stderr=subprocess.DEVNULL,
-    ).strip()
-
-
 def run(input_data: dict) -> str:
     """Create worktree with correct branch base. Returns worktree path.
 
@@ -67,11 +57,9 @@ def run(input_data: dict) -> str:
             file=sys.stderr,
         )
 
-    # Generate worktree path under .claude/worktrees/ in repo root
-    repo_root = _get_repo_root(cwd)
-    worktree_dir = Path(repo_root) / ".claude" / "worktrees"
-    worktree_dir.mkdir(parents=True, exist_ok=True)
-    worktree_path = str(worktree_dir / name)
+    wt = _common.worktree_path(name, cwd)
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    worktree_path = str(wt)
 
     # Branch from current branch if it differs from default
     branch = f"worktree-{name}"

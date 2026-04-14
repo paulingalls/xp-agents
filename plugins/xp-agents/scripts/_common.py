@@ -356,6 +356,39 @@ def _clear_git_root_cache() -> None:
     _git_root_cache.clear()
 
 
+def worktree_path(name: str, cwd: str) -> Path:
+    """Return the path to a worktree: {git_root}/.claude/worktrees/{name}."""
+    root = resolve_git_root(cwd)
+    if not root:
+        raise RuntimeError(f"Not a git repository: {cwd}")
+    return Path(root) / ".claude" / "worktrees" / name
+
+
+def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
+    """Remove a git worktree directory and its branch."""
+    try:
+        wt = worktree_path(name, cwd)
+    except RuntimeError:
+        return
+    if wt.is_dir():
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(wt)],
+            cwd=cwd,
+            capture_output=True,
+        )
+    flag = "-D" if force_branch else "-d"
+    subprocess.run(
+        ["git", "branch", flag, name],
+        cwd=cwd,
+        capture_output=True,
+    )
+
+
+def teammate_report_path(smm_dir: Path, name: str) -> Path:
+    """Return the path to a teammate's report file."""
+    return smm_dir / f".teammate-report-{name}.txt"
+
+
 def normalize_path(file_path: str, cwd: str) -> str:
     """Resolve a file path against cwd, return project-relative string.
 

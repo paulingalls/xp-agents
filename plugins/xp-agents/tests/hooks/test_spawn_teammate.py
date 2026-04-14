@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase
+from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
 class TestCleanupExisting(_IntegrationTestCase):
@@ -119,20 +119,7 @@ class TestCreateWorktree(_IntegrationTestCase):
         self.assertEqual(wt_path1, wt_path2)
 
     def tearDown(self):
-        result = subprocess.run(
-            ["git", "worktree", "list", "--porcelain"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("worktree ") and "teammate-" in line:
-                wt = line.split("worktree ", 1)[1]
-                subprocess.run(
-                    ["git", "worktree", "remove", "--force", wt],
-                    cwd=self.tmpdir,
-                    capture_output=True,
-                )
+        cleanup_test_worktrees(self.tmpdir)
         super().tearDown()
 
 

@@ -57,8 +57,8 @@ class TestWorktreeCreate(unittest.TestCase):
                 return_value=default,
             ),
             mock.patch.object(
-                self.worktree_create,
-                "_get_repo_root",
+                _common,
+                "resolve_git_root",
                 return_value="/repo",
             ),
             mock.patch("subprocess.run") as mock_run,
@@ -138,8 +138,8 @@ class TestWorktreeCreate(unittest.TestCase):
                 return_value="main",
             ),
             mock.patch.object(
-                self.worktree_create,
-                "_get_repo_root",
+                _common,
+                "resolve_git_root",
                 return_value="/repo",
             ),
             mock.patch("pathlib.Path.mkdir"),
