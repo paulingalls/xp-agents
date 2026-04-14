@@ -151,6 +151,50 @@ class TestWorkSignals(unittest.TestCase):
         # 1 event (the edit), NOT 3 (goal + decision + edit)
         self.assertEqual(result["max_events_to_commit"], 1)
 
+    def test_non_code_files_dont_start_gap(self):
+        """Writes to .json/.md files don't trigger the gap counter."""
+        import work_signals
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to sprint.json",
+                working_on=["sprint.json"],
+            ),
+            make_event(
+                "status",
+                content="Wrote to plan.md",
+                working_on=["plan.md"],
+            ),
+            make_event("status", content="Some hook status", working_on=[]),
+            make_event("status", content="Some hook status", working_on=[]),
+            make_event(
+                "status",
+                content="Wrote to auth.py",
+                working_on=["scripts/auth.py"],
+            ),
+            make_event("commit", content="Add auth"),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_events_to_commit"], 1)
+
+    def test_code_file_starts_gap(self):
+        """Writes to .py/.ts files do trigger the gap counter."""
+        import work_signals
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to auth.py",
+                working_on=["scripts/auth.py"],
+            ),
+            make_event("status", content="Some status", working_on=[]),
+            make_event("status", content="Some status", working_on=[]),
+            make_event("commit", content="Add auth"),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_events_to_commit"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

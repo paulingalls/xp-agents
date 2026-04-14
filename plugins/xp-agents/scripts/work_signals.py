@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import security
 
 _TEST_RUN_RE = _common.TEST_RUN_RE
 _TEST_FAIL_RE = re.compile(r"(\d+)\s+failed", re.IGNORECASE)
@@ -20,9 +21,11 @@ _COMMIT_RE = _common.LEGACY_COMMIT_RE
 
 
 def _has_code_changes(event: dict) -> bool:
-    """Check if event represents a code change (non-empty working_on)."""
+    """Check if event represents a code file write (not config/docs)."""
     working_on = event.get("working_on", [])
-    return isinstance(working_on, list) and len(working_on) > 0
+    if not isinstance(working_on, list):
+        return False
+    return any(security.is_code_file(f) for f in working_on)
 
 
 def build_work_signals(events: list[dict]) -> dict:
