@@ -233,10 +233,11 @@ The `shared_mental_model.json` is written by housekeeping (with judgment) via `s
 | When | What | Cost |
 |---|---|---|
 | Session start | GUPP + skills list only (no SMM) | ~100 tokens, once |
+| SessionStart (teammate) | CLI teammates get XP Values + TEAMMATE_GUIDE.md + rendered SMM via SessionStart hook | ~1000 tokens, once |
 | After housekeeping | Agent Reads curated SMM file directly | ~500 tokens, once |
 | After housekeeping | Process guide + XP values via PostToolUse:Skill hook | ~500 tokens, once |
 | UserPromptSubmit | Nugget: new signal events since last prompt (watermark-based) | ~50-100 tokens |
-| SubagentStart | Tiered: Explore gets Intent+Constraints, Plan/default gets full SMM, Teammates get SMM + guide + sprint | ~200-1000 tokens |
+| SubagentStart | Tiered: Explore gets Intent+Constraints, Plan/default gets full SMM | ~200-500 tokens |
 
 **No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, `.review-cycle-{agent_id}.json` for commit-gated review cycle, TDD tracker for test enforcement. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
 
@@ -303,7 +304,9 @@ New since last prompt:
 
 ### SubagentStart
 
-Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. Plan/general-purpose subagents get the full curated SMM (~500 tokens). Teammates get full SMM + TEAMMATE_GUIDE.md + sprint stories. All rendered from `shared_mental_model.json` via `smm_cli.py`.
+Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. Plan/general-purpose subagents get the full curated SMM (~500 tokens). All rendered from `shared_mental_model.json` via `smm_cli.py`.
+
+**Note:** CLI teammates do NOT use SubagentStart — they are independent `claude -p` processes, not Agent tool subagents. Teammate context (XP Values + TEAMMATE_GUIDE.md + rendered SMM) is injected via the SessionStart hook when `is_worktree_teammate()` detects a worktree path.
 
 ### Conflict detection (not a nugget)
 

@@ -1,5 +1,11 @@
 # Agent Teams Design — Sprint-Driven XP
 
+> **Superseded.** This design was replaced by CLI teammates (`claude -p` in git worktrees).
+> See [CLI_TEAMMATE_DESIGN.md](CLI_TEAMMATE_DESIGN.md) for the implemented approach.
+> Agent Teams had platform limitations (no sub-agent spawning, unreliable Stop hooks,
+> no `agent_type` in Stop input) that prevented reliable hook enforcement.
+> This document is preserved as historical design reference.
+
 ## Overview
 
 This document maps XP sprint practices to Claude Code Agent Teams. The core insight: Agent Teams provide the parallel execution engine, xp-agents provides the persistence, ceremony, and coordination layer. Neither alone delivers sprint-driven development — together they do.
