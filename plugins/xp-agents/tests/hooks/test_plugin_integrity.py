@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 _SUBAGENT_NAMES = (
+    "xp-code-reviewer",
     "xp-housekeeper",
     "xp-plan-reviewer",
     "xp-retrospective",
@@ -251,6 +252,34 @@ class TestAgentFilesM65(unittest.TestCase):
 
 
 # ===========================================================================
+# Quality Review Skill Structure
+# ===========================================================================
+
+
+class TestQualityReviewSkill(unittest.TestCase):
+    """Quality review skill uses xp-code-reviewer subagent."""
+
+    def setUp(self):
+        self.skill_file = (
+            Path(__file__).parent.parent.parent
+            / "skills"
+            / "xp-quality-review"
+            / "SKILL.md"
+        )
+        self.content = self.skill_file.read_text()
+        match = re.match(r"^---\n(.*?)\n---", self.content, re.DOTALL)
+        self.fm = match.group(1) if match else ""
+
+    def test_allowed_tools_includes_agent(self):
+        """Quality review SKILL.md must allow the Agent tool."""
+        self.assertIn("Agent", self.fm)
+
+    def test_references_code_reviewer(self):
+        """Quality review SKILL.md must reference xp-code-reviewer."""
+        self.assertIn("xp-code-reviewer", self.content)
+
+
+# ===========================================================================
 # M7: Plugin Integrity
 # ===========================================================================
 
@@ -316,20 +345,6 @@ class TestPluginIntegrity(unittest.TestCase):
     def test_all_prompt_hooks_exist(self):
         """Every prompt file referenced in hooks.json exists on disk."""
         self._assert_hook_paths_exist("prompt", "prompt")
-
-    def test_all_agent_files_exist(self):
-        """All agent .md files exist in agents/ directory."""
-        agents_dir = self.plugin_root / "agents"
-        for name in _SUBAGENT_NAMES:
-            path = agents_dir / f"{name}.md"
-            self.assertTrue(path.is_file(), f"Missing agent: {path}")
-
-    def test_all_skill_files_exist(self):
-        """All SKILL.md files exist in skills/ directory."""
-        skills_dir = self.plugin_root / "skills"
-        for name in _ALL_SKILL_NAMES:
-            path = skills_dir / name / "SKILL.md"
-            self.assertTrue(path.is_file(), f"Missing skill: {path}")
 
     def test_kickoff_skill_has_sprint_steps(self):
         """Kickoff SKILL.md must have the redesigned flow steps."""

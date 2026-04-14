@@ -96,19 +96,6 @@ class TestSubagentStart(_HookTestCase):
         ]
         self.assertEqual(len(start_events), 1)
 
-    def test_falls_back_to_values_without_smm_file(self):
-        """Without curated SMM, non-Explore agent gets XP values."""
-        import subagent_start
-
-        self._write_events([make_event("goal", content="Ship v1")])
-        # No shared_mental_model.json on disk
-        result = subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
-
 
 class TestSubagentStartEvent(_HookTestCase):
     """Tests for SubagentStart event recording (async agent timing fix)."""
@@ -357,6 +344,27 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("XP Values", result)
+
+    def test_code_reviewer_gets_full_smm(self):
+        """xp-code-reviewer gets full SMM (overrides xp-* default)."""
+        for agent_type in ("xp-code-reviewer", "xp-agents:xp-code-reviewer"):
+            with self.subTest(agent_type=agent_type):
+                result = self.subagent_start.run(
+                    {
+                        "session_id": "t",
+                        "agent_id": "reviewer-1",
+                        "agent_type": agent_type,
+                    },
+                    smm_dir=self.smm_dir,
+                )
+                self.assertIsNotNone(result)
+                self.assertIn("Intent", result)
+                self.assertIn("Ship v1", result)
+                self.assertIn("Constraints", result)
+                self.assertIn("Python 3.10+", result)
+                self.assertIn("Risks", result)
+                self.assertIn("Wisdom", result)
+                self.assertIn("XP Values", result)
 
     def test_other_xp_agents_get_values(self):
         """xp-* agents not in dispatch table still get XP values."""

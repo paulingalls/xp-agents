@@ -1,9 +1,9 @@
 ---
 name: xp-quality-review
 description: >-
-  Post-simplify quality review. Courage accountability for skipped simplify
-  recommendations, drift management against SMM Constraints, and debt-aware
-  review. Triggered by the quality review stop gate after /simplify completes.
+  Post-simplify quality review. Spawns an independent xp-code-reviewer subagent
+  for simplify accountability, drift management, debt awareness, and XP-lens
+  code review. Resolves plan concerns inline.
 effort: high
 allowed-tools:
   - Read
@@ -11,6 +11,7 @@ allowed-tools:
   - Write
   - Grep
   - Glob
+  - Agent
   - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
@@ -21,42 +22,56 @@ allowed-tools:
 
 # Quality Review
 
-You are performing a post-simplify quality review as a courageous senior engineer. The `/simplify` skill just ran (3 agents reviewed for code reuse, code quality, and efficiency). Your job is **not** to repeat that review — it's to hold the agent accountable and check alignment.
+You are performing a post-simplify quality review. The `/simplify` skill just ran (3 agents reviewed for code reuse, code quality, and efficiency). Your job is to orchestrate an independent review and resolve plan concerns.
 
-## Step 1: Courage — Review Skipped Simplify Recommendations
+## Step 1: Spawn Independent Code Reviewer
 
-Look back through the conversation for what `/simplify` recommended. **Default to applying recommendations, not skipping them.** Skipping is the easy path — courage means doing the work now.
+Gather data from the conversation and preload, then spawn the `xp-code-reviewer` subagent.
 
-For each recommendation:
-- **Applied?** Move on.
-- **Skipped?** Read the file and the recommendation. Apply it unless it would **break a public API contract**.
-  - Everything that can be fixed gets fixed now, we don't like debt. 
-  - "It's consistent with existing code", "it's a design choice", "low severity", "pre-existing code", and "not our change" are **not valid reasons to skip**. 
-  - If existing code is wrong, fix it. If a reviewer found it, it matters. If truly too large, record as `debt` with the specific reason.
+### Gather simplify findings
 
-## Step 2: Drift Management — Check Against SMM Constraints
+Look back through the conversation for what `/simplify`'s three agents found. For each finding, capture it as a quoted item — include the file, what was recommended, and whether it was applied or skipped. **Do NOT include the skip reasons** — the subagent should form its own opinion.
 
-Check if code changes contradict recorded decisions or conventions in the SMM's **Constraints** pillar (already in conversation context from session start).
-
-For each decision/convention that relates to the changed files, check alignment:
-- Decision says "Use REST for API" but code adds GraphQL endpoint → drift
-- Convention says "All DB queries use ORM" but code adds raw SQL → drift
-- Decision says "Single responsibility per module" but new code adds unrelated responsibilities → drift
-
-For each drift found, record a concern:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "concern" \
-  --agent "xp-quality-review" \
-  --content "Decision drift: [describe how code contradicts decision/convention]" \
-  --severity "medium" \
-  --files '["path/to/drifted/file.py"]'
+Format as a numbered list:
+```
+1. [Agent: Code Reuse] file.py: "finding text" — APPLIED
+2. [Agent: Code Quality] other.py: "finding text" — SKIPPED
+3. [Agent: Efficiency] file.py: "finding text" — APPLIED
+...
 ```
 
-If no Constraints pillar exists in the SMM, skip this step.
+### Build the prompt and spawn
 
-## Step 3: Resolve Addressed Plan Review Concerns
+Use the Agent tool to spawn the reviewer. Include:
+- The simplify findings list you gathered above
+- The diff from the preload output above
+- The debt data from the preload output above (if any)
+- The SMM_DIR path from the preload
+
+```
+Agent(
+  subagent_type: "xp-agents:xp-code-reviewer",
+  prompt: "You are reviewing code changes. Here is your input:
+
+## Diff
+<paste diff from preload>
+
+## Simplify Findings
+<paste your numbered findings list>
+
+## Existing Debt for Changed Files
+<paste debt data from preload, or 'None'>
+
+## SMM Directory
+SMM_DIR=<SMM_DIR from preload>
+
+Review all four areas per your instructions: simplify accountability, drift management, debt awareness, and XP values code review."
+)
+```
+
+Wait for the subagent to complete. Its findings will be returned as a tool result.
+
+## Step 2: Resolve Plan Review Concerns
 
 The preload above lists open concerns from the plan reviewer. For each concern:
 - **If the code changes address it** — resolve it:
@@ -70,30 +85,22 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"resolves": ["<concern-event-id>"]}'
 ```
 
-- **If the concern is still open** — leave it. Don't resolve concerns that haven't been addressed in the code.
+- **If the concern is still open** — leave it.
 
-## Step 4: Debt Awareness — Address Existing Technical Debt
+If no open plan concerns are listed in the preload, skip this step.
 
-The preload above lists any existing debt events for the changed files. For each debt item:
-- **If the changes touch the file and the debt is addressable now** — fix it. This is the best time.
-- **If the changes make the debt worse** — fix it now.
-- **If the changes are unrelated to the debt** — note it but don't block.
+## Step 3: Act on Subagent Findings
 
-## Step 5: Code Smells — Quick Scan
-
-Glance at the changed files for obvious code smells. You're not repeating /simplify — you're catching what slipped through with fresh eyes. Clean code matters: every smell compounds over time and wastes agent context on future reads.
-
-Flag anything that jumps out: functions doing too much, deep nesting, magic values, unclear names, copy-paste patterns, or modules with mixed responsibilities. If it's quick to fix, fix it. If not, record as debt.
-
-## Step 6: Take Action
-
-For each finding from Steps 1–5:
+Review the xp-code-reviewer's summary. For each finding:
 
 ### Fix it directly (preferred — courage)
 Edit the files to address the issue. Run tests afterward to verify.
 
-### Record as technical debt
-If the fix is too large for this review or would change behavior:
+### Already recorded
+If the subagent already recorded concerns or debt via append.sh, no further action needed for those items.
+
+### Record remaining debt
+If a fix is too large for this review:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
@@ -103,7 +110,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --files '["path/to/file.py"]'
 ```
 
-## Step 7: Record Summary
+## Step 4: Record Summary
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
@@ -115,8 +122,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Guidelines
 
-- **Courage over comfort.** If a simplify recommendation was skipped, the default is to apply it. Skipping requires a concrete reason.
-- **Don't repeat /simplify's work.** The 3 review agents already checked for code reuse, quality, and efficiency. Focus on what only you can do: accountability, drift, and debt.
-- **Be efficient.** Don't re-read every file for style issues — that's the linter's and /simplify's job.
+- **Independence is the point.** The xp-code-reviewer subagent has fresh context — it didn't write the code and doesn't know why findings were skipped. Trust its judgment.
+- **Courage over comfort.** If the subagent says a skipped finding should be applied, default to applying it.
+- **Don't repeat work.** The subagent handles simplify accountability, drift, debt, and XP-lens review. You handle plan concerns and act on findings.
 - **Run tests** after any changes to verify nothing breaks.
-- If all code is clean, just record the summary and move on.
+- If the subagent reports all code is clean, just record the summary and move on.

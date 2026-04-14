@@ -3,6 +3,7 @@
 
 Tiered injection via dispatch table:
 - Explore: Intent + Constraints pillars (~200 tokens)
+- xp-code-reviewer: Full SMM (needs Constraints for drift management)
 - Default (Plan/general-purpose/custom): Full SMM
 - xp-* forked agents: values only (data comes from preloads)
 
@@ -44,6 +45,8 @@ def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
 
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
+    "xp-code-reviewer": _inject_full,
+    "xp-agents:xp-code-reviewer": _inject_full,
 }
 
 
@@ -56,7 +59,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core subagent_start logic. Returns additionalContext or None."""
     agent_type = input_data.get("agent_type", "")
 
-    # Dispatch: known types use their tier
     injector = _DISPATCH.get(agent_type)
     if injector is None:
         injector = _inject_xp_agent if agent_type.startswith("xp-") else _inject_full
