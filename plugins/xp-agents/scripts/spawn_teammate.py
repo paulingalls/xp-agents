@@ -92,6 +92,14 @@ def build_command(
     return cmd
 
 
+def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> None:
+    """Write story assignment file for commit attribution. No-op if story_id is None."""
+    if story_id is None:
+        return
+    path = worktree.story_assignment_path(smm_dir, name)
+    path.write_text(story_id, encoding="utf-8")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
@@ -99,6 +107,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--plugin-dir", default=None)
+    parser.add_argument("--story-id", default=None)
     return parser.parse_args(argv)
 
 
@@ -111,9 +120,10 @@ def main(argv: list[str] | None = None) -> None:
     plugin_dir = args.plugin_dir or detect_plugin_mode()
     cmd = build_command(args.name, plugin_dir)
 
+    write_story_assignment(Path(args.smm_dir), args.name, args.story_id)
+
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir
-    env["TEAMMATE_ID"] = args.name
 
     with open(args.prompt_file) as prompt_stdin:
         subprocess.run(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, check=True)

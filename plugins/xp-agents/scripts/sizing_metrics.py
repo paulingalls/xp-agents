@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Sprint sizing metrics: commit-to-story attribution and aggregation.
 
-Computes per-story and per-size metrics by matching commit events
-against story file_domain entries. Used by retrospective.py to enrich
-.retro-input.json when a sprint has ended.
+Computes per-story and per-size metrics using metadata.story_id set
+at commit time. Used by retrospective.py to enrich .retro-input.json
+when a sprint has ended.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import sprint_store
 _EM_DASH = "\u2014"
 
 
-def _extract_file_domain_paths(file_domain: list[str]) -> set[str]:
+def extract_file_domain_paths(file_domain: list[str]) -> set[str]:
     """Extract file paths from file_domain entries.
 
     Entries are "path — description" or just "path".
@@ -31,7 +31,7 @@ def _extract_file_domain_paths(file_domain: list[str]) -> set[str]:
     return paths
 
 
-def _file_matches_domain(file_path: str, domain: set[str]) -> bool:
+def file_matches_domain(file_path: str, domain: set[str]) -> bool:
     """Check if a file matches the domain.
 
     Handles path prefixes (a/b/scripts/foo.py matches scripts/foo.py)
@@ -52,48 +52,49 @@ def _file_matches_domain(file_path: str, domain: set[str]) -> bool:
 def _attribute_commits(
     commit_events: list[dict], stories: list[dict]
 ) -> dict[str, dict]:
-    """Attribute commits to stories via file_domain overlap.
+    """Attribute commits to stories via metadata.story_id.
 
-    Returns per-story metrics keyed by story id.
+    Uses story_id set at commit time by _resolve_story_id().
+    Commits without story_id are not attributed.
+    Files are deduplicated per story using set union.
     """
+    story_ids = {s["id"] for s in stories}
     story_domains = {
-        s["id"]: _extract_file_domain_paths(s.get("file_domain", [])) for s in stories
+        s["id"]: extract_file_domain_paths(s.get("file_domain", [])) for s in stories
     }
 
-    metrics: dict[str, dict] = {}
-    for s in stories:
-        metrics[s["id"]] = {
-            "commits": 0,
-            "files_changed": 0,
-            "in_domain_files": 0,
-            "out_of_domain_files": 0,
-            "domain_accuracy": 0.0,
-        }
+    commit_counts: dict[str, int] = {sid: 0 for sid in story_ids}
+    all_files: dict[str, set[str]] = {sid: set() for sid in story_ids}
+    domain_files: dict[str, set[str]] = {sid: set() for sid in story_ids}
 
     for commit in commit_events:
         committed_files = set(commit.get("files", []))
         if not committed_files:
             continue
 
-        for story in stories:
-            sid = story["id"]
-            domain = story_domains[sid]
-            if not domain:
-                continue
+        story_id = (commit.get("metadata") or {}).get("story_id")
+        if not story_id or story_id not in story_ids:
+            continue
 
-            overlap = {f for f in committed_files if _file_matches_domain(f, domain)}
-            if not overlap:
-                continue
+        commit_counts[story_id] += 1
+        all_files[story_id] |= committed_files
+        domain = story_domains[story_id]
+        domain_files[story_id] |= {
+            f for f in committed_files if file_matches_domain(f, domain)
+        }
 
-            m = metrics[sid]
-            m["commits"] += 1
-            m["files_changed"] += len(committed_files)
-            m["in_domain_files"] += len(overlap)
-            m["out_of_domain_files"] += len(committed_files) - len(overlap)
-
-    for _sid, m in metrics.items():
-        if m["files_changed"] > 0:
-            m["domain_accuracy"] = m["in_domain_files"] / m["files_changed"]
+    metrics: dict[str, dict] = {}
+    for s in stories:
+        sid = s["id"]
+        total = len(all_files[sid])
+        in_d = len(domain_files[sid])
+        metrics[sid] = {
+            "commits": commit_counts[sid],
+            "files_changed": total,
+            "in_domain_files": in_d,
+            "out_of_domain_files": total - in_d,
+            "domain_accuracy": in_d / total if total > 0 else 0.0,
+        }
 
     return metrics
 

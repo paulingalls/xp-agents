@@ -86,7 +86,7 @@ commits made, and any concerns or assumptions that need attention."
 })
 ```
 
-If a sprint is active (SPRINT_FILE provided), include the relevant story ID in the prompt for status tracking.
+If a sprint is active (SPRINT_FILE provided), include the relevant story ID in the prompt for status tracking, and pass `--story-id story-NNN` to spawn_teammate.py so commit events are attributed to the correct story for sizing metrics.
 
 ### Step 2: Spawn the Teammate
 
@@ -94,10 +94,12 @@ Launch each teammate via Bash with `run_in_background`:
 
 ```bash
 Bash({
-  command: "python3 ${PLUGIN_ROOT}/scripts/spawn_teammate.py --name teammate-step-N --smm-dir ${SMM_DIR} --prompt-file /tmp/prompt-step-N.txt 2>&1 | python3 ${PLUGIN_ROOT}/scripts/teammate_output_filter.py --smm-dir ${SMM_DIR} --teammate-id teammate-step-N",
+  command: "python3 ${PLUGIN_ROOT}/scripts/spawn_teammate.py --name teammate-step-N --smm-dir ${SMM_DIR} --prompt-file /tmp/prompt-step-N.txt --story-id story-NNN 2>&1 | python3 ${PLUGIN_ROOT}/scripts/teammate_output_filter.py --smm-dir ${SMM_DIR} --teammate-id teammate-step-N",
   run_in_background: true
 })
 ```
+
+The `--story-id` flag is optional — omit it when no sprint is active. When provided, spawn_teammate.py writes a `.story-assignment-{name}` file to the SMM directory so the commit hook can attribute commits to the correct story.
 
 spawn_teammate.py creates a git worktree and launches `claude -p`. teammate_output_filter.py captures the result, writes a report file, and records cost/duration to the SMM.
 

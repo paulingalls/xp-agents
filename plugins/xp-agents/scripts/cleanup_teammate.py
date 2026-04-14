@@ -41,6 +41,9 @@ def cleanup(name: str, cwd: str, smm_dir: Path) -> None:
     report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):
         report.unlink()
+    assignment = worktree.story_assignment_path(smm_dir, name)
+    with contextlib.suppress(OSError):
+        assignment.unlink()
 
 
 def main(argv: list[str] | None = None) -> int:

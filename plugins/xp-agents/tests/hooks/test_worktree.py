@@ -73,6 +73,18 @@ class TestWorktreePath(unittest.TestCase):
             worktree.worktree_path("teammate-1", "/")
 
 
+class TestStoryAssignmentPath(unittest.TestCase):
+    def test_returns_dotfile_in_smm_dir(self):
+        """story_assignment_path returns {smm_dir}/.story-assignment-{name}."""
+        result = worktree.story_assignment_path(Path("/smm"), "teammate-step-1")
+        self.assertEqual(result, Path("/smm/.story-assignment-teammate-step-1"))
+
+    def test_different_names_produce_different_paths(self):
+        result_a = worktree.story_assignment_path(Path("/smm"), "teammate-step-1")
+        result_b = worktree.story_assignment_path(Path("/smm"), "teammate-step-2")
+        self.assertNotEqual(result_a, result_b)
+
+
 class TestNormalizePath(unittest.TestCase):
     def setUp(self):
         worktree._clear_git_root_cache()

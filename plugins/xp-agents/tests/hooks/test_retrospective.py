@@ -567,7 +567,11 @@ class TestSprintSizingInRetro(_HookTestCase):
                 content="Committed: add login",
                 files=["scripts/auth.py"],
                 ts="2026-04-05T10:00:00+00:00",
-                metadata={"code_commit": True, "commit_hash": "abc123"},
+                metadata={
+                    "code_commit": True,
+                    "commit_hash": "abc123",
+                    "story_id": "story-001",
+                },
             )
         )
         events.append(

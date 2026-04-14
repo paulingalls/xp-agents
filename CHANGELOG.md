@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.12.1 — Fix Domain Accuracy: Three-Tier Story Attribution
+
+- **Three-tier commit-to-story attribution.** Commits are now attributed to stories using `metadata.story_id` set at commit time, replacing the broken file-overlap heuristic that caused 10-50% domain accuracy for 4 consecutive sprints. Tier 1: teammates use `.story-assignment-{name}` file written by `spawn_teammate.py --story-id`. Tier 2: solo sprint work infers from in-progress stories (single story auto-assigns, multiple tiebreak by file domain overlap). Tier 3: non-sprint commits get no attribution.
+- **File deduplication in sizing metrics.** `_attribute_commits()` now uses set union per story instead of summing per-commit file counts, eliminating double-counting when the same file appears in multiple commits.
+- **spawn_teammate.py --story-id flag.** New optional `--story-id` argument writes a `.story-assignment-{name}` file to the SMM directory for commit attribution. `cleanup_teammate.py` removes it during cleanup.
+- **Dead code removed.** `TEAMMATE_ID` environment variable (set but never read by any hook) removed from `spawn_teammate.py`.
+- **Private functions made public.** `identity.extract_worktree_name()`, `sizing_metrics.file_matches_domain()`, and `sizing_metrics.extract_file_domain_paths()` renamed from private to public for cross-module use.
+
 ## v2.12.0 — Merge + Accept + Cleanup + Documentation
 
 ### Sprint-018: Milestone 5 (Documentation Update)

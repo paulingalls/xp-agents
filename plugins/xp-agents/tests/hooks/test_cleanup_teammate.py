@@ -183,6 +183,23 @@ class TestCleanup(_IntegrationTestCase):
 
         self.assertFalse(report.exists())
 
+    def test_removes_story_assignment_file(self):
+        """Cleanup removes .story-assignment-{name}."""
+        import cleanup_teammate
+        import worktree
+
+        name = "teammate-story-015"
+        _create_teammate_worktree(self.tmpdir, name)
+        _merge_branch(self.tmpdir, name)
+
+        assignment = worktree.story_assignment_path(self.smm_dir, name)
+        assignment.write_text("story-001")
+        self.assertTrue(assignment.exists())
+
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+
+        self.assertFalse(assignment.exists(), "Story assignment file should be removed")
+
     def test_handles_missing_report(self):
         """No error when report file doesn't exist."""
         import cleanup_teammate

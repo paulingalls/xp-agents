@@ -25,7 +25,7 @@ def get_current_branch(cwd: str) -> str:
         return ""
 
 
-def _extract_worktree_name(cwd: str) -> str | None:
+def extract_worktree_name(cwd: str) -> str | None:
     """Extract worktree directory name from cwd, or None if not in worktree."""
     idx = cwd.find(_WORKTREE_PATH_MARKER)
     if idx < 0:
@@ -36,7 +36,7 @@ def _extract_worktree_name(cwd: str) -> str | None:
 
 def is_worktree_teammate(input_data: dict) -> bool:
     """Detect CLI teammates by worktree cwd path with teammate- prefix."""
-    name = _extract_worktree_name(input_data.get("cwd", ""))
+    name = extract_worktree_name(input_data.get("cwd", ""))
     return name.startswith("teammate-") if name else False
 
 
@@ -45,4 +45,4 @@ def resolve_agent_id(input_data: dict) -> str:
     agent_id = input_data.get("agent_id", "")
     if agent_id:
         return agent_id
-    return _extract_worktree_name(input_data.get("cwd", "")) or "main"
+    return extract_worktree_name(input_data.get("cwd", "")) or "main"

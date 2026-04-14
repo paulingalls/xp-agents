@@ -105,6 +105,57 @@ def _session_end_checklist(smm_dir: Path) -> str | None:
     return "Session-end checklist: " + " ".join(parts)
 
 
+def _resolve_story_id(
+    smm_dir: Path,
+    cwd: str,
+    committed_files: list[str],
+) -> str | None:
+    """Resolve story_id for a commit using three-tier attribution.
+
+    Tier 1: Teammate with .story-assignment-{name} file.
+    Tier 2: Solo sprint — single in-progress story, or tiebreak
+            by file domain overlap among in-progress stories.
+    Tier 3: Non-sprint / infrastructure — returns None.
+    """
+    import sizing_metrics
+    import sprint_store
+
+    wt_name = identity.extract_worktree_name(cwd)
+    if wt_name:
+        assignment = worktree.story_assignment_path(smm_dir, wt_name)
+        try:
+            story_id = assignment.read_text(encoding="utf-8").strip()
+            if story_id:
+                return story_id
+        except (FileNotFoundError, OSError):
+            pass
+
+    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        return None
+
+    in_progress = sprint_store.list_stories(sprint, status="in-progress")
+    if not in_progress:
+        return None
+
+    if len(in_progress) == 1:
+        return in_progress[0]["id"]
+
+    best_id: str | None = None
+    best_overlap = 0
+    for story in in_progress:
+        domain = sizing_metrics.extract_file_domain_paths(story.get("file_domain", []))
+        if not domain:
+            continue
+        overlap = sum(
+            1 for f in committed_files if sizing_metrics.file_matches_domain(f, domain)
+        )
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_id = story["id"]
+    return best_id
+
+
 def _handle_commit(
     smm_dir: Path, agent_id: str, cwd: str, response_text: str
 ) -> str | None:
@@ -125,6 +176,10 @@ def _handle_commit(
         metadata: dict = {"code_commit": has_code}
         if commit_hash:
             metadata["commit_hash"] = commit_hash
+
+        story_id = _resolve_story_id(smm_dir, cwd, committed_files)
+        if story_id:
+            metadata["story_id"] = story_id
 
         event = _common.make_event(
             _common.COMMIT,

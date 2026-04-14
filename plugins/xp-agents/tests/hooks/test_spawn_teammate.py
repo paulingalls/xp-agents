@@ -279,5 +279,74 @@ class TestPluginDirArg(unittest.TestCase):
         self.assertIsNone(args.plugin_dir)
 
 
+class TestStoryIdArg(unittest.TestCase):
+    """--story-id CLI arg for story attribution."""
+
+    def test_story_id_optional(self):
+        """--story-id defaults to None when not provided."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            ["--name", "t1", "--smm-dir", "/smm", "--prompt-file", "/p.txt"]
+        )
+        self.assertIsNone(args.story_id)
+
+    def test_story_id_accepted(self):
+        """--story-id is accepted and stored."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            [
+                "--name",
+                "t1",
+                "--smm-dir",
+                "/smm",
+                "--prompt-file",
+                "/p.txt",
+                "--story-id",
+                "story-001",
+            ]
+        )
+        self.assertEqual(args.story_id, "story-001")
+
+
+class TestStoryAssignmentFile(_IntegrationTestCase):
+    """spawn_teammate writes .story-assignment-{name} to SMM dir."""
+
+    def test_writes_story_assignment_when_provided(self):
+        """Story assignment file written with correct content."""
+        import spawn_teammate
+        import worktree
+
+        name = "teammate-step-1"
+        assignment = worktree.story_assignment_path(self.smm_dir, name)
+        spawn_teammate.write_story_assignment(self.smm_dir, name, "story-001")
+        self.assertTrue(assignment.exists())
+        self.assertEqual(assignment.read_text().strip(), "story-001")
+
+    def test_no_file_when_story_id_none(self):
+        """No story assignment file created when story_id is None."""
+        import spawn_teammate
+        import worktree
+
+        name = "teammate-step-2"
+        assignment = worktree.story_assignment_path(self.smm_dir, name)
+        spawn_teammate.write_story_assignment(self.smm_dir, name, None)
+        self.assertFalse(assignment.exists())
+
+
+class TestTeammateIdRemoved(unittest.TestCase):
+    """TEAMMATE_ID env var should not be set."""
+
+    def test_no_teammate_id_in_env_setup(self):
+        """spawn_teammate source code should not set TEAMMATE_ID."""
+        import inspect
+
+        import spawn_teammate
+
+        source = inspect.getsource(spawn_teammate.main)
+        self.assertNotIn("TEAMMATE_ID", source)
+
+
 if __name__ == "__main__":
     unittest.main()
