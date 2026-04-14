@@ -106,6 +106,39 @@ class TestAssignPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_preload_clean_home_no_plans_dir(self):
+        """Preload exits 0 when ~/.claude/ doesn't exist (CI env)."""
+        clean_home = tempfile.mkdtemp()
+        try:
+            result = self._run_preload(_PRELOAD_SCRIPT, extra_env={"HOME": clean_home})
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"Should not fail with clean HOME: {result.stderr}",
+            )
+            self.assertNotIn("PLAN_FILE=", result.stdout)
+        finally:
+            import shutil
+
+            shutil.rmtree(clean_home, ignore_errors=True)
+
+    def test_preload_missing_last_plan_path(self):
+        """Preload exits 0 when .last-plan-path doesn't exist."""
+        marker = self.smm_dir / ".last-plan-path"
+        if marker.exists():
+            marker.unlink()
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("PLAN_FILE=", result.stdout)
+
+    def test_preload_stale_last_plan_path(self):
+        """Preload exits 0 when .last-plan-path points to deleted file."""
+        marker = self.smm_dir / ".last-plan-path"
+        marker.write_text("/tmp/nonexistent-plan-abc123.md")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("PLAN_FILE=", result.stdout)
+
     def test_preload_clears_assign_pending_marker(self):
         """Preload clears .assign-pending marker when it exists."""
         marker = self.smm_dir / ".assign-pending"

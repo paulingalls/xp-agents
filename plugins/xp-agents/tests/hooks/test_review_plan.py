@@ -119,6 +119,31 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_preload_clean_home_no_plans_dir(self):
+        """Preload exits 0 when ~/.claude/plans/ doesn't exist (CI env)."""
+        clean_home = tempfile.mkdtemp()
+        try:
+            result = self._run_preload(_PRELOAD_SCRIPT, extra_env={"HOME": clean_home})
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"Should not fail with clean HOME: {result.stderr}",
+            )
+            self.assertNotIn("PLAN_FILE=", result.stdout)
+        finally:
+            import shutil
+
+            shutil.rmtree(clean_home, ignore_errors=True)
+
+    def test_preload_persists_plan_path_for_assign(self):
+        """Preload writes .last-plan-path for xp-assign to read."""
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        self._run_preload(_PRELOAD_SCRIPT)
+        marker = self.smm_dir / ".last-plan-path"
+        self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text().strip(), str(plan_path))
+
 
 if __name__ == "__main__":
     unittest.main()
