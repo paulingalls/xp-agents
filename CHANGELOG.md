@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.12.0 — Merge + Accept + Cleanup
+
+### Sprint-017: Milestone 4
+- **cleanup_teammate.py.** New script verifies a teammate's branch is fully merged (`git merge-base --is-ancestor`), removes the git worktree and branch, and cleans up agent-scoped markers and report files from the SMM dir. Called by `/xp-accept` after stories pass acceptance criteria.
+- **xp-accept teammate workflow.** Detects teammate worktrees and prompts for branch merge before acceptance. Runs cross-teammate review cycle (`/simplify` + `/xp-quality-review` + `/xp-security-triage`) on the merged result to catch inter-story integration issues. After acceptance, calls `cleanup_teammate.py` for each verified story's worktree.
+- **spawn_teammate.py fix.** Replaced non-existent `--input-file` flag with stdin piping for prompt delivery. Added `--plugin-dir` argument for explicit plugin path passing — env var detection doesn't work outside hook execution context.
+
+### Post-Sprint Refactoring
+- **identity.py extracted from _common.py.** Agent identity resolution: `resolve_agent_id()`, `is_worktree_teammate()`, `get_current_branch()`. 48 lines.
+- **worktree.py extracted from _common.py.** Git/path operations: `resolve_git_root()`, `resolve_smm_dir()`, `worktree_path()`, `remove_worktree()`. 104 lines.
+- **_common.py reduced** from 533 to 384 lines. Both new modules are under 110 lines each.
+
 ## v2.11.0 — CLI Teammate Spawning
 
 ### Sprint-016: Milestone 3
