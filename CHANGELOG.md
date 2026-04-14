@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.12.2 — Retro Try Items: Metrics, CI Tests, Stop Gate Fix
+
+- **Event gap metric fixed.** `_has_code_changes()` in `work_signals.py` now uses `security.is_code_file()` to filter, so only source code writes (not sprint.json, plan .md files) start the events-to-commit counter. The metric was inflated by 80% status events from hook-generated writes to non-code files.
+- **CI-environment test coverage.** Both `xp-review-plan` and `xp-assign` preload scripts now have tests that set `HOME` to a temp dir where `~/.claude/plans/` doesn't exist, verifying graceful degradation. Also covers stale `.last-plan-path` and missing marker scenarios.
+- **Sprint stop gate bypass fixed.** `teammate_output_filter.py` now clears the teammate's `.coordination.json` entry immediately after recording completion. Previously, stale entries (within 30-min TTL) from finished teammates caused the sprint-review nudge to defer indefinitely.
+
 ## v2.12.1 — Fix Domain Accuracy: Three-Tier Story Attribution
 
 - **Three-tier commit-to-story attribution.** Commits are now attributed to stories using `metadata.story_id` set at commit time, replacing the broken file-overlap heuristic that caused 10-50% domain accuracy for 4 consecutive sprints. Tier 1: teammates use `.story-assignment-{name}` file written by `spawn_teammate.py --story-id`. Tier 2: solo sprint work infers from in-progress stories (single story auto-assigns, multiple tiebreak by file domain overlap). Tier 3: non-sprint commits get no attribution.
