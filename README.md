@@ -9,7 +9,7 @@ Kind of like humans.
 
 Over 25 years I've been running, hiring and working with engineers.  Messy, spectrumy, brilliant, strange. They run the gamut. But one thing has constantly brought them together into a powerful team, and those are the values and discipline of Extreme Programming.
 
-So, as Agents become more and more human like, using some of the same practices with them just made sense.  This plugin is my attempt to coral them into a working team, first as a teammate of me (solo agent) and then as a teammate of each other (Agent Teams coming in v2).
+So, as Agents become more and more human like, using some of the same practices with them just made sense.  This plugin is my attempt to coral them into a working team, first as a teammate of me (solo agent) and then as teammates of each other (CLI teammates running in parallel worktrees).
 
 So, give it a shot and drop me an issue.  I'd love to hear what you think...
 
@@ -17,11 +17,11 @@ Paul, the human theoretically in charge..;)
 
 ## TL;DR
 
-**What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans and a retrospective analyst surfaces cross-session learning. Inline skills handle goal collection, question triage, quality review, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
+**What it does:** Command hooks fire automatically on tool calls — blocking conflicts, enforcing TDD, running linters, and tracking status. Plugin subagents provide strategic guidance: a plan reviewer validates plans and a retrospective analyst surfaces cross-session learning. Inline skills handle work selection, quality review, sprint planning, and SMM curation. Everything is broadcast through a shared event log visible to every agent.
 
 **How it works:** Deterministic enforcement (tests, lint, conflicts, security) lives in command hooks — they fire every time. Judgment work (plan analysis, retrospectives, quality review) lives in plugin subagents and inline skills, triggered by hook nudges or stop gates.
 
-**Who it's for:** Anyone using Claude Code — solo agents benefit from the quality review, retrospectives, and TDD enforcement. Agent Teams benefit from the broadcast coordination layer that replaces point-to-point mailboxes.
+**Who it's for:** Anyone using Claude Code — solo agents benefit from the quality review, retrospectives, and TDD enforcement. Teams benefit from the broadcast coordination layer that keeps every agent aligned.
 
 ---
 
@@ -58,7 +58,7 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 
 **Requirements:** Python 3.10+ on PATH. macOS or Linux. Zero external packages.
 
-**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with Agent Teams — the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees).
+**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees).
 
 **For teams:** Add this to your project's `.claude/settings.json` so teammates can discover the plugin:
 
@@ -96,7 +96,7 @@ $ claude
 
 [xp-agents] Goal recorded.
 [xp-agents] Running housekeeping — curating Shared Mental Model...
-[xp-agents] SMM curated. Behavioral guide loaded. Ready to work.
+[xp-agents] SMM curated. Process guide loaded. Ready to work.
 ```
 
 From here, the system takes over:
@@ -144,7 +144,7 @@ $ claude
 [xp-agents] Ready to work.
 ```
 
-Every session starts smarter than the last one ended. The kickoff sequences retrospective → question triage (including previous Try items) → goals → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
+Every session starts smarter than the last one ended. The kickoff sequences retrospective → work selection (questions, Try items, goals) → housekeeping, curating the four-pillar SMM with aging debt, undelivered intents, and lessons learned.
 
 ---
 
@@ -162,9 +162,9 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
-| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review, security triage), kickoff completion (behavioral guide injection + compaction) | Coding Standards, Refactoring, Communication |
+| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review, security triage), kickoff completion (process guide injection + compaction) | Coding Standards, Refactoring, Communication |
 | **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
-| **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + behavioral guide) | Collective Code Ownership |
+| **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + process guide) | Collective Code Ownership |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
@@ -185,23 +185,32 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 
 | Skill | Purpose | When It Runs |
 |---|---|---|
-| `/xp-kickoff` | Session start orchestrator — sequences retro, question triage, goals, housekeeping | Every session start |
+| `/xp-kickoff` | Session start orchestrator — sequences retro, work selection, housekeeping | Every session start |
 | `/xp-run-retrospective` | Keep/Fix/Try analysis with XP values as lenses | Kickoff step 1 (when retro data exists) |
-| `/xp-question-triage` | Resolve open questions, assumptions, and previous retro Try items | Kickoff step 2 (when questions/tries exist) |
-| `/xp-goal-collection` | Review existing goals, add session goals | Kickoff step 3 |
-| `/xp-housekeeping` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | Kickoff step 4 |
+| `/xp-work-selection` | Triage open questions, retro Try items, and select session goals | Kickoff step 2 |
+| `/xp-housekeeping` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | Kickoff step 3 |
+| `/xp-plan` | Execution planning — transforms design sources into ordered milestones with change zones | Before implementation |
+| `/xp-system-context` | Autonomous codebase analysis — produces system description, architecture, constraints | Before planning or on demand |
+| `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
-| `/xp-security-triage` | Classify committed files for security review | Before commits |
+| `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
+| `/xp-simplify` | Inline code review — reuse, quality, efficiency (single-pass, no sub-agents) | Before commit (CLI teammates) |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
+| `/xp-security-triage` | Security review of pending changes | Before commits |
+| `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
+| `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
 
 ### The Shared Mental Model
 
-Instead of point-to-point mailboxes, xp-agents introduces a broadcast event log visible to every agent — the main agent, all subagents, and all Agent Team teammates.
+xp-agents uses a broadcast event log visible to every agent — the main agent, all subagents, and all CLI teammates in parallel worktrees.
 
 ```
 ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── events.jsonl              ← append-only log
-├── SHARED_MENTAL_MODEL.md    ← curated four-pillar view, written by housekeeping
+├── shared_mental_model.json  ← curated four-pillar view, written by housekeeping
+├── execution_plan.json       ← ordered milestones with change zones and design context
+├── sprint.json               ← current sprint stories with file domains and acceptance criteria
+├── system_context.md         ← autonomous codebase analysis (architecture, constraints)
 ├── .curation-watermark       ← last-curated event position
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .plan-awaiting-review     ← plan review gate marker
@@ -210,7 +219,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
 
-The SMM lives in `CLAUDE_PLUGIN_DATA` (`~/.claude/plugins/data/xp-agents-xp-agents/`), keyed by a hash of the git repo's common directory. This means Agent Team teammates in different git worktrees all share the same event log.
+The SMM lives in `CLAUDE_PLUGIN_DATA` (`~/.claude/plugins/data/xp-agents-xp-agents/`), keyed by a hash of the git repo's common directory. This means CLI teammates in different git worktrees all share the same event log.
 
 The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
 - **Intent** — project goals and active customer intents
@@ -218,15 +227,15 @@ The curated view uses a four-pillar model, written by housekeeping (LLM judgment
 - **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity aging)
 - **Wisdom** — lessons learned, retrospective insights, behavioral conventions
 
-Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + behavioral guide). The main agent gets the SMM during housekeeping and the behavioral guide via PostToolUse:Skill hook.
+Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + process guide). The main agent gets the SMM during housekeeping and the process guide via PostToolUse:Skill hook.
 
 Events are semantically typed — each carries different synchronization semantics:
 
 | Event Type | Purpose | Generated By |
 |---|---|---|
-| `goal` | Project north star — what we're building and why | Skill (xp-goal-collection) + customer |
+| `goal` | Project north star — what we're building and why | Skill (xp-work-selection) + customer |
 | `customer_input` | The user's exact words | Command hook (automatic) |
-| `customer_intent` | Distilled customer request — tracked until delivered | Skill (xp-question-triage) |
+| `customer_intent` | Distilled customer request — tracked until delivered | Skill (xp-work-selection) |
 | `status` | What each agent is doing + `working_on` files | Command hook (automatic) + agent |
 | `decision` | Architectural choices | Agent + subagent (plan reviewer) |
 | `convention` | Team standards | Agent |
@@ -270,7 +279,7 @@ After planning, the `/xp-assign` skill analyzes the plan's steps and selects an 
 
 Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
 
-- Tiered context injection at spawn (full SMM + behavioral guide)
+- Tiered context injection at spawn (full SMM + process guide)
 - `working_on` conflict detection across teammates
 - Commit-gated review cycle enforcement (same gates as solo)
 - Decisions and concerns visible to every other agent
@@ -296,7 +305,7 @@ Multi-agent systems fail for reasons that have nothing to do with individual cap
 
 **XP was designed for this.** At "The Future of Software Development" summit (Feb 2026), a major theme was the resurgence of XP practices in the AI era. XP was built for high uncertainty, rapid change, and continuous feedback — exactly what AI agents create.
 
-Claude Code Agent Teams communicate via point-to-point mailboxes and a shared task list. This handles task distribution but not coordination: no shared decision context, no conflict detection, no code review enforcement, no retrospective learning.
+xp-agents provides the coordination layer that Claude Code doesn't ship with: a shared mental model visible to every agent (solo or CLI teammates in parallel worktrees), conflict detection across concurrent workers, commit-gated code review enforcement, and cross-session retrospective learning.
 
 ---
 
@@ -318,7 +327,7 @@ xp-agents enforces honesty through data, not aspiration:
 - **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, commits without security triage, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
 - **Quality review skill** — post-simplify courage check: were recommendations skipped? Drift management: do code changes contradict recorded decisions?
 - **Conflict detector** — catches convention violations, superseded decisions, and unacknowledged contradictions
-- **Behavioral guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
+- **Process guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
 
 ---
 
@@ -338,14 +347,14 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 |---|---|---|
 | **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go/swift/bun/xcodebuild test detection. | `tdd_stop_gate.py`, `pre_tool_write.py`, `bash_post_tool.py` |
 | **Pair Programming** | Skill: quality review after simplify (courage + drift + debt awareness). | `/xp-quality-review` |
-| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Three-layer enforcement via PostToolUse:ExitPlanMode, SubagentStop:Plan, and PreToolUse write block. Skills: goal collection + question triage (including Try item review). | `xp-plan-reviewer`, `/xp-goal-collection`, `/xp-question-triage` |
+| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Three-layer enforcement via PostToolUse:ExitPlanMode, SubagentStop:Plan, and PreToolUse write block. Skill: work selection (goals, questions, Try items). | `xp-plan-reviewer`, `/xp-work-selection` |
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
 | **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security triage before commit. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
 | **Refactoring** | Commit gate: `/simplify` required before commit if code files changed, quality review checks skipped recommendations. Enforced by `pre_tool_bash.py` + `markers.py`. | `/xp-quality-review`, `pre_tool_bash.py` |
 | **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` required at commit for code changes. | `xp-plan-reviewer`, `pre_tool_bash.py` |
-| **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + behavioral guide). Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
-| **On-Site Customer** | Deterministic: prompts logged. Skills: goal collection + question triage. | `user_prompt_log.py`, `/xp-goal-collection`, `/xp-question-triage` |
+| **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + process guide). Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
+| **On-Site Customer** | Deterministic: prompts logged. Skill: work selection (goals, questions, Try items). | `user_prompt_log.py`, `/xp-work-selection` |
 | **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
 
 ### Token Cost Model
@@ -399,7 +408,7 @@ Only events before the curation watermark are eligible for compaction.
 
 ## Project Status
 
-1040 tests. All passing.
+2014 tests. All passing.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
 See [SMM_DESIGN.md](docs/SMM_DESIGN.md) for the four-pillar Shared Mental Model design.
