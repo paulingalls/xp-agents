@@ -101,8 +101,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
-        # Graceful: return GUPP even without SMM
-        return GUPP_STARTUP
+        return "SMM init failed — xp-agents disabled."
 
     # Write .needs-kickoff marker on fresh starts.
     # "startup" = new session (block until kickoff), "clear" = mid-session

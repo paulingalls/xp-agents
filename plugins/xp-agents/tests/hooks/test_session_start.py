@@ -178,8 +178,8 @@ class TestSessionStart(_HookTestCase):
                 {"session_id": "test", "source": "startup"},
                 smm_dir=fake_dir,
             )
-        # Should still return context even without SMM
         self.assertIsNotNone(result)
+        self.assertIn("SMM init failed", result)
 
     def test_empty_events_file(self):
         import session_start
