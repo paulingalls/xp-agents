@@ -4,6 +4,7 @@
 
 - **Housekeeping stop gate.** New Stop hook blocks session end if housekeeping hasn't run. When kickoff starts, `.needs-kickoff` is consumed and `.needs-housekeeping` is written. The stop gate blocks until the housekeeper subagent completes and clears the marker. Defers when ASKING_USER is set so "Chat about this..." on AskUserQuestion works without trapping the user.
 - **Marker lifecycle.** `kickoff_gate.py` writes `.needs-housekeeping` on kickoff start, `subagent_stop.py` consumes it on housekeeper completion. New `NEEDS_HOUSEKEEPING` constant in `marker_names.py` and `MarkerDef` in `markers.py`.
+- **SMM init failure surfaced.** When `init.sh` fails (not in a git repo, timeout, permission denied), `session_start.py` now returns "SMM init failed — xp-agents disabled." instead of the misleading "Run /xp-kickoff" prompt.
 
 ## v2.13.0 — Independent Code Reviewer Subagent
 
