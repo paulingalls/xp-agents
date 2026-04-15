@@ -5,7 +5,6 @@ set -euo pipefail
 source "$(dirname "$0")/../../_preload_base.sh"
 
 RETRO_INPUT="${SMM_DIR}/.retro-input.json"
-MARKER="${SMM_DIR}/.needs-kickoff"
 
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
@@ -58,8 +57,6 @@ if sprint_has_active; then
     fi
 fi
 
-# Always clear the marker here. This preload runs as a !`command` before
-# any tool calls, so the gate must be lifted for the review itself to
-# proceed. If the review is aborted, session_start.py will recreate the
-# marker on the next session.
-rm -f "$MARKER"
+# .needs-kickoff is cleared by kickoff_gate.py (UserPromptSubmit hook)
+# which runs before this preload. It also writes .needs-housekeeping
+# so the housekeeping stop gate can enforce housekeeping completion.

@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.13.2 — Fix Kickoff Gate for Qualified Skill Names
+
+- **Qualified skill name fix.** `kickoff_gate.py` checked for `"/xp-kickoff"` in the prompt, but marketplace installs send the fully-qualified form `/xp-agents:xp-kickoff` which doesn't contain that substring. Changed to `"xp-kickoff"` (no leading slash) to match both forms.
+- **Removed duplicate marker clearing.** The kickoff preload script (`check_session_needs.sh`) was also removing `.needs-kickoff` via `rm -f`, racing with `kickoff_gate.py`. Removed the preload's `rm -f` so `kickoff_gate.py` is the single source of truth for clearing `.needs-kickoff` and writing `.needs-housekeeping`.
+
 ## v2.13.1 — Housekeeping Stop Gate
 
 - **Housekeeping stop gate.** New Stop hook blocks session end if housekeeping hasn't run. When kickoff starts, `.needs-kickoff` is consumed and `.needs-housekeeping` is written. The stop gate blocks until the housekeeper subagent completes and clears the marker. Defers when ASKING_USER is set so "Chat about this..." on AskUserQuestion works without trapping the user.

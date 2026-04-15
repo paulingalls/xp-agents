@@ -54,7 +54,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if _common.is_task_notification(prompt):
         return None
 
-    if "/xp-kickoff" in prompt:
+    if "xp-kickoff" in prompt:
         # Clear marker now — kickoff is running, so sub-skills (goal collection,
         # question triage) can use AskUserQuestion without hitting this gate.
         markers.marker_consume(smm_dir, markers.KICKOFF)

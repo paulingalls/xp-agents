@@ -70,6 +70,19 @@ class TestKickoffGate(_HookTestCase):
         self.assertTrue(hk_marker.exists())
         self.assertEqual(hk_marker.read_text().strip(), "kickoff")
 
+    def test_qualified_skill_name_clears_marker(self):
+        """Fully-qualified /xp-agents:xp-kickoff also clears marker."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result = kickoff_gate.run(
+            {"session_id": "test", "prompt": "/xp-agents:xp-kickoff"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+        self.assertFalse((self.smm_dir / ".needs-kickoff").exists())
+        self.assertTrue((self.smm_dir / ".needs-housekeeping").exists())
+
     def test_subsequent_prompts_pass_after_kickoff_clears_marker(self):
         """After /xp-kickoff clears the marker, AskUserQuestion prompts pass."""
         import kickoff_gate
