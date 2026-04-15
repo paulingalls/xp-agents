@@ -98,6 +98,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (inject SMM after xp-housekeeper), `_handle_sprint_review_done` (record sprint end). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
 | **Stop** | | `sprint_stop_gate.py` | Sprint lifecycle cascade (accept → review): blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review |
+| **Stop** | | `housekeeping_stop_gate.py` | Block if housekeeping hasn't run (defers when ASKING_USER set) |
 | **Stop** | | `session_end_warning.py` | Soft warning: unresolved concerns, missing final status |
 | **Stop** | | `teammate_stop_gate.py` | Block teammates from stopping with uncommitted changes or incomplete review cycle |
 | **TeammateIdle** | | `teammate_idle.py` | TDD enforcement for teammates (exit 2 if tests failing) |
@@ -219,6 +220,7 @@ PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
 ```
 Stop         → tdd_stop_gate.py: block if tests failing
              → sprint_stop_gate.py: sprint lifecycle cascade (accept → review)
+             → housekeeping_stop_gate.py: block if housekeeping hasn't run
              → session_end_warning.py: soft warning (unresolved concerns)
              → teammate_stop_gate.py: block teammates with uncommitted changes
 ```
@@ -250,11 +252,11 @@ plugins/xp-agents/
 ├── agents/                          ← 7 plugin subagents (full tool access)
 ├── skills/                          ← 14 skills (8 inline + 6 forked), each with SKILL.md + scripts/
 │   └── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
-├── scripts/                         ← ~47 command hooks + shared modules (Python 3.10+, stdlib only)
+├── scripts/                         ← ~48 command hooks + shared modules (Python 3.10+, stdlib only)
 └── smm/                             ← ~20 SMM engine modules (append, compact, materialize, schema, CLI tools)
 ```
 
-**Component inventory:** ~47 scripts, 7 agents, 14 skills, ~2041 tests.
+**Component inventory:** ~48 scripts, 7 agents, 14 skills, ~2049 tests.
 
 ## Platform Constraints
 

@@ -171,11 +171,11 @@ plugins/xp-agents/
 ├── PROCESS_GUIDE.md              ← process rules for lead/solo agents
 ├── TEAMMATE_GUIDE.md             ← rules for CLI teammates
 ├── hooks/hooks.json              ← all hook registrations
-├── scripts/                      ← ~47 command hooks + shared modules
+├── scripts/                      ← ~48 command hooks + shared modules
 ├── agents/                       ← 7 subagent definitions (.md files)
 ├── skills/                       ← 14 skills (forked + inline)
 ├── smm/                          ← SMM engine (append, compact, materialize, sprint)
-└── tests/                        ← ~2041 tests across 4 suites (hooks, integration, engine, smm)
+└── tests/                        ← ~2049 tests across 4 suites (hooks, integration, engine, smm)
 ```
 
 ## Error Handling
@@ -225,7 +225,7 @@ tests/
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
 │   ├── test_review_cycle.py ← review_cycle_done, subagent review flags
 │   ├── test_gates.py        ← security triage markers
-│   ├── test_stop_gates.py   ← tdd_stop_gate, find_last_test_signal
+│   ├── test_stop_gates.py   ← tdd_stop_gate, housekeeping_stop_gate, find_last_test_signal
 │   ├── test_validation.py   ← hooks.json structure and registration
 │   ├── test_plugin_integrity.py ← plugin file structure, agent files, skill files
 │   ├── test_auto_resolve.py ← auto-resolve logic

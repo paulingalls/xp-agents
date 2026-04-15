@@ -170,7 +170,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 | **PostCompact** | Compact event log (age decisions, cap retros, prune resolved items) | Sustainable Pace |
-| **Stop** | Block if tests failing (`tdd_stop_gate.py`) | TDD |
+| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if housekeeping hasn't run (`housekeeping_stop_gate.py`) | TDD, Feedback |
 
 ### Plan Review — Two Entry Points
 
@@ -407,7 +407,7 @@ Only events before the curation watermark are eligible for compaction.
 
 ## Project Status
 
-2041 tests. All passing.
+2049 tests. All passing.
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
 See [SMM_DESIGN.md](docs/SMM_DESIGN.md) for the four-pillar Shared Mental Model design.
