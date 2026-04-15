@@ -71,6 +71,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
         return None
 
     markers.marker_consume(smm_dir, markers.KICKOFF)
+    markers.marker_consume(smm_dir, markers.NEEDS_HOUSEKEEPING)
 
     # Compaction now runs inside smm_cli.save() so it covers both forked and
     # inline housekeeping paths — no need to do it here.

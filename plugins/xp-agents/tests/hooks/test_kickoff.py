@@ -57,6 +57,19 @@ class TestKickoffGate(_HookTestCase):
         )
         self.assertFalse(marker.exists())
 
+    def test_kickoff_sets_needs_housekeeping(self):
+        """Consuming .needs-kickoff writes .needs-housekeeping marker."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        kickoff_gate.run(
+            {"session_id": "test", "prompt": "/xp-kickoff"},
+            smm_dir=self.smm_dir,
+        )
+        hk_marker = self.smm_dir / ".needs-housekeeping"
+        self.assertTrue(hk_marker.exists())
+        self.assertEqual(hk_marker.read_text().strip(), "kickoff")
+
     def test_subsequent_prompts_pass_after_kickoff_clears_marker(self):
         """After /xp-kickoff clears the marker, AskUserQuestion prompts pass."""
         import kickoff_gate

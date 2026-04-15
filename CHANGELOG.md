@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.13.1 — Housekeeping Stop Gate
+
+- **Housekeeping stop gate.** New Stop hook blocks session end if housekeeping hasn't run. When kickoff starts, `.needs-kickoff` is consumed and `.needs-housekeeping` is written. The stop gate blocks until the housekeeper subagent completes and clears the marker. Defers when ASKING_USER is set so "Chat about this..." on AskUserQuestion works without trapping the user.
+- **Marker lifecycle.** `kickoff_gate.py` writes `.needs-housekeeping` on kickoff start, `subagent_stop.py` consumes it on housekeeper completion. New `NEEDS_HOUSEKEEPING` constant in `marker_names.py` and `MarkerDef` in `markers.py`.
+
 ## v2.13.0 — Independent Code Reviewer Subagent
 
 - **xp-code-reviewer agent.** New subagent spawned by `/xp-quality-review` for independent code review. The quality review skill previously ran inline — the same agent reviewed its own code. Now it spawns `xp-code-reviewer` with fresh context to evaluate changes through 4 review areas: simplify accountability (holding skipped findings accountable), drift management (checking code against SMM Constraints), debt awareness (evaluating existing debt for changed files), and XP-lens code review (covering 10 gaps /simplify misses: premature generalization, naming quality, test quality, workarounds, dead code, hidden assumptions, silent failures, and more).

@@ -240,6 +240,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/housekeeping_stop_gate.py",
+            "statusMessage": "Checking housekeeping gate..."
+          },
+          {
+            "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/session_end_warning.py",
             "statusMessage": "Checking session-end checklist..."
           },

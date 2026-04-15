@@ -406,6 +406,13 @@ class TestHousekeepingDone(_HookTestCase):
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertFalse(marker.exists())
 
+    def test_clears_needs_housekeeping_marker(self):
+        """Should clear .needs-housekeeping marker after handling."""
+        (self.smm_dir / ".needs-housekeeping").write_text("kickoff")
+        self._write_events([make_event("goal", content="Ship v1")])
+        subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".needs-housekeeping").exists())
+
     def test_nudges_when_no_in_progress_stories(self):
         """When sprint has no in-progress stories, add nudge."""
         self._write_events([make_event("goal", content="Ship v1")])
