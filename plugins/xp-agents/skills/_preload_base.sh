@@ -212,27 +212,29 @@ plan_count() {
 # Marker helpers (thin wrappers over markers.py).
 # Usage: consume_marker ACCEPT
 #        write_marker NEEDS_HOUSEKEEPING "kickoff"
+#
+# Values are passed via sys.argv so content with quotes/backslashes is safe.
 consume_marker() {
     local marker_name="$1"
-    python3 -c "
+    python3 -c '
 import sys
-sys.path.insert(0, '${PLUGIN_ROOT}/scripts')
-sys.path.insert(0, '${PLUGIN_ROOT}/smm')
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, sys.argv[2])
 from pathlib import Path
 import markers
-markers.marker_consume(Path('${SMM_DIR}'), getattr(markers, '${marker_name}'))
-" 2>/dev/null || true
+markers.marker_consume(Path(sys.argv[3]), getattr(markers, sys.argv[4]))
+' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "${marker_name}" 2>/dev/null || true
 }
 
 write_marker() {
     local marker_name="$1"
     local content="$2"
-    python3 -c "
+    python3 -c '
 import sys
-sys.path.insert(0, '${PLUGIN_ROOT}/scripts')
-sys.path.insert(0, '${PLUGIN_ROOT}/smm')
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, sys.argv[2])
 from pathlib import Path
 import markers
-markers.marker_write(Path('${SMM_DIR}'), getattr(markers, '${marker_name}'), '${content}')
-" 2>/dev/null || true
+markers.marker_write(Path(sys.argv[3]), getattr(markers, sys.argv[4]), sys.argv[5])
+' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "${marker_name}" "${content}" 2>/dev/null || true
 }

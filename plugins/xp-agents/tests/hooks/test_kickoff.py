@@ -69,18 +69,30 @@ class TestKickoffGate(_HookTestCase):
         )
         self.assertFalse((self.smm_dir / ".needs-housekeeping").exists())
 
-    def test_qualified_skill_name_clears_marker(self):
-        """Fully-qualified /xp-agents:xp-kickoff also clears marker."""
+    def test_kickoff_name_variants_clear_marker(self):
+        """Every supported invocation form of xp-kickoff clears the marker.
+
+        Covers bare and marketplace-qualified forms, with and without args.
+        """
         import kickoff_gate
 
-        (self.smm_dir / ".needs-kickoff").write_text("startup")
-        result = kickoff_gate.run(
-            {"session_id": "test", "prompt": "/xp-agents:xp-kickoff"},
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-        self.assertFalse((self.smm_dir / ".needs-kickoff").exists())
-        self.assertFalse((self.smm_dir / ".needs-housekeeping").exists())
+        variants = [
+            "/xp-kickoff",
+            "/xp-kickoff --verbose",
+            "/xp-agents:xp-kickoff",
+            "/xp-agents:xp-kickoff help",
+            "/other-team:xp-kickoff",
+        ]
+        for prompt in variants:
+            with self.subTest(prompt=prompt):
+                marker = self.smm_dir / ".needs-kickoff"
+                marker.write_text("startup")
+                result = kickoff_gate.run(
+                    {"session_id": "test", "prompt": prompt},
+                    smm_dir=self.smm_dir,
+                )
+                self.assertIsNone(result)
+                self.assertFalse(marker.exists())
 
     def test_subsequent_prompts_pass_after_kickoff_clears_marker(self):
         """After /xp-kickoff clears the marker, AskUserQuestion prompts pass."""
