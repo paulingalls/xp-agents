@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Spawn a CLI teammate in a git worktree.
 
-Creates a git worktree, detects plugin loading mode, and launches
-an independent claude -p process. Called by /xp-assign via Bash
-with run_in_background.
+Creates a git worktree and launches an independent claude -p process.
+The teammate inherits $SMM_DIR so its hooks write to the lead's SMM.
+Called by /xp-assign via Bash with run_in_background.
 
 Usage:
     python3 spawn_teammate.py \
         --name teammate-step-1 \
         --smm-dir /path/to/smm \
         --prompt-file /tmp/prompt.txt \
-        [--plugin-dir /path/to/plugin]
+        [--story-id story-001]
 """
 
 import argparse
@@ -52,30 +52,15 @@ def create_worktree(name: str, cwd: str) -> str:
     return wt_path
 
 
-def detect_plugin_mode() -> str | None:
-    """Detect plugin loading mode from environment.
-
-    Returns CLAUDE_PLUGIN_ROOT for inline (dev) mode, None for
-    marketplace installs.
-    """
-    plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA", "")
-    if "inline" in plugin_data:
-        return os.environ.get("CLAUDE_PLUGIN_ROOT")
-    return None
-
-
 _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 
-def build_command(
-    name: str,
-    plugin_dir: str | None,
-) -> list[str]:
+def build_command(name: str) -> list[str]:
     """Construct the claude -p command for a teammate.
 
     Prompt is piped via stdin, not passed as a CLI flag.
     """
-    cmd = [
+    return [
         "claude",
         "-p",
         "--name",
@@ -87,9 +72,6 @@ def build_command(
         "stream-json",
         "--verbose",
     ]
-    if plugin_dir:
-        cmd.extend(["--plugin-dir", plugin_dir])
-    return cmd
 
 
 def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> None:
@@ -106,7 +88,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--name", required=True)
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("--prompt-file", required=True)
-    parser.add_argument("--plugin-dir", default=None)
     parser.add_argument("--story-id", default=None)
     return parser.parse_args(argv)
 
@@ -117,8 +98,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cwd = os.getcwd()
     wt_path = create_worktree(args.name, cwd)
-    plugin_dir = args.plugin_dir or detect_plugin_mode()
-    cmd = build_command(args.name, plugin_dir)
+    cmd = build_command(args.name)
 
     write_story_assignment(Path(args.smm_dir), args.name, args.story_id)
 

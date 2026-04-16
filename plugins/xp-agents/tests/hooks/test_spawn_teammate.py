@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """Tests for spawn_teammate.py — CLI teammate launcher.
 
-Covers: cleanup_existing, create_worktree, detect_plugin_mode,
-build_command, parse_args.
+Covers: cleanup_existing, create_worktree, build_command, parse_args.
 """
 
-import os
 import subprocess
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -124,54 +121,6 @@ class TestCreateWorktree(_IntegrationTestCase):
         super().tearDown()
 
 
-class TestDetectPluginMode(unittest.TestCase):
-    """detect_plugin_mode returns plugin_dir for inline, None for marketplace."""
-
-    def test_inline_mode_returns_plugin_root(self):
-        """CLAUDE_PLUGIN_DATA containing 'inline' returns CLAUDE_PLUGIN_ROOT."""
-        import spawn_teammate
-
-        plugin_data = "/home/user/.claude/plugins/data/xp-agents-inline/abc"
-        plugin_root = "/home/user/.claude/plugins/xp-agents"
-        with patch.dict(
-            os.environ,
-            {
-                "CLAUDE_PLUGIN_DATA": plugin_data,
-                "CLAUDE_PLUGIN_ROOT": plugin_root,
-            },
-        ):
-            result = spawn_teammate.detect_plugin_mode()
-            self.assertEqual(result, plugin_root)
-
-    def test_marketplace_mode_returns_none(self):
-        """CLAUDE_PLUGIN_DATA without 'inline' returns None."""
-        import spawn_teammate
-
-        plugin_data = "/home/user/.claude/plugins/data/xp-agents-xp/abc"
-        with patch.dict(
-            os.environ,
-            {
-                "CLAUDE_PLUGIN_DATA": plugin_data,
-            },
-            clear=False,
-        ):
-            env_backup = os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
-            try:
-                result = spawn_teammate.detect_plugin_mode()
-                self.assertIsNone(result)
-            finally:
-                if env_backup is not None:
-                    os.environ["CLAUDE_PLUGIN_ROOT"] = env_backup
-
-    def test_missing_env_returns_none(self):
-        """Missing CLAUDE_PLUGIN_DATA returns None."""
-        import spawn_teammate
-
-        with patch.dict(os.environ, {}, clear=True):
-            result = spawn_teammate.detect_plugin_mode()
-            self.assertIsNone(result)
-
-
 class TestBuildCommand(unittest.TestCase):
     """build_command constructs correct claude -p arguments."""
 
@@ -179,10 +128,7 @@ class TestBuildCommand(unittest.TestCase):
         """Command includes --name, --dangerously-skip-permissions, --output-format."""
         import spawn_teammate
 
-        cmd = spawn_teammate.build_command(
-            name="teammate-step-1",
-            plugin_dir=None,
-        )
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertIn("claude", cmd[0])
         self.assertIn("-p", cmd)
         self.assertIn("--name", cmd)
@@ -198,85 +144,26 @@ class TestBuildCommand(unittest.TestCase):
         """Command includes --allowedTools with expected tools."""
         import spawn_teammate
 
-        cmd = spawn_teammate.build_command(
-            name="teammate-step-1",
-            plugin_dir=None,
-        )
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertIn("--allowedTools", cmd)
         idx = cmd.index("--allowedTools")
         tools = cmd[idx + 1]
         for tool in ("Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"):
             self.assertIn(tool, tools)
 
-    def test_plugin_dir_added_when_present(self):
-        """--plugin-dir flag added when plugin_dir is not None."""
+    def test_no_plugin_dir_flag(self):
+        """Command does not include --plugin-dir (teammate inherits via SMM_DIR env)."""
         import spawn_teammate
 
-        cmd = spawn_teammate.build_command(
-            name="teammate-step-1",
-            plugin_dir="/path/to/plugin",
-        )
-        self.assertIn("--plugin-dir", cmd)
-        idx = cmd.index("--plugin-dir")
-        self.assertEqual(cmd[idx + 1], "/path/to/plugin")
-
-    def test_plugin_dir_omitted_when_none(self):
-        """--plugin-dir flag not present when plugin_dir is None."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(
-            name="teammate-step-1",
-            plugin_dir=None,
-        )
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertNotIn("--plugin-dir", cmd)
 
     def test_no_input_file_flag(self):
         """Command does not include --input-file (prompt piped via stdin)."""
         import spawn_teammate
 
-        cmd = spawn_teammate.build_command(
-            name="teammate-step-1",
-            plugin_dir=None,
-        )
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertNotIn("--input-file", cmd)
-
-
-class TestPluginDirArg(unittest.TestCase):
-    """--plugin-dir CLI arg overrides env var detection."""
-
-    def test_plugin_dir_arg_used_when_provided(self):
-        """Explicit --plugin-dir takes precedence over detect_plugin_mode()."""
-        import spawn_teammate
-
-        args = spawn_teammate.parse_args(
-            [
-                "--name",
-                "teammate-step-1",
-                "--smm-dir",
-                "/tmp/smm",
-                "--prompt-file",
-                "/tmp/prompt.txt",
-                "--plugin-dir",
-                "/path/to/dev/plugin",
-            ]
-        )
-        self.assertEqual(args.plugin_dir, "/path/to/dev/plugin")
-
-    def test_plugin_dir_optional(self):
-        """--plugin-dir is optional, defaults to None."""
-        import spawn_teammate
-
-        args = spawn_teammate.parse_args(
-            [
-                "--name",
-                "teammate-step-1",
-                "--smm-dir",
-                "/tmp/smm",
-                "--prompt-file",
-                "/tmp/prompt.txt",
-            ]
-        )
-        self.assertIsNone(args.plugin_dir)
 
 
 class TestStoryIdArg(unittest.TestCase):
