@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.13.4 — Expanded Code Reviewer + Migration Design Doc
+
+- **xp-code-reviewer expanded with 5 new review items.** Added language-agnostic checks across XP values: multiple code paths for the same outcome and orphaned code from refactors (Simplicity), weak/lazy types (Communication), legacy fallback code (Courage), defensive programming that hides errors and circular dependencies (Honesty). Total review items increased from 10 to 15.
+- **Inline agent migration design doc.** New `docs/INLINE_AGENT_MIGRATION.md` documents the plan to replace forked skills with inline skills + Agent tool + SubagentStart injection. Covers problem statement, current vs target architecture, per-agent data requirements, phased migration strategy, and tradeoffs. Decision: preloads are eliminated in favor of importable Python functions called from SubagentStart handlers.
+
 ## v2.13.3 — Fix Process Guide and SMM Injection After Housekeeping
 
 - **SubagentStop `additionalContext` doesn't work.** The platform silently drops `additionalContext` from SubagentStop hooks — only `decision`/`reason` are supported. Our `_handle_housekeeping_done` in `subagent_stop.py` was building SMM + PROCESS_GUIDE.md + sprint nudge and returning it as `additionalContext`, but it never reached the agent. The process guide and curated SMM were never injected via this path.

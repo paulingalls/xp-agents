@@ -78,10 +78,13 @@ Review the changed code through these lenses — these are the gaps that /simpli
 **Simplicity**
 - Premature generalization — making something generic when only one use case exists
 - Code that could be removed entirely without losing functionality
+- Multiple code paths for the same outcome — feature flags always on, backward-compat shims for completed migrations, `if (newWay) ... else oldWay()` where `newWay` is always true. If only one path is exercised, the other is dead weight.
+- Orphaned code from refactors — helpers, utilities, or constants that only the old code called. When callers are updated, check whether anything still references what they used to call.
 
 **Communication**
 - Names that don't communicate intent or are misleading
 - Code that's hard to read without surrounding context
+- Weak or lazy types — using the loosest type that compiles instead of the most specific one the code actually needs (e.g., `any`, `object`, `dict`, `interface{}`). If the shape is knowable from context, the type should reflect it.
 
 **Feedback**
 - Missing tests for changed behavior
@@ -92,11 +95,14 @@ Review the changed code through these lenses — these are the gaps that /simpli
 - Workarounds that avoid the real fix
 - Dead code left "just in case"
 - TODO comments or stub implementations that punt hard problems
+- Legacy fallback code — deprecated paths, compatibility layers, or conditional branches that exist "just in case" but haven't been needed since the migration/refactor completed. If you can't identify when the fallback would trigger, it should go.
 
 **Honesty**
 - Hidden assumptions that could break in different contexts
 - Silent failure modes — errors swallowed, empty catch blocks, fallbacks that mask bugs
 - Code that doesn't do what its name or docstring claims
+- Defensive programming that hides errors — catch-and-swallow, catch-and-log-and-continue, retry-without-limit, silent fallback-to-default. Distinguish between *boundary* error handling (user input, network, file I/O — legitimate) and *internal* error handling that papers over uncertainty about the code's own behavior. Error handling should handle errors, not hide them.
+- Circular dependencies — module A imports from B which imports from A. This signals unclear responsibility boundaries and creates fragile initialization order.
 
 For each finding: fix directly if quick, or record as a concern:
 
