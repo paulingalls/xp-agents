@@ -17,23 +17,24 @@ if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
-# Read plan file path from marker, fall back to most recent .claude/plans/*.md
+# Read plan file path from marker (set by post_tool_exit_plan.py with
+# ExitPlanMode tool_response.filePath — the actual plan path for this session)
 MARKER="${SMM_DIR}/.plan-awaiting-review"
 PLAN_PATH=""
 if [ -f "$MARKER" ]; then
     PLAN_PATH=$(cat "$MARKER")
 fi
 
-# If marker didn't contain a valid file path, glob for the latest plan
-if [ -z "$PLAN_PATH" ] || [ ! -f "$PLAN_PATH" ]; then
-    # shellcheck disable=SC2012
-    PLAN_PATH=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1 || true)
-fi
-
 if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
     echo "PLAN_FILE=${PLAN_PATH}"
     # Persist plan path for xp-assign (marker is cleared below)
     echo "$PLAN_PATH" > "${SMM_DIR}/.last-plan-path"
+elif [ -f "$MARKER" ]; then
+    echo "WARNING: .plan-awaiting-review marker exists but path is invalid: '${PLAN_PATH}'"
+    echo "PLAN_FILE_ERROR=Marker exists but plan file not found at '${PLAN_PATH}'. The agent should re-enter plan mode or check ~/.claude/plans/ manually."
+else
+    echo "WARNING: No .plan-awaiting-review marker found — plan review invoked without a plan."
+    echo "PLAN_FILE_ERROR=No plan marker found. Run EnterPlanMode/ExitPlanMode first to create a plan."
 fi
 
 # Clear plan review gate — this reviewer is running

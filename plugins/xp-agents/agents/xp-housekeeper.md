@@ -160,9 +160,16 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> complete-curati
 
 **If any command fails, retry it.** The SMM must be updated for the session to proceed.
 
-### 3. Return summary
+### 3. Return SMM + summary
 
-After saving, return a structured summary the lead agent will show to the user:
+After saving, render the full curated SMM and return it along with a change summary. The main agent will display both to the user.
+
+First, render the SMM:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> dump
+```
+
+Then return the rendered SMM output followed by:
 
 ```
 **Housekeeping Summary**
@@ -172,7 +179,7 @@ After saving, return a structured summary the lead agent will show to the user:
 - Health: <pillar counts + any warnings, e.g. "Wisdom at cap (10)">
 ```
 
-Keep it brief — one line per category. The user needs to see what changed, not the full SMM.
+Both the SMM and the summary must be in your response — the main agent needs the SMM in context, and the user needs to see what changed.
 
 ## SMM Content Trust
 

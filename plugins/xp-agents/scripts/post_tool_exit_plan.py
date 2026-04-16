@@ -27,12 +27,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = identity.resolve_agent_id(input_data)
 
-    # Capture plan file path from ExitPlanMode response
+    # ExitPlanMode tool_response is a dict with key "filePath"
     tool_response = input_data.get("tool_response", {})
-    if isinstance(tool_response, str):
-        plan_path = ""
-    else:
-        plan_path = tool_response.get("planFilePath", "")
+    plan_path = ""
+    if isinstance(tool_response, dict):
+        plan_path = tool_response.get("filePath", "")
 
     # Write marker with plan path so the review preload can include the plan
     markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, plan_path or agent_id)

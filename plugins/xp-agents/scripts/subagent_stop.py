@@ -15,8 +15,6 @@ import _common
 import concerns
 import coordination
 import markers
-import smm_cli
-import smm_store
 import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -30,12 +28,6 @@ _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
 _PLAN_REVIEWER_AGENT_ID = "xp-plan-reviewer"
-
-_SPRINT_NUDGE = (
-    "\n\n---\n**Sprint notice:** No stories marked "
-    "`in-progress`. Run story selection to pick "
-    "stories for this iteration."
-)
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
@@ -57,14 +49,13 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
         markers.set_review_flag(smm_dir, "main", flag)
 
 
-def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
+def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
     """Handle xp-housekeeper subagent completion.
 
-    Consumes markers, compacts the event log, logs a kickoff-done status,
-    and returns the SMM + process guide as additionalContext. Also appends
-    a sprint nudge if no stories are currently in-progress.
-
-    Returns the context string or None if this isn't the housekeeper agent.
+    Consumes markers and logs a kickoff-done status event. Returns None —
+    SubagentStop does not support additionalContext. The SMM is returned
+    by the housekeeper agent itself (via Skill tool result), and the
+    process guide is injected via PostToolUse:Skill in review_cycle_done.py.
     """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _HOUSEKEEPER_AGENT_TYPES:
@@ -73,8 +64,6 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
     markers.marker_consume(smm_dir, markers.KICKOFF)
     markers.marker_consume(smm_dir, markers.NEEDS_HOUSEKEEPING)
 
-    # Compaction now runs inside smm_cli.save() so it covers both forked and
-    # inline housekeeping paths — no need to do it here.
     status = _common.make_event(
         _common.STATUS,
         _HOUSEKEEPING_DONE_AGENT_ID,
@@ -85,22 +74,10 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> str | None:
 
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
-    smm_data = smm_store.load_smm(smm_dir)
-    smm_content = smm_cli.render_markdown(smm_data).strip()
-
-    process = _common.load_process_guide()
-
-    nudge = ""
-    if not sprint_state.has_in_progress_stories(smm_dir):
-        sprint_data = sprint_state.read_sprint_content(smm_dir)
-        if sprint_data is not None:
-            nudge = _SPRINT_NUDGE
-
-    parts = [p for p in [smm_content, process, nudge] if p]
-    return "\n\n".join(parts) if parts else None
+    return None
 
 
-def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> str | None:
+def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
     """Handle xp-sprint-reviewer subagent completion.
 
     Records a sprint end event with velocity and cleans up the review
@@ -187,16 +164,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is not None:
         _update_review_cycle_flags(smm_dir, input_data)
 
-        # Housekeeper is an xp-* agent but we need its completion signal
-        # to inject the curated SMM back to the main agent.
-        housekeeping_result = _handle_housekeeping_done(smm_dir, input_data)
-        if housekeeping_result is not None:
-            return housekeeping_result
+        # Housekeeper is an xp-* agent — consume markers and record event.
+        _handle_housekeeping_done(smm_dir, input_data)
 
         # Sprint reviewer is also xp-* — its completion records sprint end.
-        review_result = _handle_sprint_review_done(smm_dir, input_data)
-        if review_result is not None:
-            return review_result
+        _handle_sprint_review_done(smm_dir, input_data)
 
         # Plan reviewer completion nudges /xp-assign for execution mode.
         assign_result = _handle_plan_review_done(smm_dir, input_data)

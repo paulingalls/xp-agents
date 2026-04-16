@@ -360,78 +360,51 @@ class TestHousekeepingDone(_HookTestCase):
             "last_assistant_message": "SMM curated.",
         }
 
-    def test_injects_smm_file_content(self):
-        """Should inject curated SMM content after housekeeping."""
+    def test_returns_none(self):
+        """Handler consumes markers and records event but returns None.
+
+        SubagentStop does not support additionalContext — SMM is returned
+        by the housekeeper agent itself, process guide injected via
+        PostToolUse:Skill.
+        """
         write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
+        self.assertIsNone(result)
 
     def test_matches_qualified_agent_type(self):
         """Should match agent_type 'xp-agents:xp-housekeeper' too."""
-        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = subagent_stop.run(
             self._housekeeping_input(agent_type="xp-agents:xp-housekeeper"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Ship v1", result)
+        self.assertIsNone(result)
 
-    def test_injects_process_guide(self):
-        """Should inject PROCESS_GUIDE.md content after housekeeping."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("EnterPlanMode", result)
-
-    def test_no_xp_values_in_housekeeping_done(self):
-        """Values injected at session start, not housekeeping done."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertNotIn("XP Values", result)
+    def test_records_kickoff_done_event(self):
+        """Should record a kickoff-done status event."""
+        subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        done_events = [e for e in events if e.get("agent_id") == "xp-kickoff-done"]
+        self.assertEqual(len(done_events), 1)
+        self.assertIn("Kickoff complete", done_events[0]["content"])
 
     def test_graceful_without_smm_file(self):
-        """No SMM file — still returns process guide."""
+        """No SMM file — still consumes markers and returns None."""
         (self.smm_dir / "shared_mental_model.json").unlink(missing_ok=True)
         result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("EnterPlanMode", result)
+        self.assertIsNone(result)
 
     def test_deletes_kickoff_marker(self):
         """Should delete .needs-kickoff marker after handling."""
         marker = self.smm_dir / ".needs-kickoff"
         marker.touch()
-        self._write_events([make_event("goal", content="Ship v1")])
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertFalse(marker.exists())
 
     def test_clears_needs_housekeeping_marker(self):
         """Should clear .needs-housekeeping marker after handling."""
         (self.smm_dir / ".needs-housekeeping").write_text("kickoff")
-        self._write_events([make_event("goal", content="Ship v1")])
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertFalse((self.smm_dir / ".needs-housekeeping").exists())
-
-    def test_nudges_when_no_in_progress_stories(self):
-        """When sprint has no in-progress stories, add nudge."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json([_s("story-001", "x", "M", "ready")])
-        )
-        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertIn("No stories marked", result)
-
-    def test_no_nudge_when_in_progress_exists(self):
-        """No nudge when an in-progress story exists."""
-        self._write_events([make_event("goal", content="Ship v1")])
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json([_s("story-001", "x", "M", "in-progress")])
-        )
-        result = subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        self.assertNotIn("No stories marked", result)
 
 
 _SPRINT_REVIEW_MIXED = _sprint_json(

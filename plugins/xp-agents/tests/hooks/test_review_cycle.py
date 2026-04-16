@@ -153,6 +153,32 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("TaskCreate", result)
 
+    def test_housekeeping_skill_returns_process_guide(self):
+        """After /xp-housekeeping, inject PROCESS_GUIDE.md as context."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-housekeeping"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Practicing the Values", result)
+
+    def test_housekeeping_qualified_name(self):
+        """Plugin-qualified /xp-housekeeping also triggers process guide."""
+        result = review_cycle_done.run(
+            self._skill_input("xp-agents:xp-housekeeping"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Practicing the Values", result)
+
+    def test_housekeeping_does_not_set_review_flags(self):
+        """Housekeeping is not part of the commit review cycle."""
+        review_cycle_done.run(
+            self._skill_input("xp-housekeeping"), smm_dir=self.smm_dir
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        self.assertFalse(cycle["security_review_done"])
+
     def test_worktree_cwd_scopes_markers(self):
         """Worktree cwd uses resolve_agent_id for marker scoping."""
         inp = self._skill_input(

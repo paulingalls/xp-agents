@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.13.3 — Fix Process Guide and SMM Injection After Housekeeping
+
+- **SubagentStop `additionalContext` doesn't work.** The platform silently drops `additionalContext` from SubagentStop hooks — only `decision`/`reason` are supported. Our `_handle_housekeeping_done` in `subagent_stop.py` was building SMM + PROCESS_GUIDE.md + sprint nudge and returning it as `additionalContext`, but it never reached the agent. The process guide and curated SMM were never injected via this path.
+- **Process guide now injected via PostToolUse:Skill.** `review_cycle_done.py` detects when the xp-housekeeping skill completes and injects PROCESS_GUIDE.md as `additionalContext` — PostToolUse supports this field.
+- **SMM returned by housekeeper agent.** The xp-housekeeper agent now renders the full curated SMM (via `smm_cli.py dump`) and returns it alongside the change summary. The main agent receives both in the Skill tool result and displays them to the user.
+- **Kickoff skill updated.** Steps 6-7 now instruct the agent to output both the rendered SMM and the housekeeping summary to the user.
+- **`additionalContext` support matrix added to CLAUDE.md.** Documents which hook events support `additionalContext` and which don't, to prevent this class of silent failure.
+- **Plan review cross-session leak fixed.** `post_tool_exit_plan.py` was reading `tool_response.planFilePath` which doesn't exist — the correct field is `tool_response.filePath`. When the marker had no valid path, the review preload fell back to `ls -t ~/.claude/plans/*.md | head -1`, which could grab a plan from a different session. Fixed the field name and removed the glob fallback. Preload now outputs `PLAN_FILE_ERROR=` with a clear message when no plan is found.
+
 ## v2.13.2 — Fix Kickoff Gate for Qualified Skill Names
 
 - **Qualified skill name fix.** `kickoff_gate.py` checked for `"/xp-kickoff"` in the prompt, but marketplace installs send the fully-qualified form `/xp-agents:xp-kickoff` which doesn't contain that substring. Changed to `"xp-kickoff"` (no leading slash) to match both forms.

@@ -156,6 +156,8 @@ All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copi
 
 **PostToolUse agent hooks should be async** (`"async": true`) — feedback goes through event log anyway, no need to block.
 
+**`additionalContext` is only supported on specific events** — SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Notification, SubagentStart. **Stop, SubagentStop, TeammateIdle, TaskCompleted do NOT support `additionalContext`** — output is silently ignored. These events only support `decision: "block"` / `reason`. To inject context after a subagent completes, use PostToolUse (the Skill/Agent tool that launched it) or a marker checked at the next UserPromptSubmit/PreToolUse. See `docs/PLUGIN_TOOLS.md` for the full event-by-event matrix.
+
 **Stop hooks run in parallel** — all hooks in the same Stop entry fire concurrently. A command hook's `additionalContext` is NOT visible to a prompt hook in the same entry. Use exit 2 (or `decision: "block"`) for command hooks that need to block.
 
 **Prompt/agent hooks use `ok`/`reason`** — NOT `decision`/`block`. Return `{"ok": false, "reason": "..."}` to block.

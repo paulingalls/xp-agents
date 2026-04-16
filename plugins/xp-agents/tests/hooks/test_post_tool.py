@@ -299,6 +299,34 @@ class TestPostToolExitPlan(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_marker_contains_plan_path_from_tool_response(self):
+        """Marker should contain the filePath from ExitPlanMode tool_response."""
+        import markers
+
+        plan_path = "/home/user/.claude/plans/my-plan.md"
+        post_tool_exit_plan.run(
+            {
+                "session_id": "t",
+                "agent_id": "main",
+                "tool_name": "ExitPlanMode",
+                "tool_response": {"filePath": plan_path},
+            },
+            smm_dir=self.smm_dir,
+        )
+        content = markers.marker_read(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
+        self.assertEqual(content, plan_path)
+
+    def test_marker_falls_back_to_agent_id_without_tool_response(self):
+        """Without tool_response, marker should contain agent_id as fallback."""
+        import markers
+
+        post_tool_exit_plan.run(
+            {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
+            smm_dir=self.smm_dir,
+        )
+        content = markers.marker_read(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
+        self.assertEqual(content, "main")
+
 
 if __name__ == "__main__":
     unittest.main()
