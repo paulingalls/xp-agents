@@ -78,6 +78,13 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_DIR=", result.stdout)
 
+    def test_sets_needs_housekeeping_marker(self):
+        """Preload sets .needs-housekeeping so the stop gate activates
+        right before housekeeping runs (not at kickoff start)."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.smm_dir / ".needs-housekeeping").exists())
+
     def test_empty_state_graceful(self):
         """No retro, no SMM, no sprint — exits 0 with minimal output."""
         result = self._run_preload(_PRELOAD_SCRIPT)

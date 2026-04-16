@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stop command hook: block session end until housekeeping has run.
 
-Set by kickoff_gate when .needs-kickoff is consumed. Cleared by
+Set by the xp-work-selection preload (step 5 of kickoff). Cleared by
 subagent_stop when the housekeeper subagent completes. Defers when
 ASKING_USER is set so "Chat about this..." on AskUserQuestion works.
 """

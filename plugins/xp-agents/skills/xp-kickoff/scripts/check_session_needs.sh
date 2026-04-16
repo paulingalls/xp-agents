@@ -58,5 +58,6 @@ if sprint_has_active; then
 fi
 
 # .needs-kickoff is cleared by kickoff_gate.py (UserPromptSubmit hook)
-# which runs before this preload. It also writes .needs-housekeeping
-# so the housekeeping stop gate can enforce housekeeping completion.
+# which runs before this preload. The .needs-housekeeping marker is
+# written later by the xp-work-selection preload (step 5) so the stop
+# gate doesn't block during earlier kickoff steps.

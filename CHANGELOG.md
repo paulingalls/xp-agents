@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.13.5 — Fix Housekeeping Stop Gate Blocking Mid-Kickoff
+
+- **Housekeeping stop gate no longer blocks during early kickoff steps.** `.needs-housekeeping` was set in `kickoff_gate.py` at kickoff start (step 1), causing the stop gate to block any time the agent needed to pause for user input during steps 2-5 (retro, session mode, plan, sprint start, work selection). Moved the marker write to the work-selection preload (step 5), so the gate only activates right before housekeeping runs (step 6). The ASKING_USER deferral remains for the work-selection → housekeeping window.
+
 ## v2.13.4 — Expanded Code Reviewer + Migration Design Doc
 
 - **xp-code-reviewer expanded with 5 new review items.** Added language-agnostic checks across XP values: multiple code paths for the same outcome and orphaned code from refactors (Simplicity), weak/lazy types (Communication), legacy fallback code (Courage), defensive programming that hides errors and circular dependencies (Honesty). Total review items increased from 10 to 15.
@@ -17,12 +21,12 @@
 ## v2.13.2 — Fix Kickoff Gate for Qualified Skill Names
 
 - **Qualified skill name fix.** `kickoff_gate.py` checked for `"/xp-kickoff"` in the prompt, but marketplace installs send the fully-qualified form `/xp-agents:xp-kickoff` which doesn't contain that substring. Changed to `"xp-kickoff"` (no leading slash) to match both forms.
-- **Removed duplicate marker clearing.** The kickoff preload script (`check_session_needs.sh`) was also removing `.needs-kickoff` via `rm -f`, racing with `kickoff_gate.py`. Removed the preload's `rm -f` so `kickoff_gate.py` is the single source of truth for clearing `.needs-kickoff` and writing `.needs-housekeeping`.
+- **Removed duplicate marker clearing.** The kickoff preload script (`check_session_needs.sh`) was also removing `.needs-kickoff` via `rm -f`, racing with `kickoff_gate.py`. Removed the preload's `rm -f` so `kickoff_gate.py` is the single source of truth for clearing `.needs-kickoff`.
 
 ## v2.13.1 — Housekeeping Stop Gate
 
 - **Housekeeping stop gate.** New Stop hook blocks session end if housekeeping hasn't run. When kickoff starts, `.needs-kickoff` is consumed and `.needs-housekeeping` is written. The stop gate blocks until the housekeeper subagent completes and clears the marker. Defers when ASKING_USER is set so "Chat about this..." on AskUserQuestion works without trapping the user.
-- **Marker lifecycle.** `kickoff_gate.py` writes `.needs-housekeeping` on kickoff start, `subagent_stop.py` consumes it on housekeeper completion. New `NEEDS_HOUSEKEEPING` constant in `marker_names.py` and `MarkerDef` in `markers.py`.
+- **Marker lifecycle.** Work-selection preload writes `.needs-housekeeping` before housekeeping runs (moved from `kickoff_gate.py` in v2.13.5), `subagent_stop.py` consumes it on housekeeper completion. New `NEEDS_HOUSEKEEPING` constant in `marker_names.py` and `MarkerDef` in `markers.py`.
 - **SMM init failure surfaced.** When `init.sh` fails (not in a git repo, timeout, permission denied), `session_start.py` now returns "SMM init failed — xp-agents disabled." instead of the misleading "Run /xp-kickoff" prompt.
 
 ## v2.13.0 — Independent Code Reviewer Subagent

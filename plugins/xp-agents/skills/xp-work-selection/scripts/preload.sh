@@ -7,6 +7,11 @@ source "$(dirname "$0")/../../_preload_base.sh"
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
 
+# Set .needs-housekeeping here (not in kickoff_gate) so the stop gate
+# only activates right before housekeeping runs — not during the entire
+# kickoff flow where the agent may need to stop for user input.
+write_marker NEEDS_HOUSEKEEPING "kickoff"
+
 # 1. Previous Try Items from latest retrospective
 RETRO_DIR="${SMM_DIR}/retrospectives"
 if [ -d "$RETRO_DIR" ]; then

@@ -211,6 +211,7 @@ plan_count() {
 
 # Marker helpers (thin wrappers over markers.py).
 # Usage: consume_marker ACCEPT
+#        write_marker NEEDS_HOUSEKEEPING "kickoff"
 consume_marker() {
     local marker_name="$1"
     python3 -c "
@@ -220,5 +221,18 @@ sys.path.insert(0, '${PLUGIN_ROOT}/smm')
 from pathlib import Path
 import markers
 markers.marker_consume(Path('${SMM_DIR}'), getattr(markers, '${marker_name}'))
+" 2>/dev/null || true
+}
+
+write_marker() {
+    local marker_name="$1"
+    local content="$2"
+    python3 -c "
+import sys
+sys.path.insert(0, '${PLUGIN_ROOT}/scripts')
+sys.path.insert(0, '${PLUGIN_ROOT}/smm')
+from pathlib import Path
+import markers
+markers.marker_write(Path('${SMM_DIR}'), getattr(markers, '${marker_name}'), '${content}')
 " 2>/dev/null || true
 }

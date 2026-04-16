@@ -58,7 +58,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
         # Clear marker now — kickoff is running, so sub-skills (goal collection,
         # question triage) can use AskUserQuestion without hitting this gate.
         markers.marker_consume(smm_dir, markers.KICKOFF)
-        markers.marker_write(smm_dir, markers.NEEDS_HOUSEKEEPING, "kickoff")
         return None
 
     # Read marker content to determine block vs nudge.
