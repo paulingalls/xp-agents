@@ -63,6 +63,28 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
     )
 
 
+def has_live_teammates(cwd: str) -> bool:
+    """Return True if any `teammate-*` worktree is currently registered.
+
+    Uses `git worktree list --porcelain` so the check reflects real git
+    state (not filesystem artifacts). Falls back to False when cwd is
+    outside a git repo or the command fails.
+    """
+    try:
+        out = subprocess.check_output(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, OSError, FileNotFoundError):
+        return False
+    for line in out.splitlines():
+        if line.startswith("worktree ") and "/.claude/worktrees/teammate-" in line:
+            return True
+    return False
+
+
 def teammate_report_path(smm_dir: Path, name: str) -> Path:
     """Return the path to a teammate's report file."""
     return smm_dir / f".teammate-report-{name}.txt"

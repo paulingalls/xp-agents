@@ -90,6 +90,22 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_live_teammate_worktree_allows_stop(self):
+        """Defer when a teammate worktree exists (pre-first-write window)."""
+        from unittest.mock import patch
+
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+
+        with patch("worktree.has_live_teammates", return_value=True):
+            result = sprint_stop_gate.run(
+                _make_stop_input(cwd="/fake/repo"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
     def test_completed_review_cycle_does_not_defer(self):
         """All review flags True means cycle is done — don't defer, block."""
         import markers

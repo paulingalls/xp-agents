@@ -166,5 +166,81 @@ class TestNormalizePath(unittest.TestCase):
             self.assertEqual(missing_result, "src/missing.py")
 
 
+class TestHasLiveTeammates(unittest.TestCase):
+    """has_live_teammates detects teammate worktrees via `git worktree list`."""
+
+    def setUp(self):
+        worktree._clear_git_root_cache()
+        self.tmpdir = Path(tempfile.mkdtemp())
+        subprocess.run(
+            ["git", "-C", str(self.tmpdir), "init"], capture_output=True, check=True
+        )
+        subprocess.run(
+            ["git", "-C", str(self.tmpdir), "config", "user.email", "t@t.com"],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.tmpdir), "config", "user.name", "t"],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.tmpdir), "commit", "--allow-empty", "-m", "init"],
+            capture_output=True,
+            check=True,
+        )
+
+    def tearDown(self):
+        import shutil
+
+        from conftest import cleanup_test_worktrees
+
+        cleanup_test_worktrees(self.tmpdir)
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        worktree._clear_git_root_cache()
+
+    def _add_worktree(self, name: str) -> Path:
+        wt_path = self.tmpdir / ".claude" / "worktrees" / name
+        wt_path.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.tmpdir),
+                "worktree",
+                "add",
+                "-b",
+                name,
+                str(wt_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            self.skipTest(f"git worktree add failed: {result.stderr}")
+        return wt_path
+
+    def test_returns_false_for_no_worktrees(self):
+        self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
+
+    def test_returns_true_for_teammate_worktree(self):
+        self._add_worktree("teammate-canvas-infra")
+        self.assertTrue(worktree.has_live_teammates(str(self.tmpdir)))
+
+    def test_ignores_non_teammate_worktrees(self):
+        self._add_worktree("feature-branch")
+        self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
+
+    def test_returns_false_for_non_git_cwd(self):
+        import shutil
+
+        non_git = Path(tempfile.mkdtemp())
+        try:
+            self.assertFalse(worktree.has_live_teammates(str(non_git)))
+        finally:
+            shutil.rmtree(non_git, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

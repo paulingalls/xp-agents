@@ -25,6 +25,7 @@ import coordination
 import identity
 import markers
 import sprint_state
+import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
 
 _ACCEPT_MESSAGE = (
@@ -39,7 +40,7 @@ _REVIEW_MESSAGE = (
 _REVIEW_FLAGS = markers._REVIEW_FLAGS
 
 
-def _deferred(smm_dir: Path, agent_id: str) -> bool:
+def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     """Return True if we should defer blocking (mid-workflow, teammates active)."""
     # Mid-AskUserQuestion dialogue — cheapest check, most common interactive hit
     if markers.marker_exists(smm_dir, markers.ASKING_USER):
@@ -48,7 +49,11 @@ def _deferred(smm_dir: Path, agent_id: str) -> bool:
     flags = [bool(cycle.get(f)) for f in _REVIEW_FLAGS]
     if any(flags) and not all(flags):
         return True
-    return coordination.has_active_teammates(smm_dir, agent_id)
+    if coordination.has_active_teammates(smm_dir, agent_id):
+        return True
+    # Live teammate worktrees: covers the spawn-to-first-write window where
+    # coordination.json isn't populated yet.
+    return bool(cwd) and worktree.has_live_teammates(cwd)
 
 
 def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:
@@ -108,7 +113,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Defer if mid-workflow — only pay the cost when we'd otherwise block
     agent_id = identity.resolve_agent_id(input_data)
-    if _deferred(smm_dir, agent_id):
+    cwd = input_data.get("cwd", "") or ""
+    if _deferred(smm_dir, agent_id, cwd):
         return None
 
     return block_message
