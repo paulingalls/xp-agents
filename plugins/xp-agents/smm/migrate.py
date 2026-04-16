@@ -133,6 +133,9 @@ def main() -> None:
     args = parser.parse_args()
 
     smm_dir = args.smm_dir if args.smm_dir else resolve_smm_dir()
+    if smm_dir is None:
+        print("Error: Not in a git repository", file=sys.stderr)
+        sys.exit(1)
 
     try:
         _validate_smm_dir(smm_dir)

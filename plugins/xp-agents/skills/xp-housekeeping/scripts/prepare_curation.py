@@ -28,6 +28,9 @@ def main() -> None:
         from _append_impl import resolve_smm_dir
 
         smm_dir = resolve_smm_dir()
+    if smm_dir is None:
+        print("Error: Not in a git repository", file=sys.stderr)
+        sys.exit(1)
 
     data = materialize.prepare_curation_data(smm_dir)
     print(json.dumps(data, indent=2))

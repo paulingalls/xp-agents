@@ -469,6 +469,9 @@ def main() -> None:
     args = parser.parse_args()
 
     smm_dir = args.smm_dir if args.smm_dir else resolve_smm_dir()
+    if smm_dir is None:
+        # Graceful degradation when not in a git repo
+        sys.exit(0)
 
     try:
         _validate_smm_dir(smm_dir)

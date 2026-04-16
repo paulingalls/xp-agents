@@ -7,7 +7,6 @@ and validation are in event_builder.py and event_schema.py respectively.
 
 import contextlib
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -22,30 +21,31 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 
-def resolve_smm_dir() -> Path:
-    """Derive the SMM directory from git-common-dir, matching init.sh logic."""
+_INIT_SH = Path(__file__).parent / "init.sh"
+
+
+def resolve_smm_dir() -> Path | None:
+    """Return the SMM directory, or None if it can't be resolved.
+
+    Honors $SMM_DIR env var as the single canonical handle — lets teammate
+    spawners propagate the lead's SMM across process boundaries. When unset,
+    invokes init.sh, which owns all derivation logic AND will create/seed
+    the SMM directory on first run (desirable — matches the contract every
+    caller already expects: if you're writing events, the SMM must exist).
+    """
+    env_smm = os.environ.get("SMM_DIR", "").strip()
+    if env_smm:
+        return Path(env_smm)
+
     try:
-        git_common = subprocess.check_output(
-            ["git", "rev-parse", "--git-common-dir"],
+        out = subprocess.check_output(
+            ["bash", str(_INIT_SH)],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("Error: Not in a git repository", file=sys.stderr)
-        sys.exit(1)
-
-    # Resolve to absolute path
-    git_common_path = Path(git_common)
-    if not git_common_path.is_absolute():
-        git_common_path = git_common_path.resolve()
-
-    project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
-    # Use CLAUDE_PLUGIN_DATA if available (standard plugin ecosystem path),
-    # fall back to ~/.claude/xp-agents for --plugin-dir development mode.
-    base_dir = os.environ.get("CLAUDE_PLUGIN_DATA", "")
-    if not base_dir:
-        base_dir = str(Path.home() / ".claude" / "xp-agents")
-    return Path(base_dir) / project_id / "smm"
+        return None
+    return Path(out) if out else None
 
 
 # ---------------------------------------------------------------------------
@@ -458,8 +458,11 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve and validate SMM directory
+    # Resolve and validate SMM directory (argparse type=Path handles --smm-dir)
     smm_dir = args.smm_dir if args.smm_dir else resolve_smm_dir()
+    if smm_dir is None:
+        print("Error: Not in a git repository", file=sys.stderr)
+        sys.exit(1)
     try:
         _validate_smm_dir(smm_dir)
     except ValueError as e:

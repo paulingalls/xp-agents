@@ -9,11 +9,14 @@ TestSymlinkProtection, TestJsonSizeLimit.
 import concurrent.futures
 import fcntl
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -283,6 +286,69 @@ class TestJsonSizeLimit(unittest.TestCase):
     def test_normal_json_accepted(self):
         result = _append_impl.parse_json_arg('["a","b"]', "references")
         self.assertEqual(result, ["a", "b"])
+
+
+class TestResolveSmmDir(unittest.TestCase):
+    """Tests for resolve_smm_dir: $SMM_DIR honoring + init.sh delegation."""
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_honors_smm_dir_env_var(self):
+        """When $SMM_DIR is set, resolve_smm_dir returns that exact path."""
+        target = self.tmpdir / "custom-smm"
+        env = {
+            "SMM_DIR": str(target),
+            "CLAUDE_PLUGIN_DATA": str(self.tmpdir / "plugin-data"),
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            result = _append_impl.resolve_smm_dir()
+        self.assertEqual(result, target)
+
+    def test_empty_smm_dir_falls_through_to_derivation(self):
+        """Empty SMM_DIR should not short-circuit."""
+        plugin_data = self.tmpdir / "plugin-data"
+        env = {"SMM_DIR": "", "CLAUDE_PLUGIN_DATA": str(plugin_data)}
+        with mock.patch.dict(os.environ, env, clear=False):
+            result = _append_impl.resolve_smm_dir()
+        self.assertIsNotNone(result)
+        self.assertTrue(
+            str(result).startswith(str(plugin_data)),
+            f"expected derived path under CLAUDE_PLUGIN_DATA, got {result}",
+        )
+
+    def test_returns_none_when_not_in_git_repo(self):
+        """Outside a git repo, resolve_smm_dir returns None (graceful)."""
+        non_git = self.tmpdir / "not-a-repo"
+        non_git.mkdir()
+        original_cwd = Path.cwd()
+        # Wipe SMM_DIR from env and cd to a non-git dir so init.sh fails.
+        env_overrides = {k: v for k, v in os.environ.items() if k != "SMM_DIR"}
+        try:
+            os.chdir(non_git)
+            with mock.patch.dict(os.environ, env_overrides, clear=True):
+                result = _append_impl.resolve_smm_dir()
+        finally:
+            os.chdir(original_cwd)
+        self.assertIsNone(result)
+
+    def test_delegates_to_init_sh_when_env_unset(self):
+        """When SMM_DIR is unset, the returned path matches what init.sh produces."""
+        plugin_data = self.tmpdir / "plugin-data"
+        env_overrides = {k: v for k, v in os.environ.items() if k != "SMM_DIR"} | {
+            "CLAUDE_PLUGIN_DATA": str(plugin_data)
+        }
+
+        with mock.patch.dict(os.environ, env_overrides, clear=True):
+            completed = subprocess.run(
+                [str(_append_impl._INIT_SH)], capture_output=True, text=True
+            )
+            expected = completed.stdout.strip()
+            result = _append_impl.resolve_smm_dir()
+        self.assertEqual(str(result), expected)
 
 
 if __name__ == "__main__":
