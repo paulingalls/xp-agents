@@ -7,11 +7,9 @@ event reading, and watermark management.
 
 import contextlib
 import functools
-import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,6 +25,7 @@ from _append_impl import (
     write_watermark,  # noqa: F401
 )
 from _append_impl import _validate_smm_dir as validate_smm_dir
+from _append_impl import resolve_smm_dir as _resolve_smm_dir_impl
 from _append_impl import (
     write_json_atomic as _write_json_atomic,
 )
@@ -94,31 +93,16 @@ def subagent_completed_content(agent_id: str) -> str:
 
 @functools.lru_cache(maxsize=1)
 def resolve_smm_dir() -> Path | None:
-    """Derive the SMM directory from git-common-dir.
+    """Return the SMM directory or None. Delegates to _append_impl.
 
-    Uses CLAUDE_PLUGIN_DATA as base (standard plugin ecosystem path),
-    falls back to ~/.claude/xp-agents for --plugin-dir development mode.
-    Returns None if not in a git repo (graceful degradation for hooks).
-    Cached — git-common-dir is deterministic for a given working directory.
+    Cached per process — init.sh subprocess cost only paid once. Delegation
+    keeps derivation logic in one place (init.sh, via _append_impl).
+
+    Note: has a side effect on first call — init.sh creates/seeds the SMM
+    directory if it doesn't exist. Callers that only want pure derivation
+    should not use this helper.
     """
-    try:
-        git_common = subprocess.check_output(
-            ["git", "rev-parse", "--git-common-dir"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
-
-    git_common_path = Path(git_common)
-    if not git_common_path.is_absolute():
-        git_common_path = git_common_path.resolve()
-
-    project_id = hashlib.sha256(str(git_common_path).encode()).hexdigest()[:12]
-    base_dir = os.environ.get("CLAUDE_PLUGIN_DATA")
-    if base_dir:
-        return Path(base_dir) / project_id / "smm"
-    return Path.home() / ".claude" / "xp-agents" / project_id / "smm"
+    return _resolve_smm_dir_impl()
 
 
 # ---------------------------------------------------------------------------

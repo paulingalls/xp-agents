@@ -32,25 +32,38 @@ class TestResolveSmmDir(unittest.TestCase):
         result = _common.resolve_smm_dir()
         # We're running tests from within a git repo
         self.assertIsNotNone(result)
-        self.assertIn(".claude/xp-agents", str(result))
         self.assertTrue(str(result).endswith("/smm"))
+
+    def test_honors_smm_dir_env_var(self):
+        """resolve_smm_dir delegates — $SMM_DIR env var wins over derivation."""
+        _common.resolve_smm_dir.cache_clear()
+        with patch.dict(os.environ, {"SMM_DIR": "/tmp/test-smm-common"}, clear=False):
+            result = _common.resolve_smm_dir()
+        self.assertEqual(result, Path("/tmp/test-smm-common"))
 
     def test_returns_none_outside_git(self):
         _common.resolve_smm_dir.cache_clear()
-        with patch("_common.subprocess.check_output", side_effect=FileNotFoundError):
-            result = _common.resolve_smm_dir()
-            self.assertIsNone(result)
+        with patch(
+            "_append_impl.subprocess.check_output", side_effect=FileNotFoundError
+        ):
+            # Also clear SMM_DIR so we fall through to the subprocess path
+            env_without_smm = {k: v for k, v in os.environ.items() if k != "SMM_DIR"}
+            with patch.dict(os.environ, env_without_smm, clear=True):
+                result = _common.resolve_smm_dir()
+        self.assertIsNone(result)
 
-    def test_returns_none_on_git_error(self):
+    def test_returns_none_on_init_sh_error(self):
         from subprocess import CalledProcessError
 
         _common.resolve_smm_dir.cache_clear()
         with patch(
-            "_common.subprocess.check_output",
-            side_effect=CalledProcessError(128, "git"),
+            "_append_impl.subprocess.check_output",
+            side_effect=CalledProcessError(128, "bash"),
         ):
-            result = _common.resolve_smm_dir()
-            self.assertIsNone(result)
+            env_without_smm = {k: v for k, v in os.environ.items() if k != "SMM_DIR"}
+            with patch.dict(os.environ, env_without_smm, clear=True):
+                result = _common.resolve_smm_dir()
+        self.assertIsNone(result)
 
 
 class TestReadHookInput(unittest.TestCase):
