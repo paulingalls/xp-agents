@@ -4,6 +4,7 @@
 Split from smm/test_smm.py — covers TestInit and TestValidateEvent.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -77,6 +78,75 @@ class TestInit(_TempRepoTestCase):
         self._run_init()
 
         self.assertEqual(events_file.read_text(), "existing content\n")
+
+
+class TestInitHonorsSmmDirEnv(_TempRepoTestCase):
+    """When SMM_DIR env var is set, init.sh uses that path instead of deriving."""
+
+    def _run_init_with_smm(self, smm_dir: str | Path) -> subprocess.CompletedProcess:
+        return self._run_init(extra_env={"SMM_DIR": str(smm_dir)})
+
+    def test_echoes_smm_dir_when_set(self):
+        target = self.tmpdir / "custom-smm"
+        result = self._run_init_with_smm(target)
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(target))
+
+    def test_creates_structure_at_smm_dir(self):
+        target = self.tmpdir / "custom-smm-structure"
+        result = self._run_init_with_smm(target)
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertTrue(target.is_dir(), "target dir should exist")
+        self.assertTrue((target / "events.jsonl").exists())
+        self.assertTrue((target / "events.lock").exists())
+        self.assertTrue((target / "retrospectives").is_dir())
+
+    def test_creates_nested_nonexistent_path(self):
+        target = self.tmpdir / "deep" / "nested" / "path" / "smm"
+        result = self._run_init_with_smm(target)
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertTrue(target.is_dir())
+
+    def test_idempotent_on_rerun(self):
+        target = self.tmpdir / "idempotent-smm"
+        r1 = self._run_init_with_smm(target)
+        (target / "events.jsonl").write_text("existing\n")
+        r2 = self._run_init_with_smm(target)
+        self.assertEqual(r1.returncode, 0)
+        self.assertEqual(r2.returncode, 0)
+        self.assertEqual(r1.stdout.strip(), r2.stdout.strip())
+        self.assertEqual((target / "events.jsonl").read_text(), "existing\n")
+
+    def test_empty_smm_dir_falls_through_to_derivation(self):
+        """Empty string should NOT short-circuit; should derive normally."""
+        result = self._run_init_with_smm("")
+        self.assertEqual(result.returncode, 0)
+        derived = Path(result.stdout.strip())
+        self.assertTrue(
+            str(derived).startswith(str(self._plugin_data_dir)),
+            f"expected derived path under {self._plugin_data_dir}, got {derived}",
+        )
+
+    def test_inherited_base_dir_is_not_chmodded(self):
+        """When SMM_DIR is set, an inherited BASE_DIR env var must NOT
+        trigger chmod on that path. Ancestor permission logic must only
+        run when init.sh itself derived the path."""
+        target = self.tmpdir / "custom-smm-no-basedir-leak"
+        # Create a sentinel dir we'd notice if chmodded
+        stray = self.tmpdir / "stray-base-dir"
+        stray.mkdir(mode=0o755)
+        original_mode = stray.stat().st_mode & 0o777
+        self.assertEqual(original_mode, 0o755)
+
+        result = self._run_init(
+            extra_env={"SMM_DIR": str(target), "BASE_DIR": str(stray)}
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(
+            stray.stat().st_mode & 0o777,
+            0o755,
+            "init.sh leaked chmod to an inherited BASE_DIR",
+        )
 
 
 class TestSeedSMM(_TempRepoTestCase):

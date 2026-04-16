@@ -601,13 +601,16 @@ class _TempRepoTestCase(unittest.TestCase):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
 
     @classmethod
-    def _run_init(cls) -> subprocess.CompletedProcess:
+    def _run_init(cls, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+        env = cls._test_env.copy()
+        if extra_env:
+            env.update(extra_env)
         return subprocess.run(
             [str(cls._INIT_SH)],
             capture_output=True,
             text=True,
             cwd=str(cls.tmpdir),
-            env=cls._test_env,
+            env=env,
         )
 
     @classmethod
