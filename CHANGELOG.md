@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.13.6 — Stop Gate and Marker-Helper Fixes
+
+- **Sprint stop gate now defers while teammate worktrees are live.** `sprint_stop_gate._deferred` previously only consulted `.coordination.json` for active teammates, but coordination entries aren't written until a teammate's first file write. Between spawn and first write, the gate fired on the lead with "Stories are in-progress. Run /xp-accept" — exactly when the lead should be idle and waiting for `TaskCompleted` notifications. Added `worktree.has_live_teammates(cwd)` using `git worktree list --porcelain` as a second deferral signal. Cost is bounded to rare block-pending moments (~8ms subprocess), not every Stop hook.
+- **Marker-helper shell interpolation fragility fixed.** `write_marker` / `consume_marker` in `_preload_base.sh` string-interpolated bash variables directly into a double-quoted `python3 -c` body. Content containing a single quote broke Python syntax silently (suppressed by `2>/dev/null || true`), and a backslash was shell-interpreted as an escape. Switched to a single-quoted Python body with values passed via `sys.argv` so quotes, backslashes, and newlines round-trip unchanged.
+- **Expanded `kickoff_gate` test coverage.** Collapsed the single qualified-name test into a parameterized `subTest` loop covering bare `/xp-kickoff`, `/xp-kickoff --verbose`, fully-qualified `/xp-agents:xp-kickoff`, `/xp-agents:xp-kickoff help`, and other-plugin namespace forms.
+
 ## v2.13.5 — Fix Housekeeping Stop Gate Blocking Mid-Kickoff
 
 - **Housekeeping stop gate no longer blocks during early kickoff steps.** `.needs-housekeeping` was set in `kickoff_gate.py` at kickoff start (step 1), causing the stop gate to block any time the agent needed to pause for user input during steps 2-5 (retro, session mode, plan, sprint start, work selection). Moved the marker write to the work-selection preload (step 5), so the gate only activates right before housekeeping runs (step 6). The ASKING_USER deferral remains for the work-selection → housekeeping window.
