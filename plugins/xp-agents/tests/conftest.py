@@ -17,13 +17,21 @@ import unittest
 from collections.abc import Sequence
 from pathlib import Path
 
-# Strip git environment variables so subprocess calls in tests operate on
-# temp repos, not the parent's repo. During git commit, git sets GIT_INDEX_FILE;
-# in worktrees, git sets GIT_DIR/GIT_COMMON_DIR. Any subprocess inheriting
-# these will target the parent repo instead of its own temp dir.
-# Known issue: pre-commit#3032, lefthook#1265.
-for _git_var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
-    os.environ.pop(_git_var, None)
+# Strip environment variables that would leak a parent shell's state into
+# test subprocesses.
+# - GIT_*: git sets these during commits/worktrees; inheriting them makes
+#   subprocess calls target the parent repo instead of the temp repo.
+#   Known issue: pre-commit#3032, lefthook#1265.
+# - SMM_DIR: now honored by init.sh / _append_impl.resolve_smm_dir; a stray
+#   export from a dev shell would silently redirect every test's SMM writes.
+for _leaked_var in (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "SMM_DIR",
+):
+    os.environ.pop(_leaked_var, None)
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules
@@ -437,6 +445,9 @@ class _IntegrationTestCase(unittest.TestCase):
             env=cls._test_env,
         )
         cls.smm_dir = Path(result.stdout.strip())
+        # Inject SMM_DIR into the test env so subsequent subprocess calls
+        # skip the init.sh round-trip (init.sh honors $SMM_DIR).
+        cls._test_env["SMM_DIR"] = str(cls.smm_dir)
         cls.scripts_dir = _SCRIPTS_DIR
         # Snapshot the initial SMM state so setUp can restore it cheaply
         cls._smm_snapshot: dict[str, bytes] = {}
@@ -619,6 +630,9 @@ class _TempRepoTestCase(unittest.TestCase):
             result = cls._run_init()
             assert result.returncode == 0, f"init.sh failed: {result.stderr}"
             cls._smm_dir_cache = Path(result.stdout.strip())
+            # Inject SMM_DIR into the test env so subsequent subprocess calls
+            # skip the init.sh round-trip (init.sh honors $SMM_DIR).
+            cls._test_env["SMM_DIR"] = str(cls._smm_dir_cache)
         return cls._smm_dir_cache
 
     @classmethod

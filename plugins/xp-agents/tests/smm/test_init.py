@@ -29,14 +29,18 @@ class TestInit(_TempRepoTestCase):
         (self.smm_dir / "events.jsonl").write_text("")
 
     def test_init_succeeds(self):
-        result = self._run_init()
+        # Force derivation (empty SMM_DIR overrides the injected cache)
+        # so this test actually exercises init.sh's derivation branch.
+        result = self._run_init(extra_env={"SMM_DIR": ""})
         self.assertEqual(result.returncode, 0)
         smm_dir = result.stdout.strip()
         self.assertTrue(Path(smm_dir).is_dir())
 
     def test_init_idempotent(self):
-        r1 = self._run_init()
-        r2 = self._run_init()
+        # Force derivation on both calls so idempotency is tested on the
+        # derivation path, not the SMM_DIR-echo short-circuit.
+        r1 = self._run_init(extra_env={"SMM_DIR": ""})
+        r2 = self._run_init(extra_env={"SMM_DIR": ""})
         self.assertEqual(r1.returncode, 0)
         self.assertEqual(r2.returncode, 0)
         self.assertEqual(r1.stdout.strip(), r2.stdout.strip())
