@@ -257,27 +257,13 @@ class _SMMTestCase(unittest.TestCase):
         self.events_file.touch()
         self._prev_smm_dir = os.environ.get("SMM_DIR")
         os.environ["SMM_DIR"] = str(self.smm_dir)
-        # Clear cached resolution so the new env var takes effect.
-        self._reset_resolve_cache()
 
     def tearDown(self):
         if self._prev_smm_dir is None:
             os.environ.pop("SMM_DIR", None)
         else:
             os.environ["SMM_DIR"] = self._prev_smm_dir
-        self._reset_resolve_cache()
         shutil.rmtree(self.smm_dir)
-
-    @staticmethod
-    def _reset_resolve_cache() -> None:
-        # Late import — scripts/ is on sys.path via this conftest's module-level
-        # insert, but the import is here (not at top) to avoid loading scripts
-        # during conftest collection if a test session never instantiates a
-        # _SMMTestCase. If _common can't be imported the suite is broken — let
-        # ImportError surface.
-        import _common
-
-        _common.resolve_smm_dir.cache_clear()
 
     def _write_events(self, events: list[dict]) -> None:
         lines = [json.dumps(e, ensure_ascii=False) for e in events]

@@ -293,9 +293,13 @@ class TestResolveSmmDir(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = Path(tempfile.mkdtemp())
+        # Each test patches CLAUDE_PLUGIN_DATA differently; clear the cache
+        # so derivation reruns init.sh under the new env.
+        _append_impl._derive_smm_dir.cache_clear()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+        _append_impl._derive_smm_dir.cache_clear()
 
     def test_honors_smm_dir_env_var(self):
         """When $SMM_DIR is set, resolve_smm_dir returns that exact path."""

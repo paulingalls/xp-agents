@@ -91,16 +91,16 @@ def subagent_completed_content(agent_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@functools.lru_cache(maxsize=1)
 def resolve_smm_dir() -> Path | None:
     """Return the SMM directory or None. Delegates to _append_impl.
 
-    Cached per process — init.sh subprocess cost only paid once. Delegation
-    keeps derivation logic in one place (init.sh, via _append_impl).
+    Caching lives in _append_impl on the slow part only (init.sh subprocess
+    via _derive_smm_dir). The env-var read happens on every call so tests
+    that pin SMM_DIR see fresh values without manual cache busts.
 
-    Note: has a side effect on first call — init.sh creates/seeds the SMM
-    directory if it doesn't exist. Callers that only want pure derivation
-    should not use this helper.
+    Note: when $SMM_DIR is unset and derivation runs, init.sh creates/seeds
+    the SMM directory if it doesn't exist (first-call side effect). When
+    $SMM_DIR is set, the env value is returned as-is with no I/O.
     """
     return _resolve_smm_dir_impl()
 
@@ -180,9 +180,12 @@ def is_task_notification(prompt: str) -> bool:
 _PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}"
 
 
-@functools.lru_cache(maxsize=1)
 def resolve_plugin_root() -> Path:
-    """Resolve plugin root from CLAUDE_PLUGIN_ROOT env var or __file__."""
+    """Resolve plugin root from CLAUDE_PLUGIN_ROOT env var or __file__.
+
+    Not cached — env-var read is O(1) and the __file__ fallback is constant.
+    Caching introduced staleness when tests/agents pin the env var.
+    """
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return Path(env_root)

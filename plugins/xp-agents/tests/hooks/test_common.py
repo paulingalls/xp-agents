@@ -26,7 +26,12 @@ from conftest import _HookTestCase, make_event
 
 class TestResolveSmmDir(unittest.TestCase):
     def setUp(self):
-        _common.resolve_smm_dir.cache_clear()
+        # Cache lives on the slow derivation step now, not the public function.
+        # Clear so each test sees a fresh init.sh result under whatever env it
+        # patches.
+        import _append_impl
+
+        _append_impl._derive_smm_dir.cache_clear()
 
     def test_returns_path_in_git_repo(self):
         result = _common.resolve_smm_dir()
@@ -36,13 +41,11 @@ class TestResolveSmmDir(unittest.TestCase):
 
     def test_honors_smm_dir_env_var(self):
         """resolve_smm_dir delegates — $SMM_DIR env var wins over derivation."""
-        _common.resolve_smm_dir.cache_clear()
         with patch.dict(os.environ, {"SMM_DIR": "/tmp/test-smm-common"}, clear=False):
             result = _common.resolve_smm_dir()
         self.assertEqual(result, Path("/tmp/test-smm-common"))
 
     def test_returns_none_outside_git(self):
-        _common.resolve_smm_dir.cache_clear()
         with patch(
             "_append_impl.subprocess.check_output", side_effect=FileNotFoundError
         ):
@@ -55,7 +58,6 @@ class TestResolveSmmDir(unittest.TestCase):
     def test_returns_none_on_init_sh_error(self):
         from subprocess import CalledProcessError
 
-        _common.resolve_smm_dir.cache_clear()
         with patch(
             "_append_impl.subprocess.check_output",
             side_effect=CalledProcessError(128, "bash"),
@@ -120,12 +122,6 @@ class TestIsXpAgent(unittest.TestCase):
 
 
 class TestResolvePluginRoot(unittest.TestCase):
-    def setUp(self):
-        _common.resolve_plugin_root.cache_clear()
-
-    def tearDown(self):
-        _common.resolve_plugin_root.cache_clear()
-
     def test_from_env_var(self):
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/opt/plugins/xp"}):
             result = _common.resolve_plugin_root()
@@ -145,13 +141,11 @@ class TestGuideSubstitution(unittest.TestCase):
     break the documented `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` pattern."""
 
     def setUp(self):
-        _common.resolve_plugin_root.cache_clear()
         _common.load_process_guide.cache_clear()
         _common.load_teammate_guide.cache_clear()
         _common.load_xp_values.cache_clear()
 
     def tearDown(self):
-        _common.resolve_plugin_root.cache_clear()
         _common.load_process_guide.cache_clear()
         _common.load_teammate_guide.cache_clear()
         _common.load_xp_values.cache_clear()
