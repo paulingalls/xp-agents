@@ -24,9 +24,7 @@ If the preload shows **RETRO_NEEDED**, invoke the `/xp-run-retrospective` skill 
 
 **Do NOT analyze events yourself — the skill runs a dedicated subagent that does the analysis.** Just invoke it and wait for the result.
 
-**The subagent result is NOT visible to the user** — you must output the full retrospective as text in your response. Do not summarize it.
-
-Proceed to step 2.
+**Terminal action of this step: output the full retrospective verbatim before calling any other tool.** The subagent result is NOT visible to the user — if you skip ahead, the retro is lost. Do not summarize.
 
 ## Step 2: Session mode (ALWAYS)
 
