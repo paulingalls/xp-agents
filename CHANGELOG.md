@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.14.2 — Retro Credits /security-review as Triage
+
+- **Retro now counts `/security-review` as a security check.** When a session ran `/security-review` directly (not wrapped in `/xp-security-triage`), `review_cycle_done.py` recorded the status string "Security review complete — full review performed", but the retro pattern only matched "Security triage (complete|started)". Every commit preceded by a direct `/security-review` was falsely flagged as "triage skipped." Widened the shared pattern to match either triage or review, consolidated the previously-duplicated regex (was defined identically in `honesty_signals.py` and `retrospective.py`) into `_common.SECURITY_CHECK_RE` alongside `TEST_RUN_RE` / `LEGACY_COMMIT_RE`. New regression test `test_commit_event_with_security_review_not_counted`.
+- **Signal field and dict-key renames for semantic accuracy.** Following the regex widening, the signal field `commits_without_triage` → `commits_without_security_check` (cascading through `honesty_signals.py`, `retro_flags.py`, and both affected test suites), and the status-classification counts key `status_summary["security_triages"]` → `status_summary["security_checks"]`. Variable `last_triage_seen` → `last_security_check_seen`. Retro flag message is now "N code commit(s) without a security check (triage or review)." `agents/xp-retrospective.md` updated to match. No migration needed — the signal is computed fresh each retro, not persisted.
+
 ## v2.14.1 — XP Values Additions; Acceptance Testing Doctrine
 
 - **XP Values updates.** Added "Be direct and concise — say the thing, don't pad it." to the Communication value. Prepended "Be honest!" as a leading imperative to the Honesty value. Small but deliberate — codifying the direct-communication stance this plugin already expects from agents.

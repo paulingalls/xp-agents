@@ -855,11 +855,11 @@ class TestHonestySignals(unittest.TestCase):
         self.assertEqual(signals["max_unique_files_without_test"], 1)
 
 
-class TestTriageCounting(unittest.TestCase):
-    """Tests for commits_without_triage counting in _build_honesty_signals."""
+class TestSecurityCheckCounting(unittest.TestCase):
+    """Tests for commits_without_security_check counting in _build_honesty_signals."""
 
-    def test_commit_event_without_triage_counted(self):
-        """Commit event without preceding triage is counted as untriaged."""
+    def test_commit_event_without_security_check_counted(self):
+        """Commit event without preceding security check is counted."""
         import honesty_signals
 
         events = [
@@ -870,11 +870,11 @@ class TestTriageCounting(unittest.TestCase):
             ),
         ]
         signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_triage"], 1)
+        self.assertEqual(signals["commits_without_security_check"], 1)
         self.assertEqual(signals["total_commits"], 1)
 
     def test_commit_event_with_triage_not_counted(self):
-        """Commit event preceded by triage is not counted as untriaged."""
+        """Commit preceded by /xp-security-triage event is not counted."""
         import honesty_signals
 
         events = [
@@ -889,10 +889,10 @@ class TestTriageCounting(unittest.TestCase):
             ),
         ]
         signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_triage"], 0)
+        self.assertEqual(signals["commits_without_security_check"], 0)
 
     def test_commit_event_with_security_review_not_counted(self):
-        """Commit preceded by /security-review event is not counted as untriaged."""
+        """Commit preceded by /security-review event is not counted."""
         import honesty_signals
 
         events = [
@@ -907,10 +907,10 @@ class TestTriageCounting(unittest.TestCase):
             ),
         ]
         signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_triage"], 0)
+        self.assertEqual(signals["commits_without_security_check"], 0)
 
     def test_non_code_commit_event_not_counted(self):
-        """Non-code commit (docs-only) without triage is NOT counted as untriaged."""
+        """Non-code commit (docs-only) without security check is NOT counted."""
         import honesty_signals
 
         events = [
@@ -921,7 +921,7 @@ class TestTriageCounting(unittest.TestCase):
             ),
         ]
         signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_triage"], 0)
+        self.assertEqual(signals["commits_without_security_check"], 0)
 
     def test_legacy_status_commit_backward_compat(self):
         """Legacy status commit events still detected (backward compat)."""
@@ -931,7 +931,7 @@ class TestTriageCounting(unittest.TestCase):
             make_event("status", content="Committed: Old commit"),
         ]
         signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_triage"], 1)
+        self.assertEqual(signals["commits_without_security_check"], 1)
         self.assertEqual(signals["total_commits"], 1)
 
 

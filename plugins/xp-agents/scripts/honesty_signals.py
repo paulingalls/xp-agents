@@ -33,7 +33,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
 
     unique_files_since_test: set[str] = set()
     max_unique_files_without_test = 0
-    commits_without_triage = 0
+    commits_without_security_check = 0
     total_commits = 0
     code_commits = 0
     last_security_check_seen = False
@@ -57,7 +57,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
             if is_code:
                 code_commits += 1
             if not last_security_check_seen and is_code:
-                commits_without_triage += 1
+                commits_without_security_check += 1
             last_security_check_seen = False
         elif etype == _common.STATUS:
             if _FILE_WRITE_RE.search(content):
@@ -86,7 +86,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
     )
 
     signals["max_unique_files_without_test"] = max_unique_files_without_test
-    signals["commits_without_triage"] = commits_without_triage
+    signals["commits_without_security_check"] = commits_without_security_check
     signals["total_commits"] = total_commits
     signals["code_file_writes"] = file_write_count
     signals["concerns_raised"] = concern_count

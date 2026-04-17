@@ -53,15 +53,15 @@ def evaluate_flags(
             )
         )
 
-    untriaged = honesty_signals.get("commits_without_triage", 0)
-    if untriaged > 0:
+    without_security_check = honesty_signals.get("commits_without_security_check", 0)
+    if without_security_check > 0:
         flags.append(
             _flag(
-                "commits_without_triage",
-                untriaged,
+                "commits_without_security_check",
+                without_security_check,
                 0,
                 "Honesty",
-                f"{untriaged} code commit(s) without a security check "
+                f"{without_security_check} code commit(s) without a security check "
                 f"(triage or review)",
             )
         )
