@@ -1,0 +1,346 @@
+"""Base test cases for xp-agents test suites.
+
+Three base classes with distinct concerns:
+- `_SMMTestCase` — pure unit-test scaffolding: temp SMM dir per test, env-var
+  pin, helper to read/write events. Used by hook tests and engine tests.
+- `_IntegrationTestCase` — temp git repo + initialized SMM, used to drive
+  hook scripts as subprocesses.
+- `_TempRepoTestCase` — temp git repo for direct subprocess tests of
+  init.sh / append.sh.
+
+Plus `cleanup_test_worktrees` for tests that create worktrees.
+
+`_PLUGIN_ROOT`, `_SCRIPTS_DIR`, and `_SMM_DIR` are defined here as the
+single source of truth and re-exported from conftest for back-compat.
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+_PLUGIN_ROOT = Path(__file__).parent.parent
+_SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
+_SMM_DIR = _PLUGIN_ROOT / "smm"
+
+
+class _SMMTestCase(unittest.TestCase):
+    """Base test case that creates a temp SMM directory.
+
+    Pins SMM_DIR env var to the temp dir for the test's lifetime, so any
+    in-process call that resolves SMM via env (init.sh-style fallback)
+    stays inside the test sandbox. Without this, a hook test that calls
+    `run(input, smm_dir=None)` would derive SMM via init.sh from the
+    test's CWD — which is the developer's project — and write markers
+    to the developer's live SMM, blocking subsequent prompts on
+    .needs-kickoff. (Caught by `TestNoSmmLeakOnFallback`.)
+    """
+
+    def setUp(self):
+        self.smm_dir = Path(tempfile.mkdtemp())
+        self.events_file = self.smm_dir / "events.jsonl"
+        (self.smm_dir / "events.lock").touch()
+        self.events_file.touch()
+        self._prev_smm_dir = os.environ.get("SMM_DIR")
+        os.environ["SMM_DIR"] = str(self.smm_dir)
+
+    def tearDown(self):
+        if self._prev_smm_dir is None:
+            os.environ.pop("SMM_DIR", None)
+        else:
+            os.environ["SMM_DIR"] = self._prev_smm_dir
+        shutil.rmtree(self.smm_dir)
+
+    def _write_events(self, events: list[dict]) -> None:
+        lines = [json.dumps(e, ensure_ascii=False) for e in events]
+        self.events_file.write_text("\n".join(lines) + ("\n" if lines else ""))
+
+    def _write_raw_lines(self, lines: list[str]) -> None:
+        self.events_file.write_text("\n".join(lines) + "\n")
+
+    def _read_events(self) -> list[dict]:
+        """Read events back from events.jsonl, skipping empty/bad lines."""
+        events = []
+        for line in self.events_file.read_text().splitlines():
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+        return events
+
+
+# Alias used by hook tests
+_HookTestCase = _SMMTestCase
+
+
+class _IntegrationTestCase(unittest.TestCase):
+    """Base class that creates a temp git repo and inits SMM via init.sh.
+
+    The git repo and SMM directory are created once per class (setUpClass).
+    Each test method gets a clean SMM state (events, markers, etc.) via setUp.
+
+    Invariant: test methods sharing a class must not depend on git repo state
+    beyond the initial commit. Git mutations (add, commit) from one test are
+    visible to subsequent tests in the same class.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        (cls.tmpdir / "README").write_text("init")
+        subprocess.run(
+            ["git", "add", "README"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+        cls._plugin_data_dir = Path(tempfile.mkdtemp())
+        cls._test_env = os.environ.copy()
+        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
+
+        init_sh = _PLUGIN_ROOT / "smm" / "init.sh"
+        result = subprocess.run(
+            ["bash", str(init_sh)],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=cls._test_env,
+        )
+        cls.smm_dir = Path(result.stdout.strip())
+        # Inject SMM_DIR into the test env so subsequent subprocess calls
+        # skip the init.sh round-trip (init.sh honors $SMM_DIR).
+        cls._test_env["SMM_DIR"] = str(cls.smm_dir)
+        cls.scripts_dir = _SCRIPTS_DIR
+        # Snapshot the initial SMM state so setUp can restore it cheaply
+        cls._smm_snapshot: dict[str, bytes] = {}
+        for f in cls.smm_dir.iterdir():
+            if f.is_file():
+                cls._smm_snapshot[f.name] = f.read_bytes()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+        shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
+
+    def setUp(self):
+        # Reset SMM state to the post-init snapshot so each test starts clean.
+        # Remove files/dirs added by previous tests, restore init.sh originals.
+        # Also clean tmpdir (git repo) of files created by previous tests.
+        for f in self.tmpdir.iterdir():
+            if f.name in (".git", "README"):
+                continue
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+        keep = set(self._smm_snapshot) | {"retrospectives"}
+        for f in self.smm_dir.iterdir():
+            if f.name in keep:
+                continue
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
+        # Restore snapshotted files (events.jsonl, events.lock, SMM seed, etc.)
+        for name, content in self._smm_snapshot.items():
+            target = self.smm_dir / name
+            if name == "events.jsonl":
+                target.write_bytes(b"")  # Always start with empty events
+            else:
+                target.write_bytes(content)
+        # Clear retrospective files from previous tests
+        retro_dir = self.smm_dir / "retrospectives"
+        if retro_dir.is_dir():
+            for f in retro_dir.iterdir():
+                f.unlink()
+
+    def _run_preload(
+        self,
+        script_path: Path,
+        extra_env: dict | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run a preload.sh script as a subprocess."""
+        if not script_path.is_file():
+            self.skipTest(f"Preload script not found: {script_path}")
+        env = self._test_env.copy()
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            ["bash", str(script_path)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def _run_script(
+        self, script_name: str, input_data: dict
+    ) -> subprocess.CompletedProcess:
+        """Run a hook script as a subprocess with JSON on stdin.
+
+        Uses the same CLAUDE_PLUGIN_DATA as setUp so scripts resolve
+        the same SMM path.
+        """
+        return subprocess.run(
+            ["python3", str(self.scripts_dir / script_name)],
+            input=json.dumps(input_data),
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=self._test_env,
+        )
+
+    def _read_events(self) -> list[dict]:
+        """Read events from the SMM events.jsonl."""
+        events_file = self.smm_dir / "events.jsonl"
+        if not events_file.exists():
+            return []
+        events = []
+        for line in events_file.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return events
+
+    def _run_script_with_env(
+        self, script_name: str, input_data: dict, env_overrides: dict
+    ) -> subprocess.CompletedProcess:
+        """Run a hook script with custom environment variables."""
+        env = self._test_env.copy()
+        env.update(env_overrides)
+        return subprocess.run(
+            ["python3", str(self.scripts_dir / script_name)],
+            input=json.dumps(input_data),
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+            env=env,
+        )
+
+    def _seed_events(self, events: list[dict]) -> None:
+        """Write seed events to events.jsonl."""
+        lines = [json.dumps(e, ensure_ascii=False) for e in events]
+        (self.smm_dir / "events.jsonl").write_text(
+            "\n".join(lines) + ("\n" if lines else "")
+        )
+
+
+class _TempRepoTestCase(unittest.TestCase):
+    """Base class: creates an isolated temp git repo per test class.
+
+    Prevents subprocess tests (init.sh, append.sh) from touching the real SMM.
+    """
+
+    _INIT_SH = _PLUGIN_ROOT / "smm" / "init.sh"
+    _APPEND_SH = _PLUGIN_ROOT / "smm" / "append.sh"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmpdir = Path(tempfile.mkdtemp())
+        cls._plugin_data_dir = Path(tempfile.mkdtemp())
+        cls._test_env = os.environ.copy()
+        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
+        subprocess.run(
+            ["git", "init"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+            env=cls._test_env,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            env=cls._test_env,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            env=cls._test_env,
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    @classmethod
+    def _run_init(cls, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+        env = cls._test_env.copy()
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            [str(cls._INIT_SH)],
+            capture_output=True,
+            text=True,
+            cwd=str(cls.tmpdir),
+            env=env,
+        )
+
+    @classmethod
+    def _get_smm_dir(cls) -> Path:
+        if not hasattr(cls, "_smm_dir_cache"):
+            result = cls._run_init()
+            assert result.returncode == 0, f"init.sh failed: {result.stderr}"
+            cls._smm_dir_cache = Path(result.stdout.strip())
+            # Inject SMM_DIR into the test env so subsequent subprocess calls
+            # skip the init.sh round-trip (init.sh honors $SMM_DIR).
+            cls._test_env["SMM_DIR"] = str(cls._smm_dir_cache)
+        return cls._smm_dir_cache
+
+    @classmethod
+    def _run_append(cls, *args: str) -> subprocess.CompletedProcess:
+        env = cls._test_env.copy()
+        env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
+        return subprocess.run(
+            [str(cls._APPEND_SH), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(cls.tmpdir),
+        )
+
+
+def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:
+    """Remove all worktrees matching prefix. For test tearDown."""
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=tmpdir,
+        capture_output=True,
+        text=True,
+    )
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree ") and prefix in line:
+            wt = line.split("worktree ", 1)[1]
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", wt],
+                cwd=tmpdir,
+                capture_output=True,
+            )
