@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.14.1 — XP Values Additions; Acceptance Testing Doctrine
+
+- **XP Values updates.** Added "Be direct and concise — say the thing, don't pad it." to the Communication value. Prepended "Be honest!" as a leading imperative to the Honesty value. Small but deliberate — codifying the direct-communication stance this plugin already expects from agents.
+- **Acceptance Testing Doctrine (design doc).** New `docs/ACCEPTANCE_TESTING_DOCTRINE.md` defines how acceptance testing fits the XP loop: two loops on two clocks (TDD commit loop stays fast, story acceptance runs at story boundary), six acceptance surfaces for detecting tooling gaps (HTTP/WebSocket, Browser, CLI, SDK, Automation, Message/event), BDD Given/When/Then as the universal story-acceptance format, the `acceptance_execution` schema for declaring runner + command per story, automation-first `/xp-accept` policy (no retry; override-with-concern preserves agency while surfacing flake), milestone-level cross-cutting acceptance via capstone stories and a `/xp-sprint-review` gate, and analysis-vs-scaffolding separation (`/xp-system-context` raises actionable concerns but never scaffolds harnesses). This is the design source for a forthcoming six-milestone execution plan to integrate acceptance testing into the plugin; no code changes land in this release.
+
 ## v2.14.0 — Fix Teammate SMM Divergence; Init.sh Hot-Path Speedup
 
 - **Teammate SMM divergence fixed.** Spawned CLI teammates now write events to the lead's SMM regardless of plugin loading mode. `init.sh` honors `$SMM_DIR` as the single canonical handle — if the env var is set (as `spawn_teammate.py` does), derivation is skipped and the path is used verbatim. Teammate hooks inherit `$SMM_DIR` from the spawn env.
