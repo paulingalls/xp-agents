@@ -239,16 +239,45 @@ def passing_tests_status(**kwargs) -> dict:
 
 
 class _SMMTestCase(unittest.TestCase):
-    """Base test case that creates a temp SMM directory."""
+    """Base test case that creates a temp SMM directory.
+
+    Pins SMM_DIR env var to the temp dir for the test's lifetime, so any
+    in-process call that resolves SMM via env (init.sh-style fallback)
+    stays inside the test sandbox. Without this, a hook test that calls
+    `run(input, smm_dir=None)` would derive SMM via init.sh from the
+    test's CWD — which is the developer's project — and write markers
+    to the developer's live SMM, blocking subsequent prompts on
+    .needs-kickoff. (Caught by `TestNoSmmLeakOnFallback`.)
+    """
 
     def setUp(self):
         self.smm_dir = Path(tempfile.mkdtemp())
         self.events_file = self.smm_dir / "events.jsonl"
         (self.smm_dir / "events.lock").touch()
         self.events_file.touch()
+        self._prev_smm_dir = os.environ.get("SMM_DIR")
+        os.environ["SMM_DIR"] = str(self.smm_dir)
+        # Clear cached resolution so the new env var takes effect.
+        self._reset_resolve_cache()
 
     def tearDown(self):
+        if self._prev_smm_dir is None:
+            os.environ.pop("SMM_DIR", None)
+        else:
+            os.environ["SMM_DIR"] = self._prev_smm_dir
+        self._reset_resolve_cache()
         shutil.rmtree(self.smm_dir)
+
+    @staticmethod
+    def _reset_resolve_cache() -> None:
+        # Late import — scripts/ is on sys.path via this conftest's module-level
+        # insert, but the import is here (not at top) to avoid loading scripts
+        # during conftest collection if a test session never instantiates a
+        # _SMMTestCase. If _common can't be imported the suite is broken — let
+        # ImportError surface.
+        import _common
+
+        _common.resolve_smm_dir.cache_clear()
 
     def _write_events(self, events: list[dict]) -> None:
         lines = [json.dumps(e, ensure_ascii=False) for e in events]

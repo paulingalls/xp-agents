@@ -31,13 +31,41 @@ class TestSessionStartPathValidation(_HookTestCase):
     def test_nonexistent_plugin_root(self):
         import session_start
 
+        # Pass smm_dir explicitly so a faulty derivation path can't escape
+        # the test's temp dir if validation/derivation logic regresses.
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/nonexistent/path"}):
             result = session_start.run(
                 {"session_id": "test", "source": "startup"},
-                smm_dir=None,
+                smm_dir=self.smm_dir,
             )
         # Should degrade gracefully, not crash
         self.assertIsNotNone(result)
+
+
+class TestNoSmmLeakOnFallback(_HookTestCase):
+    """Regression: in-process hook calls with smm_dir=None used to derive a
+    real SMM via init.sh (git fallback) and write markers there — silently
+    contaminating the developer's live SMM every time tests ran. Conftest
+    pins SMM_DIR per test to prevent this. Without that guard, a startup
+    SessionStart with smm_dir=None would call init.sh → write markers
+    outside the test's temp dir."""
+
+    def test_in_process_run_with_none_does_not_escape_temp(self):
+        import session_start
+
+        kickoff_marker = self.smm_dir / ".needs-kickoff"
+        self.assertFalse(kickoff_marker.exists())
+
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=None,
+        )
+
+        self.assertTrue(
+            kickoff_marker.exists(),
+            "marker should have been written inside test's temp SMM, "
+            "not leaked to the developer's live SMM via init.sh fallback",
+        )
 
 
 class TestSmmDirValidation(_HookTestCase):
