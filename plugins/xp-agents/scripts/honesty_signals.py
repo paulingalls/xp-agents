@@ -18,7 +18,7 @@ import security
 
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
 _TEST_RUN_RE = _common.TEST_RUN_RE
-_SECURITY_TRIAGE_RE = re.compile(r"Security triage (?:complete|started)", re.IGNORECASE)
+_SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
 _PLAN_RE = re.compile(r"plan_awaiting_review:", re.IGNORECASE)
 
@@ -36,7 +36,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
     commits_without_triage = 0
     total_commits = 0
     code_commits = 0
-    last_triage_seen = False
+    last_security_check_seen = False
     concern_count = 0
     assumption_count = 0
     file_write_count = 0
@@ -56,9 +56,9 @@ def build_honesty_signals(events: list[dict]) -> dict:
             is_code = e.get("metadata", {}).get("code_commit", True)
             if is_code:
                 code_commits += 1
-            if not last_triage_seen and is_code:
+            if not last_security_check_seen and is_code:
                 commits_without_triage += 1
-            last_triage_seen = False
+            last_security_check_seen = False
         elif etype == _common.STATUS:
             if _FILE_WRITE_RE.search(content):
                 path = content.replace("Wrote to ", "").strip()
@@ -72,8 +72,8 @@ def build_honesty_signals(events: list[dict]) -> dict:
                     len(unique_files_since_test),
                 )
                 unique_files_since_test = set()
-            elif _SECURITY_TRIAGE_RE.search(content):
-                last_triage_seen = True
+            elif _SECURITY_CHECK_RE.search(content):
+                last_security_check_seen = True
             elif _PLAN_RE.search(content):
                 planning_events += 1
         elif etype == _common.CONCERN:

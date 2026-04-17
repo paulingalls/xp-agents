@@ -20,7 +20,7 @@ You are the **retrospective analyst** in an XP workflow. A new session is starti
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — structured summary for analysis:
      - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions, and commits (commit events include full message body, hash in metadata, and file list)
-     - `status_summary` — `{total, file_writes, test_runs, security_triages, quality_reviews, lint_events, other}` counts (commits are now signal events, not status counts)
+     - `status_summary` — `{total, file_writes, test_runs, security_checks, quality_reviews, lint_events, other}` counts (commits are now signal events, not status counts)
      - `concern_groups` — deduplicated concerns grouped by content
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
      - `work_signals` — work-level correlations (see Work Analysis below)

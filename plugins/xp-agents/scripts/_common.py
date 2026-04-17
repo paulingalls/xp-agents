@@ -71,6 +71,9 @@ RETROSPECTIVE = "retrospective"
 # Shared status content patterns (used by retrospective and work_signals)
 TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
 LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
+SECURITY_CHECK_RE = re.compile(
+    r"Security (?:triage|review) (?:complete|started)", re.IGNORECASE
+)
 
 
 def subagent_started_content(agent_id: str) -> str:

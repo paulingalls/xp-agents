@@ -61,7 +61,8 @@ def evaluate_flags(
                 untriaged,
                 0,
                 "Honesty",
-                f"{untriaged} code commit(s) without security triage",
+                f"{untriaged} code commit(s) without a security check "
+                f"(triage or review)",
             )
         )
 

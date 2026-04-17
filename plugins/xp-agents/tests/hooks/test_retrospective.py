@@ -891,6 +891,24 @@ class TestTriageCounting(unittest.TestCase):
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["commits_without_triage"], 0)
 
+    def test_commit_event_with_security_review_not_counted(self):
+        """Commit preceded by /security-review event is not counted as untriaged."""
+        import honesty_signals
+
+        events = [
+            make_event(
+                "status",
+                content="Security review complete — full review performed",
+            ),
+            make_event(
+                "commit",
+                content="Add feature",
+                metadata={"code_commit": True, "commit_hash": "abc123"},
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["commits_without_triage"], 0)
+
     def test_non_code_commit_event_not_counted(self):
         """Non-code commit (docs-only) without triage is NOT counted as untriaged."""
         import honesty_signals

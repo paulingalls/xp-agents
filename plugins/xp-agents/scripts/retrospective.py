@@ -108,7 +108,7 @@ _SIGNAL_TYPES = frozenset(
 # Status classification patterns
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
 _TEST_RUN_RE = _common.TEST_RUN_RE
-_SECURITY_TRIAGE_RE = re.compile(r"Security triage (?:complete|started)", re.IGNORECASE)
+_SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
 _QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
@@ -128,7 +128,7 @@ def _classify_status_events(
     counts = {
         "file_writes": 0,
         "test_runs": 0,
-        "security_triages": 0,
+        "security_checks": 0,
         "commits": 0,
         "quality_reviews": 0,
         "lint_events": 0,
@@ -138,7 +138,7 @@ def _classify_status_events(
     patterns = [
         (_FILE_WRITE_RE, "file_writes"),
         (_TEST_RUN_RE, "test_runs"),
-        (_SECURITY_TRIAGE_RE, "security_triages"),
+        (_SECURITY_CHECK_RE, "security_checks"),
         (_COMMIT_RE, "commits"),
         (_QUALITY_REVIEW_RE, "quality_reviews"),
         (_LINT_RE, "lint_events"),
