@@ -120,6 +120,12 @@ class TestIsXpAgent(unittest.TestCase):
 
 
 class TestResolvePluginRoot(unittest.TestCase):
+    def setUp(self):
+        _common.resolve_plugin_root.cache_clear()
+
+    def tearDown(self):
+        _common.resolve_plugin_root.cache_clear()
+
     def test_from_env_var(self):
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/opt/plugins/xp"}):
             result = _common.resolve_plugin_root()
@@ -131,6 +137,54 @@ class TestResolvePluginRoot(unittest.TestCase):
             # Parent of parent of __file__: scripts/_common.py -> root
             expected = Path(_common.__file__).parent.parent
             self.assertEqual(result, expected)
+
+
+class TestGuideSubstitution(unittest.TestCase):
+    """${CLAUDE_PLUGIN_ROOT} must be expanded when loading guides — agent
+    Bash in claude -p does not see this env var, so the literal would
+    break the documented `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` pattern."""
+
+    def setUp(self):
+        _common.resolve_plugin_root.cache_clear()
+        _common.load_process_guide.cache_clear()
+        _common.load_teammate_guide.cache_clear()
+        _common.load_xp_values.cache_clear()
+
+    def tearDown(self):
+        _common.resolve_plugin_root.cache_clear()
+        _common.load_process_guide.cache_clear()
+        _common.load_teammate_guide.cache_clear()
+        _common.load_xp_values.cache_clear()
+
+    def _real_root(self) -> str:
+        return str(Path(_common.__file__).parent.parent)
+
+    def test_load_teammate_guide_substitutes_plugin_root(self):
+        text = _common.load_teammate_guide()
+        self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", text)
+        self.assertIn(f"{self._real_root()}/smm/append.sh", text)
+
+    def test_load_process_guide_substitutes_plugin_root(self):
+        text = _common.load_process_guide()
+        self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", text)
+        self.assertIn(f"{self._real_root()}/smm/append.sh", text)
+
+    def test_load_teammate_guide_uses_env_var_when_set(self):
+        # When CLAUDE_PLUGIN_ROOT is set in env, substitution uses it
+        # rather than the __file__ fallback. Use the real plugin root
+        # path so the file actually loads.
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": self._real_root()}):
+            text = _common.load_teammate_guide()
+        self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", text)
+        self.assertIn(f"{self._real_root()}/smm/append.sh", text)
+
+    def test_load_xp_values_unchanged(self):
+        # XP_VALUES.md does not reference ${CLAUDE_PLUGIN_ROOT}, so the
+        # substitution helper is not applied — loader returns raw text.
+        text = _common.load_xp_values()
+        self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", text)
+        # Must be non-empty (file exists) and recognizable as XP_VALUES.
+        self.assertIn("XP", text)
 
 
 class TestStdlibOnly(unittest.TestCase):

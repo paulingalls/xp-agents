@@ -177,6 +177,10 @@ def is_task_notification(prompt: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}"
+
+
+@functools.lru_cache(maxsize=1)
 def resolve_plugin_root() -> Path:
     """Resolve plugin root from CLAUDE_PLUGIN_ROOT env var or __file__."""
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -185,40 +189,43 @@ def resolve_plugin_root() -> Path:
     return Path(__file__).parent.parent
 
 
-@functools.lru_cache(maxsize=1)
-def load_xp_values() -> str:
-    """Load XP_VALUES.md from plugin root."""
+def _expand_plugin_root(text: str) -> str:
+    """Substitute ${CLAUDE_PLUGIN_ROOT} with the resolved plugin root.
+
+    Mirrors Claude Code's own substitution for SKILL.md content. Without
+    this, guides loaded as raw markdown leak the literal shell variable
+    into the agent's Bash, where `claude -p` does not export
+    CLAUDE_PLUGIN_ROOT — the variable expands to empty and the
+    documented `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` pattern breaks
+    silently.
+    """
+    return text.replace(_PLUGIN_ROOT_VAR, str(resolve_plugin_root()))
+
+
+def _load_plugin_file(filename: str) -> str:
+    """Read a plugin-root file and expand ${CLAUDE_PLUGIN_ROOT} in its text."""
     try:
-        path = resolve_plugin_root() / "XP_VALUES.md"
+        path = resolve_plugin_root() / filename
         if path.is_file():
-            return path.read_text(encoding="utf-8")
+            return _expand_plugin_root(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
     return ""
+
+
+@functools.lru_cache(maxsize=1)
+def load_xp_values() -> str:
+    return _load_plugin_file("XP_VALUES.md")
 
 
 @functools.lru_cache(maxsize=1)
 def load_process_guide() -> str:
-    """Load PROCESS_GUIDE.md from plugin root."""
-    try:
-        path = resolve_plugin_root() / "PROCESS_GUIDE.md"
-        if path.is_file():
-            return path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        pass
-    return ""
+    return _load_plugin_file("PROCESS_GUIDE.md")
 
 
 @functools.lru_cache(maxsize=1)
 def load_teammate_guide() -> str:
-    """Load TEAMMATE_GUIDE.md from plugin root."""
-    try:
-        guide_path = resolve_plugin_root() / "TEAMMATE_GUIDE.md"
-        if guide_path.is_file():
-            return guide_path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        pass
-    return ""
+    return _load_plugin_file("TEAMMATE_GUIDE.md")
 
 
 # ---------------------------------------------------------------------------
