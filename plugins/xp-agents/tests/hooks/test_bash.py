@@ -19,6 +19,7 @@ import bash_failure
 import bash_post_tool
 import commits
 import markers
+import security
 from conftest import _HookTestCase, _make_bash_input, make_event
 
 
@@ -298,6 +299,57 @@ class TestBashPostToolReviewCycle(_HookTestCase):
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
+
+    def test_failed_commit_preserves_review_cycle(self):
+        """Pre-commit hook failure must not reset review flags.
+
+        When a commit fails (pre-commit hook exits non-zero), stdout has no
+        '[branch hash]' marker so parse_commit_message returns None. HEAD did
+        not move, so get_head_commit_hash still returns a valid hash. The
+        hook must not treat this as a completed commit.
+        """
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
+        with patch("commits.get_head_commit_hash", return_value="prevhash"):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'test'",
+                    stdout="ruff-check >\n\nFAILED\npre-commit hook failed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+        self.assertTrue(cycle["quality_review_done"])
+        self.assertTrue(cycle["security_review_done"])
+
+    def test_failed_commit_preserves_security_marker(self):
+        """Pre-commit hook failure must not consume the security-triaged marker."""
+        security.write_security_triaged(self.smm_dir)
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+        with patch("commits.get_head_commit_hash", return_value="prevhash"):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'test'",
+                    stdout="ruff-check >\n\nFAILED\npre-commit hook failed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
+
+    def test_empty_stdout_preserves_markers(self):
+        """Content-agnostic guard: any non-success stdout short-circuits effects."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        security.write_security_triaged(self.smm_dir)
+        with patch("commits.get_head_commit_hash", return_value="prevhash"):
+            bash_post_tool.run(
+                _make_bash_input(command="git commit -m 'test'", stdout=""),
+                smm_dir=self.smm_dir,
+            )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
 
 # ===========================================================================

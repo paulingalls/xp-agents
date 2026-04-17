@@ -159,58 +159,55 @@ def _resolve_story_id(
 def _handle_commit(
     smm_dir: Path, agent_id: str, cwd: str, response_text: str
 ) -> str | None:
-    """Process a successful git commit: record events, consume markers, nudge."""
-    committed_files: list[str] = []
-    commit_hash: str | None = None
+    """Process a git commit response: record events, consume markers, nudge.
+
+    parse_commit_message returns None on failed commits (pre-commit hook
+    rejection, empty commit, etc.) since git only emits '[branch hash] msg'
+    on success. When None, skip all post-commit side effects — otherwise a
+    failed commit would wipe the security marker and reset the review cycle.
+    """
     msg = commits.parse_commit_message(response_text)
-    if msg:
-        committed_files = commits.get_committed_files(cwd)
-        commit_hash = commits.get_head_commit_hash(cwd)
-        has_code = any(security.is_code_file(f) for f in committed_files)
+    if not msg:
+        return None
 
-        # Full message body for richer retrospective context
-        # Strip Co-Authored-By trailers — metadata, not content
-        body = commits.get_commit_message_body(cwd) or msg
-        body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
+    committed_files = commits.get_committed_files(cwd)
+    commit_hash = commits.get_head_commit_hash(cwd)
+    has_code = any(security.is_code_file(f) for f in committed_files)
 
-        metadata: dict = {"code_commit": has_code}
-        if commit_hash:
-            metadata["commit_hash"] = commit_hash
+    # Strip Co-Authored-By trailers — metadata, not content
+    body = commits.get_commit_message_body(cwd) or msg
+    body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
-        story_id = _resolve_story_id(smm_dir, cwd, committed_files)
-        if story_id:
-            metadata["story_id"] = story_id
+    metadata: dict = {"code_commit": has_code}
+    if commit_hash:
+        metadata["commit_hash"] = commit_hash
 
-        event = _common.make_event(
-            _common.COMMIT,
+    story_id = _resolve_story_id(smm_dir, cwd, committed_files)
+    if story_id:
+        metadata["story_id"] = story_id
+
+    event = _common.make_event(
+        _common.COMMIT,
+        agent_id,
+        body,
+        files=committed_files,
+        metadata=metadata,
+    )
+    _common.append_safe(smm_dir, event)
+
+    file_count = len(committed_files)
+    if file_count >= COMMIT_SIZE_THRESHOLD:
+        concern = _common.make_event(
+            _common.CONCERN,
             agent_id,
-            body,
-            files=committed_files,
-            metadata=metadata,
+            f"Commit touches {file_count} files — consider smaller commits.",
+            severity="medium",
         )
-        _common.append_safe(smm_dir, event)
+        _common.append_safe(smm_dir, concern)
 
-        # Commit size check
-        threshold = COMMIT_SIZE_THRESHOLD
-        file_count = len(committed_files)
-        if file_count >= threshold:
-            concern = _common.make_event(
-                _common.CONCERN,
-                agent_id,
-                f"Commit touches {file_count} files — consider smaller commits.",
-                severity="medium",
-            )
-            _common.append_safe(smm_dir, concern)
-
-    # Resolve lint concerns for committed files that now pass
     _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
-
-    # Consume security triage marker after successful commit
     security.consume_security_triaged(smm_dir)
 
-    # Reset review cycle marker with new commit hash
-    if commit_hash is None:
-        commit_hash = commits.get_head_commit_hash(cwd)
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
