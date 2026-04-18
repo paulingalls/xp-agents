@@ -5,6 +5,7 @@ Split from test_subagent.py to stay under 500-line cap.
 Covers: tiered SMM injection, pillar filtering, sprint context.
 """
 
+import json
 import sys
 import tempfile
 import unittest
@@ -409,6 +410,105 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Intent", result)
         self.assertIn("Risks", result)
         self.assertNotIn("sprint-001", result)
+
+
+# ===========================================================================
+# Housekeeper inline-agent handler tests
+# ===========================================================================
+
+
+class TestSubagentStartHousekeeper(_HookTestCase):
+    """xp-housekeeper handler writes curation input and injects paths."""
+
+    def setUp(self):
+        super().setUp()
+        import subagent_start
+
+        self.subagent_start = subagent_start
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+            risks=[("Auth module fragile", "concern", "problem")],
+            wisdom=["TDD always"],
+        )
+
+    def _run_housekeeper(self, agent_type: str = "xp-agents:xp-housekeeper") -> str:
+        result = self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "housekeeper-1",
+                "agent_type": agent_type,
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        return result
+
+    def test_writes_curation_input_and_injects_paths(self):
+        """Handler writes .curation-input.json and advertises both paths."""
+        for agent_type in ("xp-housekeeper", "xp-agents:xp-housekeeper"):
+            with self.subTest(agent_type=agent_type):
+                curation_file = self.smm_dir / ".curation-input.json"
+                curation_file.unlink(missing_ok=True)
+                result = self._run_housekeeper(agent_type)
+                self.assertTrue(curation_file.exists())
+                data = json.loads(curation_file.read_text())
+                self.assertIn("current_smm", data)
+                self.assertIn("new_since_last_curation", data)
+                self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+                self.assertIn(f"CURATION_INPUT={curation_file}", result)
+                self.assertIn("XP Values", result)
+
+    def test_work_selection_block_when_events_present(self):
+        """Session work-selection events produce a block in the output."""
+        self._write_events(
+            [
+                make_event(
+                    "decision",
+                    topic="retro-try-fix-thing",
+                    content="Adopted retro Try: fix the thing",
+                ),
+                make_event(
+                    "status",
+                    content="Deferred retro Try: questions_stop_gate",
+                    metadata={"disposition": "deferred"},
+                ),
+                make_event("goal", content="Sprint session"),
+            ]
+        )
+        result = self._run_housekeeper()
+        self.assertIn("## Session Work Selection", result)
+        self.assertIn("fix the thing", result)
+        self.assertIn("questions_stop_gate", result)
+        self.assertIn("Sprint session", result)
+
+    def test_no_work_selection_block_when_absent(self):
+        """Without work-selection events, no block is emitted."""
+        self._write_events(
+            [
+                make_event("customer_input", content="unrelated event"),
+                make_event("concern", content="unrelated concern"),
+            ]
+        )
+        result = self._run_housekeeper()
+        self.assertNotIn("## Session Work Selection", result)
+
+    def test_session_boundary_filters_old_events(self):
+        """retro-try-* decisions before the last session_end are ignored."""
+        self._write_events(
+            [
+                make_event(
+                    "decision",
+                    topic="retro-try-old-item",
+                    content="Adopted retro Try: old item from prior session",
+                ),
+                make_event("session_end", content="prior session ended"),
+            ]
+        )
+        result = self._run_housekeeper()
+        self.assertNotIn("## Session Work Selection", result)
+        self.assertNotIn("old item from prior session", result)
 
 
 if __name__ == "__main__":

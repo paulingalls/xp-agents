@@ -48,6 +48,81 @@ def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[st
     return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
 
 
+_CURATION_INPUT_FILENAME = ".curation-input.json"
+_RETRO_TRY_TOPIC_PREFIX = "retro-try-"
+
+
+def _gather_work_selection_events(smm_dir: Path) -> str | None:
+    """Current-session work-selection events as a markdown block, or None.
+
+    Boundary is the last session_end event; earlier events belong to prior
+    sessions. Three categories are surfaced so the housekeeper can weigh
+    the user's in-session choices during Intent/Risk curation.
+    """
+    import materialize
+
+    events, _ = materialize.parse_events(smm_dir)
+    if not events:
+        return None
+
+    current = events[_common.current_session_start_index(events) :]
+
+    adopted: list[str] = []
+    deferred_dropped: list[str] = []
+    goals: list[str] = []
+    for ev in current:
+        etype = ev.get("type")
+        content = ev.get("content", "")
+        match etype:
+            case _common.DECISION if ev.get("topic", "").startswith(
+                _RETRO_TRY_TOPIC_PREFIX
+            ):
+                adopted.append(content)
+            case _common.STATUS if ev.get("metadata", {}).get("disposition") in (
+                "deferred",
+                "dropped",
+            ):
+                deferred_dropped.append(content)
+            case _common.GOAL:
+                goals.append(content)
+
+    if not (adopted or deferred_dropped or goals):
+        return None
+
+    sections: list[str] = ["## Session Work Selection", ""]
+    for heading, items in (
+        ("### Adopted Tries", adopted),
+        ("### Deferred / Dropped", deferred_dropped),
+        ("### Goals", goals),
+    ):
+        if items:
+            sections.append(heading)
+            sections.extend(f"- {item}" for item in items)
+            sections.append("")
+    return "\n".join(sections).rstrip()
+
+
+def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-housekeeper (inline-agent): write curation input + inject paths.
+
+    Writes .curation-input.json via materialize.prepare_curation_data,
+    advertises SMM_DIR + CURATION_INPUT, and appends an optional
+    ## Session Work Selection block capturing adopted/deferred/dropped
+    retro Tries and session goals so the housekeeper sees the user's
+    in-session disposition signals directly.
+    """
+    import materialize
+
+    curation_path = smm_dir / _CURATION_INPUT_FILENAME
+    _common.write_json_atomic(curation_path, materialize.prepare_curation_data(smm_dir))
+
+    parts = [f"SMM_DIR={smm_dir}\nCURATION_INPUT={curation_path}"]
+    work_selection = _gather_work_selection_events(smm_dir)
+    if work_selection:
+        parts.append(work_selection)
+    return parts
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
@@ -58,6 +133,8 @@ _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "xp-agents:xp-code-reviewer": _inject_full,
     "xp-retrospective": _inject_retrospective,
     "xp-agents:xp-retrospective": _inject_retrospective,
+    "xp-housekeeper": _inject_housekeeper,
+    "xp-agents:xp-housekeeper": _inject_housekeeper,
 }
 
 

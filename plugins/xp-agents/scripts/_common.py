@@ -73,6 +73,20 @@ RETROSPECTIVE = "retrospective"
 # agent, cleaned up by scripts/save_retrospective.py.
 RETRO_INPUT_FILENAME = ".retro-input.json"
 
+
+def current_session_start_index(events: list[dict]) -> int:
+    """Return index of the first event in the current session.
+
+    Current session = events after the last SESSION_END event. Returns 0
+    when no SESSION_END has been recorded (everything is the current
+    session). Reverse-scan so complexity is O(events-since-last-end).
+    """
+    for i in range(len(events) - 1, -1, -1):
+        if events[i].get("type") == SESSION_END:
+            return i + 1
+    return 0
+
+
 # Shared status content patterns (used by retrospective and work_signals)
 TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
 LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)

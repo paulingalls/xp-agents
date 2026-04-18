@@ -31,12 +31,7 @@ def _compute_summary(events: list[dict]) -> dict:
     event_count = len(events)
 
     # Duration: time from first event after last session_end to now
-    # Find the start of the current session
-    session_start_idx = 0
-    for i in range(len(events) - 1, -1, -1):
-        if events[i].get("type") == _common.SESSION_END:
-            session_start_idx = i + 1
-            break
+    session_start_idx = _common.current_session_start_index(events)
 
     duration_seconds: float = 0
     now = datetime.now(timezone.utc)
