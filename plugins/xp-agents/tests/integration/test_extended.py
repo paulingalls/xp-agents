@@ -271,8 +271,8 @@ class TestCommitGateIntegration(_IntegrationTestCase):
         )
 
     def _write_triage_marker(self) -> None:
-        """Write a .security-triaged marker in the SMM dir."""
-        marker = self.smm_dir / ".security-triaged"
+        """Write a .security-triaged-main marker in the SMM dir."""
+        marker = self.smm_dir / ".security-triaged-main"
         marker.write_text(json.dumps({"ts": "2026-03-19T00:00:00"}))
 
     def test_git_commit_blocked_no_triage(self):
@@ -323,7 +323,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
     def test_marker_consumed_after_commit(self):
         """Triage marker is consumed after a successful git commit."""
         self._write_triage_marker()
-        marker = self.smm_dir / ".security-triaged"
+        marker = self.smm_dir / ".security-triaged-main"
         self.assertTrue(marker.exists())
 
         # Simulate successful commit via bash_post_tool
@@ -353,7 +353,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        marker = self.smm_dir / ".security-triaged"
+        marker = self.smm_dir / ".security-triaged-main"
         self.assertTrue(marker.exists(), "Marker should exist after /security-review")
 
     def test_full_flow(self):
@@ -408,7 +408,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
                 "agent_id": "main",
             },
         )
-        marker = self.smm_dir / ".security-triaged"
+        marker = self.smm_dir / ".security-triaged-main"
         self.assertFalse(marker.exists(), "Marker should be consumed after commit")
 
 

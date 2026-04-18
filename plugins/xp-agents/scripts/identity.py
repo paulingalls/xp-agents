@@ -45,4 +45,12 @@ def resolve_agent_id(input_data: dict) -> str:
     agent_id = input_data.get("agent_id", "")
     if agent_id:
         return agent_id
-    return extract_worktree_name(input_data.get("cwd", "")) or "main"
+    return resolve_agent_id_from_cwd(input_data.get("cwd", ""))
+
+
+def resolve_agent_id_from_cwd(cwd: str) -> str:
+    """Resolve agent_id from a cwd path — worktree name or 'main' fallback.
+
+    For skill-invoked scripts that have cwd but no hook input_data.
+    """
+    return extract_worktree_name(cwd) or "main"

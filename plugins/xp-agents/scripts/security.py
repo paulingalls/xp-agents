@@ -133,29 +133,34 @@ def is_git_commit(command: str) -> bool:
     return bool(re.search(r"\bgit\s+commit\b", _strip_quoted(command)))
 
 
-def security_triaged_path(smm_dir: Path) -> Path:
-    """Return path to the .security-triaged marker file."""
-    return markers.marker_path(smm_dir, markers.SECURITY_TRIAGED)
+def security_triaged_path(smm_dir: Path, agent_id: str = "main") -> Path:
+    """Return path to the agent-scoped .security-triaged-<agent_id> marker."""
+    return markers.marker_path(smm_dir, markers.SECURITY_TRIAGED, agent_id)
 
 
-def security_triaged_exists(smm_dir: Path) -> bool:
-    """Check if triage marker exists with valid JSON content and 'ts' key."""
-    if not markers.marker_exists(smm_dir, markers.SECURITY_TRIAGED):
+def security_triaged_exists(smm_dir: Path, agent_id: str = "main") -> bool:
+    """Check if this agent's triage marker exists with valid JSON and 'ts' key."""
+    if not markers.marker_exists(smm_dir, markers.SECURITY_TRIAGED, agent_id):
         return False
-    data = markers.marker_read(smm_dir, markers.SECURITY_TRIAGED)
+    data = markers.marker_read(smm_dir, markers.SECURITY_TRIAGED, agent_id)
     return isinstance(data, dict) and "ts" in data
 
 
-def write_security_triaged(smm_dir: Path, *, exempt_reason: str | None = None) -> None:
-    """Atomic write of the triage marker with timestamp."""
+def write_security_triaged(
+    smm_dir: Path,
+    agent_id: str = "main",
+    *,
+    exempt_reason: str | None = None,
+) -> None:
+    """Atomic write of this agent's triage marker with timestamp."""
     from datetime import datetime, timezone
 
     data = {"ts": datetime.now(timezone.utc).isoformat()}
     if exempt_reason is not None:
         data["exempt_reason"] = exempt_reason
-    markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data)
+    markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data, agent_id)
 
 
-def consume_security_triaged(smm_dir: Path) -> None:
-    """Delete the triage marker if it exists."""
-    markers.marker_consume(smm_dir, markers.SECURITY_TRIAGED)
+def consume_security_triaged(smm_dir: Path, agent_id: str = "main") -> None:
+    """Delete this agent's triage marker if it exists."""
+    markers.marker_consume(smm_dir, markers.SECURITY_TRIAGED, agent_id)

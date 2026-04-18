@@ -24,10 +24,15 @@ from conftest import _HookTestCase
 class TestSecurityTriageMarker(_HookTestCase):
     """Tests for security triage marker helpers in security.py."""
 
-    def test_triaged_path(self):
-        """security_triaged_path returns correct path."""
+    def test_triaged_path_default_agent(self):
+        """security_triaged_path returns agent-scoped path (default 'main')."""
         path = security.security_triaged_path(self.smm_dir)
-        self.assertEqual(path, self.smm_dir / ".security-triaged")
+        self.assertEqual(path, self.smm_dir / ".security-triaged-main")
+
+    def test_triaged_path_custom_agent(self):
+        """security_triaged_path scopes to the given agent_id."""
+        path = security.security_triaged_path(self.smm_dir, "teammate-story-001")
+        self.assertEqual(path, self.smm_dir / ".security-triaged-teammate-story-001")
 
     def test_write_and_exists(self):
         """write_security_triaged creates file, security_triaged_exists finds it."""
@@ -63,3 +68,18 @@ class TestSecurityTriageMarker(_HookTestCase):
         path = security.security_triaged_path(self.smm_dir)
         data = json.loads(path.read_text())
         self.assertIn("ts", data)
+
+    def test_agent_scope_isolation(self):
+        """Teammate A's marker is invisible to teammate B (race fix)."""
+        security.write_security_triaged(self.smm_dir, "teammate-a")
+        self.assertTrue(security.security_triaged_exists(self.smm_dir, "teammate-a"))
+        self.assertFalse(security.security_triaged_exists(self.smm_dir, "teammate-b"))
+        self.assertFalse(security.security_triaged_exists(self.smm_dir))
+
+    def test_consume_scoped_to_agent(self):
+        """Consuming one agent's marker leaves the other agent's marker intact."""
+        security.write_security_triaged(self.smm_dir, "teammate-a")
+        security.write_security_triaged(self.smm_dir, "teammate-b")
+        security.consume_security_triaged(self.smm_dir, "teammate-a")
+        self.assertFalse(security.security_triaged_exists(self.smm_dir, "teammate-a"))
+        self.assertTrue(security.security_triaged_exists(self.smm_dir, "teammate-b"))

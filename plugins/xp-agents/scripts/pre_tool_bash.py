@@ -85,7 +85,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Run /xp-security-triage before committing.",
                     "Security triage required before committing.",
                 )
-        elif not security.security_triaged_exists(smm_dir):
+        elif not security.security_triaged_exists(smm_dir, agent_id):
             has_code = security.has_staged_code_files(cwd, command)
             if has_code:
                 raise _common.BlockedError(
@@ -93,7 +93,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Security triage required before committing.",
                 )
             else:
-                security.write_security_triaged(smm_dir, exempt_reason="no-code-files")
+                security.write_security_triaged(
+                    smm_dir, agent_id, exempt_reason="no-code-files"
+                )
 
     if (
         smm_dir is not None

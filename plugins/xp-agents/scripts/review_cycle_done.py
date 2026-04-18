@@ -82,7 +82,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Backward compat: security path also writes old-style marker
     if flag == "security_review_done":
-        security.write_security_triaged(smm_dir)
+        security.write_security_triaged(smm_dir, agent_id)
         # Only record "review complete" when /security-review actually ran,
         # not when /xp-security-triage completed without running it.
         # mark_triaged.py already records the triage start event.

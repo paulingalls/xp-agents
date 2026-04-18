@@ -364,7 +364,7 @@ class TestTriageExemption(_HookTestCase):
         ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         self.assertTrue(security.security_triaged_exists(self.smm_dir))
-        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
         self.assertEqual(data["exempt_reason"], "no-code-files")
 
     def test_code_files_still_require_triage(self):
@@ -379,14 +379,14 @@ class TestTriageExemption(_HookTestCase):
     def test_write_security_triaged_with_exempt_reason(self):
         """write_security_triaged accepts optional exempt_reason."""
         security.write_security_triaged(self.smm_dir, exempt_reason="no-code-files")
-        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
         self.assertIn("ts", data)
         self.assertEqual(data["exempt_reason"], "no-code-files")
 
     def test_write_security_triaged_without_exempt_reason(self):
         """write_security_triaged without exempt_reason has no exempt_reason key."""
         security.write_security_triaged(self.smm_dir)
-        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED)
+        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
         self.assertIn("ts", data)
         self.assertNotIn("exempt_reason", data)
 

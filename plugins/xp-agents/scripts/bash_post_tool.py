@@ -208,7 +208,7 @@ def _handle_commit(
         _common.append_safe(smm_dir, concern)
 
     _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
-    security.consume_security_triaged(smm_dir)
+    security.consume_security_triaged(smm_dir, agent_id)
 
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)

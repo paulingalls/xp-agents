@@ -68,14 +68,10 @@ class TestMarkerPath(_HookTestCase):
         self.assertEqual(path, self.smm_dir / ".tdd-main.json")
 
     def test_all_constants_produce_valid_paths(self):
-        for m in (
-            markers.KICKOFF,
-            markers.SECURITY_TRIAGED,
-            markers.PLAN_AWAITING_REVIEW,
-        ):
+        for m in (markers.KICKOFF, markers.PLAN_AWAITING_REVIEW):
             path = markers.marker_path(self.smm_dir, m)
             self.assertTrue(path.name.startswith("."))
-        for m in (markers.TDD_TRACKER, markers.REVIEW_CYCLE):
+        for m in (markers.SECURITY_TRIAGED, markers.TDD_TRACKER, markers.REVIEW_CYCLE):
             path = markers.marker_path(self.smm_dir, m, "main")
             self.assertTrue(path.name.startswith("."))
 
@@ -96,19 +92,25 @@ class TestMarkerExists(_HookTestCase):
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.KICKOFF))
 
     def test_json_marker_exists_with_valid_json(self):
-        path = self.smm_dir / ".security-triaged"
+        path = self.smm_dir / ".security-triaged-main"
         path.write_text(json.dumps({"ts": "2026-03-26T00:00:00Z"}))
-        self.assertTrue(markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED))
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED, "main")
+        )
 
     def test_json_marker_invalid_json_returns_false(self):
-        path = self.smm_dir / ".security-triaged"
+        path = self.smm_dir / ".security-triaged-main"
         path.write_text("not json")
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED))
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED, "main")
+        )
 
     def test_json_marker_non_dict_returns_false(self):
-        path = self.smm_dir / ".security-triaged"
+        path = self.smm_dir / ".security-triaged-main"
         path.write_text(json.dumps([1, 2, 3]))
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED))
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED, "main")
+        )
 
     def test_symlink_returns_false(self):
         real = self.smm_dir / ".real-file"
@@ -141,8 +143,8 @@ class TestMarkerWrite(_HookTestCase):
 
     def test_write_json_marker(self):
         data = {"ts": "2026-03-26T00:00:00Z"}
-        markers.marker_write(self.smm_dir, markers.SECURITY_TRIAGED, data)
-        path = self.smm_dir / ".security-triaged"
+        markers.marker_write(self.smm_dir, markers.SECURITY_TRIAGED, data, "main")
+        path = self.smm_dir / ".security-triaged-main"
         self.assertEqual(json.loads(path.read_text()), data)
 
     def test_write_agent_scoped_marker(self):
@@ -192,18 +194,22 @@ class TestMarkerRead(_HookTestCase):
 
     def test_read_json_marker(self):
         data = {"ts": "2026-03-26T00:00:00Z"}
-        (self.smm_dir / ".security-triaged").write_text(json.dumps(data))
+        (self.smm_dir / ".security-triaged-main").write_text(json.dumps(data))
         self.assertEqual(
-            markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED), data
+            markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main"), data
         )
 
     def test_read_json_corrupt_returns_none(self):
-        (self.smm_dir / ".security-triaged").write_text("not json{")
-        self.assertIsNone(markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED))
+        (self.smm_dir / ".security-triaged-main").write_text("not json{")
+        self.assertIsNone(
+            markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
+        )
 
     def test_read_json_non_dict_returns_none(self):
-        (self.smm_dir / ".security-triaged").write_text(json.dumps("string"))
-        self.assertIsNone(markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED))
+        (self.smm_dir / ".security-triaged-main").write_text(json.dumps("string"))
+        self.assertIsNone(
+            markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
+        )
 
     def test_read_symlink_returns_none(self):
         real = self.smm_dir / ".real-file"
@@ -237,10 +243,10 @@ class TestMarkerConsume(_HookTestCase):
 
     def test_consume_json_marker(self):
         data = {"ts": "2026-03-26T00:00:00Z"}
-        (self.smm_dir / ".security-triaged").write_text(json.dumps(data))
-        result = markers.marker_consume(self.smm_dir, markers.SECURITY_TRIAGED)
+        (self.smm_dir / ".security-triaged-main").write_text(json.dumps(data))
+        result = markers.marker_consume(self.smm_dir, markers.SECURITY_TRIAGED, "main")
         self.assertEqual(result, data)
-        self.assertFalse((self.smm_dir / ".security-triaged").exists())
+        self.assertFalse((self.smm_dir / ".security-triaged-main").exists())
 
     def test_consume_missing_returns_none(self):
         result = markers.marker_consume(self.smm_dir, markers.KICKOFF)
