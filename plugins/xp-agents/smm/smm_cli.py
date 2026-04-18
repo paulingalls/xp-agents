@@ -9,12 +9,16 @@ Also provides extract_pillar / extract_pillars for subsetting
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-import _append_impl
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+
 import marker_names
+import markers
 import smm_store
+from identity import resolve_agent_id_from_cwd
 from smm_schema import PILLARS
 
 _PILLAR_TITLES = {
@@ -91,10 +95,39 @@ def extract_pillars(smm: dict, pillars: set[str]) -> str:
 
 
 def _cmd_dump(args: argparse.Namespace) -> int:
+    """Pure-output SMM renderer. No side effects — no marker dropped.
+
+    Echo-intentional callers must use `render` instead.
+    """
     smm = smm_store.load_smm(args.smm_dir)
     print(render_markdown(smm))
-    marker = args.smm_dir / marker_names.PENDING_RENDER_SMM
-    _append_impl.write_text_atomic(marker, marker_names.RENDER_SMM_SIGNATURE + "\n")
+    return 0
+
+
+def _cmd_render(args: argparse.Namespace) -> int:
+    """Render SMM AND drop agent-scoped echo-enforcement marker.
+
+    The marker signals to the echo-gate hook that the assistant must
+    echo the signature line verbatim before the next tool call.
+
+    Marker write happens BEFORE stdout print: if enforcement can't be
+    installed we must not leak a signature line to the caller, since
+    the echo-gate would then have nothing to check.
+    """
+    agent_id = args.agent_id or resolve_agent_id_from_cwd(os.getcwd())
+    smm = smm_store.load_smm(args.smm_dir)
+    markdown = render_markdown(smm)
+    try:
+        markers.marker_write(
+            args.smm_dir,
+            markers.PENDING_RENDER_SMM,
+            marker_names.RENDER_SMM_SIGNATURE + "\n",
+            agent_id,
+        )
+    except ValueError as exc:
+        print(f"Error writing render marker: {exc}", file=sys.stderr)
+        return 1
+    print(markdown)
     return 0
 
 
@@ -240,7 +273,17 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("dump", help="Render full SMM as markdown")
+    sub.add_parser("dump", help="Render full SMM as markdown (pure; no side effects)")
+
+    render_p = sub.add_parser(
+        "render",
+        help="Render full SMM as markdown AND drop echo-enforcement marker",
+    )
+    render_p.add_argument(
+        "--agent-id",
+        default=None,
+        help="Agent ID for marker scoping (default: derived from CWD)",
+    )
 
     sec_p = sub.add_parser("section", help="Render a single pillar")
     sec_p.add_argument("name", help="Pillar name (intent/constraints/risks/wisdom)")
@@ -282,6 +325,7 @@ def main() -> None:
 
     dispatch = {
         "dump": _cmd_dump,
+        "render": _cmd_render,
         "section": _cmd_section,
         "has-section": _cmd_has_section,
         "save": _cmd_save,

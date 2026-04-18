@@ -164,9 +164,11 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> complete-curati
 
 After saving, render the full curated SMM and return it along with a change summary. The main agent will display both to the user.
 
-First, render the SMM:
+First, render the SMM (drops an agent-scoped echo-enforcement marker so the
+echo-gate hook verifies the main agent actually echoed the signature line
+verbatim to the user):
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> dump
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> render
 ```
 
 Then return the rendered SMM output followed by:

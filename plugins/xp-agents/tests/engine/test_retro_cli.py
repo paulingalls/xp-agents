@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Tests for retro_cli.py: render retrospective JSON as markdown.
 
-Validates:
-- Stdout markdown with signature header and keep/fix/try sections.
-- Atomic marker drop at <smm_dir>/.pending-render-retro with signature content.
-- Missing JSON path fails cleanly (nonzero exit, stderr message).
-- Empty keep/fix/try still produces header + marker.
+Contract:
+- `render` prints Keep/Fix/Try markdown with signature header on stdout.
+- `render` drops an agent-scoped marker .pending-render-retro-{agent_id}
+  with the signature line as content (atomic, symlink-safe via
+  markers.marker_write).
+- `--agent-id` overrides CWD-based resolution; teammate-a and teammate-b
+  produce distinct marker files (per-agent isolation).
+- Missing / invalid JSON exits non-zero with stderr, drops no marker.
 """
 
 import json
@@ -13,7 +16,6 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -23,7 +25,7 @@ from conftest import _SMMTestCase
 _CLI = Path(__file__).parent.parent.parent / "smm" / "retro_cli.py"
 
 _SIGNATURE = "# XP Retrospective \u2014 Keep / Fix / Try"
-_MARKER_NAME = ".pending-render-retro"
+_MARKER_PREFIX = ".pending-render-retro-"
 
 
 def _make_retro(**overrides) -> dict:
@@ -55,7 +57,9 @@ class TestRenderMarkdown(_SMMTestCase):
         retro_path = self.smm_dir / "retro.json"
         retro_path.write_text(json.dumps(_make_retro()))
 
-        result = _run_cli(["render", str(retro_path)], self.smm_dir)
+        result = _run_cli(
+            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(_SIGNATURE, result.stdout)
@@ -72,7 +76,9 @@ class TestRenderMarkdown(_SMMTestCase):
             )
         )
 
-        result = _run_cli(["render", str(retro_path)], self.smm_dir)
+        result = _run_cli(
+            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         out = result.stdout
@@ -97,71 +103,93 @@ class TestRenderMarkdown(_SMMTestCase):
             )
         )
 
-        result = _run_cli(["render", str(retro_path)], self.smm_dir)
+        result = _run_cli(
+            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(_SIGNATURE, result.stdout)
-        marker = self.smm_dir / _MARKER_NAME
+        marker = self.smm_dir / f"{_MARKER_PREFIX}main"
         self.assertTrue(marker.is_file())
         self.assertIn(_SIGNATURE, marker.read_text())
 
 
 class TestMarkerDrop(_SMMTestCase):
-    def test_marker_written_with_signature(self):
+    def test_marker_written_with_signature_agent_scoped(self):
         retro_path = self.smm_dir / "retro.json"
         retro_path.write_text(json.dumps(_make_retro()))
 
-        result = _run_cli(["render", str(retro_path)], self.smm_dir)
+        result = _run_cli(
+            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        marker = self.smm_dir / _MARKER_NAME
-        self.assertTrue(marker.is_file(), "marker file missing")
+        marker = self.smm_dir / f"{_MARKER_PREFIX}main"
+        self.assertTrue(
+            marker.is_file(),
+            f"marker missing; files: {[p.name for p in self.smm_dir.iterdir()]}",
+        )
         self.assertEqual(marker.read_text().strip(), _SIGNATURE)
 
-    def test_marker_name_from_constants(self):
+    def test_marker_template_uses_agent_id(self):
         import marker_names
 
-        self.assertEqual(marker_names.PENDING_RENDER_RETRO, _MARKER_NAME)
+        self.assertIn("{agent_id}", marker_names.PENDING_RENDER_RETRO)
+        self.assertTrue(marker_names.PENDING_RENDER_RETRO.startswith(_MARKER_PREFIX))
 
-    def test_atomic_write_used_for_marker(self):
-        """Marker drop must go through write_text_atomic (tempfile + rename)."""
-        import _append_impl
-        import retro_cli
-
+    def test_render_per_agent_isolation(self):
         retro_path = self.smm_dir / "retro.json"
         retro_path.write_text(json.dumps(_make_retro()))
 
-        with mock.patch.object(
-            _append_impl, "write_text_atomic", wraps=_append_impl.write_text_atomic
-        ) as spy:
-            # retro_cli must resolve write_text_atomic via _append_impl at
-            # call time so the patch is observed.
-            retro_cli.run_render(retro_path, self.smm_dir)
-
-        marker_calls = [c for c in spy.call_args_list if c.args[0].name == _MARKER_NAME]
-        self.assertEqual(
-            len(marker_calls),
-            1,
-            f"expected 1 atomic marker write, got {len(marker_calls)}",
+        r1 = _run_cli(
+            ["render", str(retro_path), "--agent-id", "teammate-a"], self.smm_dir
         )
+        r2 = _run_cli(
+            ["render", str(retro_path), "--agent-id", "teammate-b"], self.smm_dir
+        )
+
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertTrue((self.smm_dir / f"{_MARKER_PREFIX}teammate-a").is_file())
+        self.assertTrue((self.smm_dir / f"{_MARKER_PREFIX}teammate-b").is_file())
+
+    def test_render_rejects_symlink(self):
+        retro_path = self.smm_dir / "retro.json"
+        retro_path.write_text(json.dumps(_make_retro()))
+        real = self.smm_dir / ".real-file"
+        real.write_text("old")
+        link = self.smm_dir / f"{_MARKER_PREFIX}main"
+        link.symlink_to(real)
+
+        result = _run_cli(
+            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        )
+
+        self.assertNotEqual(
+            result.returncode, 0, f"expected failure; stderr={result.stderr}"
+        )
+        self.assertTrue(link.is_symlink())
+        # Marker-first contract: on enforcement failure, no signature line
+        # must leak to stdout, because the echo-gate has nothing to check.
+        self.assertNotIn(_SIGNATURE, result.stdout)
 
 
 class TestErrorHandling(_SMMTestCase):
     def test_missing_json_path_errors(self):
         missing = self.smm_dir / "does-not-exist.json"
 
-        result = _run_cli(["render", str(missing)], self.smm_dir)
+        result = _run_cli(["render", str(missing), "--agent-id", "main"], self.smm_dir)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stderr.strip(), "expected stderr message")
-        marker = self.smm_dir / _MARKER_NAME
-        self.assertFalse(marker.exists(), "marker must not drop on error")
+        leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
+        self.assertEqual(leaked, [], "marker must not drop on error")
 
     def test_invalid_json_errors(self):
         bad_path = self.smm_dir / "bad.json"
         bad_path.write_text("{ not valid json")
 
-        result = _run_cli(["render", str(bad_path)], self.smm_dir)
+        result = _run_cli(["render", str(bad_path), "--agent-id", "main"], self.smm_dir)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stderr.strip())
