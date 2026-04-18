@@ -39,6 +39,15 @@ def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     return []
 
 
+def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-retrospective (inline-agent): inject SMM_DIR and RETRO_INPUT paths.
+
+    .retro-input.json is written by scripts/retrospective.py at SessionStart,
+    so the handler only advertises the paths the agent prompt expects.
+    """
+    return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
@@ -47,6 +56,8 @@ _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
     "xp-code-reviewer": _inject_full,
     "xp-agents:xp-code-reviewer": _inject_full,
+    "xp-retrospective": _inject_retrospective,
+    "xp-agents:xp-retrospective": _inject_retrospective,
 }
 
 

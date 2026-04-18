@@ -68,6 +68,11 @@ SESSION_END = "session_end"
 SPRINT = "sprint"
 RETROSPECTIVE = "retrospective"
 
+# Shared data-file name used across the retrospective subsystem:
+# written by scripts/retrospective.py, consumed by the xp-retrospective
+# agent, cleaned up by scripts/save_retrospective.py.
+RETRO_INPUT_FILENAME = ".retro-input.json"
+
 # Shared status content patterns (used by retrospective and work_signals)
 TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
 LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)

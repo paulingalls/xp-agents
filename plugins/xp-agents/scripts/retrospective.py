@@ -382,7 +382,7 @@ def _build_retro_input(
 
 def _write_retro_input(smm_dir: Path, data: dict) -> None:
     """Write .retro-input.json atomically via _common.write_json_atomic."""
-    _common.write_json_atomic(smm_dir / ".retro-input.json", data)
+    _common.write_json_atomic(smm_dir / _common.RETRO_INPUT_FILENAME, data)
 
 
 def _build_context_summary(

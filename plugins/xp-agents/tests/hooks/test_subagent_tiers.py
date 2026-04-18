@@ -274,19 +274,24 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         # Should NOT get SMM content (that comes from preload)
         self.assertNotIn("Ship v1", result)
 
-    def test_retrospective_gets_values_only(self):
-        """xp-retrospective gets XP values only (data from preload)."""
-        result = self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "retro-1",
-                "agent_type": "xp-retrospective",
-            },
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
-        self.assertNotIn("Ship v1", result)
+    def test_retrospective_handler_injects_paths(self):
+        """xp-retrospective handler injects SMM_DIR + RETRO_INPUT, not SMM content."""
+        for agent_type in ("xp-retrospective", "xp-agents:xp-retrospective"):
+            with self.subTest(agent_type=agent_type):
+                result = self.subagent_start.run(
+                    {
+                        "session_id": "t",
+                        "agent_id": "retro-1",
+                        "agent_type": agent_type,
+                    },
+                    smm_dir=self.smm_dir,
+                )
+                self.assertIsNotNone(result)
+                self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+                self.assertIn(f"RETRO_INPUT={self.smm_dir}/.retro-input.json", result)
+                self.assertIn("XP Values", result)
+                # Data flows via file paths, not inline SMM content
+                self.assertNotIn("Ship v1", result)
 
     def test_sprint_reviewer_gets_values_only(self):
         """xp-sprint-reviewer gets XP values only (data from preload)."""

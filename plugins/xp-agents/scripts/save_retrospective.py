@@ -26,7 +26,7 @@ def run(
     *,
     agent_id: str = "xp-retrospective",
     prefix: str = "Session retrospective",
-    cleanup_file: str = ".retro-input.json",
+    cleanup_file: str = _common.RETRO_INPUT_FILENAME,
     retro_kind: str = "session",
 ) -> dict[str, str] | None:
     """Save retrospective analysis to event log and file.
@@ -138,7 +138,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--cleanup-file",
-        default=".retro-input.json",
+        default=_common.RETRO_INPUT_FILENAME,
         help="Input file to clean up after save",
     )
     parser.add_argument(
