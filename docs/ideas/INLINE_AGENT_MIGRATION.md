@@ -1,21 +1,30 @@
-# Inline Agent Migration: Forked Skills → Inline Skills + Agent Tool
+# Inline Agent Migration: Kickoff-Path Skills
 
 ## Problem
 
-Forked skills (`context: fork` + `agent:` in SKILL.md) sometimes fail to spawn the subagent. The skill "completes" from the main agent's perspective without the agent actually running. This has been observed with both `xp-housekeeper` and `xp-retrospective`. The failure is silent — no error, no crash, the Skill tool just returns without the work being done.
+Two related failures with forked skills on the kickoff path:
 
-## Proposed Solution
+1. **Silent invocation failure.** Forked skills (`context: fork` + `agent:`) sometimes complete from the main agent's perspective without the subagent actually running. Observed with `xp-housekeeper` and `xp-retrospective`. The skill "returns" but no work was done.
 
-Replace forked skills with inline skills that explicitly call the Agent tool, following the pattern already proven by `/xp-quality-review` + `xp-code-reviewer`. Additionally, replace skill `!` preloads with SubagentStart hook handlers that inject prepared data via `additionalContext`.
+2. **Invisible output failure.** Even when the forked skill succeeds, its result arrives as a tool result — not user-visible text. Kickoff instructions telling the main agent to "echo the retrospective verbatim" have been skipped in multiple consecutive sessions despite instruction strengthening (commit 72dff5d). Only text the main agent *produces in its response* reaches the user; tool results do not.
 
-### Two changes, one migration:
+Both failures block effective retrospective review and SMM curation at session start.
 
-1. **Skill invocation**: Forked → inline + Agent tool
-2. **Data preparation**: `!` preloads → SubagentStart handlers
+## Scope
+
+Narrow migration focused on the three forked skills kickoff invokes. Other forked skills are out of scope and keep their current mechanism.
+
+| Path | Skill | Agent | Action |
+|------|-------|-------|--------|
+| kickoff-only | `/xp-run-retrospective` | `xp-retrospective` | **Delete skill.** Kickoff calls Agent tool directly. |
+| kickoff-only | `/xp-housekeeping` | `xp-housekeeper` | **Delete skill.** Kickoff calls Agent tool directly. Receives work-selection context. |
+| kickoff + standalone | `/xp-system-context` | `xp-system-context` → `xp-system-analyzer` | **Rename agent** (name-collision defense). Kickoff calls Agent tool directly. Forked skill unchanged — still supports standalone invocation (e.g., after sprint review). |
+
+Out of scope: `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`. Not called from kickoff, no observed echo-gap, lower failure frequency. Migrate separately if warranted later.
 
 ## Current Architecture
 
-### Forked Skill Pattern (6 skills)
+### Forked Skill Pattern (invocation)
 
 ```
 User/agent invokes Skill tool → /xp-housekeeping
@@ -23,179 +32,224 @@ User/agent invokes Skill tool → /xp-housekeeping
   ├── context: fork spawns subagent with agent type from `agent:` field
   ├── Skill content becomes the subagent's task prompt
   ├── Subagent runs with agent definition as system prompt
-  ├── SubagentStop fires on completion (can consume markers, record events)
-  └── Skill tool returns subagent's final response
+  ├── SubagentStop fires on completion (marker consumption, event recording)
+  └── Skill tool returns subagent's final response as a tool result
 ```
 
-PostToolUse:Skill fires after the Skill tool returns — i.e., after the subagent finishes.
+The tool result contains the rendered output but is NOT user-visible. The main agent must re-output it in its own response — instruction-only enforcement.
 
-### Inline + Agent Tool Pattern (1 skill: xp-quality-review)
+### Inline + Agent Tool Pattern (proven: `/xp-quality-review` → `xp-code-reviewer`)
 
 ```
 User/agent invokes Skill tool → /xp-quality-review
-  ├── !`preload.sh` runs (deterministic, generates data)
+  ├── !`preload.sh` runs (deterministic)
   ├── Skill content loads into main agent's context
-  ├── PostToolUse:Skill fires (after content loads, BEFORE agent work)
-  ├── Main agent follows skill instructions
-  ├── Main agent calls Agent tool → xp-code-reviewer
-  ├── SubagentStop fires when agent completes
-  ├── Agent tool returns result to main agent
-  └── Main agent acts on result per skill instructions
-```
-
-### Skills to Migrate
-
-| Skill | Agent | Preload | Current |
-|-------|-------|---------|---------|
-| `/xp-housekeeping` | `xp-housekeeper` | `prepare_curation.py` → `.curation-input.json` | Forked |
-| `/xp-run-retrospective` | `xp-retrospective` | retro input check + Try items | Forked |
-| `/xp-review-plan` | `xp-plan-reviewer` | plan path + SMM + sprint render | Forked |
-| `/xp-security-triage` | `xp-security-reviewer` | `mark_triaged.py` + diff | Forked |
-| `/xp-sprint-review` | `xp-sprint-reviewer` | `prepare_review_data.py` | Forked |
-| `/xp-system-context` | `xp-system-context` | SMM + system context path | Forked |
-
-Already inline: `/xp-quality-review` (uses `xp-code-reviewer` via Agent tool).
-
-## Target Architecture
-
-### Inline Skill + Agent Tool + SubagentStart Injection
-
-```
-User/agent invokes Skill tool → /xp-housekeeping
-  ├── !`preload.sh` runs (lightweight: SMM_DIR resolution + data prep only)
-  ├── Skill content loads into main agent's context
-  ├── PostToolUse:Skill fires (process guide injection, review nudges)
+  ├── PostToolUse:Skill fires (before agent work)
   ├── Main agent follows skill instructions:
-  │     ├── Calls Agent tool → xp-housekeeper
+  │     ├── Calls Agent tool → xp-code-reviewer
   │     ├── SubagentStart fires → subagent_start.py injects prepared data
   │     ├── Agent runs with injected context
   │     ├── SubagentStop fires → markers consumed, events recorded
-  │     └── Agent tool returns result (SMM + summary)
-  └── Main agent displays result to user per skill instructions
+  │     └── Agent tool returns result to main agent
+  └── Main agent acts on result per skill instructions
 ```
 
-### SubagentStart Injection Design
+## Target Architecture
 
-`subagent_start.py` already has a tiered dispatch table. Extend it with agent-specific data preparation handlers:
+### Kickoff invokes agents directly (no wrapper skill)
 
-```python
-_DISPATCH: dict[str, Callable[..., list[str]]] = {
-    "Explore": _inject_explore,
-    "xp-code-reviewer": _inject_full,
-    "xp-agents:xp-code-reviewer": _inject_full,
-    # New entries for migrated agents:
-    "xp-housekeeper": _inject_housekeeper,
-    "xp-agents:xp-housekeeper": _inject_housekeeper,
-    "xp-retrospective": _inject_retrospective,
-    "xp-agents:xp-retrospective": _inject_retrospective,
-    "xp-plan-reviewer": _inject_plan_reviewer,
-    "xp-agents:xp-plan-reviewer": _inject_plan_reviewer,
-    # ... etc for each migrated agent
-}
+```
+xp-kickoff step 1 (if RETRO_NEEDED):
+  → Agent tool (subagent_type=xp-retrospective)
+  → SubagentStart fires, injects retro input + Try items + SMM/sprint renders
+  → Subagent runs, writes retrospectives/<ts>.json, returns minimal result (file path + signature)
+  → Main agent runs `retro_cli render <path>` — stdout = rendered MD, also drops echo marker
+  → Main agent's next response echoes the rendered MD verbatim
+  → Echo-gate hook clears marker on signature detection, or blocks next tool/prompt
+
+xp-kickoff step 3 (if NEEDS_SYSTEM_CONTEXT and sprint mode):
+  → Agent tool (subagent_type=xp-system-analyzer)
+  → SubagentStart fires, injects SMM + existing context path
+  → Subagent runs, writes system_context.md
+  → Returns summary (no echo marker — output is a file, not user-visible analysis)
+
+xp-kickoff step 6 (ALWAYS):
+  → Agent tool (subagent_type=xp-housekeeper)
+  → SubagentStart fires, injects curation data + work-selection events from current session
+  → Subagent runs, writes curated SMM
+  → Main agent runs `smm_cli render` (extended to also drop echo marker)
+  → Main agent's next response echoes rendered SMM + summary verbatim
+  → Echo-gate hook clears marker on signature detection, or blocks
 ```
 
-Each handler prepares the same data that the preload currently generates, but injects it as `additionalContext` instead of writing files.
+### SubagentStart injection handlers
 
-### What Each Handler Needs
+`subagent_start.py` dispatch table gains three entries. Each handler calls importable data-prep functions (not subprocess).
 
-| Agent | Current Preload Data | SubagentStart Injection |
-|-------|---------------------|------------------------|
-| `xp-housekeeper` | `.curation-input.json` (curation data), SMM_DIR | Curation data as JSON in additionalContext, SMM_DIR path |
-| `xp-retrospective` | `.retro-input.json` path, Try items, SMM/sprint renders | Retro input content, Try items text, SMM + sprint rendered |
-| `xp-plan-reviewer` | Plan file path, SMM + sprint renders | Plan content (or path), SMM + sprint rendered |
-| `xp-security-reviewer` | Security triage marker, diff stats | Diff stats, triage context |
-| `xp-sprint-reviewer` | `.sprint-review-input.json`, plan path | Review data content, plan path |
-| `xp-system-context` | SMM_DIR, system_context.md path | SMM_DIR, existing context path |
+| Agent | Injection | Notes |
+|-------|-----------|-------|
+| `xp-retrospective` | Retro input (recent events + stats), Try items, SMM + sprint renders | Hybrid: SMM render inline, large event payload as file-path reference |
+| `xp-housekeeper` | Curation data, work-selection events from current session, SMM renders | Hybrid as above. Work-selection data is new — lets curator see what was just adopted/selected |
+| `xp-system-analyzer` | SMM_DIR, existing system_context.md path | Small payload, inline |
 
-### Token Budget Considerations
+### Name-collision defense: why rename `xp-system-context`
 
-Some preload data is large (curation input can be 2-5K tokens, retro input 1-3K). Options:
+A forked skill's preload runs only via the Skill tool invocation path. If the main agent calls Agent tool directly with the skill's name, the skill is bypassed and the agent spawns without its preload data. The established convention (followed by all other agents) is that agent names must differ from skill names:
 
-1. **Inject as additionalContext** — goes into conversation context. Fine for <5K tokens.
-2. **Write to tempfile + inject path** — SubagentStart handler writes data to a tempfile and injects `Read this file: <path>` as context. Agent reads on demand. Better for large payloads.
-3. **Hybrid** — small data inline, large data as file paths. The handler decides per agent.
+- `/xp-housekeeping` → `xp-housekeeper`
+- `/xp-run-retrospective` → `xp-retrospective`
+- `/xp-review-plan` → `xp-plan-reviewer`
+- `/xp-security-triage` → `xp-security-reviewer`
+- `/xp-sprint-review` → `xp-sprint-reviewer`
+- `/xp-system-context` → **`xp-system-context`** ← the one exception to fix
 
-Recommendation: **Hybrid.** SMM renders (~300-700 tokens) and paths go inline. Large structured data (curation input, retro input) stay as files with paths injected.
+Rename: agent `xp-system-context` → `xp-system-analyzer`. Skill name and `system_context.md` output file are unchanged. Skill's `agent:` field updates to point at the renamed agent.
 
-## Migration Strategy
+SubagentStart injection partially mitigates the collision risk (preload data flows regardless of entry path) — but not every agent has a SubagentStart handler, and clarity in logs/tests still wins.
 
-### Phase 1: Housekeeping + Retrospective (highest value)
+### Echo enforcement: marker + hook
 
-These are the two agents with observed forked-skill failures. Migrate first.
+The mechanism that forces rendered output to become user-visible.
 
-**Changes per agent:**
+1. **Render CLI produces output and drops a marker:**
+   - `retro_cli render <path>` and `smm_cli render` both:
+     - Write rendered MD to stdout
+     - Drop `<SMM_DIR>/.pending-render-<kind>.marker` containing the signature line to look for (e.g., `# XP Retrospective — Keep / Fix / Try`, `# Shared Mental Model`)
 
-1. **SKILL.md**: Remove `context: fork` and `agent:` fields. Convert to inline skill that instructs the main agent to call the Agent tool with the correct subagent_type. Keep `!` preload for data file generation (still needed for file-based data).
+2. **Main agent echoes** the rendered MD verbatim in its next response. The signature line appears in the assistant's text output.
 
-2. **subagent_start.py**: Add dispatch entry. Handler reads the data file generated by the preload and injects relevant context as additionalContext.
+3. **Echo-gate hook** (`scripts/pre_tool_echo_gate.py`) registered on:
+   - `PreToolUse` with matcher `Agent|Write|Edit|MultiEdit|Bash|Skill` — immediate feedback on next tool use
+   - `UserPromptSubmit` — catches the "main agent stopped and waited for user" case
 
-3. **subagent_stop.py**: Keep marker consumption and event recording (already works). Remove any additionalContext return (already done for housekeeping in v2.13.3).
+   Hook logic:
+   - Scan `<SMM_DIR>/.pending-render-*.marker` files
+   - For each marker, read signature content
+   - Parse `transcript_path` (JSONL) for `type=assistant` text blocks after marker mtime
+   - Signature present in any such block → delete marker, allow
+   - Signature absent → block with reason `"Unechoed render: <kind>. Output the contents of <file> verbatim before proceeding."`
 
-4. **Tests**: Update skill tests to verify inline invocation pattern. Add SubagentStart injection tests.
+Self-healing: markers auto-clear on detection. SessionStart hook can sweep stale markers from prior sessions if needed.
 
-### Phase 2: Plan Reviewer + Security Reviewer
+### Data prep: subprocess scripts → importable functions
 
-Lower urgency — less frequent, fewer observed failures.
+Current `!` preload scripts become importable Python modules:
 
-### Phase 3: Sprint Reviewer + System Context
+- `plugins/xp-agents/skills/xp-housekeeping/scripts/prepare_curation.py` → function in `plugins/xp-agents/smm/curation.py`
+- Retro input assembly (currently in skill preload) → function in existing engine module or new `smm/retro.py`
 
-Lowest urgency. Migrate for consistency.
+SubagentStart handlers import these directly — no subprocess, no `.curation-input.json` tempfile unless the handler chooses the "write tempfile, inject path" hybrid for large payloads.
 
-### Phase 4: Eliminate Preloads (optional)
+### Work-selection context injection (housekeeper-specific)
 
-Once all agents use SubagentStart injection, the preload scripts become redundant for data preparation. They'd only remain for SMM_DIR resolution and cleanup. Consider:
+When kickoff invokes housekeeper, the SubagentStart handler additionally gathers events from the current session that reflect user-driven work decisions:
 
-- Moving data prep entirely into SubagentStart handlers (Python, not shell)
-- Keeping `!` preloads only for lightweight setup (SMM_DIR echo, cleanup)
-- Or removing preloads entirely if SubagentStart handlers can resolve SMM_DIR independently (they can — `_common.get_validated_smm_dir()` already does this)
+- `decision` events with `topic LIKE 'retro-try-%'` — freshly adopted retro Tries
+- `status` events with `metadata.disposition IN ('deferred', 'dropped')` — Try items not adopted
+- `goal` events — session goals just set
+
+These are formatted into a "Session Work Selection" block in the housekeeper's additionalContext. The curator uses this to:
+- Promote adopted Tries to wisdom when appropriate
+- Record deferred Tries as debt or risk
+- Update Intent pillar with just-set session goals
+- Avoid re-suggesting dropped candidates
+
+## Migration Steps
+
+Executed in TDD order. One sprint-sized change; can be split into 2-3 stories if needed.
+
+1. **Rename agent `xp-system-context` → `xp-system-analyzer`.** Update agent file, skill's `agent:` field, all test references. Verify forked skill still works via `/xp-system-context`.
+
+2. **Extract data-prep as importable functions.** `prepare_curation.py` → `smm/curation.py::prepare_curation_input()`. Retro input assembly similarly. Migrate existing tests to unit tests for the new functions.
+
+3. **Add render CLIs with marker emission.**
+   - Extend `smm_cli render` to drop echo marker
+   - Add `retro_cli render <json-path>` that emits rendered MD and drops marker
+   - Tests: marker file contents, atomicity, signature line correctness
+
+4. **Build echo-gate hook.** `scripts/pre_tool_echo_gate.py` handling both `PreToolUse` and `UserPromptSubmit`. Transcript parser restricted to `type=assistant` text blocks. Tests: signature found (marker cleared, allowed), signature missing (blocked with reason), multiple pending markers, stale marker cleanup.
+
+5. **Add SubagentStart dispatch entries.** Handlers for `xp-retrospective`, `xp-housekeeper` (with work-selection gathering), `xp-system-analyzer`. Tests: injection content matches expected data, handler is a no-op for irrelevant subagent_types.
+
+6. **Update kickoff SKILL.md.** Rewrite steps 1, 3, 6 to use Agent tool + render + echo. Explicit instructions: run Agent tool → run render bash → echo the stdout in next response. Name the marker's signature line in the instructions so the main agent can see the enforcement gate.
+
+7. **Delete forked skills.** Remove `plugins/xp-agents/skills/xp-run-retrospective/` and `plugins/xp-agents/skills/xp-housekeeping/` directories. Remove related registrations. Search for stale references.
+
+8. **End-to-end kickoff integration test.** Exercises retro + work-selection + housekeeping flow via Agent tool calls with echo-gate active.
+
+## Assumption Events
+
+Record before first commit of this migration (per Try #2 — assumption-gate for design-shape commits):
+
+1. **Marker naming doesn't collide** with existing `<SMM_DIR>/.*` files. Greenfield prefix `.pending-render-` is unused.
+2. **Transcript parser restricts signature matching to `type=assistant` text blocks**, not tool-result content. Signatures appearing only in tool results must NOT clear markers.
+3. **SubagentStart dispatch fires for direct Agent tool invocations by agent name.** Observed with `xp-code-reviewer` in the quality-review flow. Assuming consistent across all agent-tool calls, not just skill-triggered ones.
 
 ## Tradeoffs
 
 ### Gains
-- **Reliability**: Agent tool invocation is explicit — the main agent controls spawning
-- **Visibility**: Main agent sees the result directly as a tool result
-- **Centralized data plumbing**: SubagentStart dispatch replaces scattered preload scripts
-- **Consistent pattern**: All agents use the same invocation mechanism
-- **Universal injection**: SubagentStart fires regardless of how the agent was spawned (Skill, Agent tool, teammate)
+- **Kickoff is the single sanctioned path** for retro and housekeeping — no ambiguous entry points
+- **Echo enforcement is mechanically backed** by markers + hook, not only instruction (addresses third consecutive retro's invisible-output pattern)
+- **Work-selection data enriches housekeeper decisions** — freshly adopted Tries get first-class consideration during curation
+- **Agent tool invocation is explicit** — fewer silent-failure surfaces
+- **SubagentStart dispatch centralizes data injection** across all three migrated agents
 
 ### Costs
-- **PostToolUse:Skill timing**: Fires when skill loads (before agent work), not after agent completes. Any hook that depends on "skill work is done" needs to move to SubagentStop or PostToolUse:Agent.
-- **Weaker execution guarantee**: Inline skills rely on the agent following instructions. Forked skills guarantee the subagent runs. Mitigated by the fact that the Agent tool call is explicit in the instructions.
-- **Agent prompt construction**: The main agent builds the Agent tool prompt, so skill instructions must be clear about what to pass. Forked skills handle this automatically.
-- **subagent_start.py growth**: Adding 6 handlers to the dispatch table. Mitigated by extracting handlers into a separate module if it gets large.
+- **Two slash commands retired** (`/xp-run-retrospective`, `/xp-housekeeping`) — no documented standalone use case, reversible by adding thin wrapper skill if need arises
+- **Added complexity**: one new hook, one new CLI, three new SubagentStart handlers, data-prep refactor — roughly 4-6 new source files + matching tests
+- **Still instruction-dependent for the echo step** — the marker hook catches misses but doesn't prevent them on the first pass
+- **One forked-skill path remains** for `/xp-system-context` standalone — existing risk, not new
 
 ### Unchanged
-- **SubagentStop**: Still fires, still handles markers and events. No change needed.
-- **Allowed-tools**: Agent definitions already have `tools` fields. Inline skill `allowed-tools` covers the main agent's permissions for the Agent tool call itself.
-- **Process guide injection**: Already moved to PostToolUse:Skill in v2.13.3. Works with both forked and inline timing (process guide is reference material, not dependent on agent output).
+- SubagentStop marker consumption and event recording
+- Forked skill pattern for plan-reviewer, security-reviewer, sprint-reviewer
+- `/xp-quality-review` inline pattern
+- Process guide injection via PostToolUse:Skill
+- Allowed-tools lists on agent definitions
 
 ## Files Affected
 
-### Per-Agent Migration (repeat for each agent)
+### New
+- `plugins/xp-agents/scripts/pre_tool_echo_gate.py` — marker-based echo enforcement hook
+- `plugins/xp-agents/smm/retro_cli.py` (or extension to existing retro tooling) — render + marker drop
+- `plugins/xp-agents/smm/curation.py` (or similar home for importable curation prep)
+- `tests/hooks/test_echo_gate.py`
+- `tests/hooks/test_subagent_tiers.py` entries for the three new handlers
+- `tests/integration/test_kickoff_flow.py` (or extension) — end-to-end kickoff with Agent tool
 
-| File | Change |
-|------|--------|
-| `skills/<skill>/SKILL.md` | Remove `context: fork`, `agent:`. Add Agent tool instructions. Remove `!` preload. |
-| `skills/<skill>/scripts/preload.sh` | Delete (data prep moves to importable functions) |
-| `skills/<skill>/scripts/*.py` | Refactor as importable functions (move to `smm/` or `scripts/`) |
-| `scripts/subagent_start.py` | Add dispatch entry + handler that calls importable prep functions |
-| `tests/hooks/test_subagent_tiers.py` | Add injection test for new dispatch entry |
-| `tests/` | Move preload tests to unit tests for the importable functions |
+### Modified
+- `plugins/xp-agents/agents/xp-system-context.md` → rename to `xp-system-analyzer.md`, update description
+- `plugins/xp-agents/skills/xp-system-context/SKILL.md` — update `agent:` field
+- `plugins/xp-agents/skills/xp-kickoff/SKILL.md` — rewrite steps 1, 3, 6
+- `plugins/xp-agents/scripts/subagent_start.py` — add 3 dispatch entries + handlers
+- `plugins/xp-agents/hooks/hooks.json` — register echo-gate hook on PreToolUse + UserPromptSubmit
+- `plugins/xp-agents/smm/smm_cli.py` — add marker drop to render command
+- `docs/ARCHITECTURE.md` — update hook map, injection table, subagent lifecycle
 
-### One-Time Changes
-
-| File | Change |
-|------|--------|
-| `skills/_preload_base.sh` | Remove once all preloads are eliminated |
-| `docs/ARCHITECTURE.md` | Update hook map, injection table, subagent lifecycle |
-| `CLAUDE.md` | Update platform constraints if needed |
+### Deleted
+- `plugins/xp-agents/skills/xp-run-retrospective/` (entire directory)
+- `plugins/xp-agents/skills/xp-housekeeping/` (entire directory)
+- Tests specific to deleted skills (migrate useful assertions into kickoff integration tests)
 
 ## Decisions
 
-1. **Preloads are eliminated.** Data preparation scripts (`prepare_curation.py`, `prepare_review_data.py`, etc.) are refactored as importable Python functions callable from SubagentStart handlers. No subprocess calls from hooks — direct function imports. The existing test coverage migrates to unit tests for the importable functions.
+1. **Delete retro and housekeeping skills outright** rather than converting to inline wrappers. Kickoff is the only sanctioned call site; wrapper skills add overhead without user-visible benefit. Re-adding a thin inline wrapper is trivial if standalone need arises later.
 
-2. **Main agent non-compliance is a non-issue.** If the inline skill's Agent tool call doesn't happen, the existing stop gates (housekeeping, TDD) catch it — same safety net as forked skill failures.
+2. **Rename `xp-system-context` agent to `xp-system-analyzer`** to match the established naming convention that prevents Skill/Agent name collision. SubagentStart injection partially mitigates this class of bug, but clarity still wins.
 
-3. **PostToolUse:Agent is deferred.** Not needed for this migration. SubagentStop handles marker consumption and event recording. A PostToolUse:Agent matcher could replace some SubagentStop logic later but is out of scope.
+3. **Keep `/xp-system-context` forked skill** for standalone invocation (e.g., after sprint review). Narrow migration scope; don't touch what isn't broken.
 
-4. **Skill `!` preloads may survive for lightweight SMM_DIR resolution** during the transition, but the target state is full elimination — SubagentStart handlers resolve SMM_DIR via `_common.get_validated_smm_dir()` which already works.
+4. **Echo enforcement: marker + PreToolUse + UserPromptSubmit.** Not Stop-gate. Rationale: Stop can fire far from kickoff in long sessions. Marker approach gives tight feedback on the very next tool use or user prompt.
+
+5. **Work-selection events injected into housekeeper** via SubagentStart handler. Rationale: curator making decisions about wisdom/risk promotions benefits from knowing what was just adopted/selected.
+
+6. **`!` preload elimination is scoped to the three migrated skills only.** Other forked skills keep their preloads. Full preload elimination remains a future option.
+
+7. **Marker mechanism is generalized** but initially used only for retro and SMM renders. Future skills that produce user-visible text can drop markers with the same hook — no hook change needed.
+
+## Out of Scope
+
+- Migration of `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`
+- PostToolUse:Agent matcher adoption (deferred — SubagentStop covers current needs)
+- Full preload-elimination across all agents
+- Generalizing the marker mechanism to non-kickoff render paths in this sprint
