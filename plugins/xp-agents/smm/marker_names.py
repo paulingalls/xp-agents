@@ -22,3 +22,8 @@ NEEDS_EXECUTION_PLAN = ".needs-execution-plan"
 NEEDS_SYSTEM_CONTEXT = ".needs-system-context"
 ASSIGN_PENDING = ".assign-pending"
 NEEDS_HOUSEKEEPING = ".needs-housekeeping"
+PENDING_RENDER_RETRO = ".pending-render-retro"
+PENDING_RENDER_SMM = ".pending-render-smm"
+
+RENDER_RETRO_SIGNATURE = "# XP Retrospective \u2014 Keep / Fix / Try"
+RENDER_SMM_SIGNATURE = "# Shared Mental Model"
