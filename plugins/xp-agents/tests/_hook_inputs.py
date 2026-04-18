@@ -45,6 +45,18 @@ def _make_skill_input(skill: str = "test-skill", **overrides) -> dict:
     return data
 
 
+def _make_agent_input(subagent_type: str = "general-purpose", **overrides) -> dict:
+    """Build a canonical Agent tool hook input dict."""
+    data = {
+        "session_id": "t",
+        "tool_name": "Agent",
+        "tool_input": {"subagent_type": subagent_type},
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
 def _make_stop_input(**overrides) -> dict:
     """Build a canonical Stop hook input dict."""
     data = {"session_id": "t", "agent_id": "main"}

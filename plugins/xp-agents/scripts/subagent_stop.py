@@ -54,8 +54,9 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
 
     Consumes markers and logs a kickoff-done status event. Returns None —
     SubagentStop does not support additionalContext. The SMM is returned
-    by the housekeeper agent itself (via Skill tool result), and the
-    process guide is injected via PostToolUse:Skill in review_cycle_done.py.
+    by the housekeeper agent itself (as Agent tool result text), and the
+    process guide is injected via PostToolUse:Skill|Agent in
+    review_cycle_done.py.
     """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _HOUSEKEEPER_AGENT_TYPES:

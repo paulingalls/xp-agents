@@ -195,7 +195,7 @@
         ]
       },
       {
-        "matcher": "Skill",
+        "matcher": "Skill|Agent",
         "hooks": [
           {
             "type": "command",

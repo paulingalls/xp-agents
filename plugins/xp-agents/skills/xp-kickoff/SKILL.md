@@ -7,6 +7,8 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
+  - Bash(python3 */smm/retro_cli.py *)
+  - Bash(python3 */smm/smm_cli.py *)
   - Read
 ---
 
@@ -20,11 +22,14 @@ The session status above was preloaded automatically.
 
 ## Step 1: Retrospective (if RETRO_NEEDED)
 
-If the preload shows **RETRO_NEEDED**, invoke the `/xp-run-retrospective` skill immediately. The session retro handles both regular sessions and sprint completions — when a sprint just ended, the retro input includes sprint sizing metrics automatically.
+If the preload shows **RETRO_NEEDED**, invoke the `xp-retrospective` agent directly via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). The SubagentStart hook injects `SMM_DIR` and `RETRO_INPUT` into the agent's context; the agent reads `${SMM_DIR}/.retro-input.json`, analyzes it, and writes a timestamped file under `${SMM_DIR}/retrospectives/`. The session retro handles both regular sessions and sprint completions — when a sprint just ended, the retro input includes sprint sizing metrics automatically.
 
-**Do NOT analyze events yourself — the skill runs a dedicated subagent that does the analysis.** Just invoke it and wait for the result.
+After the agent completes, locate the newly written retrospective JSON and render it — this drops the `.pending-render-retro-<agent_id>` marker:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/retro_cli.py --smm-dir <SMM_DIR> render <retro-json-path>
+```
 
-**Terminal action of this step: output the full retrospective verbatim before calling any other tool.** The subagent result is NOT visible to the user — if you skip ahead, the retro is lost. Do not summarize.
+**Terminal action of this step: output the render CLI's stdout verbatim before calling any other tool.** The echo-gate hook blocks the next tool call unless the exact signature line `# XP Retrospective — Keep / Fix / Try` (em-dash U+2014) appears in your assistant text. Do not summarize or paraphrase.
 
 ## Step 2: Session mode (ALWAYS)
 
@@ -71,15 +76,20 @@ Wait for it to complete before proceeding.
 
 ## Step 6: Housekeeping (ALWAYS RUNS)
 
-Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) via a forked subagent. **Kickoff is not complete until housekeeping finishes.**
+Invoke the `xp-housekeeper` agent directly via the Agent tool (`subagent_type=xp-agents:xp-housekeeper`). This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom). The SubagentStart hook writes `${SMM_DIR}/.curation-input.json` from `materialize.prepare_curation_data` and injects the path plus any Session Work Selection block (adopted/deferred/dropped retro Tries + session goals). The agent reads the curation input, mutates the SMM via `smm_cli.py` item-level commands, and finalizes with `complete-curation`. **Kickoff is not complete until housekeeping finishes.**
 
 **Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 7.
 
 If the user says "skip" at any earlier step, still run housekeeping.
 
-## Step 7: Complete
+## Step 7: Render the curated SMM
 
-**Output both the rendered SMM and the housekeeping summary returned by xp-housekeeping as text in your response** (the subagent result is NOT visible to the user). The housekeeper subagent returns the full curated SMM (rendered markdown) followed by a change summary (items added, removed, promoted, resolved, health warnings). You must output both so the user can see the current state and what changed. The process guide is injected separately into your context via a PostToolUse hook — you do not need to display it.
+After the housekeeper completes, render the curated SMM — this drops the `.pending-render-smm-<agent_id>` marker:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> render
+```
+
+**Output the render CLI's stdout verbatim before calling any other tool, followed by the change summary the housekeeper agent returned** (items added/removed/promoted/resolved, health warnings). The echo-gate hook blocks the next tool call unless the exact signature line `# Shared Mental Model — Curated View` (em-dash U+2014) appears in your assistant text. The process guide is injected separately into your context via a PostToolUse hook — you do not need to display it.
 
 Kickoff is complete. **Do NOT stop.**
 

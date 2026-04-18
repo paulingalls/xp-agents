@@ -17,25 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
-_HOUSEKEEPING_DIR = (
-    Path(__file__).parent.parent.parent / "skills" / "xp-housekeeping" / "scripts"
-)
-
-
-def _run_prepare_curation(smm_dir: Path, cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [
-            "python3",
-            str(_HOUSEKEEPING_DIR / "prepare_curation.py"),
-            "--smm-dir",
-            str(smm_dir),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=cwd,
-    )
-
-
 _SMM_CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
 
@@ -264,53 +245,6 @@ class TestMigrateIntegration(_IntegrationTestCase):
 # Context loading is now handled by kickoff_done.py (SMM + guide injection).
 
 
-class TestPrepareCurationIntegration(_IntegrationTestCase):
-    """Integration test for prepare_curation.py preload script."""
-
-    def _run_prepare_curation(self) -> subprocess.CompletedProcess:
-        return _run_prepare_curation(self.smm_dir, self.tmpdir)
-
-    def test_empty_project_returns_valid_json(self):
-        """Script outputs valid JSON with expected schema on empty project."""
-        result = self._run_prepare_curation()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads(result.stdout)
-        for key in (
-            "current_smm",
-            "new_since_last_curation",
-            "retro_history",
-            "aging",
-            "health",
-        ):
-            self.assertIn(key, data)
-
-    def test_with_events_returns_populated_data(self):
-        """Script returns populated curation data when events exist.
-
-        After the JSON refactor, health counts come from the persisted
-        SMM file (not derived from events). Events show up in
-        new_since_last_curation for the housekeeper to merge.
-        """
-        from conftest import write_smm_fixture
-
-        write_smm_fixture(
-            self.smm_dir,
-            intent=[("Ship v1", "goal")],
-            risks=[("No tests", "concern", "problem")],
-        )
-        self._seed_events(
-            [
-                make_event("customer_input", content="Add auth"),
-            ]
-        )
-        result = self._run_prepare_curation()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads(result.stdout)
-        self.assertEqual(data["health"]["intent_count"], 1)
-        self.assertEqual(data["health"]["risks_count"], 1)
-        self.assertEqual(len(data["new_since_last_curation"]["customer_inputs"]), 1)
-
-
 class TestSaveSMMIntegration(_IntegrationTestCase):
     """Integration test for smm_cli.py save command."""
 
@@ -376,9 +310,9 @@ class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
             ]
         )
 
-        result = _run_prepare_curation(self.smm_dir, self.tmpdir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads(result.stdout)
+        import materialize
+
+        data = materialize.prepare_curation_data(self.smm_dir)
         initial_constraints = data["health"]["constraints_count"]
         initial_wisdom = data["health"]["wisdom_count"]
         self.assertGreater(initial_constraints, 0, "seed should populate constraints")
@@ -417,9 +351,7 @@ class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
         wm = json.loads(wm_file.read_text())
         self.assertEqual(wm["event_count"], 3)
 
-        result_b = _run_prepare_curation(self.smm_dir, self.tmpdir)
-        self.assertEqual(result_b.returncode, 0, result_b.stderr)
-        data_b = json.loads(result_b.stdout)
+        data_b = materialize.prepare_curation_data(self.smm_dir)
         self.assertEqual(data_b["health"]["intent_count"], 1)
         self.assertEqual(data_b["health"]["constraints_count"], initial_constraints)
         self.assertEqual(data_b["health"]["wisdom_count"], initial_wisdom)
@@ -517,28 +449,6 @@ class TestCoordinationIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("CONFLICT", result.stderr)
         self.assertIn("agent-2", result.stderr)
-
-
-class TestRetroPreloadIntegration(_IntegrationTestCase):
-    """Verify preload.sh outputs digest but not raw events."""
-
-    def test_preload_outputs_paths_and_guide(self):
-        """Preload outputs SMM_DIR, RETRO_INPUT path, and behavioral guide."""
-        result = self._run_preload(
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-run-retrospective"
-            / "scripts"
-            / "preload.sh"
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = result.stdout
-        self.assertIn("SMM_DIR=", output)
-        self.assertIn("RETRO_INPUT=", output)
-        self.assertIn(".retro-input.json", output)
-        # Should NOT dump retro data — subagent reads file itself
-        self.assertNotIn("signal_events", output)
-        self.assertNotIn("unanalyzed_count", output)
 
 
 if __name__ == "__main__":

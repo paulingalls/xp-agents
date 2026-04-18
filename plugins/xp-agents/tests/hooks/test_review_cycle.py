@@ -17,30 +17,22 @@ import markers
 import review_cycle_done
 import security
 import subagent_stop
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _make_agent_input, _make_skill_input
 
 
 class TestReviewCycleDone(_HookTestCase):
-    """PostToolUse:Skill hook sets review cycle flags after review skills."""
-
-    def _skill_input(self, skill: str = "security-review", **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "tool_name": "Skill",
-            "tool_input": {"skill": skill},
-            "agent_id": "main",
-        }
-        data.update(overrides)
-        return data
+    """PostToolUse:Skill|Agent hook sets flags after review skills or xp-housekeeper."""
 
     def test_security_review_sets_flag_and_marker(self):
-        review_cycle_done.run(self._skill_input(), smm_dir=self.smm_dir)
+        review_cycle_done.run(
+            _make_skill_input("security-review"), smm_dir=self.smm_dir
+        )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["security_review_done"])
         self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
     def test_simplify_sets_flag(self):
-        review_cycle_done.run(self._skill_input("simplify"), smm_dir=self.smm_dir)
+        review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
         # Simplify should NOT write security marker
@@ -48,14 +40,14 @@ class TestReviewCycleDone(_HookTestCase):
 
     def test_quality_review_sets_flag(self):
         review_cycle_done.run(
-            self._skill_input("xp-quality-review"), smm_dir=self.smm_dir
+            _make_skill_input("xp-quality-review"), smm_dir=self.smm_dir
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["quality_review_done"])
 
     def test_security_triage_sets_flag(self):
         review_cycle_done.run(
-            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
+            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["security_review_done"])
@@ -64,7 +56,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_triage_does_not_record_review_complete(self):
         """Triage-only should not claim a full review happened."""
         review_cycle_done.run(
-            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
+            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
         )
         events = _common.read_events_raw(self.smm_dir)
         review_events = [
@@ -75,7 +67,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_security_review_records_review_complete(self):
         """/security-review should record the review complete event."""
         review_cycle_done.run(
-            self._skill_input("security-review"), smm_dir=self.smm_dir
+            _make_skill_input("security-review"), smm_dir=self.smm_dir
         )
         events = _common.read_events_raw(self.smm_dir)
         review_events = [
@@ -87,13 +79,13 @@ class TestReviewCycleDone(_HookTestCase):
     def test_qualified_simplify_name(self):
         """Plugin-qualified skill names also match."""
         review_cycle_done.run(
-            self._skill_input("xp-agents:simplify"), smm_dir=self.smm_dir
+            _make_skill_input("xp-agents:simplify"), smm_dir=self.smm_dir
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
     def test_ignores_other_skills(self):
-        review_cycle_done.run(self._skill_input("xp-kickoff"), smm_dir=self.smm_dir)
+        review_cycle_done.run(_make_skill_input("xp-kickoff"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
@@ -101,14 +93,14 @@ class TestReviewCycleDone(_HookTestCase):
 
     def test_xp_agent_skips(self):
         result = review_cycle_done.run(
-            self._skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
+            _make_skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
         )
         self.assertIsNone(result)
 
     def test_simplify_nudges_quality_review(self):
         """After /simplify, nudge to run /xp-quality-review."""
         result = review_cycle_done.run(
-            self._skill_input("simplify"), smm_dir=self.smm_dir
+            _make_skill_input("simplify"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
@@ -116,7 +108,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_quality_review_nudges_security_review(self):
         """After /xp-quality-review, nudge to run /security-review."""
         result = review_cycle_done.run(
-            self._skill_input("xp-quality-review"), smm_dir=self.smm_dir
+            _make_skill_input("xp-quality-review"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("/security-review", result)
@@ -124,7 +116,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_security_triage_nudges_commit(self):
         """After /xp-security-triage, nudge to commit."""
         result = review_cycle_done.run(
-            self._skill_input("xp-security-triage"), smm_dir=self.smm_dir
+            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("commit", result.lower())
@@ -132,14 +124,14 @@ class TestReviewCycleDone(_HookTestCase):
     def test_plan_review_nudges_task_creation(self):
         """After /xp-review-plan, nudge to create tasks."""
         result = review_cycle_done.run(
-            self._skill_input("xp-review-plan"), smm_dir=self.smm_dir
+            _make_skill_input("xp-review-plan"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("TaskCreate", result)
 
     def test_plan_review_does_not_set_review_flags(self):
         """Plan review is not part of the commit review cycle."""
-        review_cycle_done.run(self._skill_input("xp-review-plan"), smm_dir=self.smm_dir)
+        review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
@@ -148,32 +140,30 @@ class TestReviewCycleDone(_HookTestCase):
     def test_qualified_plan_review_name(self):
         """Plugin-qualified /xp-review-plan also triggers nudge."""
         result = review_cycle_done.run(
-            self._skill_input("xp-agents:xp-review-plan"), smm_dir=self.smm_dir
+            _make_skill_input("xp-agents:xp-review-plan"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("TaskCreate", result)
 
-    def test_housekeeping_skill_returns_process_guide(self):
-        """After /xp-housekeeping, inject PROCESS_GUIDE.md as context."""
+    def test_housekeeper_agent_returns_process_guide(self):
+        """After xp-housekeeper Agent call, inject PROCESS_GUIDE.md as context."""
         result = review_cycle_done.run(
-            self._skill_input("xp-housekeeping"), smm_dir=self.smm_dir
+            _make_agent_input("xp-housekeeper"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("Practicing the Values", result)
 
-    def test_housekeeping_qualified_name(self):
-        """Plugin-qualified /xp-housekeeping also triggers process guide."""
+    def test_housekeeper_qualified_name(self):
+        """Plugin-qualified xp-agents:xp-housekeeper also triggers process guide."""
         result = review_cycle_done.run(
-            self._skill_input("xp-agents:xp-housekeeping"), smm_dir=self.smm_dir
+            _make_agent_input("xp-agents:xp-housekeeper"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("Practicing the Values", result)
 
-    def test_housekeeping_does_not_set_review_flags(self):
-        """Housekeeping is not part of the commit review cycle."""
-        review_cycle_done.run(
-            self._skill_input("xp-housekeeping"), smm_dir=self.smm_dir
-        )
+    def test_housekeeper_does_not_set_review_flags(self):
+        """Housekeeper is not part of the commit review cycle."""
+        review_cycle_done.run(_make_agent_input("xp-housekeeper"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
@@ -181,7 +171,7 @@ class TestReviewCycleDone(_HookTestCase):
 
     def test_worktree_cwd_scopes_markers(self):
         """Worktree cwd uses resolve_agent_id for marker scoping."""
-        inp = self._skill_input(
+        inp = _make_skill_input(
             "simplify",
             agent_id="",
             cwd="/proj/.claude/worktrees/teammate-story-001",

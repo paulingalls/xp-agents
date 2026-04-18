@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill hook: set review cycle flags after review skills complete.
+"""PostToolUse:Skill|Agent hook: set review cycle flags and inject post-
+completion context after review skills or the xp-housekeeper agent run.
 
-Detects /simplify, /xp-quality-review, and /security-review skill completions.
-Sets the corresponding flag in the review cycle marker so the commit gate
-clears. For security, also writes the old .security-triaged marker for
-backward compatibility with the below-threshold security-only path.
+Detects /simplify, /xp-quality-review, and /security-review skill completions
+via tool_input.skill, and the xp-housekeeper inline agent via
+tool_input.subagent_type. Sets the corresponding flag in the review cycle
+marker so the commit gate clears. For security, also writes the old
+.security-triaged marker for backward compatibility with the below-threshold
+security-only path. For housekeeping, injects PROCESS_GUIDE.md as context.
 """
 
 import sys
@@ -19,25 +22,25 @@ import markers
 import security
 
 
-def _detect_review_flag(skill_name: str) -> str | None:
-    """Map skill name to review cycle flag, or None if not a review skill."""
-    if "simplify" in skill_name:
+def _detect_review_flag(target_name: str) -> str | None:
+    """Map target name to review cycle flag, or None if not a review target."""
+    if "simplify" in target_name:
         return "simplify_done"
-    if "quality-review" in skill_name:
+    if "quality-review" in target_name:
         return "quality_review_done"
-    if "security-review" in skill_name or "security-triage" in skill_name:
+    if "security-review" in target_name or "security-triage" in target_name:
         return "security_review_done"
     return None
 
 
-def _is_plan_review(skill_name: str) -> bool:
+def _is_plan_review(target_name: str) -> bool:
     """Check if this is the plan review skill."""
-    return "review-plan" in skill_name
+    return "review-plan" in target_name
 
 
-def _is_housekeeping(skill_name: str) -> bool:
-    """Check if this is the housekeeping skill."""
-    return "housekeeping" in skill_name
+def _is_housekeeping(target_name: str) -> bool:
+    """Match the forked housekeeping skill OR the housekeeper agent_type."""
+    return "housekeeping" in target_name or "housekeeper" in target_name
 
 
 _NEXT_STEP: dict[str, str] = {
@@ -59,18 +62,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     tool_input = input_data.get("tool_input", {})
-    skill_name = tool_input.get("skill", "")
+    # Skill calls carry the target in tool_input.skill; Agent calls carry it
+    # in tool_input.subagent_type. Both paths converge here so the housekeeper
+    # can be invoked either way.
+    target_name = tool_input.get("skill") or tool_input.get("subagent_type") or ""
     agent_id = identity.resolve_agent_id(input_data)
 
     # Housekeeping: inject process guide (not part of commit review cycle)
-    if _is_housekeeping(skill_name):
+    if _is_housekeeping(target_name):
         return _common.load_process_guide() or None
 
     # Plan review: nudge task creation (not part of commit review cycle)
-    if _is_plan_review(skill_name):
+    if _is_plan_review(target_name):
         return _TASK_CREATION_NUDGE
 
-    flag = _detect_review_flag(skill_name)
+    flag = _detect_review_flag(target_name)
     if flag is None:
         return None
 
@@ -86,7 +92,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Only record "review complete" when /security-review actually ran,
         # not when /xp-security-triage completed without running it.
         # mark_triaged.py already records the triage start event.
-        if "security-review" in skill_name and "triage" not in skill_name:
+        if "security-review" in target_name and "triage" not in target_name:
             event = _common.make_event(
                 _common.STATUS,
                 "security-review",

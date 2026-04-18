@@ -249,7 +249,7 @@ def complete_curation(smm_dir: Path) -> None:
 
     if not watermark_set:
         events, _ = materialize.parse_events(smm_dir)
-        materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeping")
+        materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeper")
 
 
 def save(content: str, *, smm_dir: Path) -> None:

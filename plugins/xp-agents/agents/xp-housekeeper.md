@@ -2,9 +2,9 @@
 name: xp-housekeeper
 description: >-
   SMM curator. Reads structured curation data and applies LLM judgment to
-  curate Intent, Constraints, Risks, and Wisdom pillars.
-  Use after work selection completes during kickoff.
-  Invoke via /xp-housekeeping skill, not directly.
+  curate Intent, Constraints, Risks, and Wisdom pillars. Invoked by
+  /xp-kickoff via the Agent tool after work selection; SMM_DIR and
+  CURATION_INPUT are injected through the SubagentStart hook.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -162,16 +162,16 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> complete-curati
 
 ### 3. Return SMM + summary
 
-After saving, render the full curated SMM and return it along with a change summary. The main agent will display both to the user.
+After saving, dump the full curated SMM and return it along with a change summary. The main agent will display both to the user.
 
-First, render the SMM (drops an agent-scoped echo-enforcement marker so the
-echo-gate hook verifies the main agent actually echoed the signature line
-verbatim to the user):
+Use `dump` (pure output, no side effects). The echo-enforcement marker is
+dropped by the main agent when it re-renders in kickoff step 7 — the
+housekeeper is a non-echo caller and must not flood a stale marker:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> render
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> dump
 ```
 
-Then return the rendered SMM output followed by:
+Then return the dumped SMM output followed by:
 
 ```
 **Housekeeping Summary**

@@ -189,7 +189,7 @@ class TestSaveCommand(_HookTestCase):
 
         wm = _mat.read_curation_watermark(self.smm_dir)
         self.assertEqual(wm["event_count"], 2)
-        self.assertEqual(wm["agent_id"], "xp-housekeeping")
+        self.assertEqual(wm["agent_id"], "xp-housekeeper")
 
     def test_overwrites_existing_smm(self):
         import smm_store
@@ -240,7 +240,7 @@ class TestCompleteCuration(_HookTestCase):
 
         wm = _mat.read_curation_watermark(self.smm_dir)
         self.assertEqual(wm["event_count"], 2)
-        self.assertEqual(wm["agent_id"], "xp-housekeeping")
+        self.assertEqual(wm["agent_id"], "xp-housekeeper")
 
     def test_runs_compaction(self):
         from unittest.mock import patch

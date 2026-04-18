@@ -15,7 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import markers
 
-_BLOCK_MESSAGE = "Housekeeping hasn't run yet. Run /xp-housekeeping before ending."
+_BLOCK_MESSAGE = (
+    "Housekeeping hasn't run yet. Finish /xp-kickoff — invoke the xp-housekeeper "
+    "agent via the Agent tool and render the curated SMM before ending."
+)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
