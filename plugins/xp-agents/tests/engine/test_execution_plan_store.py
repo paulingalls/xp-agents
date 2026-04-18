@@ -297,6 +297,72 @@ class TestSavePlan(_SMMTestCase):
             store.save_plan(self.smm_dir, _make_plan())
 
 
+class TestUpdateMilestoneStatus(_SMMTestCase):
+    """Tests for execution_plan_store.update_milestone_status()."""
+
+    def _write_plan(self, milestones: list[dict]) -> None:
+        (self.smm_dir / "execution_plan.json").write_text(
+            json.dumps(_make_plan(milestones=milestones))
+        )
+
+    def test_sets_in_progress(self):
+        import execution_plan_store as store
+
+        self._write_plan([_make_milestone(number=1, status="planned")])
+        store.update_milestone_status(self.smm_dir, 1, "in-progress")
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["status"], "in-progress")
+
+    def test_sets_delivered_with_sprint(self):
+        import execution_plan_store as store
+
+        self._write_plan([_make_milestone(number=1, status="in-progress")])
+        store.update_milestone_status(
+            self.smm_dir, 1, "delivered", delivered_sprint="sprint-003"
+        )
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["status"], "delivered")
+        self.assertEqual(loaded["milestones"][0]["delivered_sprint"], "sprint-003")
+
+    def test_delivered_without_sprint_raises(self):
+        import execution_plan_store as store
+
+        self._write_plan([_make_milestone(number=1, status="in-progress")])
+        with self.assertRaises(ValueError):
+            store.update_milestone_status(self.smm_dir, 1, "delivered")
+
+    def test_reverting_delivered_clears_delivered_sprint(self):
+        """Transitioning away from 'delivered' clears delivered_sprint so the
+        plan stays schema-valid (delivered requires a sprint; non-delivered
+        must have delivered_sprint=None)."""
+        import execution_plan_store as store
+
+        self._write_plan(
+            [
+                _make_milestone(
+                    number=1, status="delivered", delivered_sprint="sprint-003"
+                )
+            ]
+        )
+        store.update_milestone_status(self.smm_dir, 1, "planned")
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["status"], "planned")
+        self.assertIsNone(loaded["milestones"][0]["delivered_sprint"])
+
+    def test_no_plan_raises(self):
+        import execution_plan_store as store
+
+        with self.assertRaises(ValueError):
+            store.update_milestone_status(self.smm_dir, 1, "in-progress")
+
+    def test_unknown_milestone_raises(self):
+        import execution_plan_store as store
+
+        self._write_plan([_make_milestone(number=1, status="planned")])
+        with self.assertRaises(ValueError):
+            store.update_milestone_status(self.smm_dir, 99, "in-progress")
+
+
 class TestHasRemainingWork(_SMMTestCase):
     def test_planned_milestones_have_remaining(self):
         import execution_plan_store as store

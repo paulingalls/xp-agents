@@ -81,6 +81,40 @@ def save_plan(smm_dir: Path, data: dict) -> None:
     (smm_dir / _MARKER_NAME).unlink(missing_ok=True)
 
 
+def update_milestone_status(
+    smm_dir: Path,
+    milestone_num: int,
+    status: str,
+    delivered_sprint: str | None = None,
+) -> None:
+    """Set a milestone's status (and optionally its delivered_sprint).
+
+    delivered_sprint is required when status=='delivered' and cleared on
+    any transition away from 'delivered'.
+
+    Raises:
+        ValueError: No plan exists, no milestone matches, 'delivered'
+            status is missing delivered_sprint, or the new state fails
+            schema validation on save.
+        OSError: Plan path is a symlink.
+    """
+    if status == "delivered" and not delivered_sprint:
+        raise ValueError("delivered_sprint required for delivered status")
+    plan = load_plan(smm_dir)
+    if plan is None:
+        raise ValueError("No execution plan found")
+    for milestone in plan["milestones"]:
+        if milestone["number"] == milestone_num:
+            milestone["status"] = status
+            if status == "delivered":
+                milestone["delivered_sprint"] = delivered_sprint
+            elif milestone.get("delivered_sprint"):
+                milestone["delivered_sprint"] = None
+            save_plan(smm_dir, plan)
+            return
+    raise ValueError(f"No milestone with number {milestone_num}")
+
+
 _ACTIVE_STATUSES = VALID_MILESTONE_STATUSES - {"delivered"}
 
 

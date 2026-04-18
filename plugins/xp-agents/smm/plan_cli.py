@@ -125,39 +125,21 @@ def _cmd_set_overview(args: argparse.Namespace) -> int:
 
 
 def _cmd_update_status(args: argparse.Namespace) -> int:
-    plan = store.load_plan(args.smm_dir)
-    if plan is None:
-        print("No execution plan found.", file=sys.stderr)
-        return 1
-
-    milestone_num = args.milestone_number
-    matches = [m for m in plan["milestones"] if m["number"] == milestone_num]
-    if not matches:
-        print(
-            f"No milestone with number {milestone_num}",
-            file=sys.stderr,
-        )
-        return 1
-
-    status = args.status
-    if status == "delivered" and not args.delivered_sprint:
+    if args.status == "delivered" and not args.delivered_sprint:
         print(
             "--delivered-sprint required for delivered status",
             file=sys.stderr,
         )
         return 1
-
-    milestone = matches[0]
-    milestone["status"] = status
-    if status == "delivered":
-        milestone["delivered_sprint"] = args.delivered_sprint
-    elif milestone.get("delivered_sprint"):
-        milestone["delivered_sprint"] = None
-
     try:
-        store.save_plan(args.smm_dir, plan)
+        store.update_milestone_status(
+            args.smm_dir,
+            args.milestone_number,
+            args.status,
+            delivered_sprint=args.delivered_sprint,
+        )
     except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
         return 1
     return 0
 

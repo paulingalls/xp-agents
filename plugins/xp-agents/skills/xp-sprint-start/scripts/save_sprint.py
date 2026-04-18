@@ -15,7 +15,9 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -24,6 +26,8 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
+import concerns  # noqa: E402
+import execution_plan_store  # noqa: E402
 import marker_names  # noqa: E402
 import sprint_store  # noqa: E402
 from event_schema import (  # noqa: E402
@@ -31,10 +35,80 @@ from event_schema import (  # noqa: E402
     STATUS_ACTION_ITERATION_COMPLETE,
 )
 
+# Matches "Milestone N: <anything>" or "Milestone N — <anything>"
+_MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
+
 _SPRINT_REVIEW_NUDGE = (
     "\n**Sprint complete!** All stories are done or deferred. "
     "Run `/xp-sprint-review` to review the sprint."
 )
+
+
+def _record_concern(smm_dir: Path, content: str) -> None:
+    """Append a low-severity concern event. Never raises — recording a
+    concern must not cascade into a sprint-save failure."""
+    with contextlib.suppress(OSError, ValueError):
+        _common.append_safe(
+            smm_dir, concerns.make_concern(content, "low", "save-sprint")
+        )
+
+
+def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
+    """Flip the sprint's target milestone from planned to in-progress.
+
+    Non-fatal: every failure mode (missing plan, unparseable milestone
+    text, milestone number not found) records a concern and returns
+    without raising so the sprint write always completes.
+    """
+    milestone_text = data.get("milestone", "") or ""
+    match = _MILESTONE_NUMBER_RE.match(milestone_text)
+    if not match:
+        _record_concern(
+            smm_dir,
+            f"Could not parse milestone number from sprint.milestone text "
+            f"{milestone_text!r}. Expected 'Milestone N: <name>'. Execution "
+            f"plan status not updated.",
+        )
+        return
+    target_num = int(match.group(1))
+
+    try:
+        plan = execution_plan_store.load_plan(smm_dir)
+    except (OSError, ValueError) as exc:
+        _record_concern(
+            smm_dir,
+            f"Could not read execution plan to transition milestone "
+            f"{target_num}: {exc}",
+        )
+        return
+    if plan is None:
+        _record_concern(
+            smm_dir,
+            f"No execution plan found; milestone {target_num} status not "
+            f"transitioned. Sprint saved but plan hygiene skipped.",
+        )
+        return
+
+    leaked = [
+        m["number"]
+        for m in plan["milestones"]
+        if m["status"] == "in-progress" and m["number"] != target_num
+    ]
+    if leaked:
+        _record_concern(
+            smm_dir,
+            f"Another milestone is already in-progress ({leaked}) while "
+            f"starting sprint for milestone {target_num}. Possible leaked "
+            f"in-progress state from a prior sprint pivot.",
+        )
+
+    try:
+        execution_plan_store.update_milestone_status(smm_dir, target_num, "in-progress")
+    except (OSError, ValueError) as exc:
+        _record_concern(
+            smm_dir,
+            f"Failed to transition milestone {target_num} to in-progress: {exc}",
+        )
 
 
 def run(data: dict, smm_dir: Path) -> None:
@@ -48,6 +122,8 @@ def run(data: dict, smm_dir: Path) -> None:
     accept_marker_existed = accept_marker.exists()
 
     sprint_store.save_sprint(smm_dir, data)
+
+    _transition_target_milestone(data, smm_dir)
 
     # Acceptance flow: .accept was present, no in-progress stories.
     # Use in-memory data to avoid re-reading the file we just wrote.

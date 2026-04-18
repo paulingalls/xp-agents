@@ -203,6 +203,161 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
 
 
 # ===========================================================================
+# save_sprint.py — Milestone status transition (story-005)
+# ===========================================================================
+
+
+def _plan_with_milestones(milestones: list[dict]) -> dict:
+    """Build a valid execution plan dict with the given milestones."""
+    return {
+        "title": "Test Plan",
+        "sources": [],
+        "overview": "",
+        "milestones": milestones,
+    }
+
+
+def _make_milestone(number: int, name: str, status: str = "planned") -> dict:
+    return {
+        "number": number,
+        "name": name,
+        "status": status,
+        "goal": "G",
+        "done": "D",
+        "sources": "",
+        "change_zones": [],
+        "impact_zones": [],
+        "design_details": "",
+        "constraints": [],
+        "delivered_sprint": None,
+    }
+
+
+class TestSaveSprintMilestoneTransition(_HookTestCase):
+    """save_sprint flips the target milestone from planned to in-progress."""
+
+    def _run_save(self, data: dict) -> None:
+        sys.path.insert(0, str(_SAVE_SCRIPT.parent))
+        import importlib
+
+        mod = importlib.import_module("save_sprint")
+        importlib.reload(mod)
+        mod.run(data, self.smm_dir)
+
+    def _write_plan(self, milestones: list[dict]) -> None:
+        (self.smm_dir / "execution_plan.json").write_text(
+            json.dumps(_plan_with_milestones(milestones))
+        )
+
+    def _load_plan(self) -> dict:
+        return json.loads((self.smm_dir / "execution_plan.json").read_text())
+
+    def _sprint(self, milestone_text: str = "Milestone 1: Kickoff migration") -> dict:
+        from conftest import _s
+
+        return {
+            "sprint_id": "sprint-001",
+            "goal": "Build X",
+            "started": "2026-04-01",
+            "milestone": milestone_text,
+            "stories": [_s("story-001", "task", "M", "ready")],
+        }
+
+    def test_planned_milestone_flipped_to_in_progress(self):
+        """Happy path: planned milestone becomes in-progress after save_sprint."""
+        self._write_plan([_make_milestone(1, "Kickoff migration", status="planned")])
+        self._run_save(self._sprint("Milestone 1: Kickoff migration"))
+
+        plan = self._load_plan()
+        self.assertEqual(plan["milestones"][0]["status"], "in-progress")
+
+    def test_already_in_progress_is_idempotent(self):
+        """Re-running against an already in-progress milestone is a no-op."""
+        self._write_plan(
+            [_make_milestone(1, "Kickoff migration", status="in-progress")]
+        )
+        # Must not raise.
+        self._run_save(self._sprint("Milestone 1: Kickoff migration"))
+
+        plan = self._load_plan()
+        self.assertEqual(plan["milestones"][0]["status"], "in-progress")
+
+    def test_unparseable_milestone_text_records_concern_does_not_fail(self):
+        """If sprint.milestone doesn't parse to 'Milestone N:', sprint still
+        saves, a concern event is appended, and no milestone status changes."""
+        self._write_plan([_make_milestone(1, "Kickoff migration", status="planned")])
+        self._run_save(self._sprint("Free-form milestone name without number"))
+
+        # Sprint still written.
+        self.assertTrue((self.smm_dir / "sprint.json").is_file())
+        # No milestone status changed.
+        plan = self._load_plan()
+        self.assertEqual(plan["milestones"][0]["status"], "planned")
+        # Concern event appended.
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(
+            any("milestone" in e.get("content", "").lower() for e in concerns),
+            f"expected a milestone-related concern; got {concerns}",
+        )
+
+    def test_missing_execution_plan_records_concern_does_not_fail(self):
+        """If execution_plan.json is absent, sprint still saves and a concern
+        is recorded. No exception raised."""
+        # Intentionally do NOT write execution_plan.json.
+        self._run_save(self._sprint("Milestone 1: Kickoff migration"))
+
+        self.assertTrue((self.smm_dir / "sprint.json").is_file())
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(
+            any("execution plan" in e.get("content", "").lower() for e in concerns),
+            f"expected an execution-plan-related concern; got {concerns}",
+        )
+
+    def test_leaked_in_progress_milestone_flags_concern(self):
+        """If a DIFFERENT milestone is already in-progress, we still flip the
+        target to in-progress but append a concern about the orphaned one."""
+        self._write_plan(
+            [
+                _make_milestone(1, "Done work", status="in-progress"),
+                _make_milestone(2, "Current sprint", status="planned"),
+            ]
+        )
+        self._run_save(self._sprint("Milestone 2: Current sprint"))
+
+        plan = self._load_plan()
+        statuses = {m["number"]: m["status"] for m in plan["milestones"]}
+        self.assertEqual(statuses[2], "in-progress")
+        # Milestone 1 status is not mutated here — our job is to flag it.
+        self.assertEqual(statuses[1], "in-progress")
+
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertTrue(
+            any(
+                "another milestone" in e.get("content", "").lower()
+                or "different milestone" in e.get("content", "").lower()
+                or "leaked" in e.get("content", "").lower()
+                for e in concerns
+            ),
+            f"expected leaked-milestone concern; got {concerns}",
+        )
+
+
+# ===========================================================================
 # preload.sh — Sprint start preload script
 # ===========================================================================
 
