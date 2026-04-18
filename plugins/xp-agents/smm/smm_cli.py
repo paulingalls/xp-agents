@@ -12,6 +12,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import _append_impl
+import marker_names
 import smm_store
 from smm_schema import PILLARS
 
@@ -46,7 +48,7 @@ def render_markdown(smm: dict) -> str:
     Returns:
         Complete markdown string with header and four pillar sections.
     """
-    parts = ["# Shared Mental Model", ""]
+    parts = [marker_names.RENDER_SMM_SIGNATURE, ""]
 
     for pillar in PILLARS:
         entries = smm.get(pillar, [])
@@ -80,7 +82,7 @@ def extract_pillars(smm: dict, pillars: set[str]) -> str:
 
     if not parts:
         return ""
-    return "# Shared Mental Model\n\n" + "\n".join(parts)
+    return f"{marker_names.RENDER_SMM_SIGNATURE}\n\n" + "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +93,8 @@ def extract_pillars(smm: dict, pillars: set[str]) -> str:
 def _cmd_dump(args: argparse.Namespace) -> int:
     smm = smm_store.load_smm(args.smm_dir)
     print(render_markdown(smm))
+    marker = args.smm_dir / marker_names.PENDING_RENDER_SMM
+    _append_impl.write_text_atomic(marker, marker_names.RENDER_SMM_SIGNATURE + "\n")
     return 0
 
 
