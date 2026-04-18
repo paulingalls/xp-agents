@@ -73,13 +73,13 @@ Wait for it to complete before proceeding.
 
 Run `/xp-housekeeping`. This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom) via a forked subagent. **Kickoff is not complete until housekeeping finishes.**
 
-**Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 7. The subagent returns the rendered SMM and a summary of changes — the subagent result is NOT visible to the user — you must output both as text in your response.
+**Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to step 7.
 
 If the user says "skip" at any earlier step, still run housekeeping.
 
 ## Step 7: Complete
 
-**Output both the rendered SMM and the housekeeping summary as text in your response** (the subagent result is NOT visible to the user). The housekeeper subagent returns the full curated SMM (rendered markdown) followed by a change summary (items added, removed, promoted, resolved, health warnings). You must output both so the user can see the current state and what changed. The process guide is injected separately into your context via a PostToolUse hook — you do not need to display it.
+**Output both the rendered SMM and the housekeeping summary returned by xp-housekeeping as text in your response** (the subagent result is NOT visible to the user). The housekeeper subagent returns the full curated SMM (rendered markdown) followed by a change summary (items added, removed, promoted, resolved, health warnings). You must output both so the user can see the current state and what changed. The process guide is injected separately into your context via a PostToolUse hook — you do not need to display it.
 
 Kickoff is complete. **Do NOT stop.**
 

@@ -11,8 +11,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import security
+from smm_schema import EVENT_ID_RE
 
 REVIEW_CYCLE_THRESHOLD: int = 2
 
@@ -23,6 +25,34 @@ def parse_commit_message(tool_response: str) -> str | None:
     if match:
         return match.group(1).strip()
     return None
+
+
+_RESOLVES_TRAILER_RE = re.compile(r"(?im)^resolves-event:[ \t]*(.*)\n?")
+
+
+def extract_resolves_trailer(body: str | None) -> tuple[list[str], str]:
+    """Parse Resolves-Event: trailers and return (event_ids, body_without_trailers).
+
+    Trailer format (case-insensitive key, line-anchored):
+        Resolves-Event: <12-hex-id>[, <id>...]
+
+    Multiple trailer lines are supported; IDs are deduplicated in first-seen
+    order. IDs that aren't exactly 12 lowercase-hex chars are rejected. The
+    returned body has all matched trailer lines removed (including the newline)
+    so callers can use it directly as the stored commit event content.
+    """
+    if not body:
+        return [], body or ""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for match in _RESOLVES_TRAILER_RE.finditer(body):
+        for raw in match.group(1).split(","):
+            event_id = raw.strip().lower()
+            if EVENT_ID_RE.match(event_id) and event_id not in seen:
+                ids.append(event_id)
+                seen.add(event_id)
+    cleaned = _RESOLVES_TRAILER_RE.sub("", body)
+    return ids, cleaned
 
 
 def _run_git(args: list[str], cwd: str) -> str | None:

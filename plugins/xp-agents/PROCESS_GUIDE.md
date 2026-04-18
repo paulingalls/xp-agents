@@ -141,6 +141,21 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --references '["question-id-here"]'
 ```
 
+### Linking commits to SMM events
+
+When a commit closes a recorded SMM item (most commonly `debt`, `concern`, `question`, or `goal` — but any event type resolvable via `metadata.resolves` works, including `assumption` and `decision`), add a `Resolves-Event:` trailer at the bottom of the commit body (same mechanism as `Co-Authored-By:`). The commit hook parses the trailer and populates `metadata.resolves` on the commit event, so future retros and housekeeping detect the resolution automatically.
+
+```
+Fix the thing
+
+Rationale explaining the fix.
+
+Resolves-Event: 4eb35ddcd24e, a55290ae79b9
+Co-Authored-By: ...
+```
+
+The trailer is case-insensitive (`resolves-event:` works), accepts comma-separated IDs on one line, or use multiple trailer lines. IDs must be exactly 12 hex chars (the SMM event-ID format).
+
 ### Good vs Bad Events
 
 **Good:** Specific, actionable, grounded — "Decided to use PostgreSQL for user data because SQLite can't handle concurrent writes" (decision). **Bad:** Vague or noisy — "Working on stuff" (status), "Something might be wrong" (concern).

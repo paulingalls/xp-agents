@@ -44,6 +44,51 @@ class TestBashPostTool(_HookTestCase):
         self.assertEqual(commits_ev[0]["files"], ["a", "b", "c"])
         self.assertEqual(commits_ev[0]["metadata"]["commit_hash"], "abc123")
 
+    def test_git_commit_captures_resolves_trailer(self):
+        """Resolves-Event trailer populates metadata.resolves on the commit event."""
+        body = (
+            "Fix the thing\n\nRationale.\n\n"
+            "Resolves-Event: 4eb35ddcd24e, a55290ae79b9\n"
+            "Co-Authored-By: Claude <x@y>"
+        )
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix the thing'",
+                    stdout="[main abc123] Fix the thing\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        commit_ev = next(e for e in events if e.get("type") == "commit")
+        self.assertEqual(
+            commit_ev["metadata"]["resolves"],
+            ["4eb35ddcd24e", "a55290ae79b9"],
+        )
+
+    def test_git_commit_no_resolves_trailer_omits_key(self):
+        """Absent trailer must not add a resolves key to metadata."""
+        body = "Fix the thing\n\nNo trailer here."
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix'",
+                    stdout="[main abc123] Fix\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        commit_ev = next(e for e in events if e.get("type") == "commit")
+        self.assertNotIn("resolves", commit_ev["metadata"])
+
     def test_git_commit_strips_co_author_trailer(self):
         body = (
             "Fix the bug\n\nDetailed explanation.\n\nCo-Authored-By: Someone <x@y.com>"

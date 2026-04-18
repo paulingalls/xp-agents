@@ -174,13 +174,15 @@ def _handle_commit(
     commit_hash = commits.get_head_commit_hash(cwd)
     has_code = any(security.is_code_file(f) for f in committed_files)
 
-    # Strip Co-Authored-By trailers — metadata, not content
-    body = commits.get_commit_message_body(cwd) or msg
+    raw_body = commits.get_commit_message_body(cwd) or msg
+    resolves, body = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
     metadata: dict = {"code_commit": has_code}
     if commit_hash:
         metadata["commit_hash"] = commit_hash
+    if resolves:
+        metadata["resolves"] = resolves
 
     story_id = _resolve_story_id(smm_dir, cwd, committed_files)
     if story_id:

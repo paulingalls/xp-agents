@@ -36,6 +36,85 @@ class TestParseCommitMessage(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# extract_resolves_trailer
+# ---------------------------------------------------------------------------
+
+
+class TestExtractResolvesTrailer(unittest.TestCase):
+    """Test extraction of Resolves-Event: trailer from commit body."""
+
+    def test_single_id(self):
+        body = "Fix the bug\n\nRationale.\n\nResolves-Event: 4eb35ddcd24e"
+        ids, cleaned = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["4eb35ddcd24e"])
+        self.assertNotIn("Resolves-Event", cleaned)
+
+    def test_comma_separated_ids(self):
+        body = "Title\n\nResolves-Event: 4eb35ddcd24e, a55290ae79b9"
+        ids, cleaned = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["4eb35ddcd24e", "a55290ae79b9"])
+        self.assertNotIn("Resolves-Event", cleaned)
+
+    def test_multiple_trailer_lines(self):
+        body = (
+            "Title\n\nbody.\n\n"
+            "Resolves-Event: 4eb35ddcd24e\n"
+            "Resolves-Event: a55290ae79b9"
+        )
+        ids, cleaned = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["4eb35ddcd24e", "a55290ae79b9"])
+        self.assertNotIn("Resolves-Event", cleaned)
+
+    def test_case_insensitive_key(self):
+        body = "Title\n\nresolves-event: 4eb35ddcd24e"
+        ids, cleaned = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["4eb35ddcd24e"])
+        self.assertNotIn("resolves-event", cleaned.lower())
+
+    def test_deduplicates_preserving_order(self):
+        body = (
+            "Title\n\n"
+            "Resolves-Event: abc123abc123\n"
+            "Resolves-Event: def456def456, abc123abc123"
+        )
+        ids, _ = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["abc123abc123", "def456def456"])
+
+    def test_ignores_inline_mentions(self):
+        """Trailer must start at the beginning of a line, not in prose."""
+        body = "Fix the thing that Resolves-Event: 4eb35ddcd24e in passing"
+        ids, cleaned = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, [])
+        self.assertEqual(cleaned, body)
+
+    def test_rejects_non_hex_ids(self):
+        body = "Title\n\nResolves-Event: not-a-hex-id"
+        ids, _ = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, [])
+
+    def test_rejects_wrong_length_ids(self):
+        body = "Title\n\nResolves-Event: abc123, 1234567890123456"
+        ids, _ = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, [])
+
+    def test_no_trailer(self):
+        body = "Fix the bug\n\nSome rationale."
+        ids, cleaned = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, [])
+        self.assertEqual(cleaned, body)
+
+    def test_empty_body(self):
+        ids, cleaned = commits.extract_resolves_trailer("")
+        self.assertEqual(ids, [])
+        self.assertEqual(cleaned, "")
+
+    def test_none_body(self):
+        ids, cleaned = commits.extract_resolves_trailer(None)
+        self.assertEqual(ids, [])
+        self.assertEqual(cleaned, "")
+
+
+# ---------------------------------------------------------------------------
 # get_committed_files
 # ---------------------------------------------------------------------------
 

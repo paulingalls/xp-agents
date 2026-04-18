@@ -27,6 +27,7 @@ Run the full review cycle before each commit:
 - One logical change per commit
 - Run `ruff format` before staging
 - Write commit messages that explain *why*, not *what*
+- When a commit closes a recorded SMM item (most commonly `debt`, `concern`, `question`, or `goal` — also works for `assumption` and `decision`), add a `Resolves-Event: <12-hex-id>[, <id>...]` trailer at the bottom of the commit body (same mechanism as `Co-Authored-By:`). The commit hook extracts the IDs into `metadata.resolves` on the commit event.
 
 ## File Domain
 
