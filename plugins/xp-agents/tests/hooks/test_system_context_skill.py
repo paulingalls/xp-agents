@@ -13,7 +13,7 @@ from conftest import _IntegrationTestCase
 _SKILL_DIR = Path(__file__).parent.parent.parent / "skills" / "xp-system-context"
 _PRELOAD_SCRIPT = _SKILL_DIR / "scripts" / "preload.sh"
 _SKILL_MD = _SKILL_DIR / "SKILL.md"
-_AGENT_MD = Path(__file__).parent.parent.parent / "agents" / "xp-system-context.md"
+_AGENT_MD = Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
 
 
 # ===========================================================================
@@ -34,9 +34,9 @@ class TestSystemContextFileStructure(unittest.TestCase):
         self.assertIn("context: fork", content)
 
     def test_skill_md_references_agent(self):
-        """SKILL.md references xp-system-context agent."""
+        """SKILL.md references xp-system-analyzer agent."""
         content = _SKILL_MD.read_text()
-        self.assertIn("xp-system-context", content)
+        self.assertIn("xp-system-analyzer", content)
 
     def test_agent_md_exists(self):
         """Agent definition exists."""

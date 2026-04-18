@@ -1,5 +1,5 @@
 ---
-name: xp-system-context
+name: xp-system-analyzer
 description: >-
   System context analyst. Reads codebase structure, CLAUDE.md, and key source
   files to produce system_context.md — a thorough description of the product,
@@ -88,7 +88,7 @@ Verify the file was written by reading it back.
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" \
-  --agent "xp-system-context" \
+  --agent "xp-system-analyzer" \
   --content "System context <created|updated>: <brief summary of what's described>" \
   --working-on '[]'
 ```

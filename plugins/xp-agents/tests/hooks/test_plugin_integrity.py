@@ -21,7 +21,7 @@ _SUBAGENT_NAMES = (
     "xp-retrospective",
     "xp-security-reviewer",
     "xp-sprint-reviewer",
-    "xp-system-context",
+    "xp-system-analyzer",
 )
 
 _ALL_SKILL_NAMES = (
