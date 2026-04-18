@@ -27,72 +27,35 @@ Complete all applicable steps below in order. Skip steps where the preload shows
 If the preload shows "### Previous Try Items", present them to the user.
 Ask via AskUserQuestion for each: **adopt, defer, or drop?**
 
-For adopted items, record a decision event with a specific slugged topic.
-If the Try item has a `[refs: <id1>, <id2>]` suffix, include all ref IDs in
-`--metadata '{"resolves": ["<id1>", "<id2>"]}'` to wire the resolution back
-to the original retro event. If no `[refs:]` suffix, omit `--metadata` entirely.
+Pass the Try item text **verbatim, including any trailing `[refs: ...]`
+suffix** — the helper extracts the refs, wires `metadata.resolves`, and
+strips the suffix from the stored content. Do NOT craft `--metadata` JSON
+by hand.
 
-With refs:
+**Adopt** (decision event with a slugged topic):
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "decision" --agent "xp-work-selection" \
-  --content "Adopted retro Try: <item summary>" \
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py adopt \
+  --smm-dir <SMM_DIR> \
   --topic "retro-try-<2-3-word-slug>" \
-  --metadata '{"resolves": ["<event-ref-id>"]}'
-```
-
-Without refs:
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "decision" --agent "xp-work-selection" \
-  --content "Adopted retro Try: <item summary>" \
-  --topic "retro-try-<2-3-word-slug>"
+  --content "<item text including any [refs: ...] suffix>"
 ```
 
 Example topic: `retro-try-commit-after-green`, `retro-try-fix-gate-coverage`.
 Never use bare `retro-try-adopted` — always include a descriptive slug.
 
-For deferred items, record a status event with `disposition` in metadata.
-If the Try item has `[refs: ...]`, include them in `metadata.resolves` so
-`annotate_try_status()` can track the deferral:
-
-With refs:
+**Defer** (status event, `disposition=deferred`):
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" --agent "xp-work-selection" \
-  --content "Deferred retro Try: <item summary>" \
-  --working-on '[]' \
-  --metadata '{"resolves": ["<event-ref-id>"], "disposition": "deferred"}'
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py defer \
+  --smm-dir <SMM_DIR> \
+  --content "<item text including any [refs: ...] suffix>"
 ```
 
-Without refs:
+**Drop** (status event, `disposition=dropped` — retro agent will **never
+re-propose** this Try):
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" --agent "xp-work-selection" \
-  --content "Deferred retro Try: <item summary>" \
-  --working-on '[]' \
-  --metadata '{"disposition": "deferred"}'
-```
-
-For dropped items, use `"disposition": "dropped"` — this tells the retro agent
-to **never re-propose** this Try item:
-
-With refs:
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" --agent "xp-work-selection" \
-  --content "Dropped retro Try: <item summary>" \
-  --working-on '[]' \
-  --metadata '{"resolves": ["<event-ref-id>"], "disposition": "dropped"}'
-```
-
-Without refs:
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" --agent "xp-work-selection" \
-  --content "Dropped retro Try: <item summary>" \
-  --working-on '[]' \
-  --metadata '{"disposition": "dropped"}'
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py drop \
+  --smm-dir <SMM_DIR> \
+  --content "<item text including any [refs: ...] suffix>"
 ```
 
 ## Step 2: Open Questions (if shown)
