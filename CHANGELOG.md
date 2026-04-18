@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.14.4 — Resolves-Event Commit Trailer
+
+- **`Resolves-Event:` commit trailer auto-links commits to SMM events.** Commits can now declare which recorded events they close (debt, concern, question, goal, assumption, decision, discovery) via a git trailer at the bottom of the commit body, mirroring the `Co-Authored-By:` mechanism:
+
+  ```
+  Fix the thing
+
+  Rationale.
+
+  Resolves-Event: 4eb35ddcd24e, a55290ae79b9
+  ```
+
+  New `commits.extract_resolves_trailer(body) -> (event_ids, body_without_trailers)` parses the trailer (case-insensitive key, line-anchored, comma-separated or repeated lines, dedup preserving first-seen order, 12-hex-char ID validation) and returns both the extracted IDs and the cleaned body in a single scan. `bash_post_tool._handle_commit` calls the extractor before the Co-Authored-By strip and adds `metadata.resolves = [...]` to the commit event when IDs are present; the trailer lines are stripped from the stored body so `metadata.resolves` is the sole home for the linkage. This dovetails with the existing `metadata.resolves` plumbing used by adoption decisions and auto-resolution, so retros and housekeeping walk one convention across commit events, status events, and other resolvers.
+
+- **Event-ID regex consolidated as public `smm_schema.EVENT_ID_RE`.** Renamed from the private `_ID_RE` so `commits.py` can import the same pattern it validates against. Internal `_is_valid_id()` still uses it.
+
+- **Doctrine added to `PROCESS_GUIDE.md` and `TEAMMATE_GUIDE.md`.** New "Linking commits to SMM events" section under Recording Events in the process guide covers format, example, and case/hex rules. TEAMMATE_GUIDE.md's Commit Conventions gets a matching bullet. Both guides list the full set of resolvable event types (`debt`, `concern`, `question`, `goal`, `assumption`, `decision`) to match what the resolution engine actually supports.
+
+- **Kickoff SKILL.md step 6/7 duplication removed.** Step 6 previously repeated step 7's "output both as text" directive. Step 7 is already the terminal-action step for housekeeping output — dropped the duplicate.
+
+- **Tests.** 11 new unit tests cover `extract_resolves_trailer` (single ID, comma-separated, multiple lines, case-insensitive, dedup-preserving-order, inline-mention rejection, non-hex rejection, wrong-length rejection, no-trailer, empty, None). 2 integration tests assert the wire-in populates `metadata.resolves` when present and omits the key when absent.
+
 ## v2.14.3 — Preserve Review State on Failed Commits; Kickoff Retro Surfacing
 
 - **Failed commits no longer wipe the review cycle.** `bash_post_tool._handle_commit` was running three post-commit side effects unconditionally: lint-concern resolution, `.security-triaged` marker consumption, and review-cycle flag reset. Only the commit event recording was gated on `parse_commit_message` returning a non-None value. When a pre-commit hook rejected the commit, stdout had no `[branch hash] msg` signal so the parse returned None, but the fallback `get_head_commit_hash()` still returned the previous HEAD — so `reset_review_cycle` would clear `simplify_done`, `quality_review_done`, and `security_review_done` with the old hash as the new baseline. Agents had to re-run the full `/simplify` → `/xp-quality-review` → `/xp-security-triage` sequence before retrying the same commit. Fix: early-return when `parse_commit_message` returns None, since that's the reliable success signal (git only emits `[branch hash] msg` on success). Also dropped the now-unreachable fallback hash refetch and pre-declaration of `committed_files` / `commit_hash`. Three new TDD tests: `test_failed_commit_preserves_review_cycle` (pre-commit failure stdout), `test_failed_commit_preserves_security_marker` (same, asserting the security marker), and `test_empty_stdout_preserves_markers` (content-agnostic guard proof).
