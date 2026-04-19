@@ -53,6 +53,16 @@ You cannot ask the user questions. Apply these rules instead:
 - **Wisdom demotions:** Demote only items unreferenced for 10+ sessions. Record a `status` event noting the demotion.
 - **Ambiguous items:** When genuinely uncertain, keep the item and record a `question` event for next session's triage. Err toward keeping, not pruning.
 
+## Wiring resolutions
+
+Three link types drive deterministic resolution. Use the right one when your curation records events:
+
+- **`metadata.resolves=[target_id]` — STRONG.** Directly closes the target. When you record a `decision` event that answers an open question (via `append.sh --type decision ... --metadata '{"resolves": ["<qid>"]}'`), the question is explicitly closed. Use this on any housekeeper-recorded event that settles a prior question, concern, or debt.
+- **Top-level `references=[root_id]` — WEAK.** Cascades closed only when the root event closes. When you promote an observation into a constraint or risk that is topically tied to an open concern, attach `references=[concern_id]` so the concern clears automatically once the constraint/risk is later retired.
+- **`files=[path, ...]` — STRUCTURAL.** Used for file-level matching (debt/concern lookup by file, working-on overlap, and commit-time auto-link in `bash_post_tool`); NOT a resolution signal itself. Attach to debt events you record when the debt names specific files.
+
+Don't invent new fields — the cascade machinery reads `references` and `metadata.resolves` directly. Skipping these links means curation keeps seeing the same stale flags across sessions.
+
 ## 1. Curate Intent
 
 Review `current_smm.intent` (existing) and `new_since_last_curation.customer_inputs` (new).

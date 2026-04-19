@@ -66,6 +66,16 @@ Commit messages in `signal_events` are the primary record of what was accomplish
 
 **Goal tracing** — compare `customer_input` and `goal` event content in `signal_events` with commit messages. Were the user's goals addressed? Unaddressed goals = Fix.
 
+## Wiring resolutions
+
+Three link types wire resolution across sessions. Use the right one:
+
+- **`metadata.resolves=[target_id]` — STRONG.** Directly closes the target event. Use on commits (`Resolves-Event: <id>` trailer), on decisions that answer a question, on status events that close a concern or debt.
+- **Top-level `references=[root_id]` — WEAK.** Cascades closed only when the root event closes. Attach to every flag-style concern you record (stale-question, superseded-decision, convention-violation) so the flag clears automatically when the root resolves — no manual sweep required.
+- **`files=[path, ...]` — STRUCTURAL.** Used for file-level matching (debt/concern lookup by file, working-on overlap, and commit-time auto-link in `bash_post_tool`); NOT a resolution signal itself. Attach to debt events derived from Fix items that name specific files.
+
+When you emit a flag concern in the Fix list, attach `references=[root_id]` structurally — don't rely on the content string to encode the link. When you emit a debt event derived from a Fix item that names files, attach `files=[...]`. The cascade machinery reads both fields directly; skipping them keeps the SMM noisy across sessions.
+
 ## Output
 
 ### Session Accomplishments
