@@ -127,6 +127,15 @@ If any `per_story` entry has `attribution_anomaly=true`, list them with a short 
 
 If none, omit this subsection.
 
+#### Resolution-Link Adoption
+
+When `sizing_analysis` contains `resolves_link_rate`, report a "Resolution-Link Adoption" subsection:
+
+- Print the rate as a percentage with the hit/total pair, e.g. `67% (2/3)`.
+- If the rate is below 0.80, flag as a retro Fix under the Communication lens with a one-line rationale: agents are not adopting the `Resolves-Event:` trailer discipline — commits must carry the trailer when a probe surfaces a matching concern. Target: ≥ 0.80 for three consecutive sprints before the convention stops being flagged.
+
+If `resolves_link_rate` is absent (zero probes in the sprint, or non-sprint session), omit the subsection entirely.
+
 #### Per-Size Calibration
 For each size in `per_size`, report `avg_commits` and `avg_files`. Compare across sizes — if S stories average more commits than M stories, sizing was inaccurate. Recommend calibration adjustments.
 

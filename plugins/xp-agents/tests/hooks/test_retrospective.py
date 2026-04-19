@@ -671,6 +671,155 @@ class TestSprintSizingInRetro(_HookTestCase):
 
 
 # ===========================================================================
+# Sprint-005 story-003: resolves_link_rate retro metric
+# ===========================================================================
+
+
+class TestResolvesLinkRate(_HookTestCase):
+    """Probe-to-commit adoption rate appears under sizing_analysis."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def _write_sprint_json(self) -> None:
+        from conftest import _s, _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Work", "S", "done")],
+                sprint_id="sprint-005",
+                started="2026-04-01",
+                goal="Resolves-trailer loop",
+            )
+        )
+
+    def _probe(self, candidate_ids: list[str], ts: str, commit_hash: str) -> dict:
+        return make_event(
+            "status",
+            content=f"resolves_probe_shown: {len(candidate_ids)} candidates",
+            working_on=[],
+            ts=ts,
+            metadata={
+                "probe_candidates": candidate_ids,
+                "commit_hash": commit_hash,
+            },
+        )
+
+    def _commit(self, resolves_ids: list[str], ts: str, commit_hash: str) -> dict:
+        return make_event(
+            "commit",
+            content="Work",
+            ts=ts,
+            files=["scripts/x.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": commit_hash,
+                "resolves": resolves_ids,
+            },
+        )
+
+    def _sprint_end(self) -> dict:
+        return make_event(
+            "sprint",
+            content="Sprint ended",
+            metadata={"sprint_id": "sprint-005", "action": "end"},
+        )
+
+    def _run(self, events: list[dict]) -> dict:
+        import retrospective
+
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            return json.load(f)
+
+    def test_three_probes_two_hits_one_miss(self):
+        self._write_sprint_json()
+        # Three probes, each followed by its commit.
+        events = [
+            self._probe(["aaaaaaaaaaaa"], "2026-04-05T10:00:00+00:00", "h1"),
+            self._commit(["aaaaaaaaaaaa"], "2026-04-05T10:01:00+00:00", "h1"),
+            self._probe(["bbbbbbbbbbbb"], "2026-04-06T10:00:00+00:00", "h2"),
+            self._commit(["bbbbbbbbbbbb"], "2026-04-06T10:01:00+00:00", "h2"),
+            self._probe(["cccccccccccc"], "2026-04-07T10:00:00+00:00", "h3"),
+            self._commit([], "2026-04-07T10:01:00+00:00", "h3"),
+            self._sprint_end(),
+        ]
+        data = self._run(events)
+        sizing = data["sizing_analysis"]
+        self.assertEqual(sizing["resolves_probe_total"], 3)
+        self.assertEqual(sizing["resolves_probe_hits"], 2)
+        self.assertAlmostEqual(sizing["resolves_link_rate"], 2 / 3, places=6)
+
+    def test_zero_probes_omits_fields(self):
+        """No probe events → fields absent. Retro pipeline does not crash."""
+        self._write_sprint_json()
+        # A commit but no probes.
+        events = [
+            self._commit(["aaaaaaaaaaaa"], "2026-04-05T10:01:00+00:00", "h1"),
+            make_event(content="filler 1"),
+            make_event(content="filler 2"),
+            make_event(content="filler 3"),
+            make_event(content="filler 4"),
+            self._sprint_end(),
+        ]
+        data = self._run(events)
+        sizing = data["sizing_analysis"]
+        self.assertNotIn("resolves_link_rate", sizing)
+        self.assertNotIn("resolves_probe_hits", sizing)
+        self.assertNotIn("resolves_probe_total", sizing)
+
+    def test_probe_direct_hit(self):
+        """Probe candidates=[X] + commit resolves=[X] → hit."""
+        self._write_sprint_json()
+        events = [
+            self._probe(["abc123def456"], "2026-04-05T10:00:00+00:00", "h1"),
+            self._commit(["abc123def456"], "2026-04-05T10:01:00+00:00", "h1"),
+            self._sprint_end(),
+        ]
+        data = self._run(events)
+        sizing = data["sizing_analysis"]
+        self.assertEqual(sizing["resolves_probe_total"], 1)
+        self.assertEqual(sizing["resolves_probe_hits"], 1)
+        self.assertEqual(sizing["resolves_link_rate"], 1.0)
+
+    def test_probe_miss_empty_resolves(self):
+        """Probe + commit with empty resolves → miss."""
+        self._write_sprint_json()
+        events = [
+            self._probe(["abc123def456"], "2026-04-05T10:00:00+00:00", "h1"),
+            self._commit([], "2026-04-05T10:01:00+00:00", "h1"),
+            self._sprint_end(),
+        ]
+        data = self._run(events)
+        sizing = data["sizing_analysis"]
+        self.assertEqual(sizing["resolves_probe_total"], 1)
+        self.assertEqual(sizing["resolves_probe_hits"], 0)
+        self.assertEqual(sizing["resolves_link_rate"], 0.0)
+
+    def test_probe_before_sprint_start_ignored(self):
+        """Probes from before the sprint's started date do not count."""
+        self._write_sprint_json()
+        events = [
+            # Pre-sprint probe; should be excluded from the window.
+            self._probe(["aaaaaaaaaaaa"], "2026-03-15T10:00:00+00:00", "h0"),
+            self._commit([], "2026-03-15T10:01:00+00:00", "h0"),
+            # In-sprint probe that misses.
+            self._probe(["bbbbbbbbbbbb"], "2026-04-05T10:00:00+00:00", "h1"),
+            self._commit([], "2026-04-05T10:01:00+00:00", "h1"),
+            self._sprint_end(),
+        ]
+        data = self._run(events)
+        sizing = data["sizing_analysis"]
+        self.assertEqual(sizing["resolves_probe_total"], 1)
+        self.assertEqual(sizing["resolves_probe_hits"], 0)
+
+
+# ===========================================================================
 # M3: Sprint detection
 # ===========================================================================
 

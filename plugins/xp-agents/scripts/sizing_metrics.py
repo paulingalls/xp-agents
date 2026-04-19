@@ -163,6 +163,7 @@ def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
     return {
         "sprint_id": sprint["sprint_id"],
         "goal": sprint["goal"],
+        "started": started,
         "velocity": velocity,
         "per_story": per_story,
         "per_size": per_size,
