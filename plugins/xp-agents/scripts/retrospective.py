@@ -19,10 +19,12 @@ import sizing_metrics
 from event_schema import (
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
+    METADATA_KEY_PROBE_CANDIDATES,
     RETRO_ACTION_SESSION_DONE,
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
     STATUS_ACTION_SPRINT_RETRO_DONE,
+    STATUS_CONTENT_RESOLVES_PROBE,
 )
 from honesty_signals import build_honesty_signals
 from retro_history import annotate_try_status, gather_retro_history
@@ -432,9 +434,6 @@ def _build_context_summary(
     return "\n".join(parts)
 
 
-_PROBE_PREFIX = "resolves_probe_shown:"
-
-
 def _compute_resolves_link_rate(
     events: list[dict], sprint_start_ts: str | None
 ) -> dict:
@@ -464,13 +463,15 @@ def _compute_resolves_link_rate(
         e
         for e in events
         if e.get("type") == _common.STATUS
-        and e.get("content", "").startswith(_PROBE_PREFIX)
+        and e.get("content", "").startswith(f"{STATUS_CONTENT_RESOLVES_PROBE}:")
         and _in_window(e)
     ]
 
     hits = 0
     for probe in probes:
-        candidates = set((probe.get("metadata") or {}).get("probe_candidates") or [])
+        candidates = set(
+            (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
+        )
         if not candidates:
             continue
         agent_id = probe.get("agent_id", "")

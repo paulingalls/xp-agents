@@ -20,6 +20,7 @@ import identity
 import markers
 import security
 import worktree
+from event_schema import METADATA_KEY_PROBE_CANDIDATES, STATUS_CONTENT_RESOLVES_PROBE
 from test_parsing import is_test_run, parse_test_results
 
 # ---------------------------------------------------------------------------
@@ -57,7 +58,6 @@ def _resolve_lint_on_commit(
 
 COMMIT_SIZE_THRESHOLD = 12
 PROBE_CANDIDATE_LIMIT = 5
-RESOLVES_PROBE_STATUS = "resolves_probe_shown"
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +216,10 @@ def _handle_commit(
             _common.make_event(
                 _common.STATUS,
                 agent_id,
-                f"{RESOLVES_PROBE_STATUS}: {len(candidates)} candidates",
+                f"{STATUS_CONTENT_RESOLVES_PROBE}: {len(candidates)} candidates",
                 working_on=[],
                 metadata={
-                    "probe_candidates": [c["id"] for c in candidates],
+                    METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
                     "commit_hash": commit_hash,
                 },
             )
