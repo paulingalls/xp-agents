@@ -16,6 +16,13 @@ When `/simplify` or `/xp-quality-review` flags something, fix it. Disagreements 
 **Collaboration discipline:**
 Honor collective decisions — don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.
 
+## Resolution Discipline
+
+Three link types close events:
+- **STRONG**: `metadata.resolves=[id]` (required when a decision answers a question).
+- **WEAK**: `references=[id]` on flag concerns — cascade-closes with the root.
+- **STRUCTURAL**: `files=[...]` on reviewer concerns — commit-auto-link nudges for a `Resolves-Event:` trailer.
+
 ## When to Run XP Skills
 
 These are not optional. Hooks enforce some as safety nets, but follow the process proactively rather than waiting to be blocked.
@@ -143,7 +150,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ### Linking commits to SMM events
 
-When a commit closes a recorded SMM item (most commonly `debt`, `concern`, `question`, or `goal` — but any event type resolvable via `metadata.resolves` works, including `assumption` and `decision`), add a `Resolves-Event:` trailer at the bottom of the commit body (same mechanism as `Co-Authored-By:`). The commit hook parses the trailer and populates `metadata.resolves` on the commit event, so future retros and housekeeping detect the resolution automatically.
+When a commit closes a recorded SMM item (any type resolvable via `metadata.resolves`), add a `Resolves-Event:` trailer at the bottom of the commit body. The commit hook populates `metadata.resolves` on the commit event, so retros and housekeeping detect the resolution automatically.
 
 ```
 Fix the thing
@@ -154,7 +161,7 @@ Resolves-Event: 4eb35ddcd24e, a55290ae79b9
 Co-Authored-By: ...
 ```
 
-The trailer is case-insensitive (`resolves-event:` works), accepts comma-separated IDs on one line, or use multiple trailer lines. IDs must be exactly 12 hex chars (the SMM event-ID format).
+Case-insensitive; comma-separated or multiple lines. IDs must be 12 hex chars.
 
 ### Good vs Bad Events
 
