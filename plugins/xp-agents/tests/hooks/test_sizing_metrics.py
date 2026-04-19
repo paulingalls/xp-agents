@@ -598,6 +598,47 @@ class TestComputeSizingAnalysis(_HookTestCase):
         self.assertIn("per_size", result)
         self.assertIn("M", result["per_size"])
 
+    def test_attribution_anomaly_truth_table(self):
+        """attribution_anomaly is True iff status=deferred AND commits>0."""
+        import sizing_metrics
+
+        cases = [
+            ("deferred", True, True),
+            ("deferred", False, False),
+            ("done", True, False),
+            ("ready", True, False),
+        ]
+        for status, has_commits, expected in cases:
+            with self.subTest(status=status, has_commits=has_commits):
+                sprint = _sprint_json(
+                    [
+                        _s(
+                            "story-x",
+                            "Story",
+                            "M",
+                            status,
+                            file_domain=["scripts/a.py"],
+                        ),
+                    ],
+                    sprint_id="sprint-anom",
+                    started="2026-04-01",
+                )
+                (self.smm_dir / "sprint.json").write_text(sprint)
+                events = (
+                    [
+                        _commit_event(
+                            ["scripts/a.py"],
+                            "2026-04-02T10:00:00+00:00",
+                            story_id="story-x",
+                        ),
+                    ]
+                    if has_commits
+                    else []
+                )
+
+                result = sizing_metrics.compute_sizing_analysis(self.smm_dir, events)
+                self.assertIs(result["per_story"][0]["attribution_anomaly"], expected)
+
 
 if __name__ == "__main__":
     unittest.main()
