@@ -4,14 +4,16 @@
 Contract:
 - When no .pending-render-* marker exists for the calling agent, the hook
   returns None without reading the transcript (fast path).
-- When a marker exists and the transcript contains the signature line in an
-  assistant-authored text block, the marker is consumed (deleted) and the
-  hook returns None.
-- When a marker exists but the signature is absent from assistant text, the
-  hook returns a block reason string.
+- When a marker exists and the transcript's assistant text contains every
+  required phrase (e.g. "Shared Mental Model" + "Curated View"), the marker
+  is consumed (deleted) and the hook returns None. Markdown and em-dash
+  are NOT required — the gate is a "did you forget?" reminder, not a
+  format enforcer.
+- When a marker exists but at least one required phrase is absent from
+  assistant text, the hook raises BlockedError.
 - Only role=='assistant' text blocks are scanned. tool_use and tool_result
-  blocks are NOT scanned — tool output containing the signature does not
-  clear the marker.
+  blocks are NOT scanned — tool output containing the required phrases
+  does not clear the marker.
 - Recursion: when input_data.agent_type starts with 'xp-', the hook returns
   None immediately (our own agent hooks never trigger the gate).
 - Per-agent isolation: each agent sees only its own .pending-render-*-{agent_id}
@@ -176,6 +178,90 @@ class TestEchoGateSignatureMissing(_HookTestCase):
             )
         self.assertIn("Unechoed render", str(ctx.exception))
         # Marker must remain so the next tool call can still clear it.
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
+        )
+
+
+class TestEchoGatePlainTextPhrases(_HookTestCase):
+    """Loose check: plain-text phrases clear the gate even without markdown.
+
+    The gate looks for two distinctive phrases, not the exact markdown line.
+    If the agent echoes the SMM with a paraphrased intro, a different
+    heading level, an en-dash, or straight ASCII punctuation, the phrases
+    still match and the marker clears. Purpose of the gate is to remind
+    the agent if it forgot — not to police exact formatting.
+    """
+
+    def test_smm_phrases_without_markdown_clear_marker(self):
+        markers.marker_write(
+            self.smm_dir, markers.PENDING_RENDER_SMM, _SMM_SIG + "\n", "main"
+        )
+        transcript = self.smm_dir / "transcript.jsonl"
+        _write_transcript(
+            transcript,
+            [
+                _assistant_entry(
+                    [
+                        "Here's the Shared Mental Model, Curated View "
+                        "from the housekeeper: intent, constraints, risks..."
+                    ]
+                ),
+            ],
+        )
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
+        )
+
+    def test_retro_phrases_without_markdown_clear_marker(self):
+        markers.marker_write(
+            self.smm_dir, markers.PENDING_RENDER_RETRO, _RETRO_SIG + "\n", "main"
+        )
+        transcript = self.smm_dir / "transcript.jsonl"
+        _write_transcript(
+            transcript,
+            [
+                _assistant_entry(
+                    [
+                        "Rendering the XP Retrospective (Keep / Fix / Try) "
+                        "from the analyst..."
+                    ]
+                ),
+            ],
+        )
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_RETRO, "main")
+        )
+
+    def test_smm_only_one_phrase_still_blocks(self):
+        """Drive-by mention of just 'Shared Mental Model' doesn't clear."""
+        markers.marker_write(
+            self.smm_dir, markers.PENDING_RENDER_SMM, _SMM_SIG + "\n", "main"
+        )
+        transcript = self.smm_dir / "transcript.jsonl"
+        _write_transcript(
+            transcript,
+            [
+                _assistant_entry(
+                    ["Let me update the Shared Mental Model for sprint-006."]
+                ),
+            ],
+        )
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_echo_gate.run(
+                _make_write_input(transcript_path=str(transcript)),
+                smm_dir=self.smm_dir,
+            )
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
         )

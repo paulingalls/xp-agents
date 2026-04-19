@@ -27,3 +27,11 @@ PENDING_RENDER_SMM = ".pending-render-smm-{agent_id}"
 
 RENDER_RETRO_SIGNATURE = "# XP Retrospective \u2014 Keep / Fix / Try"
 RENDER_SMM_SIGNATURE = "# Shared Mental Model \u2014 Curated View"
+
+# Plain-text phrases the echo-gate checks for — deliberately loose.
+# All phrases in the tuple must appear in the assistant's text for the
+# marker to clear. No markdown prefix, no em-dash required: the gate is
+# a "did you forget?" reminder, not a format enforcer. Agents that
+# paraphrase the heading, drop the `#`, or use an ASCII dash still clear.
+RENDER_RETRO_PHRASES = ("XP Retrospective", "Keep / Fix / Try")
+RENDER_SMM_PHRASES = ("Shared Mental Model", "Curated View")

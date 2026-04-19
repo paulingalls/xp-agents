@@ -3,22 +3,24 @@
 
 When kickoff asks the housekeeper/retrospective agents to render the curated
 SMM and the latest retrospective, the render CLIs drop
-`.pending-render-{smm,retro}-{agent_id}` markers at SMM_DIR carrying the
-signature line of the rendered block. Subagent tool-results are not visible
-to the user, so without enforcement the main agent could silently skip the
-echo step.
+`.pending-render-{smm,retro}-{agent_id}` markers at SMM_DIR. Subagent
+tool-results are not visible to the user, so without enforcement the main
+agent could silently skip the echo step.
 
 This hook runs before the next tool invocation (Agent, Write, Edit,
 MultiEdit, Bash, Skill) and before the next user prompt is processed. When
 a pending render marker exists for the calling agent, it scans the
-assistant-authored text of the transcript for the signature line and either
-consumes the marker (verified echo) or blocks the tool call (exit 2 with
-`Unechoed render` reason on stderr).
+assistant-authored text of the transcript for a small tuple of required
+phrases (plain text, no markdown) and either consumes the marker (all
+phrases present → verified echo) or blocks the tool call (exit 2 with
+`Unechoed render` reason on stderr). The check is deliberately loose:
+markdown prefix and em-dash are not required. Purpose is to remind the
+agent if it forgot, not to police formatting.
 
 Fail-open conditions: missing transcript_path, unreadable transcript file,
 missing/invalid SMM directory, xp-* agent invocations (recursion).
 Only role=='assistant' / type=='text' blocks are scanned — tool_use and
-tool_result blocks are excluded so tool output containing the signature
+tool_result blocks are excluded so tool output containing the phrases
 does not falsely clear the marker.
 """
 
@@ -34,14 +36,17 @@ import identity
 import marker_names
 import markers
 
-# (MarkerDef, signature line, human-readable kind)
-_GATED_MARKERS: tuple[tuple[markers.MarkerDef, str, str], ...] = (
+# (MarkerDef, required-phrase tuple, human-readable kind).
+# All phrases in the tuple must appear somewhere in the assistant's
+# plain text for the marker to clear — markdown prefix and em-dash not
+# required. Gate is a "did you forget?" reminder, not a format enforcer.
+_GATED_MARKERS: tuple[tuple[markers.MarkerDef, tuple[str, ...], str], ...] = (
     (
         markers.PENDING_RENDER_RETRO,
-        marker_names.RENDER_RETRO_SIGNATURE,
+        marker_names.RENDER_RETRO_PHRASES,
         "retrospective",
     ),
-    (markers.PENDING_RENDER_SMM, marker_names.RENDER_SMM_SIGNATURE, "SMM"),
+    (markers.PENDING_RENDER_SMM, marker_names.RENDER_SMM_PHRASES, "SMM"),
 )
 
 
@@ -55,8 +60,8 @@ def _assistant_text(transcript_path: Path) -> str | None:
 
     Only role=='assistant' message entries are scanned, and within those
     only content blocks with type=='text'. tool_use and tool_result blocks
-    are excluded so tool output containing the signature does not falsely
-    clear the marker.
+    are excluded so tool output containing the required phrases does not
+    falsely clear the marker.
     """
     try:
         raw = transcript_path.read_text(encoding="utf-8")
@@ -89,12 +94,13 @@ def _assistant_text(transcript_path: Path) -> str | None:
     return "\n".join(parts)
 
 
-def _block_reason(kind: str, signature: str) -> str:
+def _block_reason(kind: str, phrases: tuple[str, ...]) -> str:
+    quoted = ", ".join(f"'{p}'" for p in phrases)
     return (
-        f"Unechoed render: {kind}. The {kind} content carries a distinctive "
-        f"signature line that must appear verbatim in the assistant's text "
-        f"output before the next tool call. Echo the full block to the user "
-        f"now — it must include the line '{signature}'."
+        f"Unechoed render: {kind}. Show the {kind} block to the user before "
+        f"the next tool call — the content you were asked to render, not a "
+        f"one-line summary. The gate clears once the assistant text contains "
+        f"all of these phrases: {quoted}. Markdown formatting is optional."
     )
 
 
@@ -112,8 +118,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     agent_id = identity.resolve_agent_id(input_data)
 
     pending = [
-        (marker, signature, kind)
-        for marker, signature, kind in _GATED_MARKERS
+        (marker, phrases, kind)
+        for marker, phrases, kind in _GATED_MARKERS
         if markers.marker_exists(smm_dir, marker, agent_id)
     ]
     if not pending:
@@ -126,11 +132,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     if assistant_text is None:
         return None
 
-    for marker, signature, kind in pending:
-        if signature in assistant_text:
+    for marker, phrases, kind in pending:
+        if all(p in assistant_text for p in phrases):
             markers.marker_consume(smm_dir, marker, agent_id)
         else:
-            raise _common.BlockedError(_block_reason(kind, signature))
+            raise _common.BlockedError(_block_reason(kind, phrases))
     return None
 
 
