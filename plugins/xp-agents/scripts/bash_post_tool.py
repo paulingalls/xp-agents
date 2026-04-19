@@ -197,6 +197,17 @@ def _handle_commit(
     )
     _common.append_safe(smm_dir, event)
 
+    open_matches = commits.open_concerns_matching_commit(smm_dir, committed_files)
+    for c in open_matches:
+        if c.get("id") in resolves:
+            continue
+        head = (c.get("content") or "")[:80]
+        print(
+            f"Auto-link nudge: concern {c['id']} — {head}. "
+            f"Consider adding `Resolves-Event: {c['id']}` trailer.",
+            file=sys.stderr,
+        )
+
     file_count = len(committed_files)
     if file_count >= COMMIT_SIZE_THRESHOLD:
         concern = _common.make_event(

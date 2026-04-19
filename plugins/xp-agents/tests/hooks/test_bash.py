@@ -4,6 +4,7 @@
 Split from the original test_post_tool.py.
 """
 
+import io
 import sys
 import tempfile
 import unittest
@@ -286,6 +287,80 @@ class TestBashPostTool(_HookTestCase):
     def test_git_commit_parse_message(self):
         response = "[main abc123] Fix login bug\n 1 file changed"
         self.assertEqual(commits.parse_commit_message(response), "Fix login bug")
+
+    def test_commit_emits_concern_autolink_nudge_on_file_overlap(self):
+        """Commit touches a file in open concern's files → stderr nudge."""
+        concern = make_event(
+            "concern",
+            content="Auth middleware leaks tokens",
+            files=["scripts/auth.py"],
+        )
+        _common.append_safe(self.smm_dir, concern)
+        body = "Fix auth\n\nNo trailer here."
+        with (
+            patch("commits.get_committed_files", return_value=["scripts/auth.py"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_err,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix auth'",
+                    stdout="[main abc123] Fix auth\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        stderr = mock_err.getvalue()
+        self.assertIn(concern["id"], stderr)
+        self.assertIn("Resolves-Event", stderr)
+
+    def test_commit_no_nudge_when_concern_resolved_by_trailer(self):
+        """Resolves-Event trailer covering the matching concern → no nudge."""
+        concern = make_event(
+            "concern",
+            content="Auth middleware leaks tokens",
+            files=["scripts/auth.py"],
+        )
+        _common.append_safe(self.smm_dir, concern)
+        body = f"Fix auth\n\nResolves-Event: {concern['id']}"
+        with (
+            patch("commits.get_committed_files", return_value=["scripts/auth.py"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_err,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix auth'",
+                    stdout="[main abc123] Fix auth\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertNotIn(concern["id"], mock_err.getvalue())
+
+    def test_commit_no_nudge_when_no_file_overlap(self):
+        """Concern's files don't intersect commit files → stderr clean."""
+        concern = make_event(
+            "concern",
+            content="Other bug",
+            files=["scripts/foo.py"],
+        )
+        _common.append_safe(self.smm_dir, concern)
+        body = "Update README\n\nNo trailer."
+        with (
+            patch("commits.get_committed_files", return_value=["README.md"]),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_err,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Update README'",
+                    stdout="[main abc123] Update README\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertNotIn(concern["id"], mock_err.getvalue())
 
 
 # ===========================================================================
