@@ -81,15 +81,29 @@ VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
+# Cross-module metadata keys. Centralized here so producer and consumer
+# cannot drift on the spelling.
+#   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this
+#                                 event closes. Written by bash_post_tool,
+#                                 concerns, and work_selection_decide;
+#                                 read by pre_tool_bash, retrospective,
+#                                 materialize, resolution.
+#   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit and
+#                                 probe events (bash_post_tool.py).
+#   METADATA_KEY_PROBE_CANDIDATES — ids surfaced by the resolves-trailer
+#                                 probe; paired with the status-content
+#                                 discriminator below.
+METADATA_KEY_RESOLVES = "resolves"
+METADATA_KEY_COMMIT_HASH = "commit_hash"
+METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
+
 # Resolves-trailer probe status event contract.
 # Producer (bash_post_tool._handle_commit) emits content
 # f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates" with metadata
-# {METADATA_KEY_PROBE_CANDIDATES: [ids], "commit_hash": <hash>}; consumer
-# (retrospective._compute_resolves_link_rate) matches the content prefix and
-# reads the candidate list. Both constants live here so the contract cannot
-# drift across producer/consumer worktrees.
+# {METADATA_KEY_PROBE_CANDIDATES: [ids], METADATA_KEY_COMMIT_HASH: <hash>};
+# consumer (retrospective._compute_resolves_link_rate) matches the content
+# prefix and reads the candidate list.
 STATUS_CONTENT_RESOLVES_PROBE = "resolves_probe_shown"
-METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 
 # Retrospective event metadata.action discriminators — distinguish session
 # retros from sprint retros so the session-start watermark scanner only

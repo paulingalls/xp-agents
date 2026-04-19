@@ -20,7 +20,12 @@ import identity
 import markers
 import security
 import worktree
-from event_schema import METADATA_KEY_PROBE_CANDIDATES, STATUS_CONTENT_RESOLVES_PROBE
+from event_schema import (
+    METADATA_KEY_COMMIT_HASH,
+    METADATA_KEY_PROBE_CANDIDATES,
+    METADATA_KEY_RESOLVES,
+    STATUS_CONTENT_RESOLVES_PROBE,
+)
 from test_parsing import is_test_run, parse_test_results
 
 # ---------------------------------------------------------------------------
@@ -182,9 +187,9 @@ def _handle_commit(
 
     metadata: dict = {"code_commit": has_code}
     if commit_hash:
-        metadata["commit_hash"] = commit_hash
+        metadata[METADATA_KEY_COMMIT_HASH] = commit_hash
     if resolves:
-        metadata["resolves"] = resolves
+        metadata[METADATA_KEY_RESOLVES] = resolves
 
     story_id = _resolve_story_id(smm_dir, cwd, committed_files)
     if story_id:
@@ -220,7 +225,7 @@ def _handle_commit(
                 working_on=[],
                 metadata={
                     METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
-                    "commit_hash": commit_hash,
+                    METADATA_KEY_COMMIT_HASH: commit_hash,
                 },
             )
         )

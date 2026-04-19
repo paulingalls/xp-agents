@@ -29,6 +29,7 @@ from _common import (
     make_event,
     read_events_raw,
 )
+from event_schema import METADATA_KEY_RESOLVES
 from worktree import normalize_path
 
 # ---------------------------------------------------------------------------
@@ -103,7 +104,7 @@ def resolve_concerns(
                 agent_id,
                 f"{label}: {c['content'][:60]}",
                 working_on=[],
-                metadata={"resolves": [c["id"]]},
+                metadata={METADATA_KEY_RESOLVES: [c["id"]]},
             )
             for c in unresolved
         ],

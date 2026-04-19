@@ -20,6 +20,7 @@ from event_schema import (
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
+    METADATA_KEY_RESOLVES,
     RETRO_ACTION_SESSION_DONE,
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
@@ -483,7 +484,7 @@ def _compute_resolves_link_rate(
                 continue
             if e.get("ts", "") <= probe_ts:
                 continue
-            resolves = set((e.get("metadata") or {}).get("resolves") or [])
+            resolves = set((e.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or [])
             if resolves & candidates:
                 hits += 1
             break

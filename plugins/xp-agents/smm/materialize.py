@@ -11,6 +11,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+import event_schema
 import smm_store
 from _append_impl import (
     parse_jsonl,
@@ -19,7 +20,7 @@ from _append_impl import (
 from _append_impl import (
     read_with_lock as _read_with_lock,
 )
-from event_schema import sessions_since_event
+from event_schema import METADATA_KEY_RESOLVES, sessions_since_event
 from resolution import compute_resolutions
 
 logger = logging.getLogger(__name__)
@@ -200,25 +201,25 @@ def _bucket_new_events(
             "agent_id": e.get("agent_id", ""),
         }
         match etype:
-            case "customer_input":
+            case event_schema.EVENT_TYPE_CUSTOMER_INPUT:
                 new_since["customer_inputs"].append(summary)
-            case "decision":
+            case event_schema.EVENT_TYPE_DECISION:
                 summary["topic"] = e.get("topic", "")
                 new_since["decisions"].append(summary)
-            case "concern":
+            case event_schema.EVENT_TYPE_CONCERN:
                 if e.get("id", "") not in resolved_concern_ids:
                     new_since["concerns"].append(summary)
-            case "assumption":
+            case event_schema.EVENT_TYPE_ASSUMPTION:
                 new_since["assumptions"].append(summary)
-            case "debt":
+            case event_schema.EVENT_TYPE_DEBT:
                 summary["files"] = e.get("files", [])
                 new_since["debt"].append(summary)
-            case "question":
+            case event_schema.EVENT_TYPE_QUESTION:
                 summary["priority"] = e.get("priority", "")
                 new_since["questions"].append(summary)
 
         # Track resolutions in new events
-        for target_id in e.get("metadata", {}).get("resolves", []):
+        for target_id in e.get("metadata", {}).get(METADATA_KEY_RESOLVES, []):
             new_since["resolutions"][target_id] = e.get("content", "")
 
     return new_since
@@ -252,9 +253,9 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     session_end_timestamps: list[str] = []
     for e in events:
         etype = e.get("type", "")
-        if etype == "retrospective":
+        if etype == event_schema.EVENT_TYPE_RETROSPECTIVE:
             retros.append(e)
-        elif etype == "session_end":
+        elif etype == event_schema.EVENT_TYPE_SESSION_END:
             session_end_timestamps.append(e.get("ts", ""))
 
     retro_history = _extract_retro_history(retros)

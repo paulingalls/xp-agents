@@ -16,6 +16,7 @@ import identity
 import markers
 import security
 import worktree
+from event_schema import METADATA_KEY_RESOLVES
 from resolution import compute_resolutions
 
 # ---------------------------------------------------------------------------
@@ -82,7 +83,7 @@ def _decision_metadata_has_resolves(metadata_value: str) -> bool:
         parsed = json.loads(metadata_value)
     except ValueError:
         return False
-    return bool(isinstance(parsed, dict) and parsed.get("resolves"))
+    return bool(isinstance(parsed, dict) and parsed.get(METADATA_KEY_RESOLVES))
 
 
 # ---------------------------------------------------------------------------

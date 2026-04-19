@@ -22,7 +22,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
-from event_schema import validate_event  # noqa: E402
+from event_schema import METADATA_KEY_RESOLVES, validate_event  # noqa: E402
 from smm_schema import EVENT_ID_RE  # noqa: E402
 
 _REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
@@ -49,7 +49,7 @@ def _build_metadata(ids: list[str], disposition: str | None) -> dict | None:
     """Build metadata dict, or None if nothing to set."""
     meta: dict = {}
     if ids:
-        meta["resolves"] = ids
+        meta[METADATA_KEY_RESOLVES] = ids
     if disposition:
         meta["disposition"] = disposition
     return meta or None

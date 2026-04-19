@@ -12,7 +12,8 @@ import re
 import subprocess
 import sys
 
-from event_schema import EVENT_TYPE_ANSWER, EVENT_TYPE_QUESTION
+import event_schema
+from event_schema import METADATA_KEY_RESOLVES
 
 # ---------------------------------------------------------------------------
 # Event resolution tracking (shared by materialize, retrospective, hooks)
@@ -92,43 +93,46 @@ def compute_resolutions(events: list[dict]) -> dict:
             by_id[event_id] = event
 
         # Question-answer linking: answer events reference questions
-        if event.get("type") == EVENT_TYPE_ANSWER:
+        if event.get("type") == event_schema.EVENT_TYPE_ANSWER:
             for ref_id in event.get("references", []):
                 ref_event = by_id.get(ref_id)
-                if ref_event and ref_event.get("type") == EVENT_TYPE_QUESTION:
+                if (
+                    ref_event
+                    and ref_event.get("type") == event_schema.EVENT_TYPE_QUESTION
+                ):
                     question_answers[ref_id] = event
 
         # Explicit resolution via metadata.resolves
-        for target_id in event.get("metadata", {}).get("resolves", []):
+        for target_id in event.get("metadata", {}).get(METADATA_KEY_RESOLVES, []):
             resolved = resolve_prefix(target_id, by_id)
             if not resolved:
                 continue
             full_id, target = resolved
             match target.get("type"):
-                case "question":
+                case event_schema.EVENT_TYPE_QUESTION:
                     # setdefault: answer events (added above) take
                     # precedence over metadata.resolves
                     question_answers.setdefault(full_id, event)
-                case "concern":
+                case event_schema.EVENT_TYPE_CONCERN:
                     concern_resolutions[full_id] = event
-                case "goal":
+                case event_schema.EVENT_TYPE_GOAL:
                     goal_resolutions[full_id] = event
-                case "debt":
+                case event_schema.EVENT_TYPE_DEBT:
                     debt_resolutions[full_id] = event
-                case "decision":
+                case event_schema.EVENT_TYPE_DECISION:
                     decision_resolutions[full_id] = event
-                case "assumption":
+                case event_schema.EVENT_TYPE_ASSUMPTION:
                     assumption_resolutions[full_id] = event
                 case _:
                     other_resolutions[full_id] = event
 
     buckets = {
-        "question": question_answers,
-        "concern": concern_resolutions,
-        "goal": goal_resolutions,
-        "debt": debt_resolutions,
-        "decision": decision_resolutions,
-        "assumption": assumption_resolutions,
+        event_schema.EVENT_TYPE_QUESTION: question_answers,
+        event_schema.EVENT_TYPE_CONCERN: concern_resolutions,
+        event_schema.EVENT_TYPE_GOAL: goal_resolutions,
+        event_schema.EVENT_TYPE_DEBT: debt_resolutions,
+        event_schema.EVENT_TYPE_DECISION: decision_resolutions,
+        event_schema.EVENT_TYPE_ASSUMPTION: assumption_resolutions,
     }
     resolver_map: dict[str, dict] = {}
     for bucket in (*buckets.values(), other_resolutions):
@@ -189,9 +193,9 @@ def _sanitize_notification(text: str) -> str:
 def _notify_blocking_question(event: dict) -> None:
     """Send a desktop notification for 🔴 priority questions. Swallows all errors."""
     try:
-        if event.get("type") != "question":
+        if event.get("type") != event_schema.EVENT_TYPE_QUESTION:
             return
-        if event.get("priority") != "\U0001f534":
+        if event.get("priority") != event_schema.PRIORITY_BLOCKING:
             return
 
         message = _sanitize_notification(event.get("content", "Blocking question"))
