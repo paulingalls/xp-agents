@@ -120,7 +120,7 @@ The mechanism that forces rendered output to become user-visible.
 
 3. **Echo-gate hook** (`scripts/pre_tool_echo_gate.py`) registered on:
    - `PreToolUse` with matcher `Agent|Write|Edit|MultiEdit|Bash|Skill` — immediate feedback on next tool use
-   - `UserPromptSubmit` — catches the "main agent stopped and waited for user" case
+   - (Historical: initial design also registered on `UserPromptSubmit`. Later removed — blocking a user's prompt penalizes the wrong actor; PreToolUse enforcement is sufficient.)
 
    Hook logic:
    - Scan `<SMM_DIR>/.pending-render-*.marker` files
@@ -167,7 +167,7 @@ Executed in TDD order. One sprint-sized change; can be split into 2-3 stories if
    - Add `retro_cli render <json-path>` that emits rendered MD and drops marker
    - Tests: marker file contents, atomicity, signature line correctness
 
-4. **Build echo-gate hook.** `scripts/pre_tool_echo_gate.py` handling both `PreToolUse` and `UserPromptSubmit`. Transcript parser restricted to `type=assistant` text blocks. Tests: signature found (marker cleared, allowed), signature missing (blocked with reason), multiple pending markers, stale marker cleanup.
+4. **Build echo-gate hook.** `scripts/pre_tool_echo_gate.py` handling `PreToolUse` (initial design also covered `UserPromptSubmit`; removed in a later revision). Transcript parser restricted to `type=assistant` text blocks. Tests: signature found (marker cleared, allowed), signature missing (blocked with reason), multiple pending markers, stale marker cleanup.
 
 5. **Add SubagentStart dispatch entries.** Handlers for `xp-retrospective`, `xp-housekeeper` (with work-selection gathering), `xp-system-analyzer`. Tests: injection content matches expected data, handler is a no-op for irrelevant subagent_types.
 
@@ -222,7 +222,7 @@ Record before first commit of this migration (per Try #2 — assumption-gate for
 - `plugins/xp-agents/skills/xp-system-context/SKILL.md` — update `agent:` field
 - `plugins/xp-agents/skills/xp-kickoff/SKILL.md` — rewrite steps 1, 3, 6
 - `plugins/xp-agents/scripts/subagent_start.py` — add 3 dispatch entries + handlers
-- `plugins/xp-agents/hooks/hooks.json` — register echo-gate hook on PreToolUse + UserPromptSubmit
+- `plugins/xp-agents/hooks/hooks.json` — register echo-gate hook on PreToolUse (UserPromptSubmit registration removed in later revision)
 - `plugins/xp-agents/smm/smm_cli.py` — add marker drop to render command
 - `docs/ARCHITECTURE.md` — update hook map, injection table, subagent lifecycle
 
@@ -239,7 +239,7 @@ Record before first commit of this migration (per Try #2 — assumption-gate for
 
 3. **Keep `/xp-system-context` forked skill** for standalone invocation (e.g., after sprint review). Narrow migration scope; don't touch what isn't broken.
 
-4. **Echo enforcement: marker + PreToolUse + UserPromptSubmit.** Not Stop-gate. Rationale: Stop can fire far from kickoff in long sessions. Marker approach gives tight feedback on the very next tool use or user prompt.
+4. **Echo enforcement: marker + PreToolUse.** Not Stop-gate. Rationale: Stop can fire far from kickoff in long sessions. Marker approach gives tight feedback on the very next tool use. (Initial design also covered UserPromptSubmit; later removed — penalizes user for agent's failure.)
 
 5. **Work-selection events injected into housekeeper** via SubagentStart handler. Rationale: curator making decisions about wisdom/risk promotions benefits from knowing what was just adopted/selected.
 

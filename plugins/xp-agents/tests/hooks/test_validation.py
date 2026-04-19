@@ -398,7 +398,7 @@ class TestHooksJsonM65(_HooksJsonTestCase):
 
 
 class TestEchoGateHookRegistration(_HooksJsonTestCase):
-    """Verify pre_tool_echo_gate.py is registered on PreToolUse + UserPromptSubmit."""
+    """Verify pre_tool_echo_gate.py is registered on PreToolUse only."""
 
     def _all_commands(self, event_name: str) -> list[str]:
         commands: list[str] = []
@@ -436,13 +436,12 @@ class TestEchoGateHookRegistration(_HooksJsonTestCase):
                 return
         self.fail("No PreToolUse entry registers pre_tool_echo_gate.py")
 
-    def test_echo_gate_registered_for_user_prompt_submit(self):
-        """Echo-gate must also fire on UserPromptSubmit so a user's next
-        prompt cannot be processed while a render is unechoed."""
+    def test_echo_gate_not_registered_for_user_prompt_submit(self):
+        """Echo-gate enforces agent discipline; blocking the user is the wrong actor."""
         cmds = self._all_commands("UserPromptSubmit")
-        self.assertTrue(
+        self.assertFalse(
             any("pre_tool_echo_gate.py" in c for c in cmds),
-            f"pre_tool_echo_gate.py missing from UserPromptSubmit; got: {cmds}",
+            f"pre_tool_echo_gate.py must not appear in UserPromptSubmit; got: {cmds}",
         )
 
 
