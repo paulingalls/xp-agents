@@ -432,6 +432,69 @@ def _build_context_summary(
     return "\n".join(parts)
 
 
+_PROBE_PREFIX = "resolves_probe_shown:"
+
+
+def _compute_resolves_link_rate(
+    events: list[dict], sprint_start_ts: str | None
+) -> dict:
+    """Compute resolves_link_rate from probe events vs. subsequent commit trailers.
+
+    For each status event with content='resolves_probe_shown: N candidates',
+    find the NEXT commit event by the same agent_id within the sprint window.
+    A "hit" is when commit.metadata.resolves intersects probe.metadata.probe_candidates.
+
+    Returns three fields: resolves_link_rate (float), resolves_probe_hits (int),
+    resolves_probe_total (int). Rate is 0.0 when total is 0; caller decides
+    whether to attach the fields at all.
+
+    NOTE: "Next commit by same agent" is a best-effort pairing heuristic — a
+    git commit --amend keeps the same working-tree logic but creates a new
+    commit_hash, so pairing strictly by commit_hash would undercount. This
+    heuristic accepts the first subsequent commit by the same agent as the
+    candidate; future retros may refine this.
+    """
+
+    def _in_window(event: dict) -> bool:
+        if sprint_start_ts is None:
+            return True
+        return event.get("ts", "")[:10] >= sprint_start_ts
+
+    probes = [
+        e
+        for e in events
+        if e.get("type") == _common.STATUS
+        and e.get("content", "").startswith(_PROBE_PREFIX)
+        and _in_window(e)
+    ]
+
+    hits = 0
+    for probe in probes:
+        candidates = set((probe.get("metadata") or {}).get("probe_candidates") or [])
+        if not candidates:
+            continue
+        agent_id = probe.get("agent_id", "")
+        probe_ts = probe.get("ts", "")
+        for e in events:
+            if e.get("type") != _common.COMMIT:
+                continue
+            if e.get("agent_id", "") != agent_id:
+                continue
+            if e.get("ts", "") <= probe_ts:
+                continue
+            resolves = set((e.get("metadata") or {}).get("resolves") or [])
+            if resolves & candidates:
+                hits += 1
+            break
+
+    total = len(probes)
+    return {
+        "resolves_link_rate": hits / total if total > 0 else 0.0,
+        "resolves_probe_hits": hits,
+        "resolves_probe_total": total,
+    }
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core retrospective data preparation logic.
 
@@ -464,6 +527,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if sprint_id is not None:
         sizing = sizing_metrics.compute_sizing_analysis(smm_dir, events)
         if sizing is not None:
+            link_stats = _compute_resolves_link_rate(events, sizing.get("started"))
+            if link_stats["resolves_probe_total"] > 0:
+                sizing.update(link_stats)
             retro_input["sizing_analysis"] = sizing
 
     _write_retro_input(smm_dir, retro_input)
