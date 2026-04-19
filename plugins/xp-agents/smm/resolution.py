@@ -48,14 +48,18 @@ def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] |
 
 
 def compute_resolutions(events: list[dict]) -> dict:
-    """Single-pass computation of question answers and event resolutions.
+    """Single-pass computation of question answers and event resolutions,
+    followed by a one-level cascade pass.
 
     Resolution mechanism:
       - Questions: resolved by `answer` events that reference them,
-        OR via `metadata.resolves` (answer events take precedence)
+        OR via `metadata.resolves` (answer events take precedence).
       - Goals, concerns, debt, decisions, assumptions: resolved via `metadata.resolves`
-        array (any event with metadata.resolves: ["target-id"] resolves
-        the target)
+        array (any event with metadata.resolves: ["target-id"] resolves the target).
+      - Cascade (WEAK): after the main pass, any event whose top-level
+        `references` list contains a resolved id is itself marked resolved.
+        One-level only — events closed by cascade do NOT trigger further
+        cascade. Wrap in a while-changed loop to extend to multi-level.
 
     Returns dict with:
       - question_answers: dict mapping question event ID → answer event
@@ -117,6 +121,32 @@ def compute_resolutions(events: list[dict]) -> dict:
                     assumption_resolutions[full_id] = event
                 case _:
                     other_resolutions[full_id] = event
+
+    buckets = {
+        "question": question_answers,
+        "concern": concern_resolutions,
+        "goal": goal_resolutions,
+        "debt": debt_resolutions,
+        "decision": decision_resolutions,
+        "assumption": assumption_resolutions,
+    }
+    resolver_map: dict[str, dict] = {}
+    for bucket in (*buckets.values(), other_resolutions):
+        resolver_map.update(bucket)
+
+    for event in events:
+        event_id = event.get("id")
+        if not event_id or event_id in resolver_map:
+            continue
+        refs = event.get("references") or []
+        resolver = next(
+            (resolver_map[r] for r in refs if r != event_id and r in resolver_map),
+            None,
+        )
+        if resolver is None:
+            continue
+        bucket = buckets.get(event.get("type", ""), other_resolutions)
+        bucket.setdefault(event_id, resolver)
 
     return {
         "question_answers": question_answers,

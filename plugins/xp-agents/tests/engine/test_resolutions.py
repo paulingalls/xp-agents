@@ -245,6 +245,89 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(len(result["concern_resolutions"]), 0)
 
 
+class TestCascadeResolution(unittest.TestCase):
+    """Cascade pass: events whose top-level `references` list points at a
+    resolved id are themselves cascade-closed. WEAK link — complements
+    metadata.resolves (STRONG).
+    """
+
+    def test_concern_cascade_closes_when_referenced_question_answered(self):
+        q = make_event("question", content="Which DB?")
+        flag = make_event(
+            "concern",
+            content="Stale question: blocking question unanswered",
+            references=[q["id"]],
+        )
+        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        result = _append_impl.compute_resolutions([q, flag, answer])
+        self.assertIn(flag["id"], result["resolved_concern_ids"])
+        self.assertEqual(result["concern_resolutions"][flag["id"]], answer)
+
+    def test_concern_cascade_closes_when_referenced_decision_resolved(self):
+        decision = make_event("decision", content="Use JWT", topic="auth")
+        flag = make_event(
+            "concern",
+            content="Superseded decision on auth",
+            references=[decision["id"]],
+        )
+        resolver = make_event(
+            "status",
+            content="Decision explicitly retired",
+            working_on=[],
+            metadata={"resolves": [decision["id"]]},
+        )
+        result = _append_impl.compute_resolutions([decision, flag, resolver])
+        self.assertIn(flag["id"], result["resolved_concern_ids"])
+
+    def test_no_cascade_when_target_unresolved(self):
+        flag = make_event(
+            "concern",
+            content="References an event that never resolves",
+            references=["deadbeef0000"],
+        )
+        result = _append_impl.compute_resolutions([flag])
+        self.assertNotIn(flag["id"], result["resolved_concern_ids"])
+
+    def test_cascade_handles_multiple_references_or_semantics(self):
+        a = make_event("question", content="A?")
+        b = make_event("question", content="B?")
+        flag = make_event(
+            "concern",
+            content="Flag referencing A and B",
+            references=[a["id"], b["id"]],
+        )
+        # Only A resolves; flag still closes (ANY referenced id resolving is enough).
+        answer_a = make_event("answer", content="A answered", references=[a["id"]])
+        result = _append_impl.compute_resolutions([a, b, flag, answer_a])
+        self.assertIn(flag["id"], result["resolved_concern_ids"])
+
+    def test_cascade_is_single_level_only(self):
+        q = make_event("question", content="root")
+        c_inner = make_event("concern", content="inner", references=[q["id"]])
+        c_outer = make_event("concern", content="outer", references=[c_inner["id"]])
+        answer = make_event("answer", content="answered", references=[q["id"]])
+        result = _append_impl.compute_resolutions([q, c_inner, c_outer, answer])
+        # Inner cascades closed (references a resolved question).
+        self.assertIn(c_inner["id"], result["resolved_concern_ids"])
+        # Outer does NOT cascade closed — cascade is one-level by design.
+        self.assertNotIn(c_outer["id"], result["resolved_concern_ids"])
+
+    def test_cascade_self_reference_is_no_op(self):
+        flag = make_event("concern", content="self-ref")
+        flag["references"] = [flag["id"]]
+        result = _append_impl.compute_resolutions([flag])
+        self.assertNotIn(flag["id"], result["resolved_concern_ids"])
+
+    def test_cascade_respects_event_type_buckets(self):
+        """A goal with references to a resolved event lands in goal_resolutions."""
+        q = make_event("question", content="root")
+        g = make_event("goal", content="dependent goal", references=[q["id"]])
+        answer = make_event("answer", content="resolved", references=[q["id"]])
+        result = _append_impl.compute_resolutions([q, g, answer])
+        self.assertIn(g["id"], result["resolved_goal_ids"])
+        self.assertNotIn(g["id"], result["resolved_concern_ids"])
+
+
 class TestReadEventsFrom(_SMMTestCase):
     def test_raises_on_lock_timeout(self):
         """read_events_from should raise LockTimeoutError, not silently degrade."""
