@@ -10,6 +10,7 @@ import functools
 import json
 import os
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -365,6 +366,45 @@ def append_safe(smm_dir: Path, event: dict) -> None:
     if not errors:
         with contextlib.suppress(_append_impl.LockTimeoutError):
             _append_impl.append_event(smm_dir, event)
+
+
+def parse_append_sh_args(command: str) -> dict[str, str]:
+    """Parse an append.sh invocation into {flag_name: flag_value}.
+
+    Returns an empty dict when the command is not an append.sh call or
+    cannot be tokenized. Uses shlex so any quoting shape round-trips
+    cleanly — regex scanning was flagged as fragile during plan review.
+
+    Cheap substring gate first: this hook fires on every Bash command,
+    and shlex.split on a 10k-char heredoc is wasteful when we can skip.
+    """
+    if "append.sh" not in command:
+        return {}
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return {}
+    for i, tok in enumerate(tokens):
+        if tok.endswith("append.sh"):
+            rest = tokens[i + 1 :]
+            break
+    else:
+        return {}
+    result: dict[str, str] = {}
+    j = 0
+    while j < len(rest):
+        t = rest[j]
+        if not t.startswith("--"):
+            j += 1
+            continue
+        # Boolean flag: next token is another --flag or we're at the end.
+        if j + 1 >= len(rest) or rest[j + 1].startswith("--"):
+            result[t[2:]] = ""
+            j += 1
+        else:
+            result[t[2:]] = rest[j + 1]
+            j += 2
+    return result
 
 
 def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:

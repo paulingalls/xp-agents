@@ -435,6 +435,137 @@ class TestAcceptGate(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
+    """Decision-time nudge: open-questions context injected when
+    `append.sh --type decision` is invoked without metadata.resolves.
+    """
+
+    _APPEND = "bash /plugin/smm/append.sh"
+
+    def _decision_cmd(self, *extra: str) -> str:
+        return " ".join(
+            [
+                self._APPEND,
+                "--type",
+                "decision",
+                "--topic",
+                "foo",
+                "--content",
+                "bar",
+                *extra,
+            ]
+        )
+
+    def test_decision_without_resolves_lists_open_questions(self):
+        """Decision append without --metadata lists each open question."""
+        q_open = make_event(
+            "question",
+            id="aaaaaaaaaaaa",
+            topic="auth",
+            content="Should refresh tokens rotate on every request?",
+        )
+        q_resolved = make_event(
+            "question",
+            id="bbbbbbbbbbbb",
+            topic="auth",
+            content="Do we need SSO in v1?",
+        )
+        d_resolver = make_event(
+            "decision",
+            id="cccccccccccc",
+            topic="auth",
+            content="No SSO in v1",
+            metadata={"resolves": ["bbbbbbbbbbbb"]},
+        )
+        self._write_events([q_open, q_resolved, d_resolver])
+
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._decision_cmd()),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertIsNotNone(result)
+        self.assertIn("aaaaaaaaaaaa", result)
+        self.assertIn("Should refresh tokens rotate", result)
+        self.assertNotIn("bbbbbbbbbbbb", result)
+
+    def test_decision_with_resolves_metadata_no_injection(self):
+        """Decision append carrying --metadata resolves ... does not nudge."""
+        q_open = make_event(
+            "question",
+            id="aaaaaaaaaaaa",
+            topic="auth",
+            content="Should refresh tokens rotate on every request?",
+        )
+        self._write_events([q_open])
+
+        # Shell-quoted JSON — mirrors how an agent composes the command.
+        cmd = self._decision_cmd(
+            "--metadata",
+            "'" + '{"resolves":["aaaaaaaaaaaa"]}' + "'",
+        )
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        if result is not None:
+            self.assertNotIn("aaaaaaaaaaaa", result)
+
+    def test_non_decision_append_no_injection(self):
+        """Append of any non-decision type does not trigger the nudge."""
+        q_open = make_event(
+            "question",
+            id="aaaaaaaaaaaa",
+            topic="auth",
+            content="Should refresh tokens rotate?",
+        )
+        self._write_events([q_open])
+
+        cmd = f"{self._APPEND} --type concern --content 'slow build' --severity medium"
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        if result is not None:
+            self.assertNotIn("aaaaaaaaaaaa", result)
+            self.assertNotIn("Open questions", result)
+
+    def test_no_open_questions_no_injection(self):
+        """Fast-path: zero open questions means no nudge on decision."""
+        self._write_events([])
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._decision_cmd()),
+            smm_dir=self.smm_dir,
+        )
+        if result is not None:
+            self.assertNotIn("Open questions", result)
+
+    def test_quoted_decision_text_is_ignored(self):
+        """'--type decision' inside a quoted --content must not trigger the nudge."""
+        q_open = make_event(
+            "question",
+            id="aaaaaaaaaaaa",
+            topic="auth",
+            content="Should refresh tokens rotate?",
+        )
+        self._write_events([q_open])
+
+        cmd = (
+            f"{self._APPEND} --type concern --content "
+            '"discussed append.sh --type decision previously" --severity low'
+        )
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        if result is not None:
+            self.assertNotIn("aaaaaaaaaaaa", result)
+            self.assertNotIn("Open questions", result)
+
+
 class TestPreToolBashWorktreeAgentId(_HookTestCase):
     """Commit gate reads markers under worktree-derived agent_id."""
 

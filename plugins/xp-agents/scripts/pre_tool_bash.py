@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook for Bash: commit security gate + file-modification detection."""
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ import identity
 import markers
 import security
 import worktree
+from resolution import compute_resolutions
 
 # ---------------------------------------------------------------------------
 # Bash file-modification heuristic
@@ -38,6 +40,49 @@ def detect_bash_target_files(command: str) -> list[str]:
             if f and not f.startswith("-"):
                 files.append(f)
     return files
+
+
+# ---------------------------------------------------------------------------
+# Decision-time open-questions nudge
+# ---------------------------------------------------------------------------
+
+_QUESTION_CONTENT_LIMIT = 80
+
+
+def _open_questions_context(smm_dir: Path) -> str | None:
+    """Build a nudge listing open questions, or None when none remain."""
+    events = _common.read_events_raw(smm_dir)
+    if not events:
+        return None
+    answered = compute_resolutions(events)["answered_question_ids"]
+    lines: list[str] = []
+    for e in events:
+        if e.get("type") != _common.QUESTION:
+            continue
+        qid = e.get("id", "")
+        if not qid or qid in answered:
+            continue
+        topic = e.get("topic", "") or "no-topic"
+        content = e.get("content", "")[:_QUESTION_CONTENT_LIMIT]
+        lines.append(f"{qid} ({topic}): {content}")
+    if not lines:
+        return None
+    header = (
+        "Open questions — consider resolving this decision with "
+        "--metadata '{\"resolves\":[...]}':"
+    )
+    return header + "\n" + "\n".join(lines)
+
+
+def _decision_metadata_has_resolves(metadata_value: str) -> bool:
+    """True when the --metadata JSON carries a non-empty resolves array."""
+    if not metadata_value:
+        return False
+    try:
+        parsed = json.loads(metadata_value)
+    except ValueError:
+        return False
+    return bool(isinstance(parsed, dict) and parsed.get("resolves"))
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +151,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Run /xp-accept to verify acceptance criteria before marking stories done.",
             "Acceptance verification required.",
         )
+
+    # Non-blocking nudge — agent may re-run with --metadata or proceed.
+    if smm_dir is not None:
+        args = _common.parse_append_sh_args(command)
+        if args.get("type") == "decision" and not _decision_metadata_has_resolves(
+            args.get("metadata", "")
+        ):
+            nudge = _open_questions_context(smm_dir)
+            if nudge:
+                parts.append(nudge)
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:
