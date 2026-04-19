@@ -74,6 +74,55 @@ class TestIsTestRun(unittest.TestCase):
     def test_npm_test(self):
         self.assertEqual(test_parsing.is_test_run("npm test"), "jest")
 
+    def test_bun_run_test_alias(self):
+        self.assertEqual(test_parsing.is_test_run("bun run test:e2e:web"), "bun")
+
+    def test_bun_run_test_bare(self):
+        self.assertEqual(test_parsing.is_test_run("bun run test"), "bun")
+
+    def test_npm_run_test_alias(self):
+        self.assertEqual(test_parsing.is_test_run("npm run test:unit"), "jest")
+
+    def test_pnpm_run_test_alias(self):
+        self.assertEqual(test_parsing.is_test_run("pnpm run test:e2e"), "jest")
+
+    def test_pnpm_test_shorthand(self):
+        # pnpm v6+ allows `pnpm <script>` without `run`
+        self.assertEqual(test_parsing.is_test_run("pnpm test:unit"), "jest")
+
+    def test_yarn_test_alias(self):
+        self.assertEqual(test_parsing.is_test_run("yarn test:ci"), "jest")
+
+    def test_yarn_run_test_alias(self):
+        self.assertEqual(test_parsing.is_test_run("yarn run test:ci"), "jest")
+
+    def test_playwright_bare(self):
+        self.assertEqual(test_parsing.is_test_run("playwright test"), "playwright")
+
+    def test_playwright_npx(self):
+        self.assertEqual(test_parsing.is_test_run("npx playwright test"), "playwright")
+
+    def test_playwright_bunx(self):
+        self.assertEqual(test_parsing.is_test_run("bunx playwright test"), "playwright")
+
+    def test_playwright_pnpm_exec(self):
+        self.assertEqual(
+            test_parsing.is_test_run("pnpm exec playwright test"), "playwright"
+        )
+
+    def test_playwright_yarn_priority(self):
+        # `yarn playwright test` must match playwright, not the yarn script alias.
+        self.assertEqual(test_parsing.is_test_run("yarn playwright test"), "playwright")
+
+    def test_not_bun_run_build(self):
+        self.assertIsNone(test_parsing.is_test_run("bun run build"))
+
+    def test_not_npm_run_start(self):
+        self.assertIsNone(test_parsing.is_test_run("npm run start"))
+
+    def test_not_playwright_install(self):
+        self.assertIsNone(test_parsing.is_test_run("playwright install"))
+
 
 class TestParseCommitMessage(unittest.TestCase):
     def test_standard_output(self):
@@ -320,6 +369,19 @@ class TestParseTestResults(unittest.TestCase):
         output = "8 pass\n 2 fail\n 30 expect() calls"
         result = test_parsing.parse_test_results(output, "bun")
         self.assertEqual(result["passed"], 8)
+        self.assertEqual(result["failed"], 2)
+
+    # --- Playwright ---
+    def test_playwright_pass(self):
+        output = "Running 5 tests using 2 workers\n\n  5 passed (12.3s)"
+        result = test_parsing.parse_test_results(output, "playwright")
+        self.assertEqual(result["passed"], 5)
+        self.assertEqual(result["failed"], 0)
+
+    def test_playwright_fail(self):
+        output = "Running 5 tests using 2 workers\n\n  2 failed\n  3 passed (12.3s)"
+        result = test_parsing.parse_test_results(output, "playwright")
+        self.assertEqual(result["passed"], 3)
         self.assertEqual(result["failed"], 2)
 
 

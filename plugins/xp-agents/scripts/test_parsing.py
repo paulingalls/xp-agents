@@ -24,14 +24,26 @@ def is_test_run(command: str) -> str | None:
     if re.search(r"python3?\s+-m\s+unittest\b", command):
         return "unittest"
     # JavaScript/TypeScript
+    # Playwright — check before generic script aliases; may appear as
+    # `playwright test`, `npx playwright test`, `bunx playwright test`,
+    # `pnpm exec playwright test`, `yarn playwright test`.
+    if re.search(r"\bplaywright\s+test\b", command):
+        return "playwright"
     if re.search(r"\b(npx\s+)?jest\b", command) or re.search(
         r"\bnpm\s+test\b", command
     ):
         return "jest"
     if re.search(r"\b(npx\s+)?vitest\b", command):
         return "vitest"
-    if re.search(r"\bbun\s+test\b", command):
+    # Bun's own test runner + `bun run test*` script aliases
+    if re.search(r"\bbun\s+(?:run\s+)?test(?::[\w:-]+)?\b", command):
         return "bun"
+    # npm/pnpm/yarn script aliases (e.g., `npm run test:unit`, `yarn test:ci`).
+    # pnpm and yarn allow `<tool> <script>` without `run`; npm requires `run`.
+    if re.search(
+        r"\b(?:npm\s+run|(?:pnpm|yarn)(?:\s+run)?)\s+test(?::[\w:-]+)?\b", command
+    ):
+        return "jest"
     # Go
     if re.search(r"\bgo\s+test\b", command):
         return "go"
@@ -84,6 +96,22 @@ def is_test_run(command: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _parse_n_passed_n_failed(tool_response: str) -> tuple[int, int]:
+    """Shared helper: extract `N passed` and `N failed` counts.
+
+    Used by frameworks whose summaries match jest/vitest/playwright format.
+    """
+    passed = 0
+    failed = 0
+    m = re.search(r"(\d+)\s+passed", tool_response)
+    if m:
+        passed = int(m.group(1))
+    m = re.search(r"(\d+)\s+failed", tool_response)
+    if m:
+        failed = int(m.group(1))
+    return passed, failed
+
+
 def parse_test_results(tool_response: str, framework: str) -> dict:
     """Parse test output. Returns {passed, failed, errors}."""
     result = {"passed": 0, "failed": 0, "errors": 0}
@@ -102,12 +130,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
 
         case "jest":
             # "Tests:  2 failed, 3 passed, 5 total" or "Tests:  5 passed, 5 total"
-            m = re.search(r"(\d+)\s+failed", tool_response)
-            if m:
-                result["failed"] = int(m.group(1))
-            m = re.search(r"(\d+)\s+passed", tool_response)
-            if m:
-                result["passed"] = int(m.group(1))
+            result["passed"], result["failed"] = _parse_n_passed_n_failed(tool_response)
 
         case "go":
             # Count ok lines (passes) and FAIL lines
@@ -255,12 +278,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
 
         case "vitest":
             # Same format as Jest
-            m = re.search(r"(\d+)\s+failed", tool_response)
-            if m:
-                result["failed"] = int(m.group(1))
-            m = re.search(r"(\d+)\s+passed", tool_response)
-            if m:
-                result["passed"] = int(m.group(1))
+            result["passed"], result["failed"] = _parse_n_passed_n_failed(tool_response)
 
         case "bun":
             # "130 pass\n 0 fail" or "130 pass, 0 fail"
@@ -270,5 +288,9 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             m = re.search(r"(\d+)\s+fail", tool_response)
             if m:
                 result["failed"] = int(m.group(1))
+
+        case "playwright":
+            # "  5 passed (12.3s)" or "  2 failed\n  3 passed (12.3s)"
+            result["passed"], result["failed"] = _parse_n_passed_n_failed(tool_response)
 
     return result
