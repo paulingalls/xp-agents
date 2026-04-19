@@ -120,8 +120,10 @@ def _resolve_story_id(
     """Resolve story_id for a commit using three-tier attribution.
 
     Tier 1: Teammate with .story-assignment-{name} file.
-    Tier 2: Solo sprint — single in-progress story, or tiebreak
-            by file domain overlap among in-progress stories.
+    Tier 2: Solo sprint — single in-progress story, or the unique
+            highest-overlap in-progress story by file domain. Ties
+            (multiple stories with equal non-zero overlap) return None
+            so cross-cutting commits aggregate at sprint level.
     Tier 3: Non-sprint / infrastructure — returns None.
     """
     import sizing_metrics
@@ -150,6 +152,7 @@ def _resolve_story_id(
 
     best_id: str | None = None
     best_overlap = 0
+    tied = False
     for story in in_progress:
         domain = sizing_metrics.extract_file_domain_paths(story.get("file_domain", []))
         if not domain:
@@ -160,7 +163,10 @@ def _resolve_story_id(
         if overlap > best_overlap:
             best_overlap = overlap
             best_id = story["id"]
-    return best_id
+            tied = False
+        elif overlap == best_overlap and best_overlap > 0:
+            tied = True
+    return None if tied else best_id
 
 
 def _handle_commit(
