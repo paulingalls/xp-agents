@@ -116,9 +116,17 @@ def resolve_concerns(
 # ---------------------------------------------------------------------------
 
 
-def make_concern(content: str, severity: str, agent_id: str) -> dict:
-    """Build a concern event dict."""
-    return make_event(CONCERN, agent_id, content, severity=severity)
+def make_concern(
+    content: str,
+    severity: str,
+    agent_id: str,
+    references: list[str] | None = None,
+) -> dict:
+    """Build a concern event dict. `references` attaches WEAK cascade links."""
+    extra: dict = {"severity": severity}
+    if references:
+        extra["references"] = references
+    return make_event(CONCERN, agent_id, content, **extra)
 
 
 def detect_conflicts(
@@ -151,11 +159,17 @@ def detect_conflicts(
             )
     concerns: list[dict] = []
 
-    def _add_concern(content: str, severity: str) -> None:
+    def _add_concern(
+        content: str,
+        severity: str,
+        references: list[str] | None = None,
+    ) -> None:
         """Append concern only if no unresolved duplicate exists.
 
         Escalates severity based on recurrence: each prior resolved
         instance of the same content bumps severity (low → medium → high).
+        `references` attaches a WEAK cascade link to the root event(s) so
+        compute_resolutions can close the flag when the root closes.
         """
         if content not in existing_unresolved:
             prior_count = resolved_content_counts.get(content, 0)
@@ -163,7 +177,9 @@ def detect_conflicts(
                 severity = "high"
             elif prior_count >= 1:
                 severity = "medium"
-            concerns.append(make_concern(content, severity, agent_id))
+            concerns.append(
+                make_concern(content, severity, agent_id, references=references)
+            )
             existing_unresolved.add(content)
 
     # 1. Overlapping working_on — another agent claims same file
@@ -197,6 +213,7 @@ def detect_conflicts(
                         f"Assumption contradicted: '{assumptions[ref]['content']}' "
                         f"contradicted by discovery '{e['content']}'.",
                         "high",
+                        references=[assumptions[ref]["id"]],
                     )
 
     # 3. Convention violation — decision diverges from convention on same topic
@@ -217,6 +234,7 @@ def detect_conflicts(
                         f"Convention violation: decision on '{topic}' "
                         "diverges from established convention.",
                         "medium",
+                        references=[c["id"] for c in conventions_by_topic[topic]],
                     )
 
     # 4. Stale question — blocking question with no answer after 20+ subsequent events
@@ -233,6 +251,7 @@ def detect_conflicts(
             _add_concern(
                 f"Stale question: blocking question (id {qid}) has not been answered.",
                 "medium",
+                references=[qid],
             )
 
     # 5. Superseded decision — two decisions on same topic with no concern between
@@ -284,6 +303,7 @@ def detect_conflicts(
                 f"Superseded decision: topic '{topic}' has multiple "
                 f"decisions without an intervening concern.",
                 "low",
+                references=[prev_id] if prev_id else None,
             )
 
     return concerns

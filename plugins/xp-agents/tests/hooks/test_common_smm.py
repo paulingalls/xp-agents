@@ -397,6 +397,51 @@ class TestDetectConflictsCommon(_HookTestCase):
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 1)
 
+    def test_assumption_contradicted_concern_references_assumption(self):
+        """Flag concern references the assumption event it flags (WEAK link)."""
+        a = make_event("assumption", content="API is REST")
+        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        found = concerns.detect_conflicts([a, d], "main")
+        flag = next(c for c in found if "contradict" in c["content"].lower())
+        self.assertEqual(flag.get("references"), [a["id"]])
+
+    def test_convention_violation_concern_references_conventions(self):
+        """Flag concern references the topic's convention ids."""
+        conv = make_event("convention", topic="naming", content="Use camelCase")
+        dec = make_event("decision", topic="naming", content="Use snake_case")
+        found = concerns.detect_conflicts([conv, dec], "main")
+        flag = next(c for c in found if "convention" in c["content"].lower())
+        self.assertEqual(flag.get("references"), [conv["id"]])
+
+    def test_stale_question_concern_references_question(self):
+        """Flag concern references the stale question id (WEAK link)."""
+        q = make_event("question", priority="\U0001f534", content="Blocking?")
+        filler = [make_event(content=f"filler {i}") for i in range(21)]
+        found = concerns.detect_conflicts(
+            [q, *filler], "main", file_path="/tmp/x.ts", cwd="/tmp"
+        )
+        flag = next(c for c in found if "stale" in c["content"].lower())
+        self.assertEqual(flag.get("references"), [q["id"]])
+
+    def test_superseded_decision_concern_references_prior_decision(self):
+        """Flag concern references the older (superseded) decision id."""
+        d1 = make_event("decision", topic="db", content="Use Postgres")
+        d2 = make_event("decision", topic="db", content="Use MySQL")
+        found = concerns.detect_conflicts([d1, d2], "main")
+        flag = next(c for c in found if "superseded" in c["content"].lower())
+        self.assertEqual(flag.get("references"), [d1["id"]])
+
+    def test_overlapping_working_on_concern_has_no_references(self):
+        """Pattern 1 references an agent_id, not an event id — no refs attached."""
+        events = [
+            make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
+        ]
+        found = concerns.detect_conflicts(
+            events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+        )
+        flag = next(c for c in found if "overlap" in c["content"].lower())
+        self.assertFalse(flag.get("references"))
+
     def test_supersedes_metadata_different_topic_still_fires(self):
         """supersedes must reference the same-topic predecessor, not any decision."""
         d_other = make_event(
