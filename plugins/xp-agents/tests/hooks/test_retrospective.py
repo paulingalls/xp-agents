@@ -667,7 +667,7 @@ class TestSprintSizingInRetro(_HookTestCase):
         sizing = data["sizing_analysis"]
         story_001 = next(s for s in sizing["per_story"] if s["id"] == "story-001")
         self.assertEqual(story_001["commits"], 1)
-        self.assertEqual(story_001["in_domain_files"], 1)
+        self.assertEqual(story_001["cascade_size"], 0)
 
 
 # ===========================================================================

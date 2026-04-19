@@ -44,6 +44,10 @@ These are not optional. Hooks enforce some as safety nets, but follow the proces
 - `/xp-plan` → `/xp-sprint-start` → implement → `/xp-accept`
 - When done: `/xp-sprint-review` (sprint sizing flows into next session's retro automatically)
 
+### File Domain Discipline
+
+Declare `file_domain` per planner intent; over-declaring defeats cascade_size (files outside it, informational — never flagged).
+
 **Forked skills (review/analysis agents):**
 - `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` are forked — skill provides preload data and cleanup.
 - Kickoff retrospective and housekeeping are **inline Agent-tool calls** (`xp-retrospective`, `xp-housekeeper`); SubagentStart populates their input files. After each agent completes, run the matching render CLI and echo the signature line (em-dash U+2014) verbatim — the echo-gate hook blocks the next tool call on a mismatch.
