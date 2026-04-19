@@ -287,12 +287,18 @@ class TestBashPostTool(_HookTestCase):
         response = "[main abc123] Fix login bug\n 1 file changed"
         self.assertEqual(commits.parse_commit_message(response), "Fix login bug")
 
-    def _run_commit(self, body: str, committed_files: list[str], commit_msg: str):
+    def _run_commit(
+        self,
+        body: str,
+        committed_files: list[str],
+        commit_msg: str,
+        commit_hash: str | None = "abc123",
+    ):
         """Run bash_post_tool with mocked git metadata and return the value."""
         with (
             patch("commits.get_committed_files", return_value=committed_files),
             patch("commits.get_commit_message_body", return_value=body),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch("commits.get_head_commit_hash", return_value=commit_hash),
         ):
             return bash_post_tool.run(
                 _make_bash_input(
@@ -302,45 +308,47 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-    def test_commit_emits_concern_autolink_nudge_on_file_overlap(self):
-        """Commit touches a file in open concern's files → additionalContext nudge."""
-        concern = make_event(
-            "concern",
-            content="Auth middleware leaks tokens",
-            files=["scripts/auth.py"],
-        )
-        _common.append_safe(self.smm_dir, concern)
-        result = self._run_commit(
-            body="Fix auth\n\nNo trailer here.",
+    def _seed_auth_concern(self, content: str = "Auth middleware leaks tokens") -> str:
+        """Append a concern on scripts/auth.py; return its id."""
+        c = make_event("concern", content=content, files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def _run_auth_fix(self, body: str = "Fix auth\n\nNo trailer.", **kw):
+        """Helper: run a commit touching scripts/auth.py."""
+        return self._run_commit(
+            body=body,
             committed_files=["scripts/auth.py"],
             commit_msg="Fix auth",
+            **kw,
         )
+
+    def _probes(self) -> list[dict]:
+        """Read all resolves_probe_shown status events."""
+        return [
+            e
+            for e in _common.read_events_raw(self.smm_dir)
+            if e.get("type") == "status"
+            and e.get("content", "").startswith("resolves_probe_shown:")
+        ]
+
+    def test_commit_emits_concern_autolink_nudge_on_file_overlap(self):
+        """Commit touches a file in open concern's files → additionalContext nudge."""
+        cid = self._seed_auth_concern()
+        result = self._run_auth_fix(body="Fix auth\n\nNo trailer here.")
         self.assertIsNotNone(result)
-        self.assertIn(concern["id"], result)
+        self.assertIn(cid, result)
         self.assertIn("Resolves-Event", result)
 
     def test_commit_no_nudge_when_concern_resolved_by_trailer(self):
         """Resolves-Event trailer covering the matching concern → no nudge."""
-        concern = make_event(
-            "concern",
-            content="Auth middleware leaks tokens",
-            files=["scripts/auth.py"],
-        )
-        _common.append_safe(self.smm_dir, concern)
-        result = self._run_commit(
-            body=f"Fix auth\n\nResolves-Event: {concern['id']}",
-            committed_files=["scripts/auth.py"],
-            commit_msg="Fix auth",
-        )
+        cid = self._seed_auth_concern()
+        result = self._run_auth_fix(body=f"Fix auth\n\nResolves-Event: {cid}")
         self.assertIsNone(result)
 
     def test_commit_no_nudge_when_no_file_overlap(self):
         """Concern's files don't intersect commit files → no nudge."""
-        concern = make_event(
-            "concern",
-            content="Other bug",
-            files=["scripts/foo.py"],
-        )
+        concern = make_event("concern", content="Other bug", files=["scripts/foo.py"])
         _common.append_safe(self.smm_dir, concern)
         result = self._run_commit(
             body="Update README\n\nNo trailer.",
@@ -348,6 +356,54 @@ class TestBashPostTool(_HookTestCase):
             commit_msg="Update README",
         )
         self.assertIsNone(result)
+
+    def test_nudge_includes_actionable_amend_trailer_command(self):
+        """Nudge must spell out the full `git commit --amend --trailer` command."""
+        cid = self._seed_auth_concern()
+        result = self._run_auth_fix()
+        self.assertIsNotNone(result)
+        self.assertIn(f'git commit --amend --trailer "Resolves-Event: {cid}"', result)
+
+    def test_probe_event_emitted_when_nudge_fires(self):
+        """Nudge fires → status event with probe_candidates + commit_hash."""
+        cid = self._seed_auth_concern()
+        self._run_auth_fix()
+        probes = self._probes()
+        self.assertEqual(len(probes), 1)
+        probe = probes[0]
+        self.assertEqual(probe["content"], "resolves_probe_shown: 1 candidates")
+        self.assertEqual(probe["metadata"]["probe_candidates"], [cid])
+        self.assertEqual(probe["metadata"]["commit_hash"], "abc123")
+
+    def test_no_probe_event_when_no_candidates(self):
+        """No matching concerns → no resolves_probe_shown status event."""
+        self._run_commit(
+            body="Update README\n\nNo trailer.",
+            committed_files=["README.md"],
+            commit_msg="Update README",
+        )
+        self.assertEqual(self._probes(), [])
+
+    def test_probe_caps_candidates_at_five(self):
+        """>5 matching concerns → only 5 IDs in nudge AND probe metadata."""
+        cids = [self._seed_auth_concern(f"Concern number {i}") for i in range(7)]
+        result = self._run_auth_fix()
+        self.assertIsNotNone(result)
+        for included_id in cids[:5]:
+            self.assertIn(included_id, result)
+        for excluded_id in cids[5:]:
+            self.assertNotIn(excluded_id, result)
+
+        probe = self._probes()[0]
+        self.assertEqual(probe["content"], "resolves_probe_shown: 5 candidates")
+        self.assertEqual(probe["metadata"]["probe_candidates"], cids[:5])
+
+    def test_probe_event_records_null_commit_hash_when_rev_parse_fails(self):
+        """commit_hash=None when git rev-parse fails; probe still emits."""
+        self._seed_auth_concern()
+        self._run_auth_fix(commit_hash=None)
+        probe = self._probes()[0]
+        self.assertIsNone(probe["metadata"]["commit_hash"])
 
 
 # ===========================================================================

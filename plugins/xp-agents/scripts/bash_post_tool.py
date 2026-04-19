@@ -56,6 +56,8 @@ def _resolve_lint_on_commit(
 
 
 COMMIT_SIZE_THRESHOLD = 12
+PROBE_CANDIDATE_LIMIT = 5
+RESOLVES_PROBE_STATUS = "resolves_probe_shown"
 
 
 # ---------------------------------------------------------------------------
@@ -188,35 +190,53 @@ def _handle_commit(
     if story_id:
         metadata["story_id"] = story_id
 
-    event = _common.make_event(
-        _common.COMMIT,
-        agent_id,
-        body,
-        files=committed_files,
-        metadata=metadata,
-    )
-    _common.append_safe(smm_dir, event)
+    pending: list[dict] = [
+        _common.make_event(
+            _common.COMMIT,
+            agent_id,
+            body,
+            files=committed_files,
+            metadata=metadata,
+        )
+    ]
 
     open_matches = commits.open_concerns_matching_commit(smm_dir, committed_files, cwd)
-    nudge_lines: list[str] = []
-    for c in open_matches:
-        if c.get("id") in resolves:
-            continue
-        head = (c.get("content") or "")[:80]
-        nudge_lines.append(
-            f"Auto-link nudge: concern {c['id']} — {head}. "
-            f"Consider adding `Resolves-Event: {c['id']}` trailer."
+    candidates = [c for c in open_matches if c["id"] not in resolves][
+        :PROBE_CANDIDATE_LIMIT
+    ]
+    nudge_lines = [
+        f"Auto-link nudge: concern {c['id']} — {(c.get('content') or '')[:80]}. "
+        f"If correct, re-commit with:\n"
+        f'  git commit --amend --trailer "Resolves-Event: {c["id"]}"'
+        for c in candidates
+    ]
+
+    if candidates:
+        pending.append(
+            _common.make_event(
+                _common.STATUS,
+                agent_id,
+                f"{RESOLVES_PROBE_STATUS}: {len(candidates)} candidates",
+                working_on=[],
+                metadata={
+                    "probe_candidates": [c["id"] for c in candidates],
+                    "commit_hash": commit_hash,
+                },
+            )
         )
 
     file_count = len(committed_files)
     if file_count >= COMMIT_SIZE_THRESHOLD:
-        concern = _common.make_event(
-            _common.CONCERN,
-            agent_id,
-            f"Commit touches {file_count} files — consider smaller commits.",
-            severity="medium",
+        pending.append(
+            _common.make_event(
+                _common.CONCERN,
+                agent_id,
+                f"Commit touches {file_count} files — consider smaller commits.",
+                severity="medium",
+            )
         )
-        _common.append_safe(smm_dir, concern)
+
+    _common.bulk_append_safe(smm_dir, pending)
 
     _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
     security.consume_security_triaged(smm_dir, agent_id)
