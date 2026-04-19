@@ -10,7 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
 import commits
+from conftest import _SMMTestCase, make_event
 
 # ---------------------------------------------------------------------------
 # parse_commit_message
@@ -317,6 +319,74 @@ class TestGetUncommittedCodeFiles(unittest.TestCase):
     def test_exception_returns_empty(self, _mock):
         """Subprocess failure → empty list (graceful degradation)."""
         result = commits.get_uncommitted_code_files("/tmp")
+        self.assertEqual(result, [])
+
+
+# ---------------------------------------------------------------------------
+# open_concerns_matching_commit
+# ---------------------------------------------------------------------------
+
+
+class TestOpenConcernsMatchingCommit(_SMMTestCase):
+    """Unit tests for the commit-auto-link helper."""
+
+    def test_returns_concern_with_file_overlap(self):
+        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, concern)
+        result = commits.open_concerns_matching_commit(
+            self.smm_dir, ["scripts/auth.py", "README.md"]
+        )
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], concern["id"])
+
+    def test_excludes_resolved_concerns(self):
+        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, concern)
+        decision = make_event(
+            "decision",
+            content="fix auth",
+            topic="auth",
+            metadata={"resolves": [concern["id"]]},
+        )
+        _common.append_safe(self.smm_dir, decision)
+        result = commits.open_concerns_matching_commit(
+            self.smm_dir, ["scripts/auth.py"]
+        )
+        self.assertEqual(result, [])
+
+    def test_excludes_concerns_without_files(self):
+        no_files = make_event("concern", content="no files")
+        empty_files = make_event("concern", content="empty", files=[])
+        _common.append_safe(self.smm_dir, no_files)
+        _common.append_safe(self.smm_dir, empty_files)
+        result = commits.open_concerns_matching_commit(
+            self.smm_dir, ["scripts/auth.py"]
+        )
+        self.assertEqual(result, [])
+
+    def test_excludes_non_concern_events(self):
+        question = make_event("question", content="why?", files=["scripts/auth.py"])
+        debt = make_event("debt", content="legacy", files=["scripts/auth.py"])
+        assumption = make_event(
+            "assumption", content="guess", files=["scripts/auth.py"]
+        )
+        for ev in (question, debt, assumption):
+            _common.append_safe(self.smm_dir, ev)
+        result = commits.open_concerns_matching_commit(
+            self.smm_dir, ["scripts/auth.py"]
+        )
+        self.assertEqual(result, [])
+
+    def test_no_overlap_returns_empty(self):
+        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, concern)
+        result = commits.open_concerns_matching_commit(self.smm_dir, ["README.md"])
+        self.assertEqual(result, [])
+
+    def test_empty_commit_files_returns_empty(self):
+        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, concern)
+        result = commits.open_concerns_matching_commit(self.smm_dir, [])
         self.assertEqual(result, [])
 
 

@@ -13,6 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import _common
+import resolution
 import security
 from smm_schema import EVENT_ID_RE
 
@@ -74,6 +76,26 @@ def get_committed_files(cwd: str) -> list[str]:
     if out is None:
         return []
     return [f.strip() for f in out.splitlines() if f.strip()]
+
+
+def open_concerns_matching_commit(smm_dir: Path, commit_files: list[str]) -> list[dict]:
+    """Return open concerns whose files intersect commit_files (STRUCTURAL link).
+
+    Used by bash_post_tool to nudge agents to add `Resolves-Event:` trailers
+    on commits that touch files listed in an unresolved concern.
+    """
+    if not commit_files:
+        return []
+    events = _common.read_events_raw(smm_dir)
+    resolved = resolution.compute_resolutions(events)["resolved_concern_ids"]
+    commit_set = set(commit_files)
+    return [
+        e
+        for e in events
+        if e.get("type") == _common.CONCERN
+        and e.get("id") not in resolved
+        and set(e.get("files") or []) & commit_set
+    ]
 
 
 def get_commit_message_body(cwd: str) -> str | None:
