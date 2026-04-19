@@ -315,5 +315,65 @@ class TestGetValidatedSMMDir(_HookTestCase):
                 os.environ["CLAUDE_PLUGIN_DATA"] = old
 
 
+class TestParseAppendShArgs(unittest.TestCase):
+    """Unit tests for _common.parse_append_sh_args."""
+
+    def test_returns_empty_for_non_append_sh(self):
+        self.assertEqual(_common.parse_append_sh_args("ls -la"), {})
+        self.assertEqual(_common.parse_append_sh_args("git commit -m hi"), {})
+        self.assertEqual(_common.parse_append_sh_args(""), {})
+
+    def test_parses_basic_flags(self):
+        cmd = "bash /p/append.sh --type decision --topic foo --content bar"
+        self.assertEqual(
+            _common.parse_append_sh_args(cmd),
+            {"type": "decision", "topic": "foo", "content": "bar"},
+        )
+
+    def test_parses_quoted_values(self):
+        cmd = (
+            'bash /p/append.sh --type decision --content "multi word text" '
+            "--topic 'api-style'"
+        )
+        self.assertEqual(
+            _common.parse_append_sh_args(cmd),
+            {"type": "decision", "content": "multi word text", "topic": "api-style"},
+        )
+
+    def test_parses_metadata_json(self):
+        cmd = (
+            "bash /p/append.sh --type decision --content x "
+            """--metadata '{"resolves":["abc123"]}'"""
+        )
+        result = _common.parse_append_sh_args(cmd)
+        self.assertEqual(result["metadata"], '{"resolves":["abc123"]}')
+
+    def test_boolean_flag_followed_by_flag(self):
+        """--flag --next-flag value treats first as boolean (empty value)."""
+        cmd = "bash /p/append.sh --dry-run --type decision --content x"
+        result = _common.parse_append_sh_args(cmd)
+        self.assertEqual(result["dry-run"], "")
+        self.assertEqual(result["type"], "decision")
+        self.assertEqual(result["content"], "x")
+
+    def test_trailing_boolean_flag(self):
+        cmd = "bash /p/append.sh --type decision --dry-run"
+        result = _common.parse_append_sh_args(cmd)
+        self.assertEqual(result["type"], "decision")
+        self.assertEqual(result["dry-run"], "")
+
+    def test_malformed_shlex_returns_empty(self):
+        # Unclosed quote breaks shlex.split — must not raise.
+        self.assertEqual(_common.parse_append_sh_args('append.sh --type "x'), {})
+
+    def test_ignores_embedded_append_sh_in_quoted_content(self):
+        """append.sh as a substring of a --content value still reads args after
+        the *real* append.sh token — not inside the quoted message."""
+        cmd = "bash /p/append.sh --type concern --content 'see append.sh docs'"
+        result = _common.parse_append_sh_args(cmd)
+        self.assertEqual(result["type"], "concern")
+        self.assertEqual(result["content"], "see append.sh docs")
+
+
 if __name__ == "__main__":
     unittest.main()
