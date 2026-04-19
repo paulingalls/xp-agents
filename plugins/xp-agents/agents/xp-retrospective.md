@@ -106,8 +106,10 @@ If `.retro-input.json` contains a `sizing_analysis` key, a sprint has just ended
 The `sizing_analysis` object contains:
 - `sprint_id`, `goal` — identify the sprint
 - `velocity` — `{stories_planned, stories_delivered, stories_carried}`
-- `per_story` — `[{id, title, status, size, commits, files_changed, in_domain_files, out_of_domain_files, domain_accuracy}]`
+- `per_story` — `[{id, title, status, size, commits, files_changed, in_domain_files, out_of_domain_files, domain_accuracy, attribution_anomaly}]`
 - `per_size` — `{S: {count, avg_commits, avg_files}, M: {...}, L: {...}}`
+
+`attribution_anomaly` is `true` when `status == "deferred" AND commits > 0`. It surfaces two possible causes deterministically: (1) commits were mis-attributed to a deferred story, or (2) the story was functionally complete but never marked done.
 
 ### Sprint Analysis output format
 
@@ -118,6 +120,12 @@ Did the sprint achieve its goal? Reference `velocity` (delivery rate) and any de
 | Story | Size | Commits | Files | Domain Accuracy |
 |-------|------|---------|-------|----------------|
 For each entry in `per_story`, report the metrics. Flag stories with `domain_accuracy < 0.5` — their file_domain was poorly scoped.
+
+#### Attribution Anomalies
+If any `per_story` entry has `attribution_anomaly=true`, list them with a short investigation prompt:
+- story-id (N commits, status=deferred) — investigate: mis-attribution (commit metadata.story_id wrong) OR functionally-done-but-never-marked (status update missed).
+
+If none, omit this subsection.
 
 #### Per-Size Calibration
 For each size in `per_size`, report `avg_commits` and `avg_files`. Compare across sizes — if S stories average more commits than M stories, sizing was inaccurate. Recommend calibration adjustments.
