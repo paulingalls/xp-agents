@@ -374,6 +374,12 @@ class TestParseAppendShArgs(unittest.TestCase):
         self.assertEqual(result["type"], "concern")
         self.assertEqual(result["content"], "see append.sh docs")
 
+    def test_rejects_sibling_filename_ending_in_append_sh(self):
+        """A script named `fake-append.sh` must not be treated as the plugin's
+        append.sh. The token check matches the filename, not a suffix."""
+        cmd = "bash /tmp/fake-append.sh --type decision --content x"
+        self.assertEqual(_common.parse_append_sh_args(cmd), {})
+
 
 if __name__ == "__main__":
     unittest.main()

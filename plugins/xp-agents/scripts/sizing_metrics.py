@@ -148,9 +148,7 @@ def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
     per_story = []
     for s in sprint["stories"]:
         m = story_metrics[s["id"]]
-        # attribution_anomaly flags deferred stories that nonetheless received
-        # commits — either mis-attribution at commit time or status wasn't
-        # updated when the work completed. Retro surfaces these for review.
+        # Flags mis-attribution or unclosed-done — surfaced in retro.
         per_story.append(
             {
                 "id": s["id"],

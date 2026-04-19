@@ -155,7 +155,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Non-blocking nudge — agent may re-run with --metadata or proceed.
     if smm_dir is not None:
         args = _common.parse_append_sh_args(command)
-        if args.get("type") == "decision" and not _decision_metadata_has_resolves(
+        if args.get("type") == _common.DECISION and not _decision_metadata_has_resolves(
             args.get("metadata", "")
         ):
             nudge = _open_questions_context(smm_dir)

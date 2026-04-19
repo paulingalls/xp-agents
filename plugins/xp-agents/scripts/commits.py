@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import resolution
 import security
+import worktree
 from smm_schema import EVENT_ID_RE
 
 REVIEW_CYCLE_THRESHOLD: int = 2
@@ -78,23 +79,47 @@ def get_committed_files(cwd: str) -> list[str]:
     return [f.strip() for f in out.splitlines() if f.strip()]
 
 
-def open_concerns_matching_commit(smm_dir: Path, commit_files: list[str]) -> list[dict]:
+def open_concerns_matching_commit(
+    smm_dir: Path, commit_files: list[str], cwd: str
+) -> list[dict]:
     """Return open concerns whose files intersect commit_files (STRUCTURAL link).
 
     Used by bash_post_tool to nudge agents to add `Resolves-Event:` trailers
-    on commits that touch files listed in an unresolved concern.
+    on commits that touch files listed in an unresolved concern. Paths are
+    normalized on both sides so `./scripts/foo.py`, `scripts/foo.py`, and
+    an absolute path to the same file all match.
     """
     if not commit_files:
         return []
     events = _common.read_events_raw(smm_dir)
     resolved = resolution.compute_resolutions(events)["resolved_concern_ids"]
-    commit_set = set(commit_files)
+
+    commit_set: set[str] = set()
+    for f in commit_files:
+        try:
+            commit_set.add(worktree.normalize_path(f, cwd))
+        except (ValueError, OSError):
+            continue
+
+    def _intersects(event_files: list) -> bool:
+        if not isinstance(event_files, list):
+            return False
+        for f in event_files:
+            if not isinstance(f, str):
+                continue
+            try:
+                if worktree.normalize_path(f, cwd) in commit_set:
+                    return True
+            except (ValueError, OSError):
+                continue
+        return False
+
     return [
         e
         for e in events
         if e.get("type") == _common.CONCERN
         and e.get("id") not in resolved
-        and set(e.get("files") or []) & commit_set
+        and _intersects(e.get("files") or [])
     ]
 
 

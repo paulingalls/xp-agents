@@ -509,8 +509,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
-        if result is not None:
-            self.assertNotIn("aaaaaaaaaaaa", result)
+        self.assertIsNone(result)
 
     def test_non_decision_append_no_injection(self):
         """Append of any non-decision type does not trigger the nudge."""
@@ -528,9 +527,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
-        if result is not None:
-            self.assertNotIn("aaaaaaaaaaaa", result)
-            self.assertNotIn("Open questions", result)
+        self.assertIsNone(result)
 
     def test_no_open_questions_no_injection(self):
         """Fast-path: zero open questions means no nudge on decision."""
@@ -539,8 +536,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
             _make_bash_input(command=self._decision_cmd()),
             smm_dir=self.smm_dir,
         )
-        if result is not None:
-            self.assertNotIn("Open questions", result)
+        self.assertIsNone(result)
 
     def test_quoted_decision_text_is_ignored(self):
         """'--type decision' inside a quoted --content must not trigger the nudge."""
@@ -561,9 +557,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
-        if result is not None:
-            self.assertNotIn("aaaaaaaaaaaa", result)
-            self.assertNotIn("Open questions", result)
+        self.assertIsNone(result)
 
 
 class TestPreToolBashWorktreeAgentId(_HookTestCase):

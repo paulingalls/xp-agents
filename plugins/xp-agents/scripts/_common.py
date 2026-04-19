@@ -12,7 +12,7 @@ import os
 import re
 import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Make smm/ importable so we can use _append_impl as the foundational module
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -372,11 +372,12 @@ def parse_append_sh_args(command: str) -> dict[str, str]:
     """Parse an append.sh invocation into {flag_name: flag_value}.
 
     Returns an empty dict when the command is not an append.sh call or
-    cannot be tokenized. Uses shlex so any quoting shape round-trips
-    cleanly — regex scanning was flagged as fragile during plan review.
+    cannot be tokenized. Uses shlex so any quoting shape round-trips cleanly.
 
     Cheap substring gate first: this hook fires on every Bash command,
     and shlex.split on a 10k-char heredoc is wasteful when we can skip.
+    The token match checks the filename exactly (via PurePosixPath.name)
+    so sibling scripts like `fake-append.sh` do not false-positive.
     """
     if "append.sh" not in command:
         return {}
@@ -385,7 +386,7 @@ def parse_append_sh_args(command: str) -> dict[str, str]:
     except ValueError:
         return {}
     for i, tok in enumerate(tokens):
-        if tok.endswith("append.sh"):
+        if PurePosixPath(tok).name == "append.sh":
             rest = tokens[i + 1 :]
             break
     else:
