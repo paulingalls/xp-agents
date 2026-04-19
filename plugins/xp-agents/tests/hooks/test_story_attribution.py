@@ -90,6 +90,33 @@ class TestResolveStoryId(_HookTestCase):
         )
         self.assertEqual(result, "story-002")
 
+    def test_tier2_multi_way_tie_returns_none(self):
+        """Multiple in-progress stories with identical overlap → None."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Auth",
+                        "M",
+                        "in-progress",
+                        file_domain=["scripts/auth.py \u2014 login"],
+                    ),
+                    _s(
+                        "story-002",
+                        "UI",
+                        "M",
+                        "in-progress",
+                        file_domain=["src/ui.py \u2014 layout"],
+                    ),
+                ]
+            )
+        )
+        result = bash_post_tool._resolve_story_id(
+            self.smm_dir, "/proj", ["scripts/auth.py", "src/ui.py"]
+        )
+        self.assertIsNone(result)
+
     def test_tier2_solo_multiple_no_overlap_returns_none(self):
         """Multiple in-progress stories with no overlap returns None."""
         (self.smm_dir / "sprint.json").write_text(
