@@ -31,6 +31,32 @@ def parse_commit_message(tool_response: str) -> str | None:
 
 
 _RESOLVES_TRAILER_RE = re.compile(r"(?im)^resolves-event:[ \t]*(.*)\n?")
+# Boundary-anchored twin of smm_schema.EVENT_ID_RE — keep in sync if the
+# canonical event-ID format changes.
+_BARE_EVENT_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
+
+
+def extract_implicit_event_ids(body: str | None, known_ids: set[str]) -> list[str]:
+    """Scan commit body for bare 12-hex event IDs matching open events.
+
+    Agents sometimes reference an event ID in prose (e.g., "closes concern
+    a1b2c3d4e5f6") without the formal `Resolves-Event:` trailer. This helper
+    surfaces those bare IDs so callers can accept the link and optionally
+    nudge for the formal trailer.
+
+    Only returns IDs that appear in `known_ids` — the caller supplies the
+    set of open concern/question/debt event IDs. Dedups in first-seen order.
+    """
+    if not body or not known_ids:
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for match in _BARE_EVENT_ID_RE.finditer(body):
+        event_id = match.group(0)
+        if event_id in known_ids and event_id not in seen:
+            ids.append(event_id)
+            seen.add(event_id)
+    return ids
 
 
 def extract_resolves_trailer(body: str | None) -> tuple[list[str], str]:

@@ -117,6 +117,79 @@ class TestExtractResolvesTrailer(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# extract_implicit_event_ids
+# ---------------------------------------------------------------------------
+
+
+class TestExtractImplicitEventIds(unittest.TestCase):
+    """Test extraction of bare 12-hex event IDs from commit body prose."""
+
+    def test_single_bare_id_matched(self):
+        body = "fixes a1b2c3d4e5f6"
+        self.assertEqual(
+            commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}),
+            ["a1b2c3d4e5f6"],
+        )
+
+    def test_empty_known_ids_returns_empty(self):
+        body = "fixes a1b2c3d4e5f6"
+        self.assertEqual(commits.extract_implicit_event_ids(body, set()), [])
+
+    def test_id_not_in_known_ids_ignored(self):
+        body = "closes concern a1b2c3d4e5f6"
+        self.assertEqual(commits.extract_implicit_event_ids(body, {"ffffffffffff"}), [])
+
+    def test_eleven_char_hex_rejected(self):
+        body = "see a1b2c3d4e5f"  # 11 chars
+        self.assertEqual(commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}), [])
+
+    def test_thirteen_char_hex_rejected(self):
+        body = "see a1b2c3d4e5f6a"  # 13 chars — embedded, word-boundary blocks it
+        self.assertEqual(commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}), [])
+
+    def test_uppercase_hex_rejected(self):
+        body = "see A1B2C3D4E5F6"
+        self.assertEqual(commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}), [])
+
+    def test_non_hex_chars_rejected(self):
+        body = "see g1b2c3d4e5f6"  # 'g' is not hex
+        self.assertEqual(commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}), [])
+
+    def test_deduplicates_preserving_first_seen_order(self):
+        body = "fixes a1b2c3d4e5f6 and again a1b2c3d4e5f6"
+        self.assertEqual(
+            commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}),
+            ["a1b2c3d4e5f6"],
+        )
+
+    def test_multiple_distinct_ids_first_seen_order(self):
+        body = "closes b222222222b2, then a111111111a1"
+        self.assertEqual(
+            commits.extract_implicit_event_ids(body, {"a111111111a1", "b222222222b2"}),
+            ["b222222222b2", "a111111111a1"],
+        )
+
+    def test_id_embedded_in_longer_hex_not_matched(self):
+        # 40-char commit hash contains a 12-char hex substring, but word
+        # boundary prevents the inner slice from matching on its own.
+        body = "see commit a1b2c3d4e5f6deadbeef01234567890abcdef1234"
+        self.assertEqual(commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}), [])
+
+    def test_empty_body_returns_empty(self):
+        self.assertEqual(commits.extract_implicit_event_ids("", {"a1b2c3d4e5f6"}), [])
+
+    def test_none_body_returns_empty(self):
+        self.assertEqual(commits.extract_implicit_event_ids(None, {"a1b2c3d4e5f6"}), [])
+
+    def test_punctuation_around_id_still_matches(self):
+        body = "fixes (a1b2c3d4e5f6)."
+        self.assertEqual(
+            commits.extract_implicit_event_ids(body, {"a1b2c3d4e5f6"}),
+            ["a1b2c3d4e5f6"],
+        )
+
+
+# ---------------------------------------------------------------------------
 # get_committed_files
 # ---------------------------------------------------------------------------
 
