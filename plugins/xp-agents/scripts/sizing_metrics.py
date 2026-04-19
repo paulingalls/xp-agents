@@ -65,7 +65,6 @@ def _attribute_commits(
 
     commit_counts: dict[str, int] = {sid: 0 for sid in story_ids}
     all_files: dict[str, set[str]] = {sid: set() for sid in story_ids}
-    domain_files: dict[str, set[str]] = {sid: set() for sid in story_ids}
 
     for commit in commit_events:
         committed_files = set(commit.get("files", []))
@@ -78,22 +77,17 @@ def _attribute_commits(
 
         commit_counts[story_id] += 1
         all_files[story_id] |= committed_files
-        domain = story_domains[story_id]
-        domain_files[story_id] |= {
-            f for f in committed_files if file_matches_domain(f, domain)
-        }
 
     metrics: dict[str, dict] = {}
     for s in stories:
         sid = s["id"]
-        total = len(all_files[sid])
-        in_d = len(domain_files[sid])
+        files = all_files[sid]
+        domain = story_domains[sid]
+        cascade = sum(1 for f in files if not file_matches_domain(f, domain))
         metrics[sid] = {
             "commits": commit_counts[sid],
-            "files_changed": total,
-            "in_domain_files": in_d,
-            "out_of_domain_files": total - in_d,
-            "domain_accuracy": in_d / total if total > 0 else 0.0,
+            "files_changed": len(files),
+            "cascade_size": cascade,
         }
 
     return metrics

@@ -118,8 +118,7 @@ class TestAttributeCommits(unittest.TestCase):
 
         self.assertEqual(result["story-001"]["commits"], 1)
         self.assertEqual(result["story-001"]["files_changed"], 2)
-        self.assertEqual(result["story-001"]["in_domain_files"], 1)
-        self.assertEqual(result["story-001"]["out_of_domain_files"], 1)
+        self.assertEqual(result["story-001"]["cascade_size"], 1)
 
     def test_story_id_determines_attribution(self):
         """story_id determines attribution, not file overlap."""
@@ -170,7 +169,7 @@ class TestAttributeCommits(unittest.TestCase):
         self.assertEqual(result["story-001"]["commits"], 0)
         self.assertEqual(result["story-001"]["files_changed"], 0)
 
-    def test_domain_accuracy(self):
+    def test_cascade_size(self):
         import sizing_metrics
 
         stories = [
@@ -195,10 +194,7 @@ class TestAttributeCommits(unittest.TestCase):
         ]
         result = sizing_metrics._attribute_commits(commits, stories)
 
-        self.assertAlmostEqual(
-            result["story-001"]["domain_accuracy"],
-            0.25,
-        )
+        self.assertEqual(result["story-001"]["cascade_size"], 3)
 
     def test_no_file_domain(self):
         import sizing_metrics
@@ -215,7 +211,7 @@ class TestAttributeCommits(unittest.TestCase):
         result = sizing_metrics._attribute_commits(commits, stories)
 
         self.assertEqual(result["story-001"]["commits"], 1)
-        self.assertEqual(result["story-001"]["in_domain_files"], 0)
+        self.assertEqual(result["story-001"]["cascade_size"], 1)
 
     def test_test_file_matches_source_domain(self):
         """tests/hooks/test_foo.py should match domain scripts/foo.py."""
@@ -243,7 +239,7 @@ class TestAttributeCommits(unittest.TestCase):
         ]
         result = sizing_metrics._attribute_commits(commits, stories)
         self.assertEqual(result["story-001"]["commits"], 1)
-        self.assertEqual(result["story-001"]["in_domain_files"], 2)
+        self.assertEqual(result["story-001"]["cascade_size"], 0)
 
     def test_prefixed_path_matches_domain(self):
         """plugins/xp-agents/scripts/foo.py matches scripts/foo.py."""
@@ -266,7 +262,7 @@ class TestAttributeCommits(unittest.TestCase):
         ]
         result = sizing_metrics._attribute_commits(commits, stories)
         self.assertEqual(result["story-001"]["commits"], 1)
-        self.assertEqual(result["story-001"]["in_domain_files"], 1)
+        self.assertEqual(result["story-001"]["cascade_size"], 0)
 
     def test_multiple_commits_deduped(self):
         import sizing_metrics
@@ -295,8 +291,7 @@ class TestAttributeCommits(unittest.TestCase):
 
         self.assertEqual(result["story-001"]["commits"], 2)
         self.assertEqual(result["story-001"]["files_changed"], 2)
-        self.assertEqual(result["story-001"]["in_domain_files"], 1)
-        self.assertEqual(result["story-001"]["out_of_domain_files"], 1)
+        self.assertEqual(result["story-001"]["cascade_size"], 1)
 
 
 # ===========================================================================
@@ -402,7 +397,7 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
         result = sizing_metrics._attribute_commits(commits, stories)
         self.assertEqual(result["story-001"]["commits"], 2)
         self.assertEqual(result["story-001"]["files_changed"], 2)
-        self.assertEqual(result["story-001"]["in_domain_files"], 1)
+        self.assertEqual(result["story-001"]["cascade_size"], 1)
 
     def test_cross_cutting_commit_not_attributed_without_story_id(
         self,
@@ -436,10 +431,6 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
         result = sizing_metrics._attribute_commits(commits, stories)
         self.assertEqual(result["story-001"]["commits"], 1)
         self.assertEqual(result["story-001"]["files_changed"], 1)
-        self.assertAlmostEqual(
-            result["story-001"]["domain_accuracy"],
-            1.0,
-        )
 
 
 # ===========================================================================
@@ -460,23 +451,17 @@ class TestPerSizeAggregates(unittest.TestCase):
             "story-001": {
                 "commits": 4,
                 "files_changed": 10,
-                "in_domain_files": 8,
-                "out_of_domain_files": 2,
-                "domain_accuracy": 0.8,
+                "cascade_size": 2,
             },
             "story-002": {
                 "commits": 2,
                 "files_changed": 3,
-                "in_domain_files": 3,
-                "out_of_domain_files": 0,
-                "domain_accuracy": 1.0,
+                "cascade_size": 0,
             },
             "story-003": {
                 "commits": 1,
                 "files_changed": 5,
-                "in_domain_files": 4,
-                "out_of_domain_files": 1,
-                "domain_accuracy": 0.8,
+                "cascade_size": 1,
             },
         }
         result = sizing_metrics._per_size_aggregates(metrics, stories)
@@ -498,9 +483,7 @@ class TestPerSizeAggregates(unittest.TestCase):
             "story-001": {
                 "commits": 2,
                 "files_changed": 5,
-                "in_domain_files": 4,
-                "out_of_domain_files": 1,
-                "domain_accuracy": 0.8,
+                "cascade_size": 1,
             },
         }
         result = sizing_metrics._per_size_aggregates(metrics, stories)
@@ -549,7 +532,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
 
         story_001 = next(s for s in result["per_story"] if s["id"] == "story-001")
         self.assertEqual(story_001["commits"], 1)
-        self.assertEqual(story_001["in_domain_files"], 2)
+        self.assertEqual(story_001["cascade_size"], 0)
 
         story_002 = next(s for s in result["per_story"] if s["id"] == "story-002")
         self.assertEqual(story_002["commits"], 1)
