@@ -5,6 +5,7 @@ Parses the append-only event log, builds indices for lookups, and
 prepares structured curation data for the housekeeping skill.
 """
 
+import ast
 import json
 import logging
 from collections import Counter
@@ -184,6 +185,41 @@ def _health_from_smm(current_smm: dict) -> dict:
     }
 
 
+_CUSTOMER_INPUT_TRUNCATE_LIMIT = 300
+
+
+def _normalize_customer_input(summary: dict) -> dict:
+    """Normalize AskUserQuestion content and truncate long prompts.
+
+    AskUserQuestion responses are Python repr dicts — detect and
+    re-serialize as compact Q/A pairs. Plain prompts >300 chars get
+    truncated with a content_truncated flag.
+    """
+    summary = dict(summary)
+    content = summary.get("content", "")
+
+    if content.startswith("{'questions':") and "'answers':" in content:
+        try:
+            parsed = ast.literal_eval(content)
+            answers = parsed.get("answers", {})
+            questions = parsed.get("questions", [])
+            pairs = []
+            for q in questions:
+                q_text = q.get("question", "")
+                a_text = answers.get(q_text, "")
+                pairs.append(f"Q: {q_text} → A: {a_text}")
+            summary["content"] = "; ".join(pairs)
+            return summary
+        except (ValueError, SyntaxError):
+            pass
+
+    if len(content) > _CUSTOMER_INPUT_TRUNCATE_LIMIT:
+        summary["content"] = content[:_CUSTOMER_INPUT_TRUNCATE_LIMIT]
+        summary["content_truncated"] = True
+
+    return summary
+
+
 def _bucket_new_events(
     new_events: list[dict],
     resolved_concern_ids: set,
@@ -202,7 +238,7 @@ def _bucket_new_events(
         }
         match etype:
             case event_schema.EVENT_TYPE_CUSTOMER_INPUT:
-                new_since["customer_inputs"].append(summary)
+                new_since["customer_inputs"].append(_normalize_customer_input(summary))
             case event_schema.EVENT_TYPE_DECISION:
                 summary["topic"] = e.get("topic", "")
                 new_since["decisions"].append(summary)
