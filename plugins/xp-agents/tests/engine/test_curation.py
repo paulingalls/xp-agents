@@ -120,6 +120,27 @@ class TestPrepareCurationData(_SMMTestCase):
         risks = result["current_smm"]["risks"]
         self.assertEqual(len(risks), 4)
 
+    def test_resolutions_is_list_not_dict(self):
+        """F1: resolutions should be a list of IDs, not a dict."""
+        concern = make_event("concern", content="Old bug")
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [concern["id"]]},
+        )
+        self._write_events([concern, resolver])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        resolutions = result["new_since_last_curation"]["resolutions"]
+        self.assertIsInstance(resolutions, list)
+        self.assertIn(concern["id"], resolutions)
+
+    def test_empty_new_since_resolutions_is_list(self):
+        """F1: _empty_new_since returns resolutions as [] not {}."""
+        result = materialize._empty_new_since()
+        self.assertIsInstance(result["resolutions"], list)
+        self.assertEqual(result["resolutions"], [])
+
     def test_resolutions_surfaced_in_new_since(self):
         """Resolutions appear in new_since_last_curation for housekeeper to act on.
 

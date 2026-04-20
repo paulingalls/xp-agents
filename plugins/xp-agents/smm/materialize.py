@@ -164,7 +164,7 @@ def _empty_new_since() -> dict:
         "assumptions": [],
         "debt": [],
         "questions": [],
-        "resolutions": {},
+        "resolutions": [],
         "resolved_concern_count": 0,
     }
 
@@ -220,7 +220,7 @@ def _bucket_new_events(
 
         # Track resolutions in new events
         for target_id in e.get("metadata", {}).get(METADATA_KEY_RESOLVES, []):
-            new_since["resolutions"][target_id] = e.get("content", "")
+            new_since["resolutions"].append(target_id)
 
     return new_since
 
