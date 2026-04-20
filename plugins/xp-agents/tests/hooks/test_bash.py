@@ -23,7 +23,26 @@ import security
 from conftest import _HookTestCase, _make_bash_input, make_event
 
 
-class TestBashPostTool(_HookTestCase):
+class _ProbeTestHelpers:
+    """Shared helpers for tests that seed concerns and read probe events."""
+
+    smm_dir: Path
+
+    def _seed_auth_concern(self, content: str = "Auth middleware leaks tokens") -> str:
+        c = make_event("concern", content=content, files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def _probes(self) -> list[dict]:
+        return [
+            e
+            for e in _common.read_events_raw(self.smm_dir)
+            if e.get("type") == "status"
+            and e.get("content", "").startswith("resolves_probe_shown:")
+        ]
+
+
+class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
     def test_git_commit_records_commit_event(self):
         with (
             patch("commits.get_committed_files", return_value=["a", "b", "c"]),
@@ -308,12 +327,6 @@ class TestBashPostTool(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-    def _seed_auth_concern(self, content: str = "Auth middleware leaks tokens") -> str:
-        """Append a concern on scripts/auth.py; return its id."""
-        c = make_event("concern", content=content, files=["scripts/auth.py"])
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
-
     def _run_auth_fix(self, body: str = "Fix auth\n\nNo trailer.", **kw):
         """Helper: run a commit touching scripts/auth.py."""
         return self._run_commit(
@@ -322,15 +335,6 @@ class TestBashPostTool(_HookTestCase):
             commit_msg="Fix auth",
             **kw,
         )
-
-    def _probes(self) -> list[dict]:
-        """Read all resolves_probe_shown status events."""
-        return [
-            e
-            for e in _common.read_events_raw(self.smm_dir)
-            if e.get("type") == "status"
-            and e.get("content", "").startswith("resolves_probe_shown:")
-        ]
 
     def test_commit_emits_concern_autolink_nudge_on_file_overlap(self):
         """Commit touches a file in open concern's files → additionalContext nudge."""
@@ -404,6 +408,105 @@ class TestBashPostTool(_HookTestCase):
         self._run_auth_fix(commit_hash=None)
         probe = self._probes()[0]
         self.assertIsNone(probe["metadata"]["commit_hash"])
+
+
+# ===========================================================================
+# REVIEW_FINGERPRINT dedup in _handle_commit
+# ===========================================================================
+
+
+class TestResolvesProbeDedup(_ProbeTestHelpers, _HookTestCase):
+    """REVIEW_FINGERPRINT marker suppresses post-commit nudge when matching.
+
+    Three-way logic in _handle_commit:
+      (a) fingerprint match → skip BOTH nudge lines AND status event
+      (b) marker present but fingerprint mismatch → emit nudge ONLY,
+          skip status event (pre-commit probe already emitted; avoids
+          double-counting in retro._compute_resolves_link_rate)
+      (c) no marker → emit both nudge and status event as today
+    """
+
+    def _run_auth_commit(self, agent_id: str = "main"):
+        with (
+            patch("commits.get_committed_files", return_value=["scripts/auth.py"]),
+            patch("commits.get_commit_message_body", return_value="Fix auth"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            return bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix auth'",
+                    stdout="[main abc123] Fix auth\n 1 file changed",
+                    cwd=str(self.smm_dir),
+                    agent_id=agent_id,
+                ),
+                smm_dir=self.smm_dir,
+            )
+
+    def _write_fingerprint_marker(self, files: list[str], concern_ids: list[str]):
+        import resolves_probe
+
+        fp = resolves_probe.compute_fingerprint(
+            files, concern_ids, cwd=str(self.smm_dir)
+        )
+        markers.marker_write(
+            self.smm_dir,
+            markers.REVIEW_FINGERPRINT,
+            {"fingerprint": fp, "candidate_ids": concern_ids},
+            "main",
+        )
+        return fp
+
+    def test_fingerprint_match_suppresses_nudge_and_status_event(self):
+        cid = self._seed_auth_concern()
+        self._write_fingerprint_marker(["scripts/auth.py"], [cid])
+
+        result = self._run_auth_commit()
+
+        self.assertIsNone(result)
+        self.assertEqual(self._probes(), [])
+
+    def test_fingerprint_files_mismatch_emits_nudge_only(self):
+        cid = self._seed_auth_concern()
+        # Marker fingerprints a DIFFERENT file set
+        self._write_fingerprint_marker(["scripts/other.py"], [cid])
+
+        result = self._run_auth_commit()
+
+        self.assertIsNotNone(result)
+        self.assertIn(cid, result)
+        # Nudge fires, but status event does NOT (pre-commit already emitted)
+        self.assertEqual(self._probes(), [])
+
+    def test_fingerprint_concern_ids_mismatch_emits_nudge_only(self):
+        cid = self._seed_auth_concern()
+        # Marker fingerprints DIFFERENT concern ids
+        self._write_fingerprint_marker(["scripts/auth.py"], ["different_id"])
+
+        result = self._run_auth_commit()
+
+        self.assertIsNotNone(result)
+        self.assertIn(cid, result)
+        self.assertEqual(self._probes(), [])
+
+    def test_no_marker_emits_both_nudge_and_status_event(self):
+        cid = self._seed_auth_concern()
+        # No REVIEW_FINGERPRINT marker written
+
+        result = self._run_auth_commit()
+
+        self.assertIsNotNone(result)
+        self.assertIn(cid, result)
+        self.assertEqual(len(self._probes()), 1)
+
+    def test_marker_consumed_after_read(self):
+        cid = self._seed_auth_concern()
+        self._write_fingerprint_marker(["scripts/auth.py"], [cid])
+
+        self._run_auth_commit()
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.REVIEW_FINGERPRINT, "main")
+        )
 
 
 # ===========================================================================

@@ -212,10 +212,31 @@ def _handle_commit(
     candidates = resolves_probe.find_probe_candidates(
         smm_dir, committed_files, resolves, cwd
     )
-    nudge_lines = resolves_probe.build_nudge_lines(candidates)
-    status_event = resolves_probe.build_probe_status_event(
-        candidates, commit_hash, agent_id
-    )
+    marker_data = markers.marker_consume(smm_dir, markers.REVIEW_FINGERPRINT, agent_id)
+
+    # Three-way dedup against the /xp-quality-review pre-commit probe marker:
+    #   no marker         → emit nudge + status event (today's behavior)
+    #   marker + match    → skip both (probe already covered this surface)
+    #   marker + mismatch → emit nudge as safety net, skip status event
+    #                       (the pre-commit probe already logged one; emitting
+    #                       another would double-count in
+    #                       retro._compute_resolves_link_rate).
+    if not isinstance(marker_data, dict):
+        nudge_lines = resolves_probe.build_nudge_lines(candidates)
+        status_event = resolves_probe.build_probe_status_event(
+            candidates, commit_hash, agent_id
+        )
+    else:
+        fingerprint = resolves_probe.compute_fingerprint(
+            committed_files, [c["id"] for c in candidates], cwd
+        )
+        if marker_data.get("fingerprint") == fingerprint:
+            nudge_lines = []
+            status_event = None
+        else:
+            nudge_lines = resolves_probe.build_nudge_lines(candidates)
+            status_event = None
+
     if status_event:
         pending.append(status_event)
 
