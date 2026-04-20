@@ -24,7 +24,20 @@ allowed-tools:
 
 You are performing a post-simplify quality review. The `/simplify` skill just ran (3 agents reviewed for code reuse, code quality, and efficiency). Your job is to orchestrate an independent review and resolve plan concerns.
 
-## Step 1: Spawn Independent Code Reviewer
+## Step 1: Pre-commit resolves-trailer probe
+
+Before spawning the reviewer, surface open concerns whose files intersect your staged changes. If the commit closes one of them, add `Resolves-Event: <event-id>` as a commit trailer so the link lands on the first commit (no `git commit --amend` needed).
+
+Run:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-quality-review/scripts/probe_candidates.py \
+  --smm-dir <SMM_DIR> --cwd $(pwd)
+```
+
+Echo the candidate IDs inline so the subagent sees them in context. The script drops a `REVIEW_FINGERPRINT` marker that suppresses the duplicate post-commit nudge when the staged set + open-concern set match at commit time — prevents the probe from double-counting in the retro `resolves_link_rate` metric.
+
+## Step 2: Spawn Independent Code Reviewer
 
 Gather data from the conversation and preload, then spawn the `xp-code-reviewer` subagent.
 
@@ -71,7 +84,7 @@ Review all four areas per your instructions: simplify accountability, drift mana
 
 Wait for the subagent to complete. Its findings will be returned as a tool result.
 
-## Step 2: Resolve Plan Review Concerns
+## Step 3: Resolve Plan Review Concerns
 
 The preload above lists open concerns from the plan reviewer. For each concern:
 - **If the code changes address it** — resolve it:
@@ -89,7 +102,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 If no open plan concerns are listed in the preload, skip this step.
 
-## Step 3: Act on Subagent Findings
+## Step 4: Act on Subagent Findings
 
 Review the xp-code-reviewer's summary. For each finding:
 
@@ -110,7 +123,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --files '["path/to/file.py"]'
 ```
 
-## Step 4: Record Summary
+## Step 5: Record Summary
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
