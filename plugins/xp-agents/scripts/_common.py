@@ -94,6 +94,7 @@ LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
 SECURITY_CHECK_RE = re.compile(
     r"Security (?:triage|review) (?:complete|started)", re.IGNORECASE
 )
+QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
 
 
 def subagent_started_content(agent_id: str) -> str:

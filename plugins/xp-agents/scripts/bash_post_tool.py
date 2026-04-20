@@ -171,8 +171,6 @@ def _resolve_story_id(
     return None if tied else best_id
 
 
-_QR_STATUS_RE = re.compile(r"Quality review complete", re.IGNORECASE)
-
 _QR_WINDOW_CAP = 30
 
 
@@ -201,7 +199,7 @@ def _check_qr_linkage(
     search_start = (prev_commit_idx + 1) if prev_commit_idx is not None else 0
     for i in range(search_start, len(events)):
         e = events[i]
-        if e.get("type") == _common.STATUS and _QR_STATUS_RE.search(
+        if e.get("type") == _common.STATUS and _common.QUALITY_REVIEW_RE.search(
             e.get("content", "")
         ):
             return None

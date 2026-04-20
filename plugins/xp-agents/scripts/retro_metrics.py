@@ -48,7 +48,7 @@ _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
 _TEST_RUN_RE = _common.TEST_RUN_RE
 _SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
-_QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
+_QUALITY_REVIEW_RE = _common.QUALITY_REVIEW_RE
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
 
 
