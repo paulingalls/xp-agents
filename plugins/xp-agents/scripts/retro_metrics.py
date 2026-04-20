@@ -132,7 +132,7 @@ _RESOLUTION_BUCKETS = (
 )
 
 
-def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
+def build_resolutions_map(resolutions: dict) -> dict[str, dict]:
     """Map target IDs to resolver event info for the retro digest."""
     result: dict[str, dict] = {}
     for type_name, bucket_key in _RESOLUTION_BUCKETS:
@@ -177,7 +177,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         "honesty_signals": honesty_signals,
         "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
-        "resolutions": _build_resolutions_map(resolutions),
+        "resolutions": build_resolutions_map(resolutions),
     }
 
 

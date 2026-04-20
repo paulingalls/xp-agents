@@ -113,10 +113,10 @@ class TestAnnotateTryDisposition(_HookTestCase):
 
 
 class TestBuildResolutionsMapDisposition(_HookTestCase):
-    """_build_resolutions_map should propagate disposition from resolver metadata."""
+    """build_resolutions_map should propagate disposition from resolver metadata."""
 
     def test_disposition_propagated_from_resolver_metadata(self):
-        from retro_metrics import _build_resolutions_map
+        from retro_metrics import build_resolutions_map
 
         target_id = "aabbccdd1111"
         resolver = make_event(
@@ -135,13 +135,13 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
             "assumption_resolutions": {},
             "question_answers": {},
         }
-        result = _build_resolutions_map(resolutions)
+        result = build_resolutions_map(resolutions)
         entry = result[target_id]
         self.assertEqual(entry["disposition"], "dropped")
 
     def test_other_resolutions_included_in_map(self):
         """Resolutions of status/sprint events should appear in the map."""
-        from retro_metrics import _build_resolutions_map
+        from retro_metrics import build_resolutions_map
 
         target_id = "aabbccdd1111"
         resolver = make_event(
@@ -161,12 +161,12 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
             "question_answers": {},
             "other_resolutions": {target_id: resolver},
         }
-        result = _build_resolutions_map(resolutions)
+        result = build_resolutions_map(resolutions)
         self.assertIn(target_id, result)
         self.assertEqual(result[target_id]["disposition"], "dropped")
 
     def test_no_disposition_when_resolver_has_none(self):
-        from retro_metrics import _build_resolutions_map
+        from retro_metrics import build_resolutions_map
 
         target_id = "aabbccdd1111"
         resolver = make_event(
@@ -182,7 +182,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
             "assumption_resolutions": {},
             "question_answers": {},
         }
-        result = _build_resolutions_map(resolutions)
+        result = build_resolutions_map(resolutions)
         entry = result[target_id]
         self.assertNotIn("disposition", entry)
 

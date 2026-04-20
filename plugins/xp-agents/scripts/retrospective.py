@@ -32,6 +32,7 @@ from retro_metrics import (
     _build_retro_digest,
     _compute_resolves_link_rate,
     _compute_session_stats,
+    build_resolutions_map,
 )
 
 # ---------------------------------------------------------------------------
@@ -122,7 +123,11 @@ def _build_retro_input(
     session_stats = _compute_session_stats(unanalyzed)
     resolutions = resolution.compute_resolutions(unanalyzed)
     digest = _build_retro_digest(events, start_idx, resolutions)
-    annotate_try_status(retro_history, digest["resolutions"])
+
+    # Try-status needs full-scope resolutions: drop/adopt decisions
+    # reference event IDs from prior sessions outside the unanalyzed window
+    all_resolutions = resolution.compute_resolutions(events)
+    annotate_try_status(retro_history, build_resolutions_map(all_resolutions))
 
     decision_topics: list[str] = [
         topic

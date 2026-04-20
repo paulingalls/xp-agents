@@ -219,6 +219,15 @@ class TestResolveStoryId(_HookTestCase):
         self.assertEqual(len(commit_ev), 1)
         self.assertNotIn("story_id", commit_ev[0]["metadata"])
 
+    def test_lead_agent_reads_story_assignment_main(self):
+        """Lead agent (non-worktree) uses .story-assignment-main marker."""
+        import worktree
+
+        assignment = worktree.story_assignment_path(self.smm_dir, "main")
+        assignment.write_text("story-002")
+        result = bash_post_tool._resolve_story_id(self.smm_dir, "/proj", ["src/app.py"])
+        self.assertEqual(result, "story-002")
+
 
 if __name__ == "__main__":
     unittest.main()

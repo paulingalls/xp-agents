@@ -191,6 +191,38 @@ class TestLintCheck(_HookTestCase):
 
             sh.rmtree(tmpdir)
 
+    def test_lint_concern_not_duplicated(self):
+        """Second lint run for same file should not append duplicate concern."""
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        try:
+            mock_result = type(
+                "R",
+                (),
+                {
+                    "returncode": 1,
+                    "stdout": "src/app.py:1:1: E302 expected 2 blank lines",
+                    "stderr": "",
+                },
+            )()
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run", return_value=mock_result),
+            ):
+                inp = _make_write_input(
+                    tool_input={"file_path": "src/app.py", "content": "x"},
+                    cwd=str(tmpdir),
+                )
+                lint_check.run(inp, smm_dir=self.smm_dir)
+                lint_check.run(inp, smm_dir=self.smm_dir)
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = [e for e in events if e.get("type") == "concern"]
+            self.assertEqual(len(concerns), 1, "Duplicate lint concern appended")
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
     def test_lint_timeout(self):
         tmpdir = Path(tempfile.mkdtemp())
         (tmpdir / "ruff.toml").touch()

@@ -279,6 +279,13 @@ def _summarize_lint_output(lint_output: str) -> str:
     )
 
 
+def _has_unresolved_lint_concern(smm_dir: Path, normalized: str) -> bool:
+    """Check if an unresolved lint concern exists for this file."""
+    return concerns.has_unresolved_concerns(
+        smm_dir, lambda c: concerns.lint_concern_matches(c, normalized)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
@@ -337,15 +344,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Run linter
     lint_output = run_linter(linter_name, normalized, cwd=git_root)
     if lint_output:
-        # Concise concern — agent has full output via additionalContext
-        summary = _summarize_lint_output(lint_output)
-        concern = _common.make_event(
-            _common.CONCERN,
-            agent_id,
-            f"{concerns.LINT_CONCERN_PREFIX}{normalized}: {summary}",
-            severity="medium",
-        )
-        _common.append_safe(smm_dir, concern)
+        if not _has_unresolved_lint_concern(smm_dir, normalized):
+            summary = _summarize_lint_output(lint_output)
+            concern = _common.make_event(
+                _common.CONCERN,
+                agent_id,
+                f"{concerns.LINT_CONCERN_PREFIX}{normalized}: {summary}",
+                severity="medium",
+            )
+            _common.append_safe(smm_dir, concern)
         # Return as additionalContext for immediate feedback
         return f"Lint errors in {normalized}:\n{lint_output}"
     else:

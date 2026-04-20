@@ -45,7 +45,15 @@ Present the recommendation to the user via `AskUserQuestion`:
 
 ## Solo Mode
 
-If solo: output "Proceeding with solo execution." and stop. The lead continues working on steps sequentially — no additional orchestration needed.
+If solo and a sprint is active with in-progress stories: write a `.story-assignment-main` marker so commit attribution works for the lead agent. Use the first in-progress story if only one, or the story most relevant to the plan scope:
+
+```bash
+python3 ${PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> list-stories --status in-progress
+# Write the story ID to the assignment marker:
+echo "story-NNN" > <SMM_DIR>/.story-assignment-main
+```
+
+Then output "Proceeding with solo execution." and stop.
 
 ## CLI Teammate Mode
 

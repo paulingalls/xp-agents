@@ -64,6 +64,30 @@ def lint_concern_matches(content: str, rel_path: str) -> bool:
     return path_part == rel_path or path_part.endswith("/" + rel_path)
 
 
+def _find_unresolved(
+    events: list[dict], matcher: Callable[[str], object]
+) -> list[dict]:
+    """Return unresolved concern events whose content matches *matcher*."""
+    if not any(
+        e.get("type") == CONCERN and matcher(e.get("content", "")) for e in events
+    ):
+        return []
+    resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
+    return [
+        e
+        for e in events
+        if e.get("type") == CONCERN
+        and e.get("id", "") not in resolved_ids
+        and matcher(e.get("content", ""))
+    ]
+
+
+def has_unresolved_concerns(smm_dir: Path, matcher: Callable[[str], object]) -> bool:
+    """Check whether any unresolved concern matches *matcher*."""
+    events = read_events_raw(smm_dir)
+    return len(_find_unresolved(events, matcher)) > 0
+
+
 def resolve_concerns(
     smm_dir: Path,
     matcher: Callable[[str], object],
@@ -81,20 +105,7 @@ def resolve_concerns(
     if events is None:
         events = read_events_raw(smm_dir)
 
-    if not any(
-        e.get("type") == CONCERN and matcher(e.get("content", "")) for e in events
-    ):
-        return False
-
-    resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
-
-    unresolved = [
-        e
-        for e in events
-        if e.get("type") == CONCERN
-        and e.get("id", "") not in resolved_ids
-        and matcher(e.get("content", ""))
-    ]
+    unresolved = _find_unresolved(events, matcher)
     if not unresolved:
         return False
 

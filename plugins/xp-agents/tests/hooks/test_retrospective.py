@@ -443,5 +443,62 @@ class TestDecisionTopicsWiring(_HookTestCase):
         self.assertIn("max_events_to_commit", flag_metrics)
 
 
+class TestDroppedTryResolution(_HookTestCase):
+    """Dropped Try items should be detected across session boundaries."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def test_dropped_try_detected_across_session_boundary(self):
+        """A drop decision after the retro boundary must still resolve the Try."""
+        import retrospective
+
+        old_concern_id = "aabb11223344"
+        old_concern = make_event(
+            "concern",
+            id=old_concern_id,
+            content="Test coverage gap",
+            severity="medium",
+        )
+        retro_event = make_event(
+            "retrospective",
+            content="Session retro: 3 keeps, 2 fixes, 1 try",
+            keep=[{"content": "Good work", "event_refs": []}],
+            fix=[],
+            **{"try": [{"content": "Fix coverage", "event_refs": [old_concern_id]}]},
+        )
+        retro_json = {
+            "timestamp": "2026-04-19T00:00:00+00:00",
+            "keep": [{"content": "Good work", "event_refs": []}],
+            "fix": [],
+            "try": [{"content": "Fix coverage", "event_refs": [old_concern_id]}],
+        }
+        retro_file = self.smm_dir / "retrospectives" / "2026-04-19T00-00-00.json"
+        retro_file.write_text(json.dumps(retro_json))
+
+        drop_event = make_event(
+            "status",
+            content="Fix coverage",
+            working_on=[],
+            metadata={"resolves": [old_concern_id], "disposition": "dropped"},
+        )
+        new_events = [make_event(content=f"work {i}") for i in range(5)]
+
+        self._write_events([old_concern, retro_event, drop_event, *new_events])
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        prev = data.get("previous_retros", [])
+        self.assertTrue(len(prev) > 0)
+        try_status = prev[0].get("try_status", [])
+        self.assertTrue(len(try_status) > 0)
+        self.assertTrue(try_status[0]["resolved_this_session"])
+        self.assertEqual(try_status[0]["disposition"], "dropped")
+
+
 if __name__ == "__main__":
     unittest.main()
