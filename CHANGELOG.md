@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.15.0 — Verbosity Audit M1: Per-Type Content Budgets + Bug Fixes
+
+Sprint-009 delivers Milestone 1 of the Verbosity Audit execution plan (3/3 stories, 100% velocity). Events now have per-type character budgets enforced at write time, governance prose teaches agents to write tight, and hook producers comply. Plus four maintenance bug fixes.
+
+- **Per-type content budgets.** `CONTENT_BUDGETS` dict in `event_schema.py` maps each event type to a max character count (status=200, decision=400, concern=400, commit=uncapped, etc.). `validate_event()` rejects over-budget events with actionable error showing current length, budget, and trim suggestion. CLI `--help` epilog generated from the dict (single source of truth). `schema.json` description updated as documentation. Sync test guards against drift between dict and schema.
+
+- **Governance prose + whiteboard discipline.** PROCESS_GUIDE.md gains content budget section with compression worked example (1099->370 chars, 66% reduction). Four agent prompts (xp-retrospective, xp-housekeeper, xp-code-reviewer, xp-plan-reviewer) gain budget-discipline worked examples + section 8 tightening: -77 lines net across prompt files. xp-retrospective gets "sticky notes, not paragraphs" whiteboard framing for K/F/T output.
+
+- **Hook budget compliance.** Three producers fixed: `session_end.py` truncates reason to fit 50-char budget, `bash_failure.py` uses dynamic prefix-aware truncation for 200-char status budget, `concerns.py` truncates assumption+discovery concatenation for 400-char concern budget. All truncation limits derived from `CONTENT_BUDGETS`.
+
+- **Fix: stale worktrees suppress accept stop gate.** `has_live_teammates()` now parses porcelain output as blocks and skips prunable entries. `remove_worktree()` runs `git worktree prune` unconditionally to clean orphaned nested worktree registrations.
+
+- **Fix: dropped Tries keep reappearing.** `annotate_try_status` was using unanalyzed-scoped resolutions, so drop decisions referencing old event IDs outside the retro boundary were invisible. Now uses full-scope `compute_resolutions(events)`.
+
+- **Fix: lead agent story attribution.** `_resolve_story_id` now falls back to `.story-assignment-main` for non-worktree agents. `/xp-assign` writes this marker when solo mode is chosen during a sprint.
+
+- **Fix: lint concern duplication.** `lint_check.py` now checks for existing unresolved lint concerns before appending via shared `has_unresolved_concerns()` helper extracted to `concerns.py`. `_find_unresolved()` + `has_unresolved_concerns()` replace duplicated resolution logic. `_build_resolutions_map` renamed to `build_resolutions_map` (public API).
+
+- **Tests.** 2326 total (up from 2312 at v2.14.9). 16 new tests across 6 files covering budget validation, budget compliance, prunable worktree filtering, dropped Try resolution, lead story attribution, and lint dedup.
+
 ## v2.14.9 — Retro Try Debt Cleanup: File Splits, Dedup, Exception Narrowing
 
 Free session addressing all four adopted retro Tries from the retrospective. Pure refactoring and code quality improvements -- no new features.
