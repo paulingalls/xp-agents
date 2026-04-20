@@ -5,16 +5,20 @@ Preload should output file paths (SMM_FILE, PLAN_FILE, SPRINT_FILE)
 instead of dumping full file contents to stdout.
 """
 
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase, write_smm_fixture
+from conftest import (
+    _IntegrationTestCase,
+    _s,
+    _sprint_json,
+    write_smm_fixture,
+)
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -143,6 +147,52 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         marker = self.smm_dir / ".last-plan-path"
         self.assertTrue(marker.exists())
         self.assertEqual(marker.read_text().strip(), str(plan_path))
+
+
+class TestSizeFloorViolations(_IntegrationTestCase):
+    """M-sized stories with >15 projected files must trigger violations."""
+
+    def _write_sprint(self, stories: list[dict]) -> None:
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(stories, sprint_id="sprint-008")
+        )
+
+    def _parse_violations(self, stdout: str) -> list[str]:
+        for line in stdout.splitlines():
+            if line.startswith("size_floor_violations="):
+                return json.loads(line.split("=", 1)[1])
+        self.fail("No size_floor_violations= line in output")
+
+    def test_m_story_16_files_triggers_violation(self):
+        """M story with 16 non-script files (no test projection)."""
+        files = [f"plugins/xp-agents/agents/f{i}.md" for i in range(16)]
+        self._write_sprint([_s("story-001", "Test", "M", "ready", file_domain=files)])
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        violations = self._parse_violations(result.stdout)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("story-001", violations[0])
+        self.assertIn("16", violations[0])
+        self.assertIn("M", violations[0])
+
+    def test_m_story_boundary_15_no_violation(self):
+        """13 md + 1 script (14 domain + 1 projected = 15)."""
+        files = [f"plugins/xp-agents/agents/f{i}.md" for i in range(13)]
+        files.append("plugins/xp-agents/scripts/one_script.py")
+        self._write_sprint([_s("story-001", "Test", "M", "ready", file_domain=files)])
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        violations = self._parse_violations(result.stdout)
+        self.assertEqual(violations, [])
+
+    def test_l_story_20_files_no_violation(self):
+        """L story with 20 files — size floor only applies to M."""
+        files = [f"plugins/xp-agents/agents/f{i}.md" for i in range(20)]
+        self._write_sprint([_s("story-001", "Test", "L", "ready", file_domain=files)])
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        violations = self._parse_violations(result.stdout)
+        self.assertEqual(violations, [])
 
 
 if __name__ == "__main__":

@@ -39,3 +39,29 @@ fi
 
 # Clear plan review gate — this reviewer is running
 rm -f "$MARKER"
+
+# Size-floor check: M stories with >15 projected files must be L or split.
+if [ -f "${SMM_DIR}/sprint.json" ]; then
+    VIOLATIONS=$(python3 -c '
+import json, re, sys
+sprint = json.load(open(sys.argv[1]))
+violations = []
+for s in sprint.get("stories", []):
+    if s.get("size") != "M":
+        continue
+    domain = s.get("file_domain", [])
+    projected = 0
+    for f in domain:
+        if re.match(r"plugins/xp-agents/scripts/[^/]+\.py$", f):
+            projected += 1
+    total = len(domain) + projected
+    if total > 15:
+        sid = s["id"]
+        violations.append(
+            f"size floor violation: {sid} declares {total} files"
+            f" at size M; must be L or split."
+        )
+print(json.dumps(violations))
+' "${SMM_DIR}/sprint.json" 2>/dev/null || echo "[]")
+    echo "size_floor_violations=${VIOLATIONS}"
+fi
