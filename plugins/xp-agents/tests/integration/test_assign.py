@@ -10,6 +10,7 @@ and full E2E pipeline (init SMM, seed sprint, run preload, verify output).
 import subprocess
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -496,6 +497,77 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
             inp, smm_dir=self.smm_dir, has_uncommitted=False
         )
         self.assertIsNone(result)
+
+
+def _claude_subprocess_mock(*, raise_error: bool = False):
+    """Stub claude calls but pass git calls through to real subprocess."""
+    original_run = subprocess.run
+
+    def side_effect(cmd, **kwargs):
+        if cmd and cmd[0] == "claude":
+            if raise_error:
+                raise subprocess.CalledProcessError(1, cmd)
+            return subprocess.CompletedProcess(cmd, 0)
+        return original_run(cmd, **kwargs)
+
+    return side_effect
+
+
+class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
+    """spawn_teammate.main() deletes the prompt file after use."""
+
+    def test_prompt_file_deleted_after_successful_spawn(self):
+        import spawn_teammate
+
+        prompt_file = Path(self.tmpdir) / "prompt.txt"
+        prompt_file.write_text("test prompt")
+
+        with unittest.mock.patch.object(
+            subprocess, "run", side_effect=_claude_subprocess_mock()
+        ):
+            spawn_teammate.main(
+                [
+                    "--name",
+                    "teammate-cleanup-ok",
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--prompt-file",
+                    str(prompt_file),
+                ]
+            )
+
+        self.assertFalse(prompt_file.exists())
+
+    def test_prompt_file_deleted_after_failed_spawn(self):
+        import spawn_teammate
+
+        prompt_file = Path(self.tmpdir) / "prompt-fail.txt"
+        prompt_file.write_text("test prompt")
+
+        with (
+            unittest.mock.patch.object(
+                subprocess,
+                "run",
+                side_effect=_claude_subprocess_mock(raise_error=True),
+            ),
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            spawn_teammate.main(
+                [
+                    "--name",
+                    "teammate-cleanup-fail",
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--prompt-file",
+                    str(prompt_file),
+                ]
+            )
+
+        self.assertFalse(prompt_file.exists())
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
 
 
 class TestCleanupTeammateE2E(_IntegrationTestCase):

@@ -105,8 +105,11 @@ def main(argv: list[str] | None = None) -> None:
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir
 
-    with open(args.prompt_file) as prompt_stdin:
-        subprocess.run(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, check=True)
+    try:
+        with open(args.prompt_file) as prompt_stdin:
+            subprocess.run(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, check=True)
+    finally:
+        Path(args.prompt_file).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
