@@ -106,7 +106,10 @@ def get_committed_files(cwd: str) -> list[str]:
 
 
 def open_concerns_matching_commit(
-    smm_dir: Path, commit_files: list[str], cwd: str
+    smm_dir: Path,
+    commit_files: list[str],
+    cwd: str,
+    events: list[dict] | None = None,
 ) -> list[dict]:
     """Return open concerns whose files intersect commit_files (STRUCTURAL link).
 
@@ -114,10 +117,14 @@ def open_concerns_matching_commit(
     on commits that touch files listed in an unresolved concern. Paths are
     normalized on both sides so `./scripts/foo.py`, `scripts/foo.py`, and
     an absolute path to the same file all match.
+
+    When ``events`` is provided, filters from the given list without reading
+    disk — used by callers that already loaded events (e.g. resolves_probe).
     """
     if not commit_files:
         return []
-    events = _common.read_events_raw(smm_dir)
+    if events is None:
+        events = _common.read_events_raw(smm_dir)
     resolved = resolution.compute_resolutions(events)["resolved_concern_ids"]
 
     commit_set: set[str] = set()

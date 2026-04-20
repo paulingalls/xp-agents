@@ -34,52 +34,10 @@ def find_probe_candidates(
     events: list[dict] | None = None,
 ) -> list[dict]:
     """Open concerns whose files intersect commit, minus already-resolved, capped."""
-    if events is None:
-        open_matches = commits.open_concerns_matching_commit(smm_dir, commit_files, cwd)
-    else:
-        open_matches = _open_concerns_from_events(events, commit_files, cwd)
+    open_matches = commits.open_concerns_matching_commit(
+        smm_dir, commit_files, cwd, events=events
+    )
     return [c for c in open_matches if c["id"] not in resolves][:PROBE_CANDIDATE_LIMIT]
-
-
-def _open_concerns_from_events(
-    events: list[dict],
-    commit_files: list[str],
-    cwd: str,
-) -> list[dict]:
-    """Filter open concerns by file intersection from pre-loaded events."""
-    if not commit_files:
-        return []
-    from _append_impl import compute_resolutions
-
-    resolved = compute_resolutions(events)["resolved_concern_ids"]
-
-    commit_set: set[str] = set()
-    for f in commit_files:
-        try:
-            commit_set.add(worktree.normalize_path(f, cwd))
-        except (ValueError, OSError):
-            continue
-
-    def _intersects(event_files: list) -> bool:
-        if not isinstance(event_files, list):
-            return False
-        for f in event_files:
-            if not isinstance(f, str):
-                continue
-            try:
-                if worktree.normalize_path(f, cwd) in commit_set:
-                    return True
-            except (ValueError, OSError):
-                continue
-        return False
-
-    return [
-        e
-        for e in events
-        if e.get("type") == _common.CONCERN
-        and e.get("id") not in resolved
-        and _intersects(e.get("files") or [])
-    ]
 
 
 def build_nudge_lines(candidates: list[dict]) -> list[str]:

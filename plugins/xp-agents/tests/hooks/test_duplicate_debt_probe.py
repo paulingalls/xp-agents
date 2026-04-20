@@ -211,5 +211,32 @@ class TestBuildAdvisoryConcern(unittest.TestCase):
         self.assertEqual(result["agent_id"], "test-agent")
 
 
+class TestRunProbeAndAppendExceptionNarrowing(unittest.TestCase):
+    """Unexpected exceptions propagate instead of being silently swallowed."""
+
+    def test_attribute_error_propagates(self):
+        from unittest.mock import patch
+
+        with (
+            patch.object(
+                ddp, "probe_duplicate_debt", side_effect=AttributeError("bug")
+            ),
+            self.assertRaises(AttributeError),
+        ):
+            ddp.run_probe_and_append(
+                Path("/tmp/fake-smm"),
+                {"type": "debt", "content": "test", "id": "x", "agent_id": "m"},
+            )
+
+    def test_os_error_swallowed(self):
+        from unittest.mock import patch
+
+        with patch.object(ddp, "probe_duplicate_debt", side_effect=OSError("disk")):
+            ddp.run_probe_and_append(
+                Path("/tmp/fake-smm"),
+                {"type": "debt", "content": "test", "id": "x", "agent_id": "m"},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

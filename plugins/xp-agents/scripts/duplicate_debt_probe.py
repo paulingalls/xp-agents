@@ -140,7 +140,8 @@ def run_probe_and_append(smm_dir: Path, event: dict) -> None:
     """If event is debt, check for near-duplicates and append advisory.
 
     Safe to call for any event type — returns immediately for non-debt.
-    Swallows all errors: advisory is best-effort, never blocks the write.
+    Swallows expected I/O and parse errors (OSError, JSONDecodeError,
+    ValueError, KeyError); unexpected errors propagate so bugs surface.
     """
     try:
         if event.get("type") != "debt":
@@ -156,5 +157,5 @@ def run_probe_and_append(smm_dir: Path, event: dict) -> None:
 
             with contextlib.suppress(_append_impl.LockTimeoutError):
                 _append_impl.append_event(smm_dir, advisory)
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError, KeyError):
         pass

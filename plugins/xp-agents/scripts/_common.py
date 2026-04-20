@@ -364,7 +364,7 @@ def _run_duplicate_debt_probe(smm_dir: Path, event: dict) -> None:
         import duplicate_debt_probe
 
         duplicate_debt_probe.run_probe_and_append(smm_dir, event)
-    except Exception:
+    except ImportError:
         pass
 
 

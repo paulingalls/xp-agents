@@ -228,12 +228,12 @@ class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(result), 1)
 
     def test_events_provided_skips_disk_read(self):
-        """events= provided filters from given events without disk read."""
+        """events= provided passes through to commits, skipping disk read."""
         self._seed_auth_concern()
         events = _common.read_events_raw(self.smm_dir)
         import resolves_probe
 
-        with patch("resolves_probe.commits.open_concerns_matching_commit") as mock_oc:
+        with patch("commits._common.read_events_raw") as mock_read:
             result = resolves_probe.find_probe_candidates(
                 self.smm_dir,
                 ["scripts/auth.py"],
@@ -241,7 +241,7 @@ class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
                 str(self.smm_dir),
                 events=events,
             )
-        mock_oc.assert_not_called()
+        mock_read.assert_not_called()
         self.assertEqual(len(result), 1)
 
 

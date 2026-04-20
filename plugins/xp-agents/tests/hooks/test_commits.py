@@ -479,6 +479,21 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
         result = commits.open_concerns_matching_commit(self.smm_dir, [], self.cwd)
         self.assertEqual(result, [])
 
+    def test_events_kwarg_skips_disk_read(self):
+        """events= provided filters from given events, no disk read."""
+        from unittest.mock import patch
+
+        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, concern)
+        events = _common.read_events_raw(self.smm_dir)
+        with patch("commits._common.read_events_raw") as mock_read:
+            result = commits.open_concerns_matching_commit(
+                self.smm_dir, ["scripts/auth.py"], self.cwd, events=events
+            )
+        mock_read.assert_not_called()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], concern["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

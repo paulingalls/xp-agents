@@ -635,5 +635,33 @@ class TestDuplicateDebtProbeIntegration(_HookTestCase):
         self.assertEqual(advisories[0]["metadata"]["duplicate_of"], "bulk1")
 
 
+class TestRunDuplicateDebtProbeExceptionNarrowing(unittest.TestCase):
+    """_run_duplicate_debt_probe only catches ImportError after narrowing."""
+
+    def test_type_error_propagates(self):
+        from unittest.mock import patch
+
+        with (
+            patch(
+                "duplicate_debt_probe.run_probe_and_append",
+                side_effect=TypeError("bug"),
+            ),
+            self.assertRaises(TypeError),
+        ):
+            _common._run_duplicate_debt_probe(
+                Path("/tmp/fake-smm"),
+                {"type": "debt", "content": "test"},
+            )
+
+    def test_import_error_swallowed(self):
+        from unittest.mock import patch
+
+        with patch.dict("sys.modules", {"duplicate_debt_probe": None}):
+            _common._run_duplicate_debt_probe(
+                Path("/tmp/fake-smm"),
+                {"type": "debt", "content": "test"},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
