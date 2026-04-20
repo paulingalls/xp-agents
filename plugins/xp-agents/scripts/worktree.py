@@ -44,7 +44,7 @@ def worktree_path(name: str, cwd: str) -> Path:
 
 
 def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
-    """Remove a git worktree directory and its branch."""
+    """Remove a git worktree directory, branch, and prune stale entries."""
     try:
         wt = worktree_path(name, cwd)
     except RuntimeError:
@@ -55,6 +55,11 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
             cwd=cwd,
             capture_output=True,
         )
+    subprocess.run(
+        ["git", "worktree", "prune"],
+        cwd=cwd,
+        capture_output=True,
+    )
     flag = "-D" if force_branch else "-d"
     subprocess.run(
         ["git", "branch", flag, name],
@@ -64,11 +69,12 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
 
 
 def has_live_teammates(cwd: str) -> bool:
-    """Return True if any `teammate-*` worktree is currently registered.
+    """Return True if any non-prunable `teammate-*` worktree is registered.
 
     Uses `git worktree list --porcelain` so the check reflects real git
-    state (not filesystem artifacts). Falls back to False when cwd is
-    outside a git repo or the command fails.
+    state (not filesystem artifacts). Skips prunable entries — those are
+    stale registrations whose directories no longer exist. Falls back to
+    False when cwd is outside a git repo or the command fails.
     """
     try:
         out = subprocess.check_output(
@@ -79,9 +85,12 @@ def has_live_teammates(cwd: str) -> bool:
         )
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
         return False
-    for line in out.splitlines():
-        if line.startswith("worktree ") and "/.claude/worktrees/teammate-" in line:
-            return True
+    for block in out.split("\n\n"):
+        if "prunable" in block:
+            continue
+        for line in block.splitlines():
+            if line.startswith("worktree ") and "/.claude/worktrees/teammate-" in line:
+                return True
     return False
 
 

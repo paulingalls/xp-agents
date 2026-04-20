@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for worktree.py — git worktree and path management utilities.
 
-Covers: resolve_git_root, worktree_path, normalize_path.
+Covers: resolve_git_root, worktree_path, normalize_path, remove_worktree,
+has_live_teammates.
 """
 
 import os
@@ -10,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -166,6 +168,44 @@ class TestNormalizePath(unittest.TestCase):
             self.assertEqual(missing_result, "src/missing.py")
 
 
+class TestRemoveWorktree(unittest.TestCase):
+    """remove_worktree runs git worktree prune to clean up stale entries."""
+
+    def test_prune_runs_after_remove(self):
+        """git worktree prune should be called after removal."""
+        with (
+            patch("worktree.subprocess.run") as mock_run,
+            patch("worktree.worktree_path", return_value=Path("/fake/wt")),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
+            worktree.remove_worktree("teammate-x", "/fake/cwd")
+        cmds = [c[0][0][:3] for c in mock_run.call_args_list]
+        remove_idx = cmds.index(["git", "worktree", "remove"])
+        prune_idx = cmds.index(["git", "worktree", "prune"])
+        self.assertGreater(prune_idx, remove_idx, "prune must run after remove")
+
+    def test_prune_runs_even_when_dir_missing(self):
+        """Prune should run even when worktree directory is already gone."""
+        with (
+            patch("worktree.subprocess.run") as mock_run,
+            patch("worktree.worktree_path", return_value=Path("/gone/wt")),
+            patch.object(Path, "is_dir", return_value=False),
+        ):
+            worktree.remove_worktree("teammate-y", "/fake/cwd")
+        remove_calls = [
+            c
+            for c in mock_run.call_args_list
+            if len(c[0][0]) >= 3 and c[0][0][:3] == ["git", "worktree", "remove"]
+        ]
+        prune_calls = [
+            c
+            for c in mock_run.call_args_list
+            if c[0][0][:3] == ["git", "worktree", "prune"]
+        ]
+        self.assertEqual(len(remove_calls), 0, "remove should not run on missing dir")
+        self.assertEqual(len(prune_calls), 1, "prune should still run")
+
+
 class TestHasLiveTeammates(unittest.TestCase):
     """has_live_teammates detects teammate worktrees via `git worktree list`."""
 
@@ -230,6 +270,14 @@ class TestHasLiveTeammates(unittest.TestCase):
 
     def test_ignores_non_teammate_worktrees(self):
         self._add_worktree("feature-branch")
+        self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
+
+    def test_skips_prunable_teammate_worktree(self):
+        """Prunable (stale) teammate worktrees should not count as live."""
+        import shutil
+
+        wt_path = self._add_worktree("teammate-stale")
+        shutil.rmtree(wt_path)
         self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
 
     def test_returns_false_for_non_git_cwd(self):
