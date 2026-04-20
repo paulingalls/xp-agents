@@ -62,6 +62,7 @@ from _cli_helpers import (  # noqa: E402, F401
     run_cli,
 )
 from _event_fixtures import (  # noqa: E402, F401
+    commit_event,
     failing_tests_concern,
     make_event,
     passing_tests_status,

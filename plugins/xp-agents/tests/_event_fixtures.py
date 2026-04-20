@@ -63,6 +63,24 @@ def passing_tests_status(**kwargs) -> dict:
     )
 
 
+def commit_event(
+    files: list[str],
+    ts: str = "2026-04-05T10:00:00+00:00",
+    story_id: str | None = None,
+) -> dict:
+    """Commit event with optional story_id for sizing/attribution tests."""
+    metadata: dict = {"code_commit": True, "commit_hash": "abc123"}
+    if story_id:
+        metadata["story_id"] = story_id
+    return make_event(
+        "commit",
+        content="Committed: test change",
+        files=files,
+        ts=ts,
+        metadata=metadata,
+    )
+
+
 def write_smm_fixture(
     smm_dir: Path,
     *,

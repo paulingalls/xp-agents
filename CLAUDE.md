@@ -242,7 +242,9 @@ tests/
 │   ├── test_teammate_guide.py ← M14 teammate detection + guide injection
 │   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
 │   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
-│   ├── test_sizing_metrics.py ← commit-to-story attribution, sizing aggregation
+│   ├── test_sizing_metrics_extraction.py ← extract_file_domain_paths
+│   ├── test_sizing_metrics_attribution.py ← commit-to-story attribution
+│   ├── test_sizing_metrics_aggregates.py ← per-size aggregates, full analysis
 │   └── test_assign.py       ← xp-assign preload integration
 ├── integration/             ← full subprocess pipeline tests
 │   ├── test_session.py      ← session lifecycle integration
