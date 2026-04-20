@@ -54,6 +54,13 @@ from _bases import (  # noqa: E402, F401
 
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
+from _cli_helpers import (  # noqa: E402, F401
+    VALID_MILESTONE,
+    VALID_SOURCE,
+    make_milestone_dict,
+    make_plan_dict,
+    run_cli,
+)
 from _event_fixtures import (  # noqa: E402, F401
     failing_tests_concern,
     make_event,

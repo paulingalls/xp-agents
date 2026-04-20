@@ -12,7 +12,6 @@ Contract:
 """
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -20,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _SMMTestCase
+from conftest import _SMMTestCase, run_cli
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
@@ -37,33 +36,18 @@ def _seed_smm(smm_dir: Path) -> None:
     smm_store.save_smm(smm_dir, data)
 
 
-def _run_cli(
-    args: list[str],
-    smm_dir: Path,
-    stdin_data: str | None = None,
-) -> subprocess.CompletedProcess:
-    cmd = [sys.executable, str(_CLI), "--smm-dir", str(smm_dir), *args]
-    return subprocess.run(
-        cmd,
-        input=stdin_data,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-
 class TestDumpPureOutput(_SMMTestCase):
     """dump is side-effect-free — prints markdown, drops NO marker."""
 
     def test_dump_prints_signature_header(self):
         _seed_smm(self.smm_dir)
-        result = _run_cli(["dump"], self.smm_dir)
+        result = run_cli(_CLI, ["dump"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(_SMM_SIGNATURE, result.stdout)
 
     def test_dump_does_not_drop_marker(self):
         _seed_smm(self.smm_dir)
-        result = _run_cli(["dump"], self.smm_dir)
+        result = run_cli(_CLI, ["dump"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
         self.assertEqual(
@@ -71,7 +55,7 @@ class TestDumpPureOutput(_SMMTestCase):
         )
 
     def test_dump_without_seeded_smm_still_pure(self):
-        result = _run_cli(["dump"], self.smm_dir)
+        result = run_cli(_CLI, ["dump"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(_SMM_SIGNATURE, result.stdout)
         leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
@@ -83,13 +67,13 @@ class TestRenderDropsMarker(_SMMTestCase):
 
     def test_render_prints_signature_header(self):
         _seed_smm(self.smm_dir)
-        result = _run_cli(["render", "--agent-id", "main"], self.smm_dir)
+        result = run_cli(_CLI, ["render", "--agent-id", "main"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(_SMM_SIGNATURE, result.stdout)
 
     def test_render_drops_agent_scoped_marker(self):
         _seed_smm(self.smm_dir)
-        result = _run_cli(["render", "--agent-id", "main"], self.smm_dir)
+        result = run_cli(_CLI, ["render", "--agent-id", "main"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         marker = self.smm_dir / f"{_MARKER_PREFIX}main"
         self.assertTrue(
@@ -107,8 +91,8 @@ class TestRenderDropsMarker(_SMMTestCase):
 
     def test_render_per_agent_isolation(self):
         _seed_smm(self.smm_dir)
-        r1 = _run_cli(["render", "--agent-id", "teammate-a"], self.smm_dir)
-        r2 = _run_cli(["render", "--agent-id", "teammate-b"], self.smm_dir)
+        r1 = run_cli(_CLI, ["render", "--agent-id", "teammate-a"], self.smm_dir)
+        r2 = run_cli(_CLI, ["render", "--agent-id", "teammate-b"], self.smm_dir)
         self.assertEqual(r1.returncode, 0, r1.stderr)
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertTrue((self.smm_dir / f"{_MARKER_PREFIX}teammate-a").is_file())
@@ -120,7 +104,7 @@ class TestRenderDropsMarker(_SMMTestCase):
         real.write_text("old")
         link = self.smm_dir / f"{_MARKER_PREFIX}main"
         link.symlink_to(real)
-        result = _run_cli(["render", "--agent-id", "main"], self.smm_dir)
+        result = run_cli(_CLI, ["render", "--agent-id", "main"], self.smm_dir)
         # Non-zero exit: marker_write must refuse symlinks.
         self.assertNotEqual(
             result.returncode, 0, f"expected failure; stderr={result.stderr}"
@@ -137,14 +121,14 @@ class TestOtherCommandsDoNotDrop(_SMMTestCase):
 
     def test_section_does_not_drop_marker(self):
         _seed_smm(self.smm_dir)
-        result = _run_cli(["section", "intent"], self.smm_dir)
+        result = run_cli(_CLI, ["section", "intent"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
         self.assertEqual(leaked, [])
 
     def test_has_section_does_not_drop_marker(self):
         _seed_smm(self.smm_dir)
-        _run_cli(["has-section", "intent"], self.smm_dir)
+        run_cli(_CLI, ["has-section", "intent"], self.smm_dir)
         leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
         self.assertEqual(leaked, [])
 
@@ -152,7 +136,7 @@ class TestOtherCommandsDoNotDrop(_SMMTestCase):
         import smm_schema
 
         payload = json.dumps(smm_schema.empty_smm())
-        result = _run_cli(["save"], self.smm_dir, stdin_data=payload)
+        result = run_cli(_CLI, ["save"], self.smm_dir, stdin_data=payload)
         self.assertEqual(result.returncode, 0, result.stderr)
         leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
         self.assertEqual(leaked, [])

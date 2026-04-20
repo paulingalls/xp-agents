@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _IntegrationTestCase
+from conftest import _HookTestCase, _IntegrationTestCase, make_milestone_dict
 
 # ===========================================================================
 # save_sprint.py — Atomic writer for sprint.json
@@ -217,20 +217,7 @@ def _plan_with_milestones(milestones: list[dict]) -> dict:
     }
 
 
-def _make_milestone(number: int, name: str, status: str = "planned") -> dict:
-    return {
-        "number": number,
-        "name": name,
-        "status": status,
-        "goal": "G",
-        "done": "D",
-        "sources": "",
-        "change_zones": [],
-        "impact_zones": [],
-        "design_details": "",
-        "constraints": [],
-        "delivered_sprint": None,
-    }
+_make_milestone = make_milestone_dict
 
 
 class TestSaveSprintMilestoneTransition(_HookTestCase):
@@ -265,7 +252,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
 
     def test_planned_milestone_flipped_to_in_progress(self):
         """Happy path: planned milestone becomes in-progress after save_sprint."""
-        self._write_plan([_make_milestone(1, "Kickoff migration", status="planned")])
+        self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
         self._run_save(self._sprint("Milestone 1: Kickoff migration"))
 
         plan = self._load_plan()
@@ -274,7 +261,13 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
     def test_already_in_progress_is_idempotent(self):
         """Re-running against an already in-progress milestone is a no-op."""
         self._write_plan(
-            [_make_milestone(1, "Kickoff migration", status="in-progress")]
+            [
+                _make_milestone(
+                    number=1,
+                    name="Kickoff migration",
+                    status="in-progress",
+                )
+            ]
         )
         # Must not raise.
         self._run_save(self._sprint("Milestone 1: Kickoff migration"))
@@ -285,7 +278,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
     def test_unparseable_milestone_text_records_concern_does_not_fail(self):
         """If sprint.milestone doesn't parse to 'Milestone N:', sprint still
         saves, a concern event is appended, and no milestone status changes."""
-        self._write_plan([_make_milestone(1, "Kickoff migration", status="planned")])
+        self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
         self._run_save(self._sprint("Free-form milestone name without number"))
 
         # Sprint still written.
@@ -328,8 +321,15 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
         target to in-progress but append a concern about the orphaned one."""
         self._write_plan(
             [
-                _make_milestone(1, "Done work", status="in-progress"),
-                _make_milestone(2, "Current sprint", status="planned"),
+                _make_milestone(
+                    number=1,
+                    name="Done work",
+                    status="in-progress",
+                ),
+                _make_milestone(
+                    number=2,
+                    name="Current sprint",
+                ),
             ]
         )
         self._run_save(self._sprint("Milestone 2: Current sprint"))

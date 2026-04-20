@@ -12,7 +12,6 @@ Contract:
 """
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -20,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _SMMTestCase
+from conftest import _SMMTestCase, run_cli
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "retro_cli.py"
 
@@ -39,26 +38,13 @@ def _make_retro(**overrides) -> dict:
     return data
 
 
-def _run_cli(
-    args: list[str],
-    smm_dir: Path,
-) -> subprocess.CompletedProcess:
-    cmd = [sys.executable, str(_CLI), "--smm-dir", str(smm_dir), *args]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-
 class TestRenderMarkdown(_SMMTestCase):
     def test_signature_header_present(self):
         retro_path = self.smm_dir / "retro.json"
         retro_path.write_text(json.dumps(_make_retro()))
 
-        result = _run_cli(
-            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        result = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -76,8 +62,8 @@ class TestRenderMarkdown(_SMMTestCase):
             )
         )
 
-        result = _run_cli(
-            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        result = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -103,8 +89,8 @@ class TestRenderMarkdown(_SMMTestCase):
             )
         )
 
-        result = _run_cli(
-            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        result = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -119,8 +105,8 @@ class TestMarkerDrop(_SMMTestCase):
         retro_path = self.smm_dir / "retro.json"
         retro_path.write_text(json.dumps(_make_retro()))
 
-        result = _run_cli(
-            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        result = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -141,11 +127,11 @@ class TestMarkerDrop(_SMMTestCase):
         retro_path = self.smm_dir / "retro.json"
         retro_path.write_text(json.dumps(_make_retro()))
 
-        r1 = _run_cli(
-            ["render", str(retro_path), "--agent-id", "teammate-a"], self.smm_dir
+        r1 = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "teammate-a"], self.smm_dir
         )
-        r2 = _run_cli(
-            ["render", str(retro_path), "--agent-id", "teammate-b"], self.smm_dir
+        r2 = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "teammate-b"], self.smm_dir
         )
 
         self.assertEqual(r1.returncode, 0, r1.stderr)
@@ -161,8 +147,8 @@ class TestMarkerDrop(_SMMTestCase):
         link = self.smm_dir / f"{_MARKER_PREFIX}main"
         link.symlink_to(real)
 
-        result = _run_cli(
-            ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
+        result = run_cli(
+            _CLI, ["render", str(retro_path), "--agent-id", "main"], self.smm_dir
         )
 
         self.assertNotEqual(
@@ -178,7 +164,9 @@ class TestErrorHandling(_SMMTestCase):
     def test_missing_json_path_errors(self):
         missing = self.smm_dir / "does-not-exist.json"
 
-        result = _run_cli(["render", str(missing), "--agent-id", "main"], self.smm_dir)
+        result = run_cli(
+            _CLI, ["render", str(missing), "--agent-id", "main"], self.smm_dir
+        )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stderr.strip(), "expected stderr message")
@@ -189,7 +177,9 @@ class TestErrorHandling(_SMMTestCase):
         bad_path = self.smm_dir / "bad.json"
         bad_path.write_text("{ not valid json")
 
-        result = _run_cli(["render", str(bad_path), "--agent-id", "main"], self.smm_dir)
+        result = run_cli(
+            _CLI, ["render", str(bad_path), "--agent-id", "main"], self.smm_dir
+        )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stderr.strip())
