@@ -18,13 +18,12 @@ import commits
 import concerns
 import identity
 import markers
+import resolves_probe
 import security
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
-    METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_RESOLVES,
-    STATUS_CONTENT_RESOLVES_PROBE,
 )
 from test_parsing import is_test_run, parse_test_results
 
@@ -62,7 +61,6 @@ def _resolve_lint_on_commit(
 
 
 COMMIT_SIZE_THRESHOLD = 12
-PROBE_CANDIDATE_LIMIT = 5
 
 
 # ---------------------------------------------------------------------------
@@ -211,30 +209,15 @@ def _handle_commit(
         )
     ]
 
-    open_matches = commits.open_concerns_matching_commit(smm_dir, committed_files, cwd)
-    candidates = [c for c in open_matches if c["id"] not in resolves][
-        :PROBE_CANDIDATE_LIMIT
-    ]
-    nudge_lines = [
-        f"Auto-link nudge: concern {c['id']} — {(c.get('content') or '')[:80]}. "
-        f"If correct, re-commit with:\n"
-        f'  git commit --amend --trailer "Resolves-Event: {c["id"]}"'
-        for c in candidates
-    ]
-
-    if candidates:
-        pending.append(
-            _common.make_event(
-                _common.STATUS,
-                agent_id,
-                f"{STATUS_CONTENT_RESOLVES_PROBE}: {len(candidates)} candidates",
-                working_on=[],
-                metadata={
-                    METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
-                    METADATA_KEY_COMMIT_HASH: commit_hash,
-                },
-            )
-        )
+    candidates = resolves_probe.find_probe_candidates(
+        smm_dir, committed_files, resolves, cwd
+    )
+    nudge_lines = resolves_probe.build_nudge_lines(candidates)
+    status_event = resolves_probe.build_probe_status_event(
+        candidates, commit_hash, agent_id
+    )
+    if status_event:
+        pending.append(status_event)
 
     file_count = len(committed_files)
     if file_count >= COMMIT_SIZE_THRESHOLD:
