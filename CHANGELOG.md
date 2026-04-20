@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.14.9 — Retro Try Debt Cleanup: File Splits, Dedup, Exception Narrowing
+
+Free session addressing all four adopted retro Tries from the retrospective. Pure refactoring and code quality improvements -- no new features.
+
+- **Split oversized test files.** `test_retrospective.py` (1788 lines) split into 4 files by feature area: core run() behavior, sprint sizing/link rates, honesty signals/security counting, and digest resolutions/try annotation. `test_bash.py` (1138 lines) split into 3 files: core commit handling, post-commit behaviors (probe dedup, review cycle, nudge, QR linkage), and failure handling/compat. `_ProbeTestHelpers` mixin extracted to `conftest.py` (review feedback -- avoids creating duplication across split files). All files under 500 lines except `test_retrospective.py` at 647 (session stats tests are cohesive with the core class).
+
+- **Extract `retro_metrics.py` from `retrospective.py`.** Split 600-line file into orchestration (282 lines: `run()`, sprint detection, watermark, retro input building) and pure computation (307 lines: session stats, status classification, concern grouping, resolutions map, digest building, resolves link rate). Removed dead `MAX_EVENTS_IN_RETRO` constant. Fixed stale `event_schema.py` comment referencing old module.
+
+- **Deduplicate concern-matching logic.** Added `events=` parameter to `commits.open_concerns_matching_commit()` so callers with pre-loaded events skip the disk read. Removed 39-line `_open_concerns_from_events()` from `resolves_probe.py` (was near-verbatim copy). `find_probe_candidates()` now always delegates -- no if/else branch.
+
+- **Narrow bare exception handlers.** `duplicate_debt_probe.run_probe_and_append`: `except Exception` narrowed to `except (OSError, json.JSONDecodeError, ValueError, KeyError)`. `_common._run_duplicate_debt_probe`: `except Exception` narrowed to `except ImportError`. Tests verify unexpected exceptions (AttributeError, TypeError) now propagate instead of being silently swallowed.
+
+- **Tests.** 2319 total (up from 2304 at v2.14.8). 5 new tests for `events=` parameter and exception narrowing. CLAUDE.md test layout updated to reflect new file structure.
+
 ## v2.14.8 — Pre-Commit Resolves-Trailer Probe; Post-Commit Dedup; Retro Metric Safeguard
 
 Closes Milestone 3 of the Mechanical-Discipline-Closure execution plan. Sprint-007 delivered two stories solo (linear dependency chain, both touching `bash_post_tool.py`). The resolves-trailer auto-link probe now runs INSIDE `/xp-quality-review` before the commit, so the `Resolves-Event:` trailer lands on the first commit without needing `git commit --amend`. Post-commit hook consumes the same probe's fingerprint to suppress a duplicate nudge and — critically — a duplicate status event that would double-count in the retro `resolves_link_rate` metric.
