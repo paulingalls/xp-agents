@@ -344,9 +344,17 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         self.assertIn(cid, result)
         self.assertIn("Resolves-Event", result)
 
+    def _seed_qr_status(self) -> None:
+        """Seed a quality-review status event to suppress QR-linkage warning."""
+        _common.append_safe(
+            self.smm_dir,
+            make_event("status", content="Quality review complete. No issues."),
+        )
+
     def test_commit_no_nudge_when_concern_resolved_by_trailer(self):
         """Resolves-Event trailer covering the matching concern → no nudge."""
         cid = self._seed_auth_concern()
+        self._seed_qr_status()
         result = self._run_auth_fix(body=f"Fix auth\n\nResolves-Event: {cid}")
         self.assertIsNone(result)
 
@@ -354,6 +362,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         """Concern's files don't intersect commit files → no nudge."""
         concern = make_event("concern", content="Other bug", files=["scripts/foo.py"])
         _common.append_safe(self.smm_dir, concern)
+        self._seed_qr_status()
         result = self._run_commit(
             body="Update README\n\nNo trailer.",
             committed_files=["README.md"],
@@ -904,6 +913,225 @@ class TestBashPostToolPushWarning(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
+
+
+# ===========================================================================
+# QR-linkage warning in _handle_commit
+# ===========================================================================
+
+
+class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
+    """Per-commit quality-review linkage warning.
+
+    After each commit, warn if no quality-review status event exists since
+    the previous commit for this agent. Suppressed when REVIEW_FINGERPRINT
+    marker is present and fingerprint matches committed files.
+    """
+
+    def _seed_commit_event(self, agent_id: str = "main") -> str:
+        """Seed a commit event and return its ID."""
+        ev = make_event("commit", agent_id=agent_id, content="Prior commit")
+        _common.append_safe(self.smm_dir, ev)
+        return ev["id"]
+
+    def _seed_qr_status(self, agent_id: str = "xp-quality-review") -> str:
+        """Seed a quality-review status event."""
+        ev = make_event(
+            "status",
+            agent_id=agent_id,
+            content="Quality review complete. No issues: [].",
+        )
+        _common.append_safe(self.smm_dir, ev)
+        return ev["id"]
+
+    def _run_commit(
+        self,
+        agent_id: str = "main",
+        committed_files: list[str] | None = None,
+    ) -> str | None:
+        files = committed_files or ["src/app.py"]
+        with (
+            patch("commits.get_committed_files", return_value=files),
+            patch("commits.get_commit_message_body", return_value="Fix stuff"),
+            patch("commits.get_head_commit_hash", return_value="def456"),
+        ):
+            return bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix stuff'",
+                    stdout="[main def456] Fix stuff\n 1 file changed",
+                    cwd=str(self.smm_dir),
+                    agent_id=agent_id,
+                ),
+                smm_dir=self.smm_dir,
+            )
+
+    def _write_fingerprint_marker(
+        self, files: list[str], agent_id: str = "main"
+    ) -> None:
+        import resolves_probe
+
+        fp = resolves_probe.compute_fingerprint(files, [], cwd=str(self.smm_dir))
+        markers.marker_write(
+            self.smm_dir,
+            markers.REVIEW_FINGERPRINT,
+            {"fingerprint": fp, "candidate_ids": []},
+            agent_id,
+        )
+
+    def test_qr_event_between_commits_no_warning(self):
+        """(a) QR status event between previous commit and current → no warning."""
+        self._seed_commit_event()
+        self._seed_qr_status()
+        result = self._run_commit()
+        if result:
+            self.assertNotIn("quality review", result.lower())
+
+    def test_no_qr_event_since_previous_commit_warns(self):
+        """(b) No QR status event since previous commit → warning."""
+        self._seed_commit_event()
+        # No QR status event seeded
+        result = self._run_commit()
+        self.assertIsNotNone(result)
+        self.assertIn("quality review", result.lower())
+
+    def test_no_marker_no_qr_event_warns(self):
+        """(c) No marker, no previous commit → warning (first commit)."""
+        result = self._run_commit()
+        self.assertIsNotNone(result)
+        self.assertIn("quality review", result.lower())
+
+    def test_marker_match_suppresses_warning(self):
+        """Marker + fingerprint match → no QR warning even without QR event."""
+        self._seed_commit_event()
+        self._write_fingerprint_marker(["src/app.py"])
+        result = self._run_commit()
+        if result:
+            self.assertNotIn("quality review", result.lower())
+
+    def test_back_to_back_commits_second_warns(self):
+        """(d) Commit A has QR, commit B has no QR between → warning for B."""
+        # Commit A preceded by QR
+        self._seed_commit_event()
+        self._seed_qr_status()
+        # Simulate commit A completing (new commit event)
+        self._seed_commit_event()
+        # No QR between commit A and commit B
+        result = self._run_commit()
+        self.assertIsNotNone(result)
+        self.assertIn("quality review", result.lower())
+
+    def test_qr_from_different_agent_still_suppresses(self):
+        """QR status from xp-quality-review agent suppresses warning."""
+        self._seed_commit_event()
+        self._seed_qr_status(agent_id="xp-quality-review")
+        result = self._run_commit()
+        if result:
+            self.assertNotIn("quality review", result.lower())
+
+
+# ===========================================================================
+# Events-read dedup: single read in _handle_commit
+# ===========================================================================
+
+
+class TestEventsReadDedup(_HookTestCase):
+    """_handle_commit reads events.jsonl exactly once."""
+
+    def test_read_events_raw_called_once(self):
+        """(e) _common.read_events_raw called exactly once during _handle_commit."""
+        with (
+            patch("commits.get_committed_files", return_value=["src/app.py"]),
+            patch("commits.get_commit_message_body", return_value="Fix"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch(
+                "bash_post_tool._common.read_events_raw",
+                wraps=_common.read_events_raw,
+            ) as spy,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix'",
+                    stdout="[main abc123] Fix\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertEqual(spy.call_count, 1)
+
+
+# ===========================================================================
+# events= kwarg backward compatibility
+# ===========================================================================
+
+
+class TestResolvesConcernsEventsKwarg(_HookTestCase):
+    """concerns.resolve_concerns events= kwarg backward compatibility."""
+
+    def test_events_none_reads_from_disk(self):
+        """events=None (default) reads from disk — backward compatible."""
+        concern = make_event(
+            "concern", content="Test failures detected: 3 failed", severity="high"
+        )
+        _common.append_safe(self.smm_dir, concern)
+        import concerns
+
+        result = concerns.resolve_concerns(
+            self.smm_dir,
+            concerns.TEST_CONCERN_RE.search,
+            "main",
+            "Test concern resolved",
+        )
+        self.assertTrue(result)
+
+    def test_events_provided_skips_disk_read(self):
+        """events= provided uses given events, no disk read."""
+        concern = make_event(
+            "concern", content="Test failures detected: 3 failed", severity="high"
+        )
+        _common.append_safe(self.smm_dir, concern)
+        events = _common.read_events_raw(self.smm_dir)
+        import concerns
+
+        with patch("concerns.read_events_raw") as mock_read:
+            result = concerns.resolve_concerns(
+                self.smm_dir,
+                concerns.TEST_CONCERN_RE.search,
+                "main",
+                "Test concern resolved",
+                events=events,
+            )
+        mock_read.assert_not_called()
+        self.assertTrue(result)
+
+
+class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
+    """resolves_probe.find_probe_candidates events= kwarg backward compat."""
+
+    def test_events_none_reads_from_disk(self):
+        """events=None delegates to commits.open_concerns_matching_commit."""
+        self._seed_auth_concern()
+        import resolves_probe
+
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir, ["scripts/auth.py"], [], str(self.smm_dir)
+        )
+        self.assertEqual(len(result), 1)
+
+    def test_events_provided_skips_disk_read(self):
+        """events= provided filters from given events without disk read."""
+        self._seed_auth_concern()
+        events = _common.read_events_raw(self.smm_dir)
+        import resolves_probe
+
+        with patch("resolves_probe.commits.open_concerns_matching_commit") as mock_oc:
+            result = resolves_probe.find_probe_candidates(
+                self.smm_dir,
+                ["scripts/auth.py"],
+                [],
+                str(self.smm_dir),
+                events=events,
+            )
+        mock_oc.assert_not_called()
+        self.assertEqual(len(result), 1)
 
 
 if __name__ == "__main__":

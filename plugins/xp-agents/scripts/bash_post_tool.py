@@ -33,7 +33,11 @@ from test_parsing import is_test_run, parse_test_results
 
 
 def _resolve_lint_on_commit(
-    smm_dir: Path, cwd: str, agent_id: str, files: list[str]
+    smm_dir: Path,
+    cwd: str,
+    agent_id: str,
+    files: list[str],
+    events: list[dict] | None = None,
 ) -> None:
     """Run linter on committed files and resolve lint concerns for passing ones."""
     if not files:
@@ -51,12 +55,12 @@ def _resolve_lint_on_commit(
         linter_name, _ = config
         lint_output = lint_check.run_linter(linter_name, normalized, cwd=git_root)
         if lint_output is None:
-            # File passes lint (or linter doesn't apply) — resolve concern
             concerns.resolve_concerns(
                 smm_dir,
                 lambda c, n=normalized: concerns.lint_concern_matches(c, n),
                 agent_id,
                 "Lint concern resolved on commit",
+                events=events,
             )
 
 
@@ -167,6 +171,47 @@ def _resolve_story_id(
     return None if tied else best_id
 
 
+_QR_STATUS_RE = re.compile(r"Quality review complete", re.IGNORECASE)
+
+_QR_WINDOW_CAP = 30
+
+
+def _check_qr_linkage(
+    events: list[dict], agent_id: str, marker_matched: bool
+) -> str | None:
+    """Return a warning if no quality-review status since previous commit.
+
+    The backward scan for the previous commit is capped at _QR_WINDOW_CAP
+    events.  When no commit is found (first commit or beyond cap), the
+    forward scan starts from index 0 -- fail-open: an ancient QR event
+    may suppress the warning.  Acceptable because this is an advisory
+    nudge, not a commit gate.
+    """
+    if marker_matched:
+        return None
+
+    prev_commit_idx: int | None = None
+    start = max(0, len(events) - _QR_WINDOW_CAP)
+    for i in range(len(events) - 1, start - 1, -1):
+        e = events[i]
+        if e.get("type") == _common.COMMIT and e.get("agent_id") == agent_id:
+            prev_commit_idx = i
+            break
+
+    search_start = (prev_commit_idx + 1) if prev_commit_idx is not None else 0
+    for i in range(search_start, len(events)):
+        e = events[i]
+        if e.get("type") == _common.STATUS and _QR_STATUS_RE.search(
+            e.get("content", "")
+        ):
+            return None
+
+    return (
+        "No quality review found since previous commit. "
+        "Run /xp-quality-review before committing."
+    )
+
+
 def _handle_commit(
     smm_dir: Path, agent_id: str, cwd: str, response_text: str
 ) -> str | None:
@@ -209,18 +254,14 @@ def _handle_commit(
         )
     ]
 
+    events = _common.read_events_raw(smm_dir)
+
     candidates = resolves_probe.find_probe_candidates(
-        smm_dir, committed_files, resolves, cwd
+        smm_dir, committed_files, resolves, cwd, events=events
     )
     marker_data = markers.marker_consume(smm_dir, markers.REVIEW_FINGERPRINT, agent_id)
 
-    # Three-way dedup against the /xp-quality-review pre-commit probe marker:
-    #   no marker         → emit nudge + status event (today's behavior)
-    #   marker + match    → skip both (probe already covered this surface)
-    #   marker + mismatch → emit nudge as safety net, skip status event
-    #                       (the pre-commit probe already logged one; emitting
-    #                       another would double-count in
-    #                       retro._compute_resolves_link_rate).
+    marker_matched = False
     if not isinstance(marker_data, dict):
         nudge_lines = resolves_probe.build_nudge_lines(candidates)
         status_event = resolves_probe.build_probe_status_event(
@@ -233,6 +274,7 @@ def _handle_commit(
         if marker_data.get("fingerprint") == fingerprint:
             nudge_lines = []
             status_event = None
+            marker_matched = True
         else:
             nudge_lines = resolves_probe.build_nudge_lines(candidates)
             status_event = None
@@ -253,13 +295,20 @@ def _handle_commit(
 
     _common.bulk_append_safe(smm_dir, pending)
 
-    _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files)
+    _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files, events=events)
     security.consume_security_triaged(smm_dir, agent_id)
 
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
-    return "\n".join(nudge_lines) if nudge_lines else None
+    qr_warning = _check_qr_linkage(events, agent_id, marker_matched)
+
+    parts: list[str] = []
+    if nudge_lines:
+        parts.extend(nudge_lines)
+    if qr_warning:
+        parts.append(qr_warning)
+    return "\n".join(parts) if parts else None
 
 
 # ---------------------------------------------------------------------------

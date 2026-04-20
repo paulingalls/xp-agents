@@ -235,6 +235,14 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
             capture_output=True,
             check=True,
         )
+        self._seed_events(
+            [
+                make_event(
+                    "status",
+                    content="Quality review complete. No issues.",
+                )
+            ]
+        )
 
         result = self._run_script(
             "bash_post_tool.py",
