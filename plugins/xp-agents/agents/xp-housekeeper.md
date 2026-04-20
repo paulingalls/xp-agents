@@ -19,8 +19,7 @@ Curate the Shared Mental Model — a concise briefing every agent reads. Autonom
 
 2. **Read the curation input.** The data is at `${SMM_DIR}/.curation-input.json`. Read this file — it contains:
    - `current_smm`: the **canonical persisted pillar content** from `shared_mental_model.json`. Each entry has an `id`, `content`, `source`, `ts`, and optional `type`/`topic`/`severity`/`source_event_id`. Use the `id` when you need to update or remove an existing entry.
-   - `new_since_last_curation`: new events (customer_inputs, decisions, concerns, assumptions, debt, questions, resolutions)
-   - `retro_history`: latest_tries, recurring_fixes, adopted_tries
+   - `new_since_last_curation`: new events (customer_inputs, decisions, concerns, assumptions, debt, questions, resolutions). **Structural notes:** `resolutions` is a flat list of resolved event IDs (use `id in resolutions` for membership checks). `customer_inputs` may have `content_truncated: true` — use `get-event <id>` for the full body when judgment requires it. `adopted_tries` is capped at the 10 most recent.
    - `aging`: risk ID → session count since creation
    - `health`: item counts per pillar
 
@@ -32,7 +31,7 @@ Curate the Shared Mental Model — a concise briefing every agent reads. Autonom
 
 The curated SMM is persistent. Your job is to **merge new events into the current pillars**, not re-derive from scratch. You express mutations as individual CLI commands — the CLI handles identity (UUIDs, timestamps).
 
-- **Resolved entries:** If an entry's `source_event_id` appears in `new_since_last_curation.resolutions`, remove it via `remove-item`.
+- **Resolved entries:** If an entry's `source_event_id` appears in `new_since_last_curation.resolutions` (list — use `source_event_id in resolutions`), remove it via `remove-item`.
 - **Superseded entries:** If a newer decision on the same topic exists, remove the old entry via `remove-item` and add the new one via `add-item`.
 - **Stale entries:** If your judgment says an entry is stale, absorbed by CI/tests, or no longer relevant, remove it via `remove-item`.
 - **New items:** Add via `add-item` with appropriate pillar, type, topic, and severity flags.
@@ -59,6 +58,13 @@ Three link strengths: **STRONG** `metadata.resolves=[id]` (closes target — use
 ## Content Budgets
 
 Every `add-item` and `update-item` content has a per-pillar budget enforced by `smm_cli.py`: intent=200, constraints=150, risks=200, wisdom=150 chars. Write tight: *"TDD — red, green, refactor, commit"* (38 chars) not *"All development must follow the Test-Driven Development methodology where tests are written before implementation code"* (116 chars).
+
+## On-Demand Deep Reads
+
+Curation input is lean by design. If judgment hinges on a truncated customer_input's full body or a resolver's content, fetch it:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> get-event <id>
+```
 
 ## 1. Curate Intent
 
