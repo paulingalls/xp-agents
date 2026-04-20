@@ -6,6 +6,8 @@ Pure module called by two paths:
 - xp-quality-review/scripts/probe_candidates.py (pre-commit probe)
 """
 
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import commits
+import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_PROBE_CANDIDATES,
@@ -42,6 +45,28 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
         f'  git commit --amend --trailer "Resolves-Event: {c["id"]}"'
         for c in candidates
     ]
+
+
+def compute_fingerprint(files: list[str], concern_ids: list[str], cwd: str) -> str:
+    """sha256 over sorted normalized files + sorted concern ids. Order-invariant.
+
+    Used by /xp-quality-review pre-commit and bash_post_tool._handle_commit to
+    detect when the pre-commit probe and the post-commit commit are covering
+    the same set of (staged files, open concerns) — fingerprint match means
+    the post-commit nudge is redundant. Files that fail to normalize are
+    silently skipped, mirroring commits.open_concerns_matching_commit so both
+    sides of the pre/post comparison agree on which files are fingerprinted.
+    """
+    norm_files: set[str] = set()
+    for f in files:
+        try:
+            norm_files.add(worktree.normalize_path(f, cwd))
+        except (ValueError, OSError):
+            continue
+    payload = json.dumps(
+        {"files": sorted(norm_files), "ids": sorted(concern_ids)}, sort_keys=True
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def build_probe_status_event(

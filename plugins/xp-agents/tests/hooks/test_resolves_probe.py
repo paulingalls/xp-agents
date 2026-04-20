@@ -94,6 +94,57 @@ class TestBuildNudgeLines(unittest.TestCase):
         self.assertIn("abc", lines[0])
 
 
+class TestComputeFingerprint(unittest.TestCase):
+    """compute_fingerprint produces a stable sha256 over files + concern ids."""
+
+    def test_same_inputs_produce_same_hash(self):
+        fp1 = resolves_probe.compute_fingerprint(
+            ["a.py", "b.py"], ["id1", "id2"], cwd="/tmp"
+        )
+        fp2 = resolves_probe.compute_fingerprint(
+            ["a.py", "b.py"], ["id1", "id2"], cwd="/tmp"
+        )
+        self.assertEqual(fp1, fp2)
+
+    def test_file_order_invariance(self):
+        fp1 = resolves_probe.compute_fingerprint(["a.py", "b.py"], ["id1"], cwd="/tmp")
+        fp2 = resolves_probe.compute_fingerprint(["b.py", "a.py"], ["id1"], cwd="/tmp")
+        self.assertEqual(fp1, fp2)
+
+    def test_concern_id_order_invariance(self):
+        fp1 = resolves_probe.compute_fingerprint(["a.py"], ["id1", "id2"], cwd="/tmp")
+        fp2 = resolves_probe.compute_fingerprint(["a.py"], ["id2", "id1"], cwd="/tmp")
+        self.assertEqual(fp1, fp2)
+
+    def test_path_normalization(self):
+        fp1 = resolves_probe.compute_fingerprint(["./a.py"], [], cwd="/tmp")
+        fp2 = resolves_probe.compute_fingerprint(["a.py"], [], cwd="/tmp")
+        self.assertEqual(fp1, fp2)
+
+    def test_different_files_produce_different_hash(self):
+        fp1 = resolves_probe.compute_fingerprint(["a.py"], ["id1"], cwd="/tmp")
+        fp2 = resolves_probe.compute_fingerprint(["b.py"], ["id1"], cwd="/tmp")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_different_concern_ids_produce_different_hash(self):
+        fp1 = resolves_probe.compute_fingerprint(["a.py"], ["id1"], cwd="/tmp")
+        fp2 = resolves_probe.compute_fingerprint(["a.py"], ["id2"], cwd="/tmp")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_returns_hex_string(self):
+        fp = resolves_probe.compute_fingerprint(["a.py"], ["id1"], cwd="/tmp")
+        self.assertIsInstance(fp, str)
+        self.assertRegex(fp, r"^[0-9a-f]+$")
+
+    def test_empty_inputs_produce_stable_hash(self):
+        # Post-commit coordinator may fingerprint an empty probe (no candidates);
+        # the helper must not raise and must be deterministic across calls.
+        fp1 = resolves_probe.compute_fingerprint([], [], cwd="/tmp")
+        fp2 = resolves_probe.compute_fingerprint([], [], cwd="/tmp")
+        self.assertEqual(fp1, fp2)
+        self.assertRegex(fp1, r"^[0-9a-f]+$")
+
+
 class TestBuildProbeStatusEvent(unittest.TestCase):
     """build_probe_status_event returns the status event dict or None."""
 
