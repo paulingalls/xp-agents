@@ -215,7 +215,8 @@ tests/
 ├── conftest.py              ← shared helpers: make_event, base classes, input factories
 ├── hooks/                   ← unit tests for command hooks (from scripts/)
 │   ├── test_common.py       ← _common.py core utilities
-│   ├── test_common_smm.py   ← _common.py SMM data operations (events, watermarks, conflicts)
+│   ├── test_common_smm.py   ← _common.py SMM data operations (events, decisions, conflicts)
+│   ├── test_common_smm_lookups.py ← concerns.py lookups (debt/concern file matching)
 │   ├── test_session_start.py ← session_start, retrospective
 │   ├── test_session_lifecycle.py ← session_end, pre_compact
 │   ├── test_kickoff.py      ← kickoff_gate, kickoff_done

@@ -126,6 +126,12 @@ class TestGetTargetFile(unittest.TestCase):
             "src/app.ts",
         )
 
+    def test_multi_edit_returns_file_path(self):
+        self.assertEqual(
+            _common.extract_file_path("MultiEdit", {"file_path": "src/app.ts"}),
+            "src/app.ts",
+        )
+
     def test_bash_returns_none(self):
         self.assertIsNone(_common.extract_file_path("Bash", {"command": "ls"}))
 
