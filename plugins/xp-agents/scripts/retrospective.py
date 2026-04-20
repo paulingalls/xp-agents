@@ -283,6 +283,14 @@ def _find_unanalyzed_start(events: list[dict]) -> int:
     return 0
 
 
+def _new_agent_stats() -> dict:
+    return {
+        "status_count": 0,
+        "concerns_raised": 0,
+        "decisions_total": 0,
+    }
+
+
 def _compute_session_stats(events: list[dict]) -> dict:
     """Compute session statistics using shared resolution tracking."""
     import resolution
@@ -298,19 +306,25 @@ def _compute_session_stats(events: list[dict]) -> dict:
     }
 
     question_ids: set[str] = set()
+    per_agent: dict[str, dict] = {}
 
     for e in events:
+        agent_id = e.get("agent_id", "main")
+        agent = per_agent.setdefault(agent_id, _new_agent_stats())
         match e.get("type", ""):
             case _common.STATUS:
                 stats["status_count"] += 1
+                agent["status_count"] += 1
                 if e.get("metadata", {}).get("action") == "iteration_complete":
                     stats["iterations_completed"] += 1
             case _common.CONCERN:
                 stats["concerns_raised"] += 1
+                agent["concerns_raised"] += 1
             case _common.QUESTION:
                 question_ids.add(e.get("id", ""))
             case _common.DECISION:
                 stats["decisions_total"] += 1
+                agent["decisions_total"] += 1
 
     resolutions = resolution.compute_resolutions(events)
     stats["concerns_resolved"] = len(resolutions["resolved_concern_ids"])
@@ -318,7 +332,7 @@ def _compute_session_stats(events: list[dict]) -> dict:
     answered = resolutions["answered_question_ids"]
     stats["questions_open"] = len(question_ids) - len(answered)
 
-    return stats
+    return {**stats, "per_agent": per_agent}
 
 
 def _build_retro_input(
@@ -468,32 +482,49 @@ def _compute_resolves_link_rate(
         and _in_window(e)
     ]
 
-    hits = 0
+    per_agent_probes: dict[str, list[dict]] = {}
     for probe in probes:
-        candidates = set(
-            (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
-        )
-        if not candidates:
-            continue
         agent_id = probe.get("agent_id", "")
-        probe_ts = probe.get("ts", "")
-        for e in events:
-            if e.get("type") != _common.COMMIT:
+        per_agent_probes.setdefault(agent_id, []).append(probe)
+
+    per_agent: dict[str, dict] = {}
+    total_hits = 0
+    for agent_id, agent_probes in per_agent_probes.items():
+        agent_hits = 0
+        for probe in agent_probes:
+            candidates = set(
+                (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
+            )
+            if not candidates:
                 continue
-            if e.get("agent_id", "") != agent_id:
-                continue
-            if e.get("ts", "") <= probe_ts:
-                continue
-            resolves = set((e.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or [])
-            if resolves & candidates:
-                hits += 1
-            break
+            probe_ts = probe.get("ts", "")
+            for e in events:
+                if e.get("type") != _common.COMMIT:
+                    continue
+                if e.get("agent_id", "") != agent_id:
+                    continue
+                if e.get("ts", "") <= probe_ts:
+                    continue
+                resolves = set(
+                    (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
+                )
+                if resolves & candidates:
+                    agent_hits += 1
+                break
+        agent_total = len(agent_probes)
+        per_agent[agent_id] = {
+            "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,
+            "resolves_probe_hits": agent_hits,
+            "resolves_probe_total": agent_total,
+        }
+        total_hits += agent_hits
 
     total = len(probes)
     return {
-        "resolves_link_rate": hits / total if total > 0 else 0.0,
-        "resolves_probe_hits": hits,
+        "resolves_link_rate": total_hits / total if total > 0 else 0.0,
+        "resolves_probe_hits": total_hits,
         "resolves_probe_total": total,
+        "per_agent": per_agent,
     }
 
 
@@ -531,7 +562,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if sizing is not None:
             link_stats = _compute_resolves_link_rate(events, sizing.get("started"))
             if link_stats["resolves_probe_total"] > 0:
+                link_per_agent = link_stats.pop("per_agent", {})
                 sizing.update(link_stats)
+                for agent_id, link_rate in link_per_agent.items():
+                    sizing["per_agent"].setdefault(agent_id, {}).update(link_rate)
             retro_input["sizing_analysis"] = sizing
 
     _write_retro_input(smm_dir, retro_input)

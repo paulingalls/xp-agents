@@ -520,6 +520,73 @@ class TestRetrospective(_HookTestCase):
             data = json.load(f)
         self.assertEqual(data["session_stats"]["iterations_completed"], 0)
 
+    def test_session_stats_solo_per_agent_matches_aggregate(self):
+        """Solo session: per_agent dict has 1 key matching aggregate values."""
+        import retrospective
+
+        events = [
+            make_event("status", content="Working", working_on=["a.py"]),
+            make_event("concern", content="Issue A"),
+            make_event("decision", content="Use X", topic="arch"),
+            make_event(content="filler 1"),
+            make_event(content="filler 2"),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        stats = data["session_stats"]
+        self.assertIn("per_agent", stats)
+        self.assertEqual(len(stats["per_agent"]), 1)
+        self.assertIn("main", stats["per_agent"])
+        agent_stats = stats["per_agent"]["main"]
+        self.assertEqual(agent_stats["status_count"], stats["status_count"])
+        self.assertEqual(agent_stats["concerns_raised"], stats["concerns_raised"])
+        self.assertEqual(agent_stats["decisions_total"], stats["decisions_total"])
+
+    def test_session_stats_parallel_per_agent_scoped(self):
+        """Parallel-teammate session: per-agent stats scoped to each agent."""
+        import retrospective
+
+        events = [
+            make_event(
+                "status", content="Working", working_on=["a.py"], agent_id="teammate-1"
+            ),
+            make_event(
+                "status", content="Working", working_on=["b.py"], agent_id="teammate-1"
+            ),
+            make_event(
+                "status", content="Working", working_on=["c.py"], agent_id="teammate-2"
+            ),
+            make_event("concern", content="Issue A", agent_id="teammate-1"),
+            make_event("concern", content="Issue B", agent_id="teammate-2"),
+            make_event("concern", content="Issue C", agent_id="teammate-2"),
+            make_event(
+                "decision", content="Use X", topic="arch", agent_id="teammate-1"
+            ),
+        ]
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        stats = data["session_stats"]
+        self.assertIn("per_agent", stats)
+        self.assertEqual(len(stats["per_agent"]), 2)
+        t1 = stats["per_agent"]["teammate-1"]
+        t2 = stats["per_agent"]["teammate-2"]
+        self.assertEqual(t1["status_count"], 2)
+        self.assertEqual(t1["concerns_raised"], 1)
+        self.assertEqual(t1["decisions_total"], 1)
+        self.assertEqual(t2["status_count"], 1)
+        self.assertEqual(t2["concerns_raised"], 2)
+        self.assertEqual(t2["decisions_total"], 0)
+
 
 # ===========================================================================
 # M3: Sprint sizing in session retro
@@ -817,6 +884,58 @@ class TestResolvesLinkRate(_HookTestCase):
         sizing = data["sizing_analysis"]
         self.assertEqual(sizing["resolves_probe_total"], 1)
         self.assertEqual(sizing["resolves_probe_hits"], 0)
+
+
+class TestResolvesLinkRatePerAgent(unittest.TestCase):
+    """per_agent rates scoped to each agent's probe+commit pairs."""
+
+    def _probe(self, candidate_ids, ts, commit_hash, agent_id="main"):
+        return make_event(
+            "status",
+            content=(f"resolves_probe_shown: {len(candidate_ids)} candidates"),
+            working_on=[],
+            ts=ts,
+            agent_id=agent_id,
+            metadata={
+                "probe_candidates": candidate_ids,
+                "commit_hash": commit_hash,
+            },
+        )
+
+    def _commit(self, resolves_ids, ts, commit_hash, agent_id="main"):
+        return make_event(
+            "commit",
+            content="Work",
+            ts=ts,
+            files=["scripts/x.py"],
+            agent_id=agent_id,
+            metadata={
+                "code_commit": True,
+                "commit_hash": commit_hash,
+                "resolves": resolves_ids,
+            },
+        )
+
+    def test_per_agent_link_rate_two_agents(self):
+        """Two agents: agent-1 hits, agent-2 misses — per_agent scoped."""
+        import retrospective
+
+        events = [
+            self._probe(["aaa"], "2026-04-05T10:00:00+00:00", "h1", "agent-1"),
+            self._commit(["aaa"], "2026-04-05T10:01:00+00:00", "h1", "agent-1"),
+            self._probe(["bbb"], "2026-04-05T10:00:00+00:00", "h2", "agent-2"),
+            self._commit([], "2026-04-05T10:01:00+00:00", "h2", "agent-2"),
+        ]
+        result = retrospective._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertIn("per_agent", result)
+        pa = result["per_agent"]
+        self.assertEqual(len(pa), 2)
+        self.assertEqual(pa["agent-1"]["resolves_probe_hits"], 1)
+        self.assertEqual(pa["agent-1"]["resolves_probe_total"], 1)
+        self.assertEqual(pa["agent-1"]["resolves_link_rate"], 1.0)
+        self.assertEqual(pa["agent-2"]["resolves_probe_hits"], 0)
+        self.assertEqual(pa["agent-2"]["resolves_probe_total"], 1)
+        self.assertEqual(pa["agent-2"]["resolves_link_rate"], 0.0)
 
 
 # ===========================================================================
