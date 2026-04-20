@@ -2,8 +2,11 @@
 """SessionStart hook: prepare retrospective data for the analyst agent.
 
 Checks for unanalyzed events since the last retrospective. If enough
-have accumulated (≥5), writes .retro-input.json for the retrospective
+have accumulated (>=5), writes .retro-input.json for the retrospective
 analyst agent hook to consume. Always exits 0.
+
+Metrics computation (session stats, status classification, digest building,
+resolves link rate) lives in retro_metrics.py.
 """
 
 import re
@@ -19,23 +22,23 @@ import sizing_metrics
 from event_schema import (
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
-    METADATA_KEY_PROBE_CANDIDATES,
-    METADATA_KEY_RESOLVES,
     RETRO_ACTION_SESSION_DONE,
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
     STATUS_ACTION_SPRINT_RETRO_DONE,
-    STATUS_CONTENT_RESOLVES_PROBE,
 )
-from honesty_signals import build_honesty_signals
 from retro_history import annotate_try_status, gather_retro_history
+from retro_metrics import (
+    _build_retro_digest,
+    _compute_resolves_link_rate,
+    _compute_session_stats,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 RETRO_THRESHOLD = 5
-MAX_EVENTS_IN_RETRO = 200
 
 
 # ---------------------------------------------------------------------------
@@ -44,14 +47,7 @@ MAX_EVENTS_IN_RETRO = 200
 
 
 def needs_sprint_retro(events: list[dict]) -> str | None:
-    """Return the sprint_id that needs a retro, or None.
-
-    A sprint retro is needed when:
-    1. A sprint_end event exists (the most recent one).
-    2. No sprint_retro_done status event has been recorded for that sprint_id.
-    3. No newer sprint_start event exists (that would mean the user moved on
-       without retro-ing the old sprint — session retro handles it).
-    """
+    """Return the sprint_id that needs a retro, or None."""
     end_index = -1
     end_sprint_id: str | None = None
     for i in range(len(events) - 1, -1, -1):
@@ -87,191 +83,15 @@ def needs_sprint_retro(events: list[dict]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Core logic
+# Watermark
 # ---------------------------------------------------------------------------
-
-
-# Signal event types — full event dicts preserved in digest
-_SIGNAL_TYPES = frozenset(
-    {
-        _common.COMMIT,
-        _common.CUSTOMER_INPUT,
-        _common.DECISION,
-        _common.CONCERN,
-        _common.GOAL,
-        _common.DEBT,
-        _common.DISCOVERY,
-        _common.QUESTION,
-        _common.ANSWER,
-        _common.ASSUMPTION,
-        _common.CONVENTION,
-    }
-)
-
-# Status classification patterns
-_FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = _common.TEST_RUN_RE
-_SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
-_COMMIT_RE = _common.LEGACY_COMMIT_RE
-_QUALITY_REVIEW_RE = re.compile(r"Quality review complete", re.IGNORECASE)
-_LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
-
-
-def _normalize_concern_content(content: str) -> str:
-    """Normalize content for dedup: replace digits, strip backtick-quoted."""
-    normalized = re.sub(r"\d+", "N", content)
-    normalized = re.sub(r"`[^`]*`", "``", normalized)
-    return normalized.strip()
-
-
-def _classify_status_events(
-    events: list[dict],
-) -> dict:
-    """Classify status events into file_writes, test_runs, other."""
-    counts = {
-        "file_writes": 0,
-        "test_runs": 0,
-        "security_checks": 0,
-        "commits": 0,
-        "quality_reviews": 0,
-        "lint_events": 0,
-        "other": 0,
-    }
-
-    patterns = [
-        (_FILE_WRITE_RE, "file_writes"),
-        (_TEST_RUN_RE, "test_runs"),
-        (_SECURITY_CHECK_RE, "security_checks"),
-        (_COMMIT_RE, "commits"),
-        (_QUALITY_REVIEW_RE, "quality_reviews"),
-        (_LINT_RE, "lint_events"),
-    ]
-
-    for e in events:
-        if e.get("type") != _common.STATUS:
-            continue
-        content = e.get("content", "")
-        matched = False
-        for pattern, key in patterns:
-            if pattern.search(content):
-                counts[key] += 1
-                matched = True
-                break
-        if not matched:
-            counts["other"] += 1
-
-    counts["total"] = sum(counts.values())
-    return counts
-
-
-def _group_concerns(
-    events: list[dict], resolved_ids: set[str] | None = None
-) -> list[dict]:
-    """Deduplicate unresolved concerns by normalized content.
-
-    Resolved concerns are excluded — they're rolled up to a count
-    in the digest instead. Returns {key, count, ids} — ids are short
-    (8 chars) for housekeeping reference.
-    """
-    if resolved_ids is None:
-        resolved_ids = set()
-    groups: dict[str, dict] = {}
-    for e in events:
-        if e.get("type") != _common.CONCERN:
-            continue
-        if e.get("id", "") in resolved_ids:
-            continue
-        key = _normalize_concern_content(e.get("content", ""))
-        if key not in groups:
-            groups[key] = {"key": key, "count": 0, "ids": []}
-        groups[key]["count"] += 1
-        groups[key]["ids"].append(e.get("id", ""))
-    return list(groups.values())
-
-
-_MAX_RESOLVER_CONTENT = 200
-
-# (event type, resolutions dict key) — ordered for deterministic output
-_RESOLUTION_BUCKETS = (
-    (_common.CONCERN, "concern_resolutions"),
-    (_common.DEBT, "debt_resolutions"),
-    (_common.GOAL, "goal_resolutions"),
-    (_common.QUESTION, "question_answers"),
-    (_common.ASSUMPTION, "assumption_resolutions"),
-    (_common.DECISION, "decision_resolutions"),
-    ("other", "other_resolutions"),
-)
-
-
-def _build_resolutions_map(resolutions: dict) -> dict[str, dict]:
-    """Map target IDs to resolver event info for the retro digest.
-
-    Each target ID lands in exactly one bucket — compute_resolutions uses
-    a match/case on event type so a single ID cannot appear under multiple
-    types.
-    """
-    result: dict[str, dict] = {}
-    for type_name, bucket_key in _RESOLUTION_BUCKETS:
-        for target_id, resolver in resolutions.get(bucket_key, {}).items():
-            entry: dict = {
-                "type": type_name,
-                "resolver_id": resolver.get("id", ""),
-                "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
-            }
-            disposition = resolver.get("metadata", {}).get("disposition")
-            if disposition:
-                entry["disposition"] = disposition
-            result[target_id] = entry
-    return result
-
-
-def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -> dict:
-    """Build structured digest from unanalyzed events.
-
-    Resolved concerns are excluded from signal_events and concern_groups
-    and rolled up to a count — the retro doesn't need their full text.
-    The full resolutions map (all 6 types) is exposed so the retro analyst
-    can cross-reference previous Try items against this session's activity.
-    """
-    unanalyzed = events[start_idx:]
-    resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
-
-    signal_events = [
-        e
-        for e in unanalyzed
-        if e.get("type") in _SIGNAL_TYPES
-        and not (
-            e.get("type") == _common.CONCERN and e.get("id", "") in resolved_concern_ids
-        )
-    ]
-    status_summary = _classify_status_events(unanalyzed)
-    concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
-    honesty_signals = build_honesty_signals(unanalyzed)
-
-    from work_signals import build_work_signals
-
-    work_sigs = build_work_signals(unanalyzed)
-
-    return {
-        "signal_events": signal_events,
-        "status_summary": status_summary,
-        "concern_groups": concern_groups,
-        "honesty_signals": honesty_signals,
-        "work_signals": work_sigs,
-        "resolved_concern_count": len(resolved_concern_ids),
-        "resolutions": _build_resolutions_map(resolutions),
-    }
 
 
 def _find_unanalyzed_start(events: list[dict]) -> int:
     """Find the index of the first unanalyzed event (after last session retro).
 
     Only session retrospectives advance the watermark. Sprint retros are
-    transparent — they don't mean "we reviewed these events for trends".
-    Legacy retros without metadata.action default to session (backwards
-    compat for pre-M1 event logs).
-
-    Returns the start index. Unanalyzed count is len(events) - start.
+    transparent. Legacy retros without metadata.action default to session.
     """
     for i in range(len(events) - 1, -1, -1):
         event = events[i]
@@ -283,56 +103,9 @@ def _find_unanalyzed_start(events: list[dict]) -> int:
     return 0
 
 
-def _new_agent_stats() -> dict:
-    return {
-        "status_count": 0,
-        "concerns_raised": 0,
-        "decisions_total": 0,
-    }
-
-
-def _compute_session_stats(events: list[dict]) -> dict:
-    """Compute session statistics using shared resolution tracking."""
-    import resolution
-
-    stats = {
-        "status_count": 0,
-        "concerns_raised": 0,
-        "concerns_resolved": 0,
-        "questions_open": 0,
-        "questions_answered": 0,
-        "decisions_total": 0,
-        "iterations_completed": 0,
-    }
-
-    question_ids: set[str] = set()
-    per_agent: dict[str, dict] = {}
-
-    for e in events:
-        agent_id = e.get("agent_id", "main")
-        agent = per_agent.setdefault(agent_id, _new_agent_stats())
-        match e.get("type", ""):
-            case _common.STATUS:
-                stats["status_count"] += 1
-                agent["status_count"] += 1
-                if e.get("metadata", {}).get("action") == "iteration_complete":
-                    stats["iterations_completed"] += 1
-            case _common.CONCERN:
-                stats["concerns_raised"] += 1
-                agent["concerns_raised"] += 1
-            case _common.QUESTION:
-                question_ids.add(e.get("id", ""))
-            case _common.DECISION:
-                stats["decisions_total"] += 1
-                agent["decisions_total"] += 1
-
-    resolutions = resolution.compute_resolutions(events)
-    stats["concerns_resolved"] = len(resolutions["resolved_concern_ids"])
-    stats["questions_answered"] = len(resolutions["answered_question_ids"])
-    answered = resolutions["answered_question_ids"]
-    stats["questions_open"] = len(question_ids) - len(answered)
-
-    return {**stats, "per_agent": per_agent}
+# ---------------------------------------------------------------------------
+# Retro input building
+# ---------------------------------------------------------------------------
 
 
 def _build_retro_input(
@@ -340,10 +113,7 @@ def _build_retro_input(
     start_idx: int,
     retro_history: list[dict],
 ) -> dict:
-    """Build the .retro-input.json structure.
-
-    Caps events_since_last_retro to MAX_EVENTS_IN_RETRO (most recent).
-    """
+    """Build the .retro-input.json structure."""
     import resolution
     from retro_flags import evaluate_flags
 
@@ -369,9 +139,6 @@ def _build_retro_input(
         decisions=decision_topics,
     )
 
-    # Slim the digest for the subagent — reduce token cost
-    # Signal events: keep only type, content, short id
-    # Truncate customer_input (raw user prompts) and commit messages
     _MAX_CUSTOMER_INPUT = 100
     _MAX_COMMIT_CONTENT = 400
     if "signal_events" in digest:
@@ -389,7 +156,6 @@ def _build_retro_input(
         digest["signal_events"] = slimmed_signals
     return {
         "unanalyzed_count": len(unanalyzed),
-        # No events_since_last_retro — digest has the structured version
         "previous_retros": retro_history,
         "event_type_counts": type_counts,
         "session_stats": session_stats,
@@ -407,13 +173,9 @@ def _build_context_summary(
     type_counts: dict,
     session_stats: dict | None = None,
 ) -> str:
-    """Build kickoff preparation context — counts and health only.
-
-    No event details — those are for the retro subagent via .retro-input.json.
-    """
+    """Build kickoff preparation context -- counts and health only."""
     parts: list[str] = []
 
-    # Header with stats
     parts.append(
         f"**Kickoff preparation complete.** "
         f"{unanalyzed_count} events from previous session ready for review."
@@ -422,7 +184,6 @@ def _build_context_summary(
         summary = ", ".join(f"{count} {t}" for t, count in sorted(type_counts.items()))
         parts.append(f"Event breakdown: {summary}.")
 
-    # Session health signals
     if session_stats:
         health: list[str] = []
         cr = session_stats.get("concerns_raised", 0)
@@ -438,94 +199,19 @@ def _build_context_summary(
         if health:
             parts.append("Health: " + "; ".join(health) + ".")
 
-    # Direct to kickoff — don't analyze here
     parts.append(
         "\n\n---\n"
         "**ACTION REQUIRED:** Run /xp-kickoff to process this data. "
         "It handles retrospective, questions, goals, and housekeeping. "
-        "Do NOT analyze these events yourself — the kickoff skill "
+        "Do NOT analyze these events yourself -- the kickoff skill "
         "delegates to dedicated subagents."
     )
     return "\n".join(parts)
 
 
-def _compute_resolves_link_rate(
-    events: list[dict], sprint_start_ts: str | None
-) -> dict:
-    """Compute resolves_link_rate from probe events vs. subsequent commit trailers.
-
-    For each status event with content='resolves_probe_shown: N candidates',
-    find the NEXT commit event by the same agent_id within the sprint window.
-    A "hit" is when commit.metadata.resolves intersects probe.metadata.probe_candidates.
-
-    Returns three fields: resolves_link_rate (float), resolves_probe_hits (int),
-    resolves_probe_total (int). Rate is 0.0 when total is 0; caller decides
-    whether to attach the fields at all.
-
-    NOTE: "Next commit by same agent" is a best-effort pairing heuristic — a
-    git commit --amend keeps the same working-tree logic but creates a new
-    commit_hash, so pairing strictly by commit_hash would undercount. This
-    heuristic accepts the first subsequent commit by the same agent as the
-    candidate; future retros may refine this.
-    """
-
-    def _in_window(event: dict) -> bool:
-        if sprint_start_ts is None:
-            return True
-        return event.get("ts", "")[:10] >= sprint_start_ts
-
-    probes = [
-        e
-        for e in events
-        if e.get("type") == _common.STATUS
-        and e.get("content", "").startswith(f"{STATUS_CONTENT_RESOLVES_PROBE}:")
-        and _in_window(e)
-    ]
-
-    per_agent_probes: dict[str, list[dict]] = {}
-    for probe in probes:
-        agent_id = probe.get("agent_id", "")
-        per_agent_probes.setdefault(agent_id, []).append(probe)
-
-    per_agent: dict[str, dict] = {}
-    total_hits = 0
-    for agent_id, agent_probes in per_agent_probes.items():
-        agent_hits = 0
-        for probe in agent_probes:
-            candidates = set(
-                (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
-            )
-            if not candidates:
-                continue
-            probe_ts = probe.get("ts", "")
-            for e in events:
-                if e.get("type") != _common.COMMIT:
-                    continue
-                if e.get("agent_id", "") != agent_id:
-                    continue
-                if e.get("ts", "") <= probe_ts:
-                    continue
-                resolves = set(
-                    (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
-                )
-                if resolves & candidates:
-                    agent_hits += 1
-                break
-        agent_total = len(agent_probes)
-        per_agent[agent_id] = {
-            "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,
-            "resolves_probe_hits": agent_hits,
-            "resolves_probe_total": agent_total,
-        }
-        total_hits += agent_hits
-
-    total = len(probes)
-    return {
-        "resolves_link_rate": total_hits / total if total > 0 else 0.0,
-        "resolves_probe_hits": total_hits,
-        "resolves_probe_total": total,
-        "per_agent": per_agent,
-    }
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -595,6 +281,6 @@ if __name__ == "__main__":
         _common.hook_output(
             "SessionStart",
             context,
-            f"Kickoff data prepared — {_count} {_label} to review.",
+            f"Kickoff data prepared -- {_count} {_label} to review.",
         )
     sys.exit(0)

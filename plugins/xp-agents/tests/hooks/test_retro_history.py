@@ -116,7 +116,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
     """_build_resolutions_map should propagate disposition from resolver metadata."""
 
     def test_disposition_propagated_from_resolver_metadata(self):
-        from retrospective import _build_resolutions_map
+        from retro_metrics import _build_resolutions_map
 
         target_id = "aabbccdd1111"
         resolver = make_event(
@@ -141,7 +141,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
 
     def test_other_resolutions_included_in_map(self):
         """Resolutions of status/sprint events should appear in the map."""
-        from retrospective import _build_resolutions_map
+        from retro_metrics import _build_resolutions_map
 
         target_id = "aabbccdd1111"
         resolver = make_event(
@@ -166,7 +166,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
         self.assertEqual(result[target_id]["disposition"], "dropped")
 
     def test_no_disposition_when_resolver_has_none(self):
-        from retrospective import _build_resolutions_map
+        from retro_metrics import _build_resolutions_map
 
         target_id = "aabbccdd1111"
         resolver = make_event(

@@ -101,7 +101,7 @@ METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 # Producer (bash_post_tool._handle_commit) emits content
 # f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates" with metadata
 # {METADATA_KEY_PROBE_CANDIDATES: [ids], METADATA_KEY_COMMIT_HASH: <hash>};
-# consumer (retrospective._compute_resolves_link_rate) matches the content
+# consumer (retro_metrics._compute_resolves_link_rate) matches the content
 # prefix and reads the candidate list.
 STATUS_CONTENT_RESOLVES_PROBE = "resolves_probe_shown"
 

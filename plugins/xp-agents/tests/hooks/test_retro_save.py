@@ -22,7 +22,7 @@ class TestRetroDigest(_HookTestCase):
 
     def test_digest_signal_events(self):
         """Decisions/concerns in signal_events, status excluded."""
-        import retrospective
+        import retro_metrics
 
         events = [
             make_event("decision", content="Use REST", topic="api"),
@@ -32,7 +32,7 @@ class TestRetroDigest(_HookTestCase):
             make_event("customer_input", content="Please fix"),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, {})
+        digest = retro_metrics._build_retro_digest(events, 0, {})
         signal_types = {e["type"] for e in digest["signal_events"]}
         self.assertIn("decision", signal_types)
         self.assertIn("concern", signal_types)
@@ -41,7 +41,7 @@ class TestRetroDigest(_HookTestCase):
 
     def test_digest_status_summary(self):
         """Correct counts for file_writes/test_runs/other."""
-        import retrospective
+        import retro_metrics
 
         events = [
             make_event(
@@ -66,7 +66,7 @@ class TestRetroDigest(_HookTestCase):
             ),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, {})
+        digest = retro_metrics._build_retro_digest(events, 0, {})
         ss = digest["status_summary"]
         self.assertEqual(ss["total"], 4)
         self.assertEqual(ss["file_writes"], 2)
@@ -75,7 +75,7 @@ class TestRetroDigest(_HookTestCase):
 
     def test_digest_concern_groups_dedup(self):
         """3 identical failure concerns -> 1 group with count=3."""
-        import retrospective
+        import retro_metrics
 
         events = [
             make_event(
@@ -86,14 +86,14 @@ class TestRetroDigest(_HookTestCase):
             for _ in range(3)
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, {})
+        digest = retro_metrics._build_retro_digest(events, 0, {})
         groups = digest["concern_groups"]
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups[0]["count"], 3)
 
     def test_digest_concern_groups_unique(self):
         """3 different concerns -> 3 groups with count=1."""
-        import retrospective
+        import retro_metrics
 
         events = [
             make_event("concern", content="Slow tests", severity="medium"),
@@ -105,7 +105,7 @@ class TestRetroDigest(_HookTestCase):
             ),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, {})
+        digest = retro_metrics._build_retro_digest(events, 0, {})
         groups = digest["concern_groups"]
         self.assertEqual(len(groups), 3)
         for g in groups:
@@ -113,26 +113,26 @@ class TestRetroDigest(_HookTestCase):
 
     def test_digest_preserves_event_ids(self):
         """All signal event IDs present."""
-        import retrospective
+        import retro_metrics
 
         events = [
             make_event("decision", content="Use REST", topic="api"),
             make_event("concern", content="Slow", severity="low"),
         ]
         self._write_events(events)
-        digest = retrospective._build_retro_digest(events, 0, {})
+        digest = retro_metrics._build_retro_digest(events, 0, {})
         signal_ids = {e["id"] for e in digest["signal_events"]}
         for e in events:
             self.assertIn(e["id"], signal_ids)
 
     def test_normalize_concern_strips_numbers(self):
         """Numbers normalized for consistent grouping."""
-        import retrospective
+        import retro_metrics
 
-        k1 = retrospective._normalize_concern_content(
+        k1 = retro_metrics._normalize_concern_content(
             "Test failures detected: 2 failed (pytest)"
         )
-        k2 = retrospective._normalize_concern_content(
+        k2 = retro_metrics._normalize_concern_content(
             "Test failures detected: 5 failed (pytest)"
         )
         self.assertEqual(k1, k2)

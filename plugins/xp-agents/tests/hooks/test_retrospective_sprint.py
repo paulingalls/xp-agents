@@ -332,7 +332,7 @@ class TestResolvesLinkRatePerAgent(unittest.TestCase):
 
     def test_per_agent_link_rate_two_agents(self):
         """Two agents: agent-1 hits, agent-2 misses -- per_agent scoped."""
-        import retrospective
+        import retro_metrics
 
         events = [
             self._probe(["aaa"], "2026-04-05T10:00:00+00:00", "h1", "agent-1"),
@@ -340,7 +340,7 @@ class TestResolvesLinkRatePerAgent(unittest.TestCase):
             self._probe(["bbb"], "2026-04-05T10:00:00+00:00", "h2", "agent-2"),
             self._commit([], "2026-04-05T10:01:00+00:00", "h2", "agent-2"),
         ]
-        result = retrospective._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         self.assertIn("per_agent", result)
         pa = result["per_agent"]
         self.assertEqual(len(pa), 2)
