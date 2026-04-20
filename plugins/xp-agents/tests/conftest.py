@@ -55,6 +55,7 @@ from _bases import (  # noqa: E402, F401
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
 from _event_fixtures import (  # noqa: E402, F401
+    commit_event,
     failing_tests_concern,
     make_event,
     passing_tests_status,
