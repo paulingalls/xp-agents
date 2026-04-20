@@ -13,51 +13,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from conftest import VALID_SOURCE as _VALID_SOURCE
 from conftest import _SMMTestCase
-
-# ---------------------------------------------------------------------------
-# Test fixtures
-# ---------------------------------------------------------------------------
-
-_VALID_SOURCE = {
-    "label": "Design doc",
-    "location": "docs/design.md",
-    "type": "repo",
-    "content": None,
-}
-
-_VALID_MILESTONE = {
-    "number": 1,
-    "name": "Foundation",
-    "status": "planned",
-    "delivered_sprint": None,
-    "goal": "Build the foundation",
-    "done": "Foundation is built and tested",
-    "sources": "Design doc §Architecture",
-    "change_zones": [{"path": "src/foo.py", "note": "new module"}],
-    "impact_zones": [{"path": "src/bar.py", "note": "imports foo"}],
-    "design_details": "Multi-paragraph details here.",
-    "constraints": ["Python 3.10+"],
-}
-
-
-def _make_plan(**overrides) -> dict:
-    """Create a valid plan dict with optional overrides."""
-    plan = {
-        "title": "Test Plan",
-        "sources": [_VALID_SOURCE.copy()],
-        "overview": "Test overview.",
-        "milestones": [_VALID_MILESTONE.copy()],
-    }
-    plan.update(overrides)
-    return plan
-
-
-def _make_milestone(**overrides) -> dict:
-    m = _VALID_MILESTONE.copy()
-    m.update(overrides)
-    return m
-
+from conftest import make_milestone_dict as _make_milestone
+from conftest import make_plan_dict as _make_plan
 
 # ===========================================================================
 # Schema validation tests
