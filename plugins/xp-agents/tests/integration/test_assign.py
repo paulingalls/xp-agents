@@ -522,8 +522,17 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
         prompt_file = Path(self.tmpdir) / "prompt.txt"
         prompt_file.write_text("test prompt")
 
-        with unittest.mock.patch.object(
-            subprocess, "run", side_effect=_claude_subprocess_mock()
+        with (
+            unittest.mock.patch.object(
+                spawn_teammate,
+                "create_worktree",
+                return_value=str(self.tmpdir),
+            ),
+            unittest.mock.patch.object(
+                subprocess,
+                "run",
+                side_effect=_claude_subprocess_mock(),
+            ),
         ):
             spawn_teammate.main(
                 [
@@ -546,6 +555,11 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
 
         with (
             unittest.mock.patch.object(
+                spawn_teammate,
+                "create_worktree",
+                return_value=str(self.tmpdir),
+            ),
+            unittest.mock.patch.object(
                 subprocess,
                 "run",
                 side_effect=_claude_subprocess_mock(raise_error=True),
@@ -564,10 +578,6 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
             )
 
         self.assertFalse(prompt_file.exists())
-
-    def tearDown(self):
-        cleanup_test_worktrees(self.tmpdir)
-        super().tearDown()
 
 
 class TestCleanupTeammateE2E(_IntegrationTestCase):
