@@ -111,6 +111,24 @@ class TestBashFailure(_HookTestCase):
         statuses = [e for e in events if e.get("type") == "status"]
         self.assertIn("non-zero status code 2", statuses[0]["content"])
 
+    def test_status_content_within_budget(self):
+        """Status event from test failure must stay within 200-char budget."""
+        from event_schema import CONTENT_BUDGETS
+
+        inp = _make_bash_failure_input(
+            command="pytest", error="x" * 500, framework="pytest"
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertTrue(len(statuses) > 0, "No status event written")
+        budget = CONTENT_BUDGETS["status"]
+        self.assertLessEqual(
+            len(statuses[0]["content"]),
+            budget,
+            f"status content {len(statuses[0]['content'])} exceeds {budget}",
+        )
+
 
 class TestBashFailureSecurity(_HookTestCase):
     """Security tests for bash_failure.py."""

@@ -19,6 +19,7 @@ import _common
 import bash_post_tool
 import concerns
 import identity
+from event_schema import CONTENT_BUDGETS
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -48,10 +49,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     error = input_data.get("error", "")
 
     # Record failure as status + concern
+    prefix = f"Test run failed ({framework}): "
+    budget = CONTENT_BUDGETS[_common.STATUS]
+    assert budget is not None
+    max_error = budget - len(prefix)
     status = _common.make_event(
         _common.STATUS,
         agent_id,
-        f"Test run failed ({framework}): {error}",
+        f"{prefix}{error[:max_error]}",
         working_on=[],
     )
     _common.append_safe(smm_dir, status)

@@ -249,6 +249,21 @@ class TestDetectConflictsCommon(_HookTestCase):
         flag = next(c for c in found if "contradict" in c["content"].lower())
         self.assertEqual(flag.get("references"), [a["id"]])
 
+    def test_assumption_contradicted_within_budget(self):
+        """Assumption contradicted concern must stay within 400-char budget."""
+        from event_schema import CONTENT_BUDGETS
+
+        a = make_event("assumption", content="x" * 300)
+        d = make_event("discovery", content="y" * 300, references=[a["id"]])
+        found = concerns.detect_conflicts([a, d], "main")
+        flag = next(c for c in found if "contradict" in c["content"].lower())
+        budget = CONTENT_BUDGETS["concern"]
+        self.assertLessEqual(
+            len(flag["content"]),
+            budget,
+            f"concern content {len(flag['content'])} exceeds {budget}",
+        )
+
     def test_convention_violation_concern_references_conventions(self):
         """Flag concern references the topic's convention ids."""
         conv = make_event("convention", topic="naming", content="Use camelCase")

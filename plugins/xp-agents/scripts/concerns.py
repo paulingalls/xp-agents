@@ -29,7 +29,7 @@ from _common import (
     make_event,
     read_events_raw,
 )
-from event_schema import METADATA_KEY_RESOLVES
+from event_schema import CONTENT_BUDGETS, METADATA_KEY_RESOLVES
 from worktree import normalize_path
 
 # ---------------------------------------------------------------------------
@@ -212,9 +212,15 @@ def detect_conflicts(
         elif e.get("type") == DISCOVERY:
             for ref in e.get("references", []):
                 if ref in assumptions:
+                    # Template = 57 chars; split remaining budget across both texts
+                    _budget = CONTENT_BUDGETS[CONCERN]
+                    assert _budget is not None
+                    _max_text = (_budget - 57) // 2
+                    a_text = assumptions[ref]["content"][:_max_text]
+                    d_text = e["content"][:_max_text]
                     _add_concern(
-                        f"Assumption contradicted: '{assumptions[ref]['content']}' "
-                        f"contradicted by discovery '{e['content']}'.",
+                        f"Assumption contradicted: '{a_text}' "
+                        f"contradicted by discovery '{d_text}'.",
                         "high",
                         references=[assumptions[ref]["id"]],
                     )

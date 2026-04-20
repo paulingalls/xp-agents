@@ -104,16 +104,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --working-on '["file1.ts", "file2.ts"]'
 ```
 
-### Event Types and Four Pillars
-
-Events are materialized into four pillars in the SMM:
-
-| Pillar | Event Types | Purpose |
-|--------|-------------|---------|
-| **Intent** | `goal`, `customer_input`, `customer_intent` | What we're building and why |
-| **Constraints** | `decision`, `convention` | Architectural choices and standards |
-| **Risks** | `concern`, `assumption`, `debt`, `question`, `discovery` | What could go wrong, unknowns |
-| **Wisdom** | `retrospective` (Try items) | Lessons learned, experiments to run |
+### Event Types
 
 | Type | Pillar | When to Use | Required Fields |
 |------|--------|-------------|-----------------|
@@ -197,5 +188,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "assumption" --agent "main" \
   --content "Assuming all auth errors are subclasses of AuthError — not verified for third-party providers"
 ```
+
+### Content Budgets
+
+Per-type char budgets enforced at write time (see `append.sh --help`). Write tight — IDs and tags in comma-separated structure, not prose. Example: *"Story-002 plan misses 17 tests across tests/{smm,hooks,integration,engine}/ referencing old agent names. Fix: enumerate OR move grep before deletion."* (170 chars vs original 1099).
 
 Read Intent and Risks before every significant action. Check Constraints when making architectural choices.

@@ -240,6 +240,25 @@ class TestSessionEnd(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "main")
         )
 
+    def test_session_end_content_within_budget(self):
+        """session_end content must stay within 50-char budget."""
+        import session_end
+        from event_schema import CONTENT_BUDGETS
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "x" * 100},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        budget = CONTENT_BUDGETS["session_end"]
+        self.assertLessEqual(
+            len(se["content"]),
+            budget,
+            f"session_end content {len(se['content'])} exceeds budget {budget}",
+        )
+
 
 # ===========================================================================
 # Teammate SessionEnd tests

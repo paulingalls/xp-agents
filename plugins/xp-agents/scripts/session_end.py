@@ -20,6 +20,7 @@ import identity
 import markers
 import resolution
 from event_builder import generate_id
+from event_schema import CONTENT_BUDGETS
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -95,12 +96,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     agent_id = identity.resolve_agent_id(input_data)
 
     # Build session_end event directly (avoids subprocess + shell escaping)
+    prefix = "Session ended: "
+    budget = CONTENT_BUDGETS[_common.SESSION_END]
+    assert budget is not None
+    max_reason = budget - len(prefix)
+    reason = input_data.get("reason", "unknown")[:max_reason]
     event = {
         "id": generate_id(),
         "ts": datetime.now(timezone.utc).isoformat(),
         "type": _common.SESSION_END,
         "agent_id": agent_id,
-        "content": f"Session ended: {input_data.get('reason', 'unknown')}",
+        "content": f"{prefix}{reason}",
         "schema_version": 1,
         "duration_seconds": summary["duration_seconds"],
         "event_count": summary["event_count"],
