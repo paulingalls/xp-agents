@@ -589,5 +589,51 @@ class TestDetectConflictsCommon(_HookTestCase):
         self.assertEqual(len(convention_concerns), 1)
 
 
+class TestDuplicateDebtProbeIntegration(_HookTestCase):
+    """Integration: append_safe with debt triggers advisory concern."""
+
+    def test_append_duplicate_debt_creates_advisory(self):
+        prior = make_event("debt", id="prior1", content="auth middleware broken")
+        self._write_events([prior])
+        new_debt = make_event("debt", content="auth middleware broken")
+        _common.append_safe(self.smm_dir, new_debt)
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        advisories = [c for c in concerns if c.get("metadata", {}).get("duplicate_of")]
+        self.assertEqual(len(advisories), 1)
+        self.assertEqual(advisories[0]["metadata"]["duplicate_of"], "prior1")
+        self.assertEqual(advisories[0]["severity"], "low")
+
+    def test_append_unique_debt_no_advisory(self):
+        prior = make_event("debt", content="auth middleware broken")
+        self._write_events([prior])
+        new_debt = make_event("debt", content="deploy pipeline misconfigured")
+        _common.append_safe(self.smm_dir, new_debt)
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        advisories = [c for c in concerns if c.get("metadata", {}).get("duplicate_of")]
+        self.assertEqual(len(advisories), 0)
+
+    def test_append_non_debt_no_probe(self):
+        _common.append_safe(self.smm_dir, make_event("status"))
+        events = self._read_events()
+        concerns = [e for e in events if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 0)
+
+    def test_bulk_append_duplicate_debt_creates_advisory(self):
+        prior = make_event("debt", id="bulk1", content="auth middleware broken")
+        self._write_events([prior])
+        new_debt = make_event("debt", content="auth middleware broken")
+        _common.bulk_append_safe(self.smm_dir, [new_debt])
+        events = self._read_events()
+        advisories = [
+            e
+            for e in events
+            if e.get("type") == "concern" and e.get("metadata", {}).get("duplicate_of")
+        ]
+        self.assertEqual(len(advisories), 1)
+        self.assertEqual(advisories[0]["metadata"]["duplicate_of"], "bulk1")
+
+
 if __name__ == "__main__":
     unittest.main()

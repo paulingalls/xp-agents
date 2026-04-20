@@ -496,6 +496,17 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Post-write duplicate-debt probe — advisory only, never fails the write
+    try:
+        scripts_dir = Path(__file__).parent.parent / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import duplicate_debt_probe
+
+        duplicate_debt_probe.run_probe_and_append(smm_dir, event)
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
     main()

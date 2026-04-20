@@ -358,6 +358,16 @@ def write_json_atomic(file_path: Path, data: dict) -> None:
     _write_json_atomic(file_path, data)
 
 
+def _run_duplicate_debt_probe(smm_dir: Path, event: dict) -> None:
+    """Post-write probe: if event is debt, check for near-duplicates."""
+    try:
+        import duplicate_debt_probe
+
+        duplicate_debt_probe.run_probe_and_append(smm_dir, event)
+    except Exception:
+        pass
+
+
 def append_safe(smm_dir: Path, event: dict) -> None:
     """Validate and append event, swallowing lock errors."""
     import _append_impl
@@ -366,6 +376,7 @@ def append_safe(smm_dir: Path, event: dict) -> None:
     if not errors:
         with contextlib.suppress(_append_impl.LockTimeoutError):
             _append_impl.append_event(smm_dir, event)
+        _run_duplicate_debt_probe(smm_dir, event)
 
 
 def parse_append_sh_args(command: str) -> dict[str, str]:
@@ -416,6 +427,8 @@ def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:
     if valid:
         with contextlib.suppress(_append_impl.LockTimeoutError, ValueError):
             _append_impl.bulk_append(smm_dir, valid)
+        for event in valid:
+            _run_duplicate_debt_probe(smm_dir, event)
 
 
 # Coordination: see coordination.py
