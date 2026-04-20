@@ -69,6 +69,7 @@ def resolve_concerns(
     matcher: Callable[[str], object],
     agent_id: str,
     label: str,
+    events: list[dict] | None = None,
 ) -> bool:
     """Auto-resolve unresolved concerns whose content matches *matcher*.
 
@@ -77,7 +78,8 @@ def resolve_concerns(
 
     Returns True if any concerns were resolved.
     """
-    events = read_events_raw(smm_dir)
+    if events is None:
+        events = read_events_raw(smm_dir)
 
     if not any(
         e.get("type") == CONCERN and matcher(e.get("content", "")) for e in events
