@@ -62,3 +62,39 @@ def make_milestone_dict(**overrides) -> dict:
     m = VALID_MILESTONE.copy()
     m.update(overrides)
     return m
+
+
+VALID_SPRINT_STORY = {
+    "id": "story-001",
+    "title": "User registration",
+    "status": "ready",
+    "size": "M",
+    "dependencies": [],
+    "milestone_ref": "",
+    "design_sources": "",
+    "context": "Build user registration flow.",
+    "file_domain": ["src/auth.py \u2014 new module"],
+    "interface_contracts": [],
+    "acceptance_criteria": [
+        "Users can register",
+        "E2E: registration flow",
+    ],
+}
+
+
+def make_sprint_dict(**overrides) -> dict:
+    plan = {
+        "sprint_id": "sprint-001",
+        "goal": "Build auth",
+        "started": "2026-04-10",
+        "milestone": "",
+        "stories": [VALID_SPRINT_STORY.copy()],
+    }
+    plan.update(overrides)
+    return plan
+
+
+def make_story_dict(**overrides) -> dict:
+    s = VALID_SPRINT_STORY.copy()
+    s.update(overrides)
+    return s

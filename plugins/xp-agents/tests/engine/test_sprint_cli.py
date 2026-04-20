@@ -9,41 +9,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _SMMTestCase, run_cli
+from conftest import (
+    _SMMTestCase,
+    run_cli,
+)
+from conftest import (
+    make_sprint_dict as _make_sprint,
+)
+from conftest import (
+    make_story_dict as _make_story,
+)
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "sprint_cli.py"
-
-_VALID_STORY = {
-    "id": "story-001",
-    "title": "User registration",
-    "status": "ready",
-    "size": "M",
-    "dependencies": [],
-    "milestone_ref": "",
-    "design_sources": "",
-    "context": "Build registration.",
-    "file_domain": [],
-    "interface_contracts": [],
-    "acceptance_criteria": ["Users can register"],
-}
-
-
-def _make_sprint(**overrides) -> dict:
-    plan = {
-        "sprint_id": "sprint-001",
-        "goal": "Build auth",
-        "started": "2026-04-10",
-        "milestone": "",
-        "stories": [_VALID_STORY.copy()],
-    }
-    plan.update(overrides)
-    return plan
-
-
-def _make_story(**overrides) -> dict:
-    s = _VALID_STORY.copy()
-    s.update(overrides)
-    return s
 
 
 class TestExistsCommand(_SMMTestCase):
