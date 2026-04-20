@@ -15,7 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
-from conftest import _PLUGIN_ROOT
+from conftest import _PLUGIN_ROOT, make_event
 
 
 class TestSchemaJson(unittest.TestCase):
@@ -232,6 +232,85 @@ class TestNotificationHelpers(unittest.TestCase):
             script = args[2]  # the -e argument value
             # Should not contain raw quotes in the notification text
             self.assertNotIn("drop tables\\n", script)
+
+
+class TestContentBudgets(unittest.TestCase):
+    """Tests for per-type content budget enforcement in validate_event()."""
+
+    def test_status_within_budget(self):
+        event = make_event("status", content="x" * 200, working_on=[])
+        errors = _append_impl.validate_event(event)
+        self.assertEqual(errors, [])
+
+    def test_status_over_budget_rejected(self):
+        event = make_event("status", content="x" * 201, working_on=[])
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("budget" in e.lower() for e in errors))
+        self.assertTrue(any("201" in e for e in errors))
+        self.assertTrue(any("200" in e for e in errors))
+
+    def test_commit_uncapped(self):
+        event = make_event("commit", content="x" * 5000)
+        errors = _append_impl.validate_event(event)
+        self.assertEqual(errors, [])
+
+    def test_customer_input_uncapped(self):
+        event = make_event("customer_input", content="x" * 10000)
+        errors = _append_impl.validate_event(event)
+        self.assertEqual(errors, [])
+
+    def test_decision_within_budget(self):
+        event = make_event("decision", content="x" * 400)
+        errors = _append_impl.validate_event(event)
+        self.assertEqual(errors, [])
+
+    def test_decision_over_budget_rejected(self):
+        event = make_event("decision", content="x" * 401)
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("budget" in e.lower() for e in errors))
+
+    def test_error_message_actionable(self):
+        event = make_event("status", content="x" * 250, working_on=[])
+        errors = _append_impl.validate_event(event)
+        self.assertEqual(len(errors), 1)
+        msg = errors[0]
+        self.assertIn("250", msg)
+        self.assertIn("200", msg)
+        self.assertRegex(msg.lower(), r"shorten|trim")
+
+    def test_all_types_have_budget_entry(self):
+        from event_schema import CONTENT_BUDGETS, VALID_TYPES
+
+        for t in VALID_TYPES:
+            self.assertIn(t, CONTENT_BUDGETS, f"Missing budget entry for type '{t}'")
+
+    def test_cli_help_shows_budgets(self):
+        from event_builder import build_parser
+
+        help_text = build_parser().format_help()
+        self.assertIn("Content budgets", help_text)
+
+    def test_schema_json_description_matches_budgets(self):
+        """schema.json content description must stay in sync with CONTENT_BUDGETS."""
+        from event_schema import CONTENT_BUDGETS
+
+        schema_path = _PLUGIN_ROOT / "smm" / "schema.json"
+        with open(schema_path) as f:
+            schema = json.load(f)
+        desc = schema["properties"]["content"]["description"]
+        for event_type, budget in CONTENT_BUDGETS.items():
+            if budget is not None:
+                self.assertIn(
+                    f"{event_type}={budget}",
+                    desc,
+                    f"schema.json content description missing {event_type}={budget}",
+                )
+            else:
+                self.assertIn(
+                    event_type,
+                    desc,
+                    f"schema.json description missing uncapped {event_type}",
+                )
 
 
 class TestQuestionGate(unittest.TestCase):

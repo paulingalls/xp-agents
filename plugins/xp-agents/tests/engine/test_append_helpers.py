@@ -58,6 +58,15 @@ class TestBulkAppend(_SMMTestCase):
         content = (self.smm_dir / "events.jsonl").read_text()
         self.assertEqual(content, "")
 
+    def test_bulk_append_rejects_over_budget(self):
+        """Over-budget event should raise ValueError, no events written."""
+        over = make_event("status", content="x" * 201, working_on=[])
+        with self.assertRaises(ValueError) as ctx:
+            _append_impl.bulk_append(self.smm_dir, [over])
+        self.assertIn("budget", str(ctx.exception).lower())
+        content = (self.smm_dir / "events.jsonl").read_text()
+        self.assertEqual(content, "")
+
     def test_bulk_append_appends_to_existing(self):
         """bulk_append should append, not overwrite existing events."""
         existing = make_event("customer_input", content="First")

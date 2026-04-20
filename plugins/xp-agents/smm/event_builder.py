@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from event_schema import MAX_JSON_ARG_SIZE, VALID_TYPES
+from event_schema import CONTENT_BUDGETS, MAX_JSON_ARG_SIZE, VALID_TYPES
 
 
 def generate_id() -> str:
@@ -108,9 +108,26 @@ def build_event(args: argparse.Namespace) -> dict:
     return event
 
 
+def _format_budget_epilog() -> str:
+    """Generate CLI help epilog from CONTENT_BUDGETS dict."""
+    entries = [
+        f"{t}={b}" if b is not None else f"{t}=uncapped"
+        for t, b in CONTENT_BUDGETS.items()
+    ]
+    lines = ["Content budgets (chars):"]
+    for i in range(0, len(entries), 4):
+        lines.append("  " + "  ".join(entries[i : i + 4]))
+    lines.append("Over-budget events are rejected with an actionable error.")
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for append operations."""
-    parser = argparse.ArgumentParser(description="Append an event to the SMM event log")
+    parser = argparse.ArgumentParser(
+        description="Append an event to the SMM event log",
+        epilog=_format_budget_epilog(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
     # Optional SMM directory override (avoids CLAUDE_PLUGIN_DATA env var issues)
     parser.add_argument(

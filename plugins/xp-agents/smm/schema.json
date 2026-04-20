@@ -42,7 +42,7 @@
     },
     "content": {
       "type": "string",
-      "description": "Human-readable event content"
+      "description": "Human-readable event content. Per-type maxLength enforced at write time: status=200, decision=400, concern=400, debt=400, question=450, answer=350, assumption=400, discovery=400, goal=200, convention=250, customer_intent=250, sprint=200, retrospective=100, session_end=50. commit and customer_input are uncapped."
     },
     "references": {
       "type": "array",

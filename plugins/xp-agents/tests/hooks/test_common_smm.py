@@ -433,5 +433,21 @@ class TestDetectConflictsCommon(_HookTestCase):
         self.assertEqual(len(convention_concerns), 1)
 
 
+class TestAppendSafeBudget(_HookTestCase):
+    """Verify _common.append_safe drops over-budget events silently."""
+
+    def test_append_safe_drops_over_budget(self):
+        event = make_event("status", content="x" * 201, working_on=[])
+        _common.append_safe(self.smm_dir, event)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 0)
+
+    def test_append_safe_writes_within_budget(self):
+        event = make_event("status", content="x" * 200, working_on=[])
+        _common.append_safe(self.smm_dir, event)
+        events = _common.read_events_raw(self.smm_dir)
+        self.assertEqual(len(events), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

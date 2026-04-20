@@ -118,6 +118,25 @@ MAX_CONTENT_LENGTH = 50_000
 MAX_EVENT_BYTES = 100_000
 MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 
+CONTENT_BUDGETS: dict[str, int | None] = {
+    EVENT_TYPE_STATUS: 200,
+    EVENT_TYPE_COMMIT: None,
+    EVENT_TYPE_DECISION: 400,
+    EVENT_TYPE_CONVENTION: 250,
+    EVENT_TYPE_CONCERN: 400,
+    EVENT_TYPE_DEBT: 400,
+    EVENT_TYPE_QUESTION: 450,
+    EVENT_TYPE_ANSWER: 350,
+    EVENT_TYPE_ASSUMPTION: 400,
+    EVENT_TYPE_DISCOVERY: 400,
+    EVENT_TYPE_GOAL: 200,
+    EVENT_TYPE_CUSTOMER_INPUT: None,
+    EVENT_TYPE_CUSTOMER_INTENT: 250,
+    EVENT_TYPE_SPRINT: 200,
+    EVENT_TYPE_RETROSPECTIVE: 100,
+    EVENT_TYPE_SESSION_END: 50,
+}
+
 
 # Required fields — used by validate_event() and repair.py's fast issubset check
 REQUIRED_FIELDS = frozenset({"id", "type", "ts", "agent_id", "content"})
@@ -153,6 +172,15 @@ def validate_event(event: dict) -> list[str]:
     if event_type not in VALID_TYPES:
         errors.append(f"Invalid event type: {event_type}")
         return errors
+
+    # Per-type content budget
+    budget = CONTENT_BUDGETS.get(event_type)
+    if budget is not None and len(event["content"]) > budget:
+        errors.append(
+            f"Content exceeds {event_type} budget "
+            f"({len(event['content'])} > {budget} chars). "
+            f"Shorten to \u2264{budget} chars."
+        )
 
     # Universal optional field types
     if "references" in event:
