@@ -222,7 +222,9 @@ tests/
 │   ├── test_pre_tool_write.py ← conflicts, TDD order, plan review gate
 │   ├── test_pre_tool_bash.py  ← commit security triage gate, file-modification heuristic
 │   ├── test_post_tool.py    ← post_tool_use, lint_check, post_tool_exit_plan
-│   ├── test_bash.py         ← bash_post_tool hook tests, bash_failure
+│   ├── test_bash.py         ← bash_post_tool core: commit events, test detection, probe nudges
+│   ├── test_bash_commit.py  ← probe dedup, review cycle, green nudge, push warning, QR linkage
+│   ├── test_bash_failure.py ← bash_failure, test concern resolution, events kwarg compat
 │   ├── test_bash_parsing.py ← is_test_run, parse_test_results, is_git_commit
 │   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
 │   ├── test_review_cycle.py ← review_cycle_done, subagent review flags
@@ -231,7 +233,10 @@ tests/
 │   ├── test_validation.py   ← hooks.json structure and registration
 │   ├── test_plugin_integrity.py ← plugin file structure, agent files, skill files
 │   ├── test_auto_resolve.py ← auto-resolve logic
-│   ├── test_retrospective.py ← retrospective data preparation
+│   ├── test_retrospective.py ← retrospective core run(), nudge, decision wiring
+│   ├── test_retrospective_sprint.py ← sprint sizing, link rates, sprint detection
+│   ├── test_retrospective_signals.py ← honesty signals, security counting, code metrics
+│   ├── test_retrospective_digest.py ← digest resolutions, concern groups, try annotation
 │   ├── test_retro_save.py   ← save_retrospective
 │   ├── test_markers.py      ← review cycle markers
 │   ├── test_lint.py         ← lint detection and execution

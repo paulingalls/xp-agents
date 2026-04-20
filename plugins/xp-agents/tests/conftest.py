@@ -19,6 +19,7 @@ unittest discovery, which lets us import from sibling `_*.py` modules.
 import json
 import os
 import sys
+from pathlib import Path
 
 # Strip environment variables that would leak a parent shell's state into
 # test subprocesses.
@@ -54,6 +55,7 @@ from _bases import (  # noqa: E402, F401
 
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
+import _common  # noqa: E402
 from _cli_helpers import (  # noqa: E402, F401
     VALID_MILESTONE,
     VALID_SOURCE,
@@ -177,6 +179,26 @@ SPRINT_MIXED_IN_PROGRESS = _sprint_json(
     sprint_id="sprint-001",
     started="2026-04-01",
 )
+
+
+class _ProbeTestHelpers:
+    """Shared helpers for tests that seed concerns and read probe events."""
+
+    smm_dir: Path
+
+    def _seed_auth_concern(self, content: str = "Auth middleware leaks tokens") -> str:
+        c = make_event("concern", content=content, files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def _probes(self) -> list[dict]:
+        return [
+            e
+            for e in _common.read_events_raw(self.smm_dir)
+            if e.get("type") == "status"
+            and e.get("content", "").startswith("resolves_probe_shown:")
+        ]
+
 
 # Rendered markdown sprint — used by preload-based tests (test_assign,
 # test_subagent_tiers, test_teammate_guide) that write to sprint.json
