@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _SMMTestCase, run_cli
+from conftest import _SMMTestCase, make_event, run_cli
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
@@ -140,6 +140,57 @@ class TestOtherCommandsDoNotDrop(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
         self.assertEqual(leaked, [])
+
+
+class TestGetEvent(_SMMTestCase):
+    """get-event retrieves individual events from events.jsonl."""
+
+    def _append_event(self, event_type: str = "status", content: str = "test") -> str:
+        """Append an event and return its ID."""
+        event = make_event(event_type, content=content)
+        events_file = self.smm_dir / "events.jsonl"
+        with events_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+        return event["id"]
+
+    def test_get_event_exact_match(self):
+        """get-event with full ID prints event JSON."""
+        event_id = self._append_event(content="exact match test")
+        result = run_cli(_CLI, ["get-event", event_id], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(parsed["id"], event_id)
+        self.assertEqual(parsed["content"], "exact match test")
+
+    def test_get_event_prefix_match(self):
+        """get-event with 6-char prefix resolves to full event."""
+        event_id = self._append_event(content="prefix test")
+        prefix = event_id[:6]
+        result = run_cli(_CLI, ["get-event", prefix], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(parsed["id"], event_id)
+
+    def test_get_event_not_found(self):
+        """get-event with nonexistent ID returns exit 1."""
+        self._append_event()
+        result = run_cli(_CLI, ["get-event", "000000000000"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not found", result.stderr.lower())
+
+    def test_get_event_ambiguous_prefix(self):
+        """get-event with prefix matching multiple events returns exit 1."""
+        # Write two events sharing a 4-char prefix but different full IDs.
+        shared = "abcd"
+        for suffix in ["00000001", "00000002"]:
+            event = make_event("status", content="ambig")
+            event["id"] = shared + suffix
+            events_file = self.smm_dir / "events.jsonl"
+            with events_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(event) + "\n")
+        result = run_cli(_CLI, ["get-event", shared], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ambiguous", result.stderr.lower())
 
 
 if __name__ == "__main__":

@@ -186,12 +186,8 @@ _EVENT_TYPE_TO_ENTRY_TYPE: dict[str, str] = {
 }
 
 
-def promote_event(
-    smm_dir: Path,
-    event_id: str,
-    pillar: str | None = None,
-) -> str:
-    """Promote an event to a curated SMM entry. Returns new UUID."""
+def lookup_event(smm_dir: Path, event_id: str) -> tuple[str, dict]:
+    """Resolve an event by ID or prefix. Raises ValueError on failure."""
     events, _ = materialize.parse_events(smm_dir)
     by_id = {e["id"]: e for e in events}
 
@@ -204,7 +200,16 @@ def promote_event(
             )
         raise ValueError(f"Event not found: {event_id!r}")
 
-    full_id, event = result
+    return result
+
+
+def promote_event(
+    smm_dir: Path,
+    event_id: str,
+    pillar: str | None = None,
+) -> str:
+    """Promote an event to a curated SMM entry. Returns new UUID."""
+    full_id, event = lookup_event(smm_dir, event_id)
     event_type = event["type"]
 
     target_pillar = pillar or EVENT_TYPE_TO_PILLAR.get(event_type)

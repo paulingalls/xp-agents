@@ -9,6 +9,7 @@ Also provides extract_pillar / extract_pillars for subsetting
 """
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -212,9 +213,17 @@ def _cmd_remove_item(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_save(args: argparse.Namespace) -> int:
-    import json
+def _cmd_get_event(args: argparse.Namespace) -> int:
+    try:
+        _, event = smm_store.lookup_event(args.smm_dir, args.event_id)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(event, indent=2))
+    return 0
 
+
+def _cmd_save(args: argparse.Namespace) -> int:
     content = sys.stdin.read()
     try:
         save(content, smm_dir=args.smm_dir)
@@ -259,8 +268,6 @@ def save(content: str, *, smm_dir: Path) -> None:
         json.JSONDecodeError: If content is not valid JSON.
         ValueError: If content fails SMM schema validation.
     """
-    import json
-
     data = json.loads(content)
     smm_store.save_smm(smm_dir, data)
     complete_curation(smm_dir)
@@ -312,6 +319,9 @@ def main() -> None:
     rm_p = sub.add_parser("remove-item", help="Remove item by ID")
     rm_p.add_argument("item_id", help="Item UUID to remove")
 
+    get_p = sub.add_parser("get-event", help="Print event by ID or prefix")
+    get_p.add_argument("event_id", help="Event UUID or prefix")
+
     prm_p = sub.add_parser("promote-event", help="Promote event to SMM")
     prm_p.add_argument("event_id", help="Event UUID or prefix")
     prm_p.add_argument(
@@ -333,6 +343,7 @@ def main() -> None:
         "add-item": _cmd_add_item,
         "update-item": _cmd_update_item,
         "remove-item": _cmd_remove_item,
+        "get-event": _cmd_get_event,
         "promote-event": _cmd_promote_event,
     }
 
