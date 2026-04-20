@@ -151,7 +151,7 @@ def _extract_retro_history(retro_events: list[dict]) -> dict:
     return {
         "latest_tries": latest_tries,
         "recurring_fixes": recurring_fixes,
-        "adopted_tries": adopted_tries,
+        "adopted_tries": adopted_tries[-10:],
     }
 
 

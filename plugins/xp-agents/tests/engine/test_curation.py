@@ -393,6 +393,25 @@ class TestExtractRetroHistory(_SMMTestCase):
         result = materialize._extract_retro_history(retros)
         self.assertIn("worked", result["adopted_tries"])
 
+    def test_adopted_tries_capped_at_10(self):
+        """F3: adopted_tries capped at 10 most recent."""
+        retros = []
+        for i in range(4):
+            retros.append(
+                self._retro(
+                    try_items=[f"try-{i}-a", f"try-{i}-b", f"try-{i}-c"],
+                    ts=f"2026-01-{i + 1:02d}",
+                )
+            )
+        # Latest retro (excluded from adopted — only earlier retros count)
+        retros.append(self._retro(try_items=["latest"], ts="2026-01-05"))
+        result = materialize._extract_retro_history(retros)
+        # 4 retros x 3 tries = 12 adopted, should be capped to 10
+        self.assertLessEqual(len(result["adopted_tries"]), 10)
+        # Most recent adopted tries should be kept (from later retros)
+        self.assertIn("try-3-c", result["adopted_tries"])
+        self.assertIn("try-3-b", result["adopted_tries"])
+
 
 if __name__ == "__main__":
     unittest.main()
