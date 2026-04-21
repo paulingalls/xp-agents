@@ -142,10 +142,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ```
 
 ### Escalating aging debt
-Debt items with aging markers in the SMM's **Risks** pillar must appear in Fix items with escalating urgency:
-- Normal markers (0-3 sessions): mention if relevant
-- ⚠️ markers (4-6 sessions old): include in Fix as "aging debt, address soon"
-- 🔴 markers (7+ sessions old): include in Fix as **high-priority**, should be the first Fix item
+Debt aging is computed from event timestamps at consumption time. The retro digest's `resolutions` map and `signal_events` show which debts are resolved vs open. Unresolved debt events with high session age should appear in Fix items with escalating urgency:
+- 0-3 sessions: mention if relevant
+- 4-6 sessions: include in Fix as "aging debt, address soon"
+- 7+ sessions: include in Fix as **high-priority**, should be the first Fix item
 - Debt referenced by multiple concerns gets highest priority regardless of age
 
 ## Plugin Health from Session Stats

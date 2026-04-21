@@ -70,9 +70,15 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> get-event <id>
 
 Review `current_smm.intent` (existing) and `new_since_last_curation.customer_inputs` (new).
 
+**Purpose filter — project-level north-star, not sprint/milestone-operational.** For each item, ask: "Is this a project-level outcome or sprint-operational detail?"
+- Good: "Trust-by-proof social platform: WorldID identity, federated moderation"
+- Bad: sprint story lists, iteration groupings (belong in `sprint.json`)
+
 For each new customer input, judge: **Is this a deliverable outcome or just a task?**
 - "Add role-based access" → intent (deliverable outcome)
 - "Fix the typo in README" → task (not an intent)
+
+Items that fail the filter → do NOT promote; keep as events. They surface via work-selection triage at kickoff.
 
 Actions:
 - Check resolutions for completed goals. Remove completed items.
@@ -83,7 +89,11 @@ Actions:
 
 Review `current_smm.constraints` (existing) and `new_since_last_curation.decisions` (new).
 
-Not every decision is a constraint. Constraints are **architectural boundaries** that other agents need to respect.
+**Purpose filter — durable binding rules.** For each item, ask: "Does this bind every instance in its domain (every DB call, every commit, every test)?"
+- Good: "TDD — red, green, refactor, commit"
+- Bad: "bunfig.toml pathIgnorePatterns excludes ONLY e2e/" (binds one config file)
+
+Not every decision is a constraint. Constraints are **architectural boundaries** that other agents need to respect. Items that fail the filter → do NOT promote; keep as events. They surface via work-selection triage at kickoff.
 
 Actions:
 - For each new decision, judge: **Would another agent need to know this to avoid a conflicting choice?** If yes → add with `type: "decision"` and `topic`. If no → skip.
@@ -94,15 +104,27 @@ Actions:
 
 Review `current_smm.risks` (existing), `new_since_last_curation` (concerns, assumptions, debt, questions), `aging`, and `new_since_last_curation.resolutions`.
 
+**Purpose filter — systemic concerns, not tactical.** For each item, ask: "Is this systemic (cross-cutting, not sprint-resolvable) or tactical (specific, sprint-resolvable)?"
+- Good: "Agent Teams adoption unmeasured"
+- Bad: "4 sibling debts (a1b2c3...)" — tactical items surface via work-selection triage, not pillar promotion
+
+Items that fail the filter → do NOT promote; keep as events. They surface via work-selection triage at kickoff.
+
 Actions:
 - Remove risks whose `source_event_id` appears in resolutions.
-- Add new concerns/assumptions/debt/questions as risk entries with appropriate `type` and `severity` (problem/uncertainty/debt).
+- Add only systemic concerns/assumptions as risk entries with appropriate `type` and `severity` (problem/uncertainty/debt).
 - For risks with aging 6+ sessions: keep visible, record a `question` event.
 - **Cap: ~10 items.**
 
 ## 4. Curate Wisdom
 
 Review `retro_history` from curation data.
+
+**Purpose filter — timeless patterns.** For each item, ask: "Will this still apply in 3 months?"
+- Good: "Declare refactor-mode at plan time when behavior-preserving"
+- Bad: tooling-specific troubleshooting hints (belong as code comments)
+
+Items that fail the filter → do NOT promote; keep as events. They surface via work-selection triage at kickoff.
 
 Promote to Wisdom when:
 - A retro "Try" was adopted and worked (appears in `adopted_tries`)
