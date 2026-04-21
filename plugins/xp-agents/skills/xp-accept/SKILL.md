@@ -36,6 +36,8 @@ Read the sprint file at `SPRINT_FILE`. For each in-progress story:
 2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash. Report results.
 3. For **non-E2E criteria** — ask the user to verify
 4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
+   - **done** — all acceptance criteria verified and passing
+   - **deferred** — incomplete, carry forward to next sprint
 5. Resolve any user questions before marking
 
 ## Step 2: Update sprint.json
