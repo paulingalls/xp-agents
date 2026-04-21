@@ -109,7 +109,7 @@ def build_event(args: argparse.Namespace) -> dict:
 
 
 def _format_budget_epilog() -> str:
-    """Generate CLI help epilog from CONTENT_BUDGETS dict."""
+    """Generate CLI help epilog with content budgets and usage examples."""
     entries = [
         f"{t}={b}" if b is not None else f"{t}=uncapped"
         for t, b in CONTENT_BUDGETS.items()
@@ -118,6 +118,24 @@ def _format_budget_epilog() -> str:
     for i in range(0, len(entries), 4):
         lines.append("  " + "  ".join(entries[i : i + 4]))
     lines.append("Over-budget events are rejected with an actionable error.")
+    lines.append("")
+    lines.append("Examples:")
+    lines.append(
+        "  append.sh --smm-dir DIR --type status --agent main"
+        ' --content "Starting refactor" --working-on \'["src/auth.py"]\''
+    )
+    lines.append(
+        "  append.sh --smm-dir DIR --type decision --agent main"
+        ' --content "Use typed errors" --topic error-handling'
+    )
+    lines.append(
+        "  append.sh --smm-dir DIR --type concern --agent main"
+        ' --content "Missing validation" --severity medium'
+    )
+    lines.append(
+        "  append.sh --smm-dir DIR --type debt --agent main"
+        ' --content "Legacy code" --files \'["src/legacy.ts"]\''
+    )
     return "\n".join(lines)
 
 

@@ -193,5 +193,12 @@ class TestGetEvent(_SMMTestCase):
         self.assertIn("ambiguous", result.stderr.lower())
 
 
+class TestSmmCliHelp(_SMMTestCase):
+    def test_help_contains_examples(self):
+        result = run_cli(_CLI, ["--help"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Examples:", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

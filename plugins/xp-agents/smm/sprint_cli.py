@@ -148,6 +148,17 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sprint CLI",
+        epilog=(
+            "Examples:\n"
+            "  cat sprint.json | sprint_cli.py"
+            " --smm-dir DIR create\n"
+            "  sprint_cli.py --smm-dir DIR"
+            " update-story story-001 in-progress\n"
+            "  sprint_cli.py --smm-dir DIR"
+            " list-stories --status ready\n"
+            "  sprint_cli.py --smm-dir DIR render"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--smm-dir",

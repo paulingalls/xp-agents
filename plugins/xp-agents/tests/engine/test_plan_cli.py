@@ -252,5 +252,12 @@ class TestEditMilestoneCommand(_SMMTestCase):
         self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
 
 
+class TestPlanCliHelp(_SMMTestCase):
+    def test_help_contains_examples(self):
+        result = run_cli(_CLI, ["--help"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Examples:", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -184,6 +184,16 @@ def _cmd_archive(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Execution plan CLI",
+        epilog=(
+            "Examples:\n"
+            "  cat plan.json | plan_cli.py --smm-dir DIR create\n"
+            '  echo \'{"goal":"..."}\' | plan_cli.py'
+            " --smm-dir DIR edit-milestone 3\n"
+            "  plan_cli.py --smm-dir DIR"
+            " update-status 3 delivered --delivered-sprint s11\n"
+            "  plan_cli.py --smm-dir DIR render"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--smm-dir",

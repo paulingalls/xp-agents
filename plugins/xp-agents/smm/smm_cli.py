@@ -274,7 +274,18 @@ def save(content: str, *, smm_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SMM CLI")
+    parser = argparse.ArgumentParser(
+        description="SMM CLI",
+        epilog=(
+            "Examples:\n"
+            '  echo "text" | smm_cli.py --smm-dir DIR add-item'
+            " constraints --type convention --topic name\n"
+            "  smm_cli.py --smm-dir DIR get-event abc123\n"
+            "  smm_cli.py --smm-dir DIR render\n"
+            "  smm_cli.py --smm-dir DIR remove-item ITEM_ID"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--smm-dir", type=Path, required=True, help="SMM directory path"
     )

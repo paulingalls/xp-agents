@@ -69,7 +69,16 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Retrospective render CLI")
+    parser = argparse.ArgumentParser(
+        description="Retrospective render CLI",
+        epilog=(
+            "Examples:\n"
+            "  retro_cli.py --smm-dir DIR render path/to/retro.json\n"
+            "  retro_cli.py --smm-dir DIR render path/to/retro.json"
+            " --agent-id main"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--smm-dir", type=Path, required=True, help="SMM directory path"
     )

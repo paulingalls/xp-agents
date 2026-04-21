@@ -164,5 +164,12 @@ class TestAddStoryCommand(_SMMTestCase):
         self.assertEqual(len(loaded["stories"]), 2)
 
 
+class TestSprintCliHelp(_SMMTestCase):
+    def test_help_contains_examples(self):
+        result = run_cli(_CLI, ["--help"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Examples:", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

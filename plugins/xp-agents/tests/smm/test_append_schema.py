@@ -290,6 +290,12 @@ class TestContentBudgets(unittest.TestCase):
         help_text = build_parser().format_help()
         self.assertIn("Content budgets", help_text)
 
+    def test_cli_help_shows_examples(self):
+        from event_builder import build_parser
+
+        help_text = build_parser().format_help()
+        self.assertIn("Examples:", help_text)
+
     def test_schema_json_description_matches_budgets(self):
         """schema.json content description must stay in sync with CONTENT_BUDGETS."""
         from event_schema import CONTENT_BUDGETS
