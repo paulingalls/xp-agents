@@ -145,6 +145,18 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_assign_story(args: argparse.Namespace) -> int:
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    import worktree
+
+    try:
+        worktree.write_story_assignment(args.smm_dir, args.name, args.story_id)
+    except OSError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sprint CLI",
@@ -207,6 +219,17 @@ def main() -> None:
         help="New status",
     )
 
+    assign_p = sub.add_parser(
+        "assign-story",
+        help="Write story assignment marker for commit attribution",
+    )
+    assign_p.add_argument("story_id", help="Story ID to assign")
+    assign_p.add_argument(
+        "--name",
+        required=True,
+        help="Agent name (e.g. main, teammate-step-1)",
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -223,6 +246,7 @@ def main() -> None:
         "create": _cmd_create,
         "add-story": _cmd_add_story,
         "update-story": _cmd_update_story,
+        "assign-story": _cmd_assign_story,
     }
 
     sys.exit(dispatch[args.command](args))

@@ -104,6 +104,16 @@ def story_assignment_path(smm_dir: Path, name: str) -> Path:
     return smm_dir / f".story-assignment-{name}"
 
 
+def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:
+    """Atomically write story assignment marker with symlink rejection."""
+    from _append_impl import write_text_atomic
+
+    path = story_assignment_path(smm_dir, name)
+    if path.is_symlink():
+        raise OSError(f"Refusing to write to symlink: {path}")
+    write_text_atomic(path, story_id)
+
+
 def normalize_path(file_path: str, cwd: str) -> str:
     """Resolve a file path against cwd, return project-relative string.
 

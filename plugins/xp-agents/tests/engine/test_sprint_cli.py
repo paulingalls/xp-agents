@@ -171,5 +171,57 @@ class TestSprintCliHelp(_SMMTestCase):
         self.assertIn("Examples:", result.stdout)
 
 
+class TestAssignStoryCommand(_SMMTestCase):
+    """assign-story writes .story-assignment-{name} marker."""
+
+    def test_writes_marker_file(self):
+        result = run_cli(
+            _CLI,
+            ["assign-story", "story-001", "--name", "main"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = self.smm_dir / ".story-assignment-main"
+        self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text().strip(), "story-001")
+
+    def test_rejects_symlink_target(self):
+        target = self.smm_dir / "real-marker"
+        target.write_text("old")
+        link = self.smm_dir / ".story-assignment-main"
+        link.symlink_to(target)
+        result = run_cli(
+            _CLI,
+            ["assign-story", "story-001", "--name", "main"],
+            self.smm_dir,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_overwrites_existing(self):
+        run_cli(
+            _CLI,
+            ["assign-story", "story-001", "--name", "main"],
+            self.smm_dir,
+        )
+        run_cli(
+            _CLI,
+            ["assign-story", "story-002", "--name", "main"],
+            self.smm_dir,
+        )
+        marker = self.smm_dir / ".story-assignment-main"
+        self.assertEqual(marker.read_text().strip(), "story-002")
+
+    def test_teammate_name(self):
+        result = run_cli(
+            _CLI,
+            ["assign-story", "story-003", "--name", "teammate-step-1"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = self.smm_dir / ".story-assignment-teammate-step-1"
+        self.assertTrue(marker.exists())
+        self.assertEqual(marker.read_text().strip(), "story-003")
+
+
 if __name__ == "__main__":
     unittest.main()

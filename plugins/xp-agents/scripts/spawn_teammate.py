@@ -78,8 +78,7 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     """Write story assignment file for commit attribution. No-op if story_id is None."""
     if story_id is None:
         return
-    path = worktree.story_assignment_path(smm_dir, name)
-    path.write_text(story_id, encoding="utf-8")
+    worktree.write_story_assignment(smm_dir, name, story_id)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

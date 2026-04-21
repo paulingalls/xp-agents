@@ -49,8 +49,7 @@ If solo and a sprint is active with in-progress stories: write a `.story-assignm
 
 ```bash
 python3 ${PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> list-stories --status in-progress
-# Write the story ID to the assignment marker:
-echo "story-NNN" > <SMM_DIR>/.story-assignment-main
+python3 ${PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> assign-story story-NNN --name main
 ```
 
 Then output "Proceeding with solo execution." and stop.
