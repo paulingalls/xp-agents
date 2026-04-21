@@ -25,6 +25,7 @@ NEEDS_HOUSEKEEPING = ".needs-housekeeping"
 PENDING_RENDER_RETRO = ".pending-render-retro-{agent_id}"
 PENDING_RENDER_SMM = ".pending-render-smm-{agent_id}"
 REVIEW_FINGERPRINT = ".review-fingerprint-{agent_id}"
+QUESTION_NUDGED = ".question-nudged-{agent_id}"
 
 RENDER_RETRO_SIGNATURE = "# XP Retrospective \u2014 Keep / Fix / Try"
 RENDER_SMM_SIGNATURE = "# Shared Mental Model \u2014 Curated View"

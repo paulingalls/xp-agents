@@ -69,6 +69,7 @@ PENDING_RENDER_SMM = MarkerDef(
 REVIEW_FINGERPRINT = MarkerDef(
     marker_names.REVIEW_FINGERPRINT, "json", agent_scoped=True
 )
+QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +204,7 @@ _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
     PENDING_RENDER_RETRO,
     PENDING_RENDER_SMM,
     REVIEW_FINGERPRINT,
+    QUESTION_NUDGED,
 )
 
 

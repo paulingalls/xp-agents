@@ -48,24 +48,45 @@ def detect_bash_target_files(command: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _QUESTION_CONTENT_LIMIT = 80
+_MAX_NUDGE_FIRES = 2
 
 
-def _open_questions_context(smm_dir: Path) -> str | None:
-    """Build a nudge listing open questions, or None when none remain."""
+def _open_questions_context(smm_dir: Path, agent_id: str) -> str | None:
+    """Build a nudge listing open questions, or None when none remain.
+
+    Tracks per-(question_id, agent_id) fire count via QUESTION_NUDGED marker.
+    After _MAX_NUDGE_FIRES fires, that question is muted for this agent.
+    """
     events = _common.read_events_raw(smm_dir)
     if not events:
         return None
     answered = compute_resolutions(events)["answered_question_ids"]
+
+    fire_counts: dict[str, int] = {}
+    marker_data = markers.marker_read(smm_dir, markers.QUESTION_NUDGED, agent_id)
+    if isinstance(marker_data, dict):
+        fire_counts = {k: v for k, v in marker_data.items() if isinstance(v, int)}
+
     lines: list[str] = []
+    counts_changed = False
     for e in events:
         if e.get("type") != _common.QUESTION:
             continue
         qid = e.get("id", "")
         if not qid or qid in answered:
             continue
+        count = fire_counts.get(qid, 0)
+        if count >= _MAX_NUDGE_FIRES:
+            continue
         topic = e.get("topic", "") or "no-topic"
         content = e.get("content", "")[:_QUESTION_CONTENT_LIMIT]
         lines.append(f"{qid} ({topic}): {content}")
+        fire_counts[qid] = count + 1
+        counts_changed = True
+
+    if counts_changed:
+        markers.marker_write(smm_dir, markers.QUESTION_NUDGED, fire_counts, agent_id)
+
     if not lines:
         return None
     header = (
@@ -159,7 +180,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if args.get("type") == _common.DECISION and not _decision_metadata_has_resolves(
             args.get("metadata", "")
         ):
-            nudge = _open_questions_context(smm_dir)
+            nudge = _open_questions_context(smm_dir, agent_id)
             if nudge:
                 parts.append(nudge)
 
