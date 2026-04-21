@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.17.0 — Verbosity Audit M5+M6: SMM Purpose Audit + Triage Surfaces
+
+Sprint-013 delivers Milestones 5 and 6 of the Verbosity Audit execution plan (4/4 stories, 100% velocity). Sixth consecutive sprint at 100% delivery rate.
+
+- **M5: Per-pillar content maxLength enforcement.** `PILLAR_CONTENT_MAX_LENGTH` in `smm_schema.py` (intent=200, constraints=150, risks=200, wisdom=150) enforced at write time via `validate_entry`. Read path grandfathers existing over-budget entries. Coverage assertion ensures all pillars have a budget. Two seed wisdom items tightened to fit.
+
+- **M5: Housekeeper purpose-filter rewrite.** Each pillar curation section now has a purpose filter with good/bad examples: Intent (project-level north-star), Constraints (binds every instance in domain), Risks (systemic, not tactical), Wisdom (applies in 3 months). Items failing the filter stay as events — they surface via work-selection triage instead of pillar promotion.
+
+- **M6: Triage preload.** New `triage_preload.py` scans `events.jsonl` for unresolved debt/concern/question events, outputs formatted triage sections with aging info (sessions since creation). Replaces the Risks-pillar question display in work-selection preload with direct event scanning.
+
+- **M6: Triage decide subcommands.** `work_selection_decide.py` gains `triage-adopt`, `triage-defer`, `triage-drop` subcommands with `--event-id` flag. Collapsed to a single match case with disposition lookup. Event ID validated against `EVENT_ID_RE`. SKILL.md updated with Steps 2-4 for Open Debts, Open Concerns, Open Questions triage.
+
+- **M5: Retro aging decoupled from Risks pillar.** `xp-retrospective.md` no longer references Risks pillar emoji markers for debt aging. Aging is now computed from event timestamps at consumption time.
+
+- **Fix: story-assignment marker writes.** New `sprint_cli.py assign-story` subcommand and shared `worktree.write_story_assignment()` helper with symlink rejection + atomic writes. Replaces raw `echo`/`path.write_text()` in spawn_teammate.py and xp-assign SKILL.md. Resolves debt 7af3d53bdba9.
+
+- **Tests.** 2395 total (up from 2345 at v2.16.0). 50 new tests across 8 files covering maxLength validation, triage preload scanning, triage decide subcommands, purpose filter assertions, and assign-story CLI.
+
 ## v2.16.0 — Verbosity Audit M2+M3: Curation Input Fixes + CLI --help + PROCESS_GUIDE Tightening
 
 Sprint-010 delivers Milestone 2 (3/3 stories, 100% velocity) and Sprint-011 delivers Milestone 3 (2/2 stories, 100% velocity). Four consecutive sprints at 100% delivery rate.
