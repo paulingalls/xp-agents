@@ -26,12 +26,10 @@ if [ -d "$RETRO_DIR" ]; then
     fi
 fi
 
-# 2. Open Questions from Risks pillar
-if smm_has_section "Risks"; then
-    echo "### Open Questions:"
-    smm_section "Risks"
-    echo ""
-fi
+# 2. Triage: unresolved debts, concerns, questions from events
+python3 "${PLUGIN_ROOT}/skills/xp-work-selection/scripts/triage_preload.py" \
+    --smm-dir "$SMM_DIR" 2>/dev/null || true
+echo ""
 
 # 3. Sprint Status
 if sprint_exists; then

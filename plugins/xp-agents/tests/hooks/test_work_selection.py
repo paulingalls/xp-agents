@@ -13,6 +13,7 @@ from conftest import (
     _IntegrationTestCase,
     _s,
     _sprint_json,
+    make_event,
     write_smm_fixture,
 )
 
@@ -58,6 +59,8 @@ _SMM_WITH_INTENT = dict(
 
 class TestWorkSelectionPreload(_IntegrationTestCase):
     """M1: xp-work-selection preload outputs session data."""
+
+    # Inherits _seed_events from _IntegrationTestCase for writing events.
 
     def _write_retro(self, tries: list[str]) -> None:
         retro_dir = self.smm_dir / "retrospectives"
@@ -165,22 +168,49 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("### Previous Try Items", result.stdout)
 
-    # --- Open questions (from SMM Risks pillar) ---
+    # --- Triage sections (from events.jsonl, not Risks pillar) ---
 
-    def test_shows_open_questions(self):
-        """Risks pillar content appears under Open Questions."""
+    def test_shows_triage_debts(self):
+        """Unresolved debt events appear under Open Debts."""
+        events = [make_event("debt", content="Fix auth module")]
+        self._seed_events(events)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("### Open Debts:", result.stdout)
+        self.assertIn("Fix auth module", result.stdout)
+
+    def test_shows_triage_concerns(self):
+        """Unresolved concern events appear under Open Concerns."""
+        events = [make_event("concern", content="Security gap")]
+        self._seed_events(events)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("### Open Concerns:", result.stdout)
+        self.assertIn("Security gap", result.stdout)
+
+    def test_shows_triage_questions(self):
+        """Unresolved question events appear under Open Questions."""
+        events = [make_event("question", content="Use REST?")]
+        self._seed_events(events)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("### Open Questions:", result.stdout)
+        self.assertIn("Use REST?", result.stdout)
+
+    def test_no_triage_when_no_events(self):
+        """No events — no triage sections."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("### Open Debts:", result.stdout)
+        self.assertNotIn("### Open Concerns:", result.stdout)
+        self.assertNotIn("### Open Questions:", result.stdout)
+
+    def test_risks_pillar_no_longer_shown(self):
+        """Risks pillar content does NOT appear — replaced by events."""
         write_smm_fixture(self.smm_dir, **_SMM_WITH_RISKS)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("### Open Questions", result.stdout)
-        self.assertIn("Security gate broken", result.stdout)
-
-    def test_no_questions_when_no_risks(self):
-        """SMM without Risks section — no Open Questions."""
-        write_smm_fixture(self.smm_dir, intent=[("goal", "goal")])
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("### Open Questions", result.stdout)
+        self.assertNotIn("## Risks", result.stdout)
 
     # --- Sprint status ---
 
