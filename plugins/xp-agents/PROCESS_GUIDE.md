@@ -2,19 +2,10 @@
 
 ## Practicing the Values
 
-How we execute XP values in this plugin:
-
-**Honesty through the Shared Mental Model:**
-Ground truth lives in the SMM. Record every architectural decision with topic and rationale. Never silently override — either record a concern before changing an existing decision, or set `metadata.supersedes: [<prior_decision_id>]` on the new decision to acknowledge the override explicitly. State assumptions explicitly when proceeding with uncertainty. Raise problems early: bad pattern → concern, need input → question, unexpected finding → discovery, tradeoff → debt. Trace work to customer needs — if you can't connect it to a goal, question whether it should be done.
-
-**Communication through events:**
-Decisions in your head don't exist for the team — record them. Share *why*, not just *what*. Answer open questions in the SMM promptly.
-
-**Feedback through review cycles:**
-When `/simplify` or `/xp-quality-review` flags something, fix it. Disagreements get recorded as `debt` with a specific reason. Address retrospective Fix items. Tests are production code — they go through the same review cycle. Never skip or abbreviate reviews for test-only changes.
-
-**Collaboration discipline:**
-Honor collective decisions — don't bypass conventions without recording a concern. Don't silently modify files others are working on. Deliver what was asked before adding what you think is needed.
+- **Honesty**: Record decisions, assumptions, concerns in the SMM. Never silently override — record a concern or set `metadata.supersedes`. State assumptions explicitly.
+- **Communication**: Share *why*, not just *what*. Answer open questions promptly.
+- **Feedback**: Fix what `/simplify` or `/xp-quality-review` flags. Tests are production code — same review cycle.
+- **Collaboration**: Honor collective decisions. Deliver what was asked before adding extras.
 
 ## Resolution Discipline
 
@@ -25,172 +16,84 @@ Three link types close events:
 
 ## When to Run XP Skills
 
-These are not optional. Hooks enforce some as safety nets, but follow the process proactively rather than waiting to be blocked.
+Hooks enforce some as safety nets, but follow the process proactively.
 
-**Plan cycle (hook-enforced):**
-- `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute
-- Use plan mode for multi-file changes (3+ files). The plan cycle ensures plans are reviewed for XP compliance and work is assigned before implementation begins.
-- Hook enforcement uses marker files, same pattern as the review cycle:
-  - `PostToolUse:ExitPlanMode` sets `.plan-awaiting-review` — blocks writes until plan is reviewed.
-  - `SubagentStop:xp-plan-reviewer` clears `.plan-awaiting-review` and sets `.assign-pending` — blocks writes until `/xp-assign` decides execution mode.
-  - `/xp-assign` clears `.assign-pending` and begins execution (solo or worktree subagents).
-- Works in both sprint and free sessions — `/xp-assign` reads the plan file's steps to decide execution mode.
+**Plan cycle:** `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Use for multi-file changes (3+ files). Marker-gated: `.plan-awaiting-review` blocks writes until reviewed, `.assign-pending` blocks until assigned.
 
-**Per commit (commit-gated review cycle):**
-- `/simplify` → `/xp-quality-review` → `/xp-security-triage` → `git commit`
-- The commit gate blocks if you skip a step. Non-code commits skip automatically.
+**Per commit (review cycle):** `/simplify` → `/xp-quality-review` → `/xp-security-triage` → `git commit`. Commit gate blocks if skipped. Non-code commits skip automatically.
 
-**Sprint iteration flow:**
-- `/xp-plan` → `/xp-sprint-start` → implement → `/xp-accept`
-- When done: `/xp-sprint-review` (sprint sizing flows into next session's retro automatically)
+**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → implement → `/xp-accept`. When done: `/xp-sprint-review`.
 
-### File Domain Discipline
+**File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-Declare `file_domain` per planner intent; over-declaring defeats cascade_size (files outside it, informational — never flagged).
+**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` — skill provides preload + cleanup. Kickoff retro and housekeeping are inline Agent-tool calls; after each, run the render CLI and echo the signature line verbatim.
 
-**Forked skills (review/analysis agents):**
-- `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` are forked — skill provides preload data and cleanup.
-- Kickoff retrospective and housekeeping are **inline Agent-tool calls** (`xp-retrospective`, `xp-housekeeper`); SubagentStart populates their input files. After each agent completes, run the matching render CLI and echo the signature line (em-dash U+2014) verbatim — the echo-gate hook blocks the next tool call on a mismatch.
+**Work assignment:** `/xp-assign` reads plan steps, decides solo vs CLI teammates. Teammates are independent `claude -p` processes in git worktrees with full TDD + review cycle.
 
-**Work assignment (plan cycle final step):**
-- `/xp-assign` is an inline skill that auto-runs as the final step of the plan cycle, after `/xp-review-plan` completes. It reads the plan file's steps and decides execution mode:
-  - **Solo** — lead executes steps sequentially (dependency chains, overlapping file targets, or small plans)
-  - **CLI teammates** — spawns teammates via `spawn_teammate.py` (independent `claude -p` processes in git worktrees) for parallel execution (independent steps with non-overlapping file targets)
-- Teammates receive values, guide, and rendered SMM via SessionStart and work independently with full TDD + review cycle.
+**Tests:** Check for FAIL/ERROR first. Never re-run the full suite just to find failure names.
 
-**When running tests:**
-- Check for FAIL/ERROR in the output first. Never re-run the full suite just to find failure names — capture them from the first run.
-
-**When a Stop hook blocks you:**
-- TDD gate: fix failing tests. Accept gate: run `/xp-accept` first.
-- If a gate is wrong, record a `debt` event explaining why.
+**Stop gates:** TDD gate: fix failing tests. Accept gate: run `/xp-accept` first.
 
 ## Project Files
 
-Project state lives in `SMM_DIR`: `shared_mental_model.json` (curated briefing), `sprint.json` (current sprint stories), `execution_plan.json` (milestones and change zones), `system_context.md` (product/system description). Resolve `SMM_DIR` by running `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
+Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_plan.json`, `system_context.md`. Resolve via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
 
 ## CLI Tools
 
-Use these CLIs instead of reading/writing project files directly. All require `--smm-dir <SMM_DIR>`.
+All CLIs require `--smm-dir DIR`. Run each with `--help` for subcommands and examples.
 
-**sprint_cli.py** — sprint operations:
-- `update-story STORY_ID STATUS` — change story status (ready, in-progress, done, deferred)
-- `add-story` — add story from stdin JSON
-- `list-stories [--status STATUS]` — list stories, optionally filtered
-- `render` — render sprint as markdown
-- `exists` / `has-active` / `is-complete` — status checks
-
-**plan_cli.py** — execution plan operations:
-- `edit-milestone N` — merge JSON patch from stdin into milestone N
-- `update-status N STATUS [--delivered-sprint ID]` — change milestone status
-- `add-milestone` — add milestone from stdin JSON
-- `render` — render plan as markdown
-- `exists` / `has-remaining` / `count` — status checks
-
-**smm_cli.py** — shared mental model operations:
-- `dump` — render full SMM as markdown
-- `section NAME` — render a single pillar (intent, constraints, risks, wisdom)
-- `has-section NAME` — check if pillar exists
+- **sprint_cli.py** — sprint operations (create, update-story, list-stories, render)
+- **plan_cli.py** — execution plan (create, update-status, edit-milestone, render)
+- **smm_cli.py** — shared mental model (add-item, update-item, remove-item, get-event, render)
+- **retro_cli.py** — retrospective rendering
+- **append.sh** — event log writes (see budgets and examples via `--help`)
 
 ## Recording Events
 
-Use `append.sh` for all event writes. Never write directly to `events.jsonl`.
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "TYPE" \
-  --agent "$AGENT_ID" \
-  --content "Description here" \
-  --working-on '["file1.ts", "file2.ts"]'
-```
+Use `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` for all event writes. Never write directly to `events.jsonl`. Per-type content budgets enforced at write time — run `append.sh --help` for limits.
 
 ### Event Types
 
 | Type | Pillar | When to Use | Required Fields |
 |------|--------|-------------|-----------------|
-| `goal` | Intent | Project north star, what we're building | content |
-| `status` | (activity) | What you're working on right now | content (working_on defaults to []) |
-| `concern` | Risks | Problem needing attention | content, severity (low/medium/high), files (optional) |
+| `goal` | Intent | Project north star | content |
+| `status` | (activity) | Current work | content, working_on |
+| `concern` | Risks | Problem needing attention | content, severity, files (opt) |
 | `question` | Risks | Need customer input | content, priority |
-| `customer_input` | Intent | (Auto-logged by hook) | content |
-| `customer_intent` | Intent | Distilled customer request | content, intent_status (open/delivered/superseded) |
-| `decision` | Constraints | Architectural choice made | content, topic |
-| `convention` | Constraints | Team standard established | content, topic |
-| `assumption` | Risks | Stated belief, may need verification | content |
+| `customer_input` | Intent | (Auto-logged) | content |
+| `customer_intent` | Intent | Distilled request | content, intent_status |
+| `decision` | Constraints | Architectural choice | content, topic |
+| `convention` | Constraints | Team standard | content, topic |
+| `assumption` | Risks | Stated belief | content |
 | `discovery` | Risks | Unexpected finding | content |
-| `debt` | Risks | Acknowledged tradeoff, known issue | content, files (affected file list) |
-| `retrospective` | Wisdom | (Written by retrospective agent) | content |
+| `debt` | Risks | Known tradeoff | content, files |
+| `retrospective` | Wisdom | (Retro agent) | content |
 
 ### Question Priority
 
-- **🔴 Blocking** (`priority: "blocking"`) — Both paths create significant rework. Triggers desktop notification. Use sparingly.
-- **🟡 Assumed** (`priority: "assumed"`) — **Default.** State your assumption and proceed. Escalate to 🔴 only if wrong path costs days.
-- **🟢 Informational** (`priority: "info"`) — Nice to know. Won't change approach.
+- **Blocking** (`priority: "blocking"`) — Both paths create significant rework. Desktop notification.
+- **Assumed** (`priority: "assumed"`) — Default. State assumption and proceed.
+- **Informational** (`priority: "info"`) — Nice to know.
 
 ### The `working_on` Field
 
-Every `status` event should include `working_on` — a JSON array of file paths currently being modified. This powers conflict detection and session end summaries. Update when you switch files.
+Every `status` event should include `working_on` — JSON array of file paths being modified. Powers conflict detection.
 
 ### The `references` Field
 
-Link related events by ID: an `answer` references the `question` it answers, a `discovery` references the `assumption` it contradicts.
+Link related events by ID: `--references '["question-id"]'`. An answer references its question, a discovery references the assumption it contradicts.
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "answer" \
-  --agent "main" \
-  --content "Customer confirmed: use PostgreSQL" \
-  --references '["question-id-here"]'
-```
+### Linking Commits to Events
 
-### Linking commits to SMM events
+Add `Resolves-Event: <id>` trailer to commit body when a commit closes an SMM event. Case-insensitive, comma-separated. IDs are 12 hex chars. The hook auto-populates `metadata.resolves`.
 
-When a commit closes a recorded SMM item (any type resolvable via `metadata.resolves`), add a `Resolves-Event:` trailer at the bottom of the commit body. The commit hook populates `metadata.resolves` on the commit event, so retros and housekeeping detect the resolution automatically.
+### Common Patterns
 
 ```
-Fix the thing
-
-Rationale explaining the fix.
-
-Resolves-Event: 4eb35ddcd24e, a55290ae79b9
-Co-Authored-By: ...
+append.sh --smm-dir DIR --type status --agent main --content "..." --working-on '[...]'
+append.sh --smm-dir DIR --type decision --agent main --content "..." --topic "..."
+append.sh --smm-dir DIR --type debt --agent main --content "..." --files '[...]'
+append.sh --smm-dir DIR --type concern --agent main --content "..." --severity medium
 ```
-
-Case-insensitive; comma-separated or multiple lines. IDs must be 12 hex chars.
-
-### Good vs Bad Events
-
-**Good:** Specific, actionable, grounded — "Decided to use PostgreSQL for user data because SQLite can't handle concurrent writes" (decision). **Bad:** Vague or noisy — "Working on stuff" (status), "Something might be wrong" (concern).
-
-### Common Recording Patterns
-
-```bash
-# Starting a new task
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" --agent "main" \
-  --content "Starting auth module refactor to typed errors" \
-  --working-on '["src/auth/handler.ts", "src/auth/middleware.ts"]'
-
-# Making an architectural choice
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "decision" --agent "main" \
-  --content "Using typed error classes instead of string matching — safer refactoring" \
-  --topic "error-handling"
-
-# Flagging technical debt
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "debt" --agent "main" \
-  --content "Legacy string error matching still in 3 edge cases — will migrate next pass" \
-  --files '["src/auth/legacy.ts"]'
-
-# Recording an assumption
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "assumption" --agent "main" \
-  --content "Assuming all auth errors are subclasses of AuthError — not verified for third-party providers"
-```
-
-### Content Budgets
-
-Per-type char budgets enforced at write time (see `append.sh --help`). Write tight — IDs and tags in comma-separated structure, not prose. Example: *"Story-002 plan misses 17 tests across tests/{smm,hooks,integration,engine}/ referencing old agent names. Fix: enumerate OR move grep before deletion."* (170 chars vs original 1099).
 
 Read Intent and Risks before every significant action. Check Constraints when making architectural choices.
