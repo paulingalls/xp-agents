@@ -418,5 +418,46 @@ class TestRenderStorySections(unittest.TestCase):
         self.assertEqual(md, "")
 
 
+# ===========================================================================
+# Field budget tests
+# ===========================================================================
+
+
+class TestStoryFieldBudgets(unittest.TestCase):
+    """Test per-field maxLength enforcement in validate_sprint()."""
+
+    def test_context_over_budget_rejected(self):
+        import sprint_schema
+
+        sprint = _make_sprint(stories=[_make_story(context="x" * 601)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(
+            any("context" in e and "601" in e and "600" in e for e in errors)
+        )
+
+    def test_context_at_budget_accepted(self):
+        import sprint_schema
+
+        sprint = _make_sprint(stories=[_make_story(context="x" * 600)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertFalse(any("context" in e and "budget" in e for e in errors))
+
+    def test_file_domain_item_over_budget_rejected(self):
+        import sprint_schema
+
+        sprint = _make_sprint(stories=[_make_story(file_domain=["x" * 201])])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(
+            any("file_domain" in e and "201" in e and "200" in e for e in errors)
+        )
+
+    def test_file_domain_item_at_budget_accepted(self):
+        import sprint_schema
+
+        sprint = _make_sprint(stories=[_make_story(file_domain=["x" * 200])])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertFalse(any("file_domain" in e and "budget" in e for e in errors))
+
+
 if __name__ == "__main__":
     unittest.main()

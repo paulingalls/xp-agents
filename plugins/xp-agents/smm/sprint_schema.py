@@ -14,6 +14,14 @@ VALID_STORY_SIZES = frozenset({"S", "M", "L"})
 
 S_SIZE_FILE_DOMAIN_MAX = 20
 
+STORY_FIELD_MAXLENGTH: dict[str, int] = {
+    "context": 600,
+}
+
+STORY_ITEM_MAXLENGTH: dict[str, int] = {
+    "file_domain": 200,
+}
+
 _ACTIVE_STATUSES = frozenset({"ready", "in-progress"})
 
 _SPRINT_REQUIRED = frozenset({"sprint_id", "goal", "started", "stories"})
@@ -91,6 +99,25 @@ def _validate_story(story: object, idx: int) -> list[str]:
             f"stories[{idx}] declares {len(story['file_domain'])} files"
             f" at size S; max {S_SIZE_FILE_DOMAIN_MAX}"
         )
+
+    if isinstance(story.get("context"), str):
+        max_len = STORY_FIELD_MAXLENGTH["context"]
+        actual = len(story["context"])
+        if actual > max_len:
+            errors.append(
+                f"stories[{idx}].context exceeds budget ({actual} > {max_len} chars)"
+            )
+
+    if isinstance(story.get("file_domain"), list):
+        fd_max = STORY_ITEM_MAXLENGTH["file_domain"]
+        for fd_idx, item in enumerate(story["file_domain"]):
+            if isinstance(item, str):
+                actual = len(item)
+                if actual > fd_max:
+                    errors.append(
+                        f"stories[{idx}].file_domain[{fd_idx}]"
+                        f" exceeds budget ({actual} > {fd_max} chars)"
+                    )
 
     return errors
 
