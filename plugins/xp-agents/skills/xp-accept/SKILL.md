@@ -14,53 +14,42 @@ allowed-tools:
 
 # Accept Verification
 
-The preload above shows the sprint state: in-progress count + `SPRINT_FILE=<path>`, or ERROR/NO_IN_PROGRESS.
+The preload above shows sprint state: in-progress count + `SPRINT_FILE=<path>`, or ERROR/NO_IN_PROGRESS.
 
-**If the preload shows "ERROR" or "NO_IN_PROGRESS"**, explain the situation and stop. There is nothing to accept.
+**If ERROR or NO_IN_PROGRESS**, explain and stop.
 
 ## Step 0: Cross-Teammate Review (if TEAMMATE_WORKTREES shown)
 
-If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged into the current branch. Run a cross-teammate review cycle on the merged code to catch inter-story issues:
+If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged. Run a cross-teammate review cycle on the merged code:
 
-1. Run `/simplify` scoped to the merged teammate changes — use `Skill(skill: "simplify", args: "the merged teammate changes since before the teammate merges")` so the review covers the merge diffs, not the empty working tree
-2. Run `/xp-quality-review` — check for drift against SMM constraints and inter-story debt
-3. Run `/security-review` scoped to the merged teammate changes — use `Skill(skill: "security-review", args: "the merged teammate changes since before the teammate merges")` so the review covers the merge diffs, not the entire branch history
+1. `/simplify` scoped to merged teammate changes (use `args: "the merged teammate changes since before the teammate merges"`)
+2. `/xp-quality-review` — check for drift and inter-story debt
+3. `/security-review` scoped to merged teammate changes (use `args: "the merged teammate changes since before the teammate merges"`)
 
-This catches issues that individual teammate reviews might miss (e.g., duplicated patterns across stories, conflicting approaches, or combined security implications).
-
-If no TEAMMATE_WORKTREES section is shown, skip to Step 1.
+Skip if no TEAMMATE_WORKTREES section.
 
 ## Step 1: Review Each In-Progress Story
 
-Read the sprint file using the `SPRINT_FILE` path from the preload output. For each story with `**Status:** in-progress`:
+Read the sprint file at `SPRINT_FILE`. For each in-progress story:
 
-1. **Present the story** — show the story title and all acceptance criteria.
-2. **For each E2E criterion** (prefixed with "E2E:") — guide the user to run the test. Use Bash to execute test commands if the criterion specifies them. Report results.
-3. **For non-E2E criteria** — ask the user to verify each criterion is met.
-4. **Ask the user** via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
-   - **done** — all acceptance criteria verified and passing
-   - **deferred** — story is incomplete, carry forward to next sprint
-5. If the user has questions or wants to discuss, resolve inline before marking.
+1. Present the story title and all acceptance criteria
+2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash. Report results.
+3. For **non-E2E criteria** — ask the user to verify
+4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
+5. Resolve any user questions before marking
 
 ## Step 2: Update sprint.json
 
-The accept gate marker was already cleared by the preload script. Update each story's status via CLI:
+Update each story's status via CLI:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
-  update-story story-NNN done
-```
-
-Or for deferred stories:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
-  update-story story-NNN deferred
+  update-story story-NNN <done|deferred>
 ```
 
 ## Step 3: Record Events
 
-For each story disposition, record a status event:
+For each story disposition:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" --agent "xp-accept" \
@@ -70,21 +59,19 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 4: Summary
 
-Present a summary: how many stories marked done, how many deferred.
+Present: how many stories marked done, how many deferred.
 
 ## Step 5: Cleanup Teammate Worktrees (if TEAMMATE_WORKTREES shown)
 
-If the preload showed **TEAMMATE_WORKTREES**, clean up each accepted story's worktree:
+For each **done** story's worktree:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
   --name teammate-story-NNN --smm-dir <SMM_DIR>
 ```
 
-The script verifies the branch is merged before removing the worktree, branch, agent markers, and report file. Only clean up worktrees for stories marked **done** — leave deferred story worktrees intact for re-entry.
-
-If cleanup fails (unmerged commits), report the error and skip that worktree.
+Verifies branch is merged before removing worktree, branch, markers, and report. **Only cleanup done stories** — leave deferred worktrees intact. If cleanup fails (unmerged commits), report and skip.
 
 ## Step 6: Sprint Review
 
-**If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate to catch it. The sprint review records velocity, updates the execution plan, and triggers sizing metrics for the next retrospective.
+**If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate.
