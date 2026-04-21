@@ -32,7 +32,7 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 **Tests:** Check for FAIL/ERROR first. Never re-run the full suite just to find failure names.
 
-**Stop gates:** TDD gate: fix failing tests. Accept gate: run `/xp-accept` first.
+**Stop gates:** TDD gate: fix failing tests. Accept gate: run `/xp-accept` first. If a gate is wrong, record a `debt` event explaining why.
 
 ## Project Files
 
