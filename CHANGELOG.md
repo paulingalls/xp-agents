@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.20.0 — Retro false positive fix + concern auto-resolution
+
+- **Quality review flag fix.** The `quality_reviews_missing` retro flag now compares quality review count against `review_required_commits` (commits with >= 2 code files) instead of all `code_commits`. Commits with <2 code files only require security triage, not quality review — the old comparison produced false positives. Commit metadata now records `code_file_count` for accurate threshold splitting.
+
+- **Concern auto-resolution at triage.** Work selection triage now detects file overlap between open concerns and subsequent commits. Concerns with overlapping commits are annotated as "LIKELY ADDRESSED" with commit messages, allowing the triage agent to auto-resolve them via LLM judgment instead of asking the user.
+
+- **Tests.** 2478 total (up from 2467 at v2.19.2). 11 new tests: 2 for review_required_commits counting, 2 for retro flag threshold behavior, 7 for concern-commit overlap detection and annotation.
+
 ## v2.19.2 — Fix: Sprint budget validation crashes hooks on read
 
 - **Read-path budget grandfathering for sprint.json.** `load_sprint` now calls `validate_sprint(enforce_budget=False)`, skipping field-length budget checks on read. Sprints with story contexts exceeding the 600-char budget no longer crash SessionStart and Stop hooks. Budgets remain enforced at write time (`save_sprint`). Matches the `execution_plan_store` fix from v2.19.1.
