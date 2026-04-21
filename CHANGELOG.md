@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.18.0 — Verbosity Audit M7: Retro Fixes + Probe Widening
+
+Sprint-014 delivers Milestone 7 of the Verbosity Audit execution plan (3/3 stories, 100% delivery). Seventh consecutive sprint at 100% delivery rate.
+
+- **M7: MAX_RETRO_HISTORY reduced from 2 to 1.** Only `previous_retros[0]` was annotated by `annotate_try_status` — the second retro was dead weight (~5 KB per `.retro-input.json`). `analysis_notes` now included in the slim so cross-session trends carry forward.
+
+- **M7: Retro schema validation.** New `retro_schema.py` validates K/F/T structure at save time: `keep[].content` ≤ 250, `fix[].content` ≤ 300, `try[].content` ≤ 300, `analysis_notes` ≤ 600, `try` maxItems 4. Wired into `save_retrospective.py` with actionable error messages showing current vs allowed length.
+
+- **M7: Retro agent prompt directives.** Three coordinated directives: read-side (`previous_retros[0].analysis_notes`), write-side (populate ≤ 600 chars with cross-session trends), Try-cap (max 4 items with merge/promote/reclassify/drop strategies). Budget constraints block documents limits so agents produce valid output on first attempt.
+
+- **S-size ceiling enforcement.** `sprint_schema.py` rejects S stories with > 20 `file_domain` entries at creation time. Plan-review preload checks the same ceiling. Addresses third consecutive sprint with S > M sizing inversion.
+
+- **smm_schema.json maxLength sync.** Per-pillar `maxLength` added to JSON schema matching `PILLAR_CONTENT_MAX_LENGTH` (intent=200, constraints=150, risks=200, wisdom=150). Drift-guard test ensures JSON and Python stay in sync. Content budget concern resolved (grandfathering already in place).
+
+- **Resolves probe widened to match debts.** `open_concerns_matching_commit` renamed to `open_issues_matching_commit` — now matches both concern and debt events with file overlap. Previously debts with `files` fields were silently skipped by the pre-commit probe. Nudge text shows actual event type.
+
+- **Housekeeping.** `test_plugin_integrity.py` split (488→439 lines) with agent prompt tests extracted to `test_agent_prompts.py`. PROCESS_GUIDE.md sprint_cli listing expanded with `add-story`, `assign-story`, `velocity` subcommands.
+
+- **Tests.** 2425 total (up from 2395 at v2.17.0). 30 new tests across 6 files covering retro schema validation, retro history bugs, S-size ceiling, smm_schema.json drift guard, and probe debt matching.
+
 ## v2.17.0 — Verbosity Audit M5+M6: SMM Purpose Audit + Triage Surfaces
 
 Sprint-013 delivers Milestones 5 and 6 of the Verbosity Audit execution plan (4/4 stories, 100% velocity). Sixth consecutive sprint at 100% delivery rate.
