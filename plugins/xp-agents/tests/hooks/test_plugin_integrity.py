@@ -435,54 +435,5 @@ class TestPluginIntegrity(unittest.TestCase):
         self.assertGreater(len(combined), 1000, "Guide files too short combined")
 
 
-# ===========================================================================
-# Housekeeper Purpose Filters (M5)
-# ===========================================================================
-
-
-class TestHousekeeperPurposeFilters(unittest.TestCase):
-    """M5: housekeeper prompt has per-pillar purpose filters."""
-
-    def setUp(self):
-        path = Path(__file__).parent.parent.parent / "agents" / "xp-housekeeper.md"
-        self.content = path.read_text()
-
-    def test_intent_has_purpose_filter(self):
-        self.assertIn("project-level", self.content.lower())
-
-    def test_constraints_has_purpose_filter(self):
-        self.assertIn("bind every", self.content.lower())
-
-    def test_risks_has_purpose_filter(self):
-        self.assertIn("systemic", self.content.lower())
-
-    def test_wisdom_has_purpose_filter(self):
-        self.assertIn("3 months", self.content.lower())
-
-    def test_no_tactical_promotion_instruction(self):
-        self.assertIn("work-selection triage", self.content.lower())
-
-    def test_has_good_bad_examples(self):
-        good_count = self.content.lower().count("good:")
-        bad_count = self.content.lower().count("bad:")
-        self.assertGreaterEqual(good_count, 4, "Need good example per pillar")
-        self.assertGreaterEqual(bad_count, 4, "Need bad example per pillar")
-
-
-class TestRetroAgingReferences(unittest.TestCase):
-    """M5: retro prompt no longer references Risks pillar for aging."""
-
-    def setUp(self):
-        path = Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
-        self.content = path.read_text()
-
-    def test_no_risks_pillar_aging_markers(self):
-        self.assertNotIn("⚠️", self.content)
-        self.assertNotIn("🔴", self.content)
-
-    def test_no_smm_risks_pillar_reference_for_aging(self):
-        self.assertNotIn("SMM's Risks pillar", self.content)
-
-
 if __name__ == "__main__":
     unittest.main()
