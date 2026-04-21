@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection via dispatch table:
-- Explore: Intent + Constraints pillars (~200 tokens)
-- xp-code-reviewer: Full SMM (needs Constraints for drift management)
-- Default (Plan/general-purpose/custom): Full SMM
-- xp-* forked agents: values only (data comes from preloads)
-
-XP values (~250 tokens) are injected universally for ALL subagents,
-appended after tier-specific context.
+Tiered injection via dispatch table (measured sizes):
+- Explore: Intent + Constraints + XP values (~5 KB)
+- xp-code-reviewer / Default: Full SMM + XP values (~10 KB)
+- xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values (~1.6 KB)
+- xp-housekeeper: curation input path + work selection + XP values (~1.5-3 KB)
+- xp-* forked agents: XP values only (~1.4 KB)
 """
 
 import sys
