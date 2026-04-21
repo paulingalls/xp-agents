@@ -396,11 +396,11 @@ class TestGetUncommittedCodeFiles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# open_concerns_matching_commit
+# open_issues_matching_commit
 # ---------------------------------------------------------------------------
 
 
-class TestOpenConcernsMatchingCommit(_SMMTestCase):
+class TestOpenIssuesMatchingCommit(_SMMTestCase):
     """Unit tests for the commit-auto-link helper."""
 
     def setUp(self):
@@ -410,7 +410,7 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
     def test_returns_concern_with_file_overlap(self):
         concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
         _common.append_safe(self.smm_dir, concern)
-        result = commits.open_concerns_matching_commit(
+        result = commits.open_issues_matching_commit(
             self.smm_dir, ["scripts/auth.py", "README.md"], self.cwd
         )
         self.assertEqual(len(result), 1)
@@ -421,7 +421,7 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
         _common.append_safe(self.smm_dir, concern)
         # Commit diff might surface the same file as "./scripts/auth.py" or
         # an absolute path; normalize_path should canonicalize both sides.
-        result = commits.open_concerns_matching_commit(
+        result = commits.open_issues_matching_commit(
             self.smm_dir, ["./scripts/auth.py"], self.cwd
         )
         self.assertEqual(len(result), 1)
@@ -437,7 +437,7 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
             metadata={"resolves": [concern["id"]]},
         )
         _common.append_safe(self.smm_dir, decision)
-        result = commits.open_concerns_matching_commit(
+        result = commits.open_issues_matching_commit(
             self.smm_dir, ["scripts/auth.py"], self.cwd
         )
         self.assertEqual(result, [])
@@ -447,20 +447,40 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
         empty_files = make_event("concern", content="empty", files=[])
         _common.append_safe(self.smm_dir, no_files)
         _common.append_safe(self.smm_dir, empty_files)
-        result = commits.open_concerns_matching_commit(
+        result = commits.open_issues_matching_commit(
             self.smm_dir, ["scripts/auth.py"], self.cwd
         )
         self.assertEqual(result, [])
 
-    def test_excludes_non_concern_events(self):
+    def test_includes_debt_with_file_overlap(self):
+        debt = make_event("debt", content="legacy code", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, debt)
+        result = commits.open_issues_matching_commit(
+            self.smm_dir, ["scripts/auth.py"], self.cwd
+        )
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], debt["id"])
+
+    def test_excludes_resolved_debt(self):
+        debt = make_event("debt", content="legacy code", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, debt)
+        resolver = make_event(
+            "status", content="fixed", metadata={"resolves": [debt["id"]]}
+        )
+        _common.append_safe(self.smm_dir, resolver)
+        result = commits.open_issues_matching_commit(
+            self.smm_dir, ["scripts/auth.py"], self.cwd
+        )
+        self.assertEqual(result, [])
+
+    def test_excludes_non_concern_non_debt_events(self):
         question = make_event("question", content="why?", files=["scripts/auth.py"])
-        debt = make_event("debt", content="legacy", files=["scripts/auth.py"])
         assumption = make_event(
             "assumption", content="guess", files=["scripts/auth.py"]
         )
-        for ev in (question, debt, assumption):
+        for ev in (question, assumption):
             _common.append_safe(self.smm_dir, ev)
-        result = commits.open_concerns_matching_commit(
+        result = commits.open_issues_matching_commit(
             self.smm_dir, ["scripts/auth.py"], self.cwd
         )
         self.assertEqual(result, [])
@@ -468,7 +488,7 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
     def test_no_overlap_returns_empty(self):
         concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
         _common.append_safe(self.smm_dir, concern)
-        result = commits.open_concerns_matching_commit(
+        result = commits.open_issues_matching_commit(
             self.smm_dir, ["README.md"], self.cwd
         )
         self.assertEqual(result, [])
@@ -476,7 +496,7 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
     def test_empty_commit_files_returns_empty(self):
         concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
         _common.append_safe(self.smm_dir, concern)
-        result = commits.open_concerns_matching_commit(self.smm_dir, [], self.cwd)
+        result = commits.open_issues_matching_commit(self.smm_dir, [], self.cwd)
         self.assertEqual(result, [])
 
     def test_events_kwarg_skips_disk_read(self):
@@ -487,7 +507,7 @@ class TestOpenConcernsMatchingCommit(_SMMTestCase):
         _common.append_safe(self.smm_dir, concern)
         events = _common.read_events_raw(self.smm_dir)
         with patch("commits._common.read_events_raw") as mock_read:
-            result = commits.open_concerns_matching_commit(
+            result = commits.open_issues_matching_commit(
                 self.smm_dir, ["scripts/auth.py"], self.cwd, events=events
             )
         mock_read.assert_not_called()

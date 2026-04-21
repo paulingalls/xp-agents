@@ -236,7 +236,7 @@ class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
     """resolves_probe.find_probe_candidates events= kwarg backward compat."""
 
     def test_events_none_reads_from_disk(self):
-        """events=None delegates to commits.open_concerns_matching_commit."""
+        """events=None delegates to commits.open_issues_matching_commit."""
         self._seed_auth_concern()
         import resolves_probe
 

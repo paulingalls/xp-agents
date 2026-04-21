@@ -105,18 +105,18 @@ def get_committed_files(cwd: str) -> list[str]:
     return [f.strip() for f in out.splitlines() if f.strip()]
 
 
-def open_concerns_matching_commit(
+def open_issues_matching_commit(
     smm_dir: Path,
     commit_files: list[str],
     cwd: str,
     events: list[dict] | None = None,
 ) -> list[dict]:
-    """Return open concerns whose files intersect commit_files (STRUCTURAL link).
+    """Return open concerns and debts whose files intersect commit_files.
 
-    Used by bash_post_tool to nudge agents to add `Resolves-Event:` trailers
-    on commits that touch files listed in an unresolved concern. Paths are
-    normalized on both sides so `./scripts/foo.py`, `scripts/foo.py`, and
-    an absolute path to the same file all match.
+    Used by bash_post_tool and the pre-commit probe to nudge agents to add
+    `Resolves-Event:` trailers on commits that touch files listed in an
+    unresolved concern or debt. Paths are normalized on both sides so
+    `./scripts/foo.py`, `scripts/foo.py`, and an absolute path all match.
 
     When ``events`` is provided, filters from the given list without reading
     disk — used by callers that already loaded events (e.g. resolves_probe).
@@ -125,7 +125,8 @@ def open_concerns_matching_commit(
         return []
     if events is None:
         events = _common.read_events_raw(smm_dir)
-    resolved = resolution.compute_resolutions(events)["resolved_concern_ids"]
+    resolutions = resolution.compute_resolutions(events)
+    resolved = resolutions["resolved_concern_ids"] | resolutions["resolved_debt_ids"]
 
     commit_set: set[str] = set()
     for f in commit_files:
@@ -150,7 +151,7 @@ def open_concerns_matching_commit(
     return [
         e
         for e in events
-        if e.get("type") == _common.CONCERN
+        if e.get("type") in (_common.CONCERN, _common.DEBT)
         and e.get("id") not in resolved
         and _intersects(e.get("files") or [])
     ]

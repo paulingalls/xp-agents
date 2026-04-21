@@ -93,6 +93,17 @@ class TestBuildNudgeLines(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn("abc", lines[0])
 
+    def test_nudge_shows_debt_type_for_debt_events(self):
+        candidate = {"id": "abc123def456", "type": "debt", "content": "Legacy code"}
+        lines = resolves_probe.build_nudge_lines([candidate])
+        self.assertIn("debt abc123def456", lines[0])
+        self.assertNotIn("concern abc123def456", lines[0])
+
+    def test_nudge_shows_concern_type_for_concern_events(self):
+        candidate = {"id": "abc123def456", "type": "concern", "content": "Bug found"}
+        lines = resolves_probe.build_nudge_lines([candidate])
+        self.assertIn("concern abc123def456", lines[0])
+
 
 class TestComputeFingerprint(unittest.TestCase):
     """compute_fingerprint produces a stable sha256 over files + concern ids."""

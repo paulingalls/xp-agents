@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolves-trailer probe: find open concerns a commit should auto-link.
+"""Resolves-trailer probe: find open concerns/debts a commit should auto-link.
 
 Pure module called by two paths:
 - bash_post_tool._handle_commit (post-commit nudge + status event)
@@ -33,8 +33,8 @@ def find_probe_candidates(
     cwd: str,
     events: list[dict] | None = None,
 ) -> list[dict]:
-    """Open concerns whose files intersect commit, minus already-resolved, capped."""
-    open_matches = commits.open_concerns_matching_commit(
+    """Open concerns/debts with file overlap, minus resolved, capped."""
+    open_matches = commits.open_issues_matching_commit(
         smm_dir, commit_files, cwd, events=events
     )
     return [c for c in open_matches if c["id"] not in resolves][:PROBE_CANDIDATE_LIMIT]
@@ -43,7 +43,8 @@ def find_probe_candidates(
 def build_nudge_lines(candidates: list[dict]) -> list[str]:
     """Format auto-link nudge text for each candidate."""
     return [
-        f"Auto-link nudge: concern {c['id']} — {(c.get('content') or '')[:80]}. "
+        f"Auto-link nudge: {c.get('type', 'concern')} {c['id']}"
+        f" — {(c.get('content') or '')[:80]}. "
         f"If correct, re-commit with:\n"
         f'  git commit --amend --trailer "Resolves-Event: {c["id"]}"'
         for c in candidates
@@ -51,13 +52,13 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
 
 
 def compute_fingerprint(files: list[str], concern_ids: list[str], cwd: str) -> str:
-    """sha256 over sorted normalized files + sorted concern ids. Order-invariant.
+    """sha256 over sorted normalized files + sorted issue ids. Order-invariant.
 
     Used by /xp-quality-review pre-commit and bash_post_tool._handle_commit to
     detect when the pre-commit probe and the post-commit commit are covering
-    the same set of (staged files, open concerns) — fingerprint match means
-    the post-commit nudge is redundant. Files that fail to normalize are
-    silently skipped, mirroring commits.open_concerns_matching_commit so both
+    the same set of (staged files, open concerns/debts) — fingerprint match
+    means the post-commit nudge is redundant. Files that fail to normalize are
+    silently skipped, mirroring commits.open_issues_matching_commit so both
     sides of the pre/post comparison agree on which files are fingerprinted.
     """
     norm_files: set[str] = set()
