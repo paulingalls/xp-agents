@@ -63,13 +63,13 @@ After gathering sources, scan the codebase to understand what exists:
 Based on sources + codebase scan, propose ordered milestones. Each milestone should be roughly one sprint's worth of work.
 
 For each milestone:
-- **Goal**: One sentence describing what's delivered.
-- **Definition of Done**: A concrete, testable condition.
+- **Goal**: One sentence describing what's delivered. Budget: ≤200 chars.
+- **Definition of Done**: A concrete, testable condition. Budget: ≤300 chars.
 - **Sources**: References into the Sources table with section pointers.
-- **Change Zones**: Files/modules that will be modified, with a brief note on what changes.
-- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why.
-- **Design Details**: Implementation decisions, patterns to follow, key considerations.
-- **Constraints**: Milestone-specific limits or requirements.
+- **Change Zones**: Files/modules that will be modified, with a brief note on what changes. Note budget: ≤150 chars each.
+- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Note budget: ≤150 chars each.
+- **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
+- **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
 
 Guidelines:
 - Milestones are ordered — each builds on the previous.
