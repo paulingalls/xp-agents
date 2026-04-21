@@ -35,6 +35,9 @@ def validate_retro(data: dict) -> list[str]:
         if section == "try" and len(items) > TRY_MAX_ITEMS:
             errors.append(f"try has {len(items)} items, max {TRY_MAX_ITEMS}")
         for idx, item in enumerate(items):
+            if not isinstance(item, (dict, str)):
+                errors.append(f"{section}[{idx}] must be a dict or string")
+                continue
             content = item.get("content", "") if isinstance(item, dict) else item
             if isinstance(content, str) and len(content) > budget:
                 errors.append(

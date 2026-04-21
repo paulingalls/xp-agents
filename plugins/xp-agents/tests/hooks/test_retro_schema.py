@@ -81,6 +81,11 @@ class TestRetroSchemaValidation(unittest.TestCase):
     def test_missing_sections_pass(self):
         self.assertEqual(retro_schema.validate_retro({}), [])
 
+    def test_non_dict_non_string_item_rejected(self):
+        data = {"keep": [42], "fix": [], "try": []}
+        errors = retro_schema.validate_retro(data)
+        self.assertTrue(any("keep[0]" in e and "dict or string" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
