@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.19.1 — Fix: SessionStart crash on pre-budget execution plans
+
+- **Read-path budget grandfathering.** `load_plan` now calls `validate_plan(enforce_budget=False)`, skipping field-length budget checks on read. Plans written before budget limits were added no longer crash the SessionStart hook. Budgets remain enforced at write time (`save_plan`). Matches the existing `smm_schema.py` precedent.
+
+- **Tests.** 2462 total (up from 2457 at v2.19.0). 5 new tests for `enforce_budget` flag behavior and `load_plan`/`save_plan` asymmetry.
+
 ## v2.19.0 — Verbosity Audit M9: Nudge Dedup + Kickoff Gate UX
 
 Sprint-016 delivers Milestone 9 of the Verbosity Audit execution plan (2/2 stories, 100% delivery). Ninth consecutive sprint at 100% delivery rate.
