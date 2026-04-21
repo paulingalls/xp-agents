@@ -6,17 +6,13 @@ A Claude Code plugin that enforces XP practices via hooks. Broadcast event log (
 
 Read `docs/ARCHITECTURE.md` for design decisions, hook map, event types, and platform constraints.
 
-## Official Claude Code Docs (check for latest API)
+## Scoping: CLAUDE.md vs PROCESS_GUIDE.md
 
-- **Hooks reference**: https://code.claude.com/docs/en/hooks.md
-- **Hooks guide**: https://code.claude.com/docs/en/hooks-guide.md
-- **Plugins**: https://code.claude.com/docs/en/plugins.md
-- **Plugins reference**: https://code.claude.com/docs/en/plugins-reference.md
-- **Skills**: https://code.claude.com/docs/en/skills.md
-- **Subagents**: https://code.claude.com/docs/en/sub-agents.md
-- **Full docs index**: https://code.claude.com/docs/llms.txt
+CLAUDE.md is NOT shipped with the plugin — it's for plugin developers (us). PROCESS_GUIDE.md IS shipped and serves all plugin users. Dedup is one-directional: CLAUDE.md may lean on PROCESS_GUIDE.md, never the reverse.
 
-Always verify hook I/O formats against the hooks reference before implementing new hooks. The API evolves.
+## Official Claude Code Docs
+
+Full docs index: https://code.claude.com/docs/llms.txt — always verify hook I/O formats against the hooks reference before implementing new hooks.
 
 ## Coding Standards
 
@@ -30,272 +26,53 @@ All scripts start with `#!/usr/bin/env python3`.
 
 ## Hook Patterns
 
-### Command Hook Input (stdin)
-```python
-import json, sys
-input_data = json.load(sys.stdin)
-session_id = input_data["session_id"]
-tool_name = input_data.get("tool_name", "")
-tool_input = input_data.get("tool_input", {})
-agent_id = input_data.get("agent_id", "main")
-```
+See https://code.claude.com/docs/en/hooks.md for full reference. Minimum-viable shapes:
 
-### Command Hook Output — Context Injection (exit 0, stdout JSON)
-```python
-import json
-output = {
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "additionalContext": "Your context string here"
-    }
-}
-print(json.dumps(output))
-sys.exit(0)
-```
-
-### Command Hook Output — Blocking (two patterns)
-
-**Pattern 1: exit 2 + stderr** (simpler, used by our scripts)
-```python
-print("Explanation of why this is blocked", file=sys.stderr)
-sys.exit(2)
-```
-
-**Pattern 2: JSON decision** (exit 0, for Stop/PostToolUse/SubagentStop/UserPromptSubmit)
-```python
-import json
-output = {"decision": "block", "reason": "Explanation shown to Claude"}
-print(json.dumps(output))
-sys.exit(0)
-```
-
-### Prompt Hook Output (type: "prompt")
-Prompt hooks return `ok`/`reason`, NOT `decision`/`block`:
-```json
-{"ok": true}
-{"ok": false, "reason": "Must fix tests before stopping."}
-```
-
-### Agent Hook Output (type: "agent")
-Same format as prompt hooks:
-```json
-{"ok": true}
-{"ok": false, "reason": "Explanation of why action should be blocked."}
-```
-
-### Recursion Prevention
-Every command hook that gates an agent hook must check:
-```python
-agent_type = input_data.get("agent_type", "")
-if agent_type.startswith("xp-"):
-    sys.exit(0)  # Skip — this is our own agent hook
-```
+- **Input**: `input_data = json.load(sys.stdin)` — fields: `session_id`, `tool_name`, `tool_input`, `agent_id`
+- **Context injection**: exit 0, stdout `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "..."}}`
+- **Block (simple)**: `print("reason", file=sys.stderr); sys.exit(2)`
+- **Block (JSON)**: exit 0, stdout `{"decision": "block", "reason": "..."}`
+- **Prompt/agent hooks**: return `{"ok": true}` or `{"ok": false, "reason": "..."}` — NOT `decision`/`block`
+- **Recursion prevention**: skip when `agent_type.startswith("xp-")` — every command hook gating an agent hook must check this
 
 ## SMM Path Resolution
 
-```python
-import subprocess
-git_common = subprocess.check_output(
-    ["git", "rev-parse", "--git-common-dir"], text=True
-).strip()
-# Hash or sanitize git_common to create project-id
-# SMM lives at: ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
-```
+All scripts resolve via `init.sh` (single canonical source). Honors `$SMM_DIR` env override. SMM lives at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` — user level, not project level. Never hardcode paths.
 
-All scripts resolve the SMM path this way. Never hardcode paths. Never use `.claude/smm/` — the SMM is at user level, not project level.
+## Hook Registration
 
-## Event Appending — Type-Specific Fields
-
-Some event types require additional fields:
-
-| Type | Required Field | Flag | Example |
-|------|---------------|------|---------|
-| `debt` | files | `--files` | `--files '["src/auth.py"]'` |
-| `decision` | topic | `--topic` | `--topic "error-handling"` |
-| `concern` | severity | `--severity` | `--severity "medium"` |
-| `concern` | files (optional) | `--files` | `--files '["src/auth.py"]'` |
-
-See PROCESS_GUIDE.md for full event type reference and examples.
-
-## Hook Registration (hooks.json)
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_write.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_bash.py"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-All paths use `${CLAUDE_PLUGIN_ROOT}`. Never relative paths — Claude Code copies plugins to a cache.
+All paths use `${CLAUDE_PLUGIN_ROOT}` in `hooks/hooks.json`. Never relative paths — Claude Code copies plugins to a cache. See https://code.claude.com/docs/en/plugins-reference.md for format.
 
 ## Platform Constraints
 
-**PreToolUse `additionalContext` works** — confirmed, use it for all context injection to the agent.
-
-**PostToolUse now supports `decision: "block"`** — top-level JSON field. Can also use `additionalContext`. We still prefer writing to event log for async feedback.
-
-**PostToolUse agent hooks should be async** (`"async": true`) — feedback goes through event log anyway, no need to block.
-
-**`additionalContext` is only supported on specific events** — SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Notification, SubagentStart. **Stop, SubagentStop, TeammateIdle, TaskCompleted do NOT support `additionalContext`** — output is silently ignored. These events only support `decision: "block"` / `reason`. To inject context after a subagent completes, use PostToolUse (the Skill/Agent tool that launched it) or a marker checked at the next UserPromptSubmit/PreToolUse. See `docs/PLUGIN_TOOLS.md` for the full event-by-event matrix.
-
-**Stop hooks run in parallel** — all hooks in the same Stop entry fire concurrently. A command hook's `additionalContext` is NOT visible to a prompt hook in the same entry. Use exit 2 (or `decision: "block"`) for command hooks that need to block.
-
-**Prompt/agent hooks use `ok`/`reason`** — NOT `decision`/`block`. Return `{"ok": false, "reason": "..."}` to block.
-
-**Available hook events** (as of 2026-03-14): SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, Notification, SubagentStart, SubagentStop, Stop, TeammateIdle, TaskCompleted, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
+- **`additionalContext` unsupported on**: Stop, SubagentStop, TeammateIdle, TaskCompleted — output silently ignored. Use `decision: "block"` / `reason` or marker files instead. See `docs/PLUGIN_TOOLS.md` for full matrix.
+- **Stop hooks run in parallel** — a command hook's `additionalContext` is NOT visible to a prompt hook in the same entry.
+- **Available events**: SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, Notification, SubagentStart, SubagentStop, Stop, TeammateIdle, TaskCompleted, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 
 ## File Structure
 
-```
-plugins/xp-agents/
-├── .claude-plugin/plugin.json    ← plugin manifest
-├── XP_VALUES.md                  ← XP values (injected into sessions by plugin)
-├── PROCESS_GUIDE.md              ← process rules for lead/solo agents
-├── TEAMMATE_GUIDE.md             ← rules for CLI teammates
-├── hooks/hooks.json              ← all hook registrations
-├── scripts/                      ← ~48 command hooks + shared modules
-├── agents/                       ← 7 subagent definitions (.md files)
-├── skills/                       ← 14 skills (forked + inline)
-├── smm/                          ← SMM engine (append, compact, materialize, sprint)
-└── tests/                        ← ~2049 tests across 4 suites (hooks, integration, engine, smm)
-```
+Plugin at `plugins/xp-agents/`: manifest (`.claude-plugin/plugin.json`), guides (`XP_VALUES.md`, `PROCESS_GUIDE.md`, `TEAMMATE_GUIDE.md`), hooks (`hooks/hooks.json`), scripts (`scripts/`), agents (`agents/`), skills (`skills/`), SMM engine (`smm/`), tests (`tests/`).
 
 ## Error Handling
 
-Fail loud, never corrupt, always recoverable. Every script follows:
+Fail loud, never corrupt, always recoverable: atomic writes (tempfile + rename), flock on `events.jsonl` with timeout fallback, schema validation at write time, graceful degradation when SMM is missing (exit 0).
 
-1. Never silently swallow errors that could mislead
-2. Atomic writes for any file that other scripts read (tempfile + rename)
-3. Graceful degradation when SMM is missing (exit 0, no output)
-4. `flock` for concurrent access to events.jsonl, with timeout fallback
-5. Schema validation at write time, not read time
+## Event Appending
+
+See PROCESS_GUIDE.md for event types, required fields, and common patterns.
 
 ## Testing
 
-All tests live under `tests/` and run on every commit via lefthook (`lefthook.yml`). The pre-commit hook runs four test suites in parallel. All test commands in lefthook.yml use `env -u` to strip git environment variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`) — without this, tests that create temp git repos would operate on the parent repo instead of the temp dir (known issue: [pre-commit#3032](https://github.com/pre-commit/pre-commit/issues/3032), [lefthook#1265](https://github.com/evilmartians/lefthook/issues/1265)). The `conftest.py` also strips these at import time as defense-in-depth.
+All tests run on every commit via lefthook. Git env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`) stripped via `env -u` in lefthook.yml and at import time in `conftest.py`.
 
 ```bash
 # Run everything:
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
-
-# Run a single suite:
-python3 -m unittest discover -s plugins/xp-agents/tests/hooks -p "test_*.py" -v
-
 # Run a single file:
 python3 -m unittest plugins/xp-agents/tests/hooks/test_session.py -v
-
-# Run a single test class:
-python3 -m unittest plugins/xp-agents/tests/hooks/test_session.py -k TestSessionStart -v
 ```
 
-### Test layout
-
-```
-tests/
-├── conftest.py              ← shared helpers: make_event, base classes, input factories
-├── hooks/                   ← unit tests for command hooks (from scripts/)
-│   ├── test_common.py       ← _common.py core utilities
-│   ├── test_common_smm.py   ← _common.py SMM data operations (events, decisions, conflicts)
-│   ├── test_common_smm_lookups.py ← concerns.py lookups (debt/concern file matching)
-│   ├── test_session_start.py ← session_start, retrospective
-│   ├── test_session_lifecycle.py ← session_end, pre_compact
-│   ├── test_kickoff.py      ← kickoff_gate, kickoff_done
-│   ├── test_pre_tool_write.py ← conflicts, TDD order, plan review gate
-│   ├── test_pre_tool_bash.py  ← commit security triage gate, file-modification heuristic
-│   ├── test_post_tool.py    ← post_tool_use, lint_check, post_tool_exit_plan
-│   ├── test_bash.py         ← bash_post_tool core: commit events, test detection, probe nudges
-│   ├── test_bash_commit.py  ← probe dedup, review cycle, green nudge, push warning, QR linkage
-│   ├── test_bash_failure.py ← bash_failure, test concern resolution, events kwarg compat
-│   ├── test_bash_parsing.py ← is_test_run, parse_test_results, is_git_commit
-│   ├── test_subagent.py     ← subagent_start, subagent_stop, user_prompt_log
-│   ├── test_review_cycle.py ← review_cycle_done, subagent review flags
-│   ├── test_gates.py        ← security triage markers
-│   ├── test_stop_gates.py   ← tdd_stop_gate, housekeeping_stop_gate, find_last_test_signal
-│   ├── test_validation.py   ← hooks.json structure and registration
-│   ├── test_plugin_integrity.py ← plugin file structure, agent files, skill files
-│   ├── test_auto_resolve.py ← auto-resolve logic
-│   ├── test_retrospective.py ← retrospective core run(), nudge, decision wiring
-│   ├── test_retrospective_sprint.py ← sprint sizing, link rates, sprint detection
-│   ├── test_retrospective_signals.py ← honesty signals, security counting, code metrics
-│   ├── test_retrospective_digest.py ← digest resolutions, concern groups, try annotation
-│   ├── test_retro_save.py   ← save_retrospective
-│   ├── test_markers.py      ← review cycle markers
-│   ├── test_lint.py         ← lint detection and execution
-│   ├── test_commits.py      ← commit helpers
-│   ├── test_coordination.py ← coordination logic
-│   ├── test_prompt_nugget.py ← prompt nugget delivery
-│   ├── test_subagent_tiers.py ← tiered SubagentStart injection (Explore, Plan, sprint)
-│   ├── test_teammate_guide.py ← M14 teammate detection + guide injection
-│   ├── test_teammate_hooks.py ← M13 TeammateIdle + TaskCompleted TDD gates
-│   ├── test_sprint_review.py ← prepare_review_data, sprint_review_done, preload
-│   ├── test_sizing_metrics_extraction.py ← extract_file_domain_paths
-│   ├── test_sizing_metrics_attribution.py ← commit-to-story attribution
-│   ├── test_sizing_metrics_aggregates.py ← per-size aggregates, full analysis
-│   └── test_assign.py       ← xp-assign preload integration
-├── integration/             ← full subprocess pipeline tests
-│   ├── test_session.py      ← session lifecycle integration
-│   ├── test_core_hooks.py   ← pre/post tool use, lint, bash, subagent integration
-│   ├── test_scenarios.py    ← round trips, retro, new event types
-│   ├── test_scenarios_lifecycle.py ← full lifecycle, plan review, multi-session
-│   ├── test_extended.py     ← simplify gate, security review, commit gate
-│   ├── test_assign.py       ← xp-assign preload, teammate agent, WorktreeCreate hook
-│   ├── test_maintenance.py  ← repair, migration
-│   └── test_scaling.py      ← concurrency, worktrees, benchmarks
-├── engine/                  ← SMM engine tests (materialize, read_delta, compact)
-│   ├── test_parse.py        ← JSONL parsing, index building
-│   ├── test_resolutions.py  ← metadata.resolves, read_events_from
-│   ├── test_delta.py        ← watermarks, read_delta, symlink protection
-│   ├── test_compact.py      ← compact legacy entry point
-│   ├── test_compact_curation.py ← curation-watermark-based compaction
-│   ├── test_curation.py     ← prepare_curation_data, retro history
-│   ├── test_append_helpers.py ← bulk append, atomic writes, build_event
-│   └── test_maintenance.py  ← repair, migration, benchmarks
-└── smm/                     ← SMM foundation tests (init.sh, append.sh)
-    ├── test_init.py          ← initialization, schema validation
-    ├── test_seed.py          ← seed SMM
-    ├── test_append.py        ← append integration operations
-    ├── test_append_safety.py ← concurrency, validation, symlink protection
-    └── test_append_schema.py ← schema.json validation, notifications
-```
-
-### Writing new tests
-
-- **Hook unit tests** go in `tests/hooks/`. Import the module, call `run(input_data, smm_dir=self.smm_dir)` directly. Extend `_HookTestCase` for a temp SMM dir with `events.jsonl` and `events.lock`.
-- **Integration tests** go in `tests/integration/`. Extend `_IntegrationTestCase` which creates a temp git repo with init.sh. Use `self._run_script("script.py", {...})` to pipe JSON via subprocess, `self._read_events()` to check results, `self._seed_events([...])` to pre-populate.
-- **Engine tests** go in `tests/engine/`. Extend `_SMMTestCase` for a temp SMM dir.
-- **SMM foundation tests** go in `tests/smm/`. Extend `_TempRepoTestCase` for subprocess tests with init.sh/append.sh.
-- Follow TDD: write the test first, watch it fail, then implement.
-
-**Git environment safety:** Tests that create temp git repos MUST import from `conftest.py` (which strips `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE` at import time). Without this, git subprocess calls in tests will operate on the parent repo when running under lefthook or inside worktrees — corrupting config, leaking branches, and setting `core.bare=true`. All base test classes (`_IntegrationTestCase`, `_TempRepoTestCase`) already handle this via conftest import.
-
-### Test helpers (all in `tests/conftest.py`)
-
-- `make_event(type, **kwargs)` — creates a valid event dict with defaults
-- `_SMMTestCase` / `_HookTestCase` — `setUp` creates temp dir with `events.jsonl` + `events.lock`, `tearDown` cleans up
-- `_IntegrationTestCase` — creates temp git repo, inits SMM, provides `_run_script()`, `_read_events()`, `_seed_events()`
-- `_TempRepoTestCase` — temp git repo for subprocess tests (init.sh, append.sh)
-- `_make_write_input(**overrides)` — canonical Write tool hook input
-- `_make_bash_input(command, stdout, **overrides)` — canonical Bash tool hook input
+Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), `tests/engine/` (SMM engine), `tests/smm/` (foundation). Hook tests extend `_HookTestCase`, integration tests extend `_IntegrationTestCase`, engine tests extend `_SMMTestCase`, SMM tests extend `_TempRepoTestCase` — all from `tests/conftest.py`. Follow TDD: write the test first, watch it fail, then implement.
 
 ## Key Decisions (Don't Revisit)
 
