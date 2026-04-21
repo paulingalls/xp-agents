@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.16.0 — Verbosity Audit M2+M3: Curation Input Fixes + CLI --help + PROCESS_GUIDE Tightening
+
+Sprint-010 delivers Milestone 2 (3/3 stories, 100% velocity) and Sprint-011 delivers Milestone 3 (2/2 stories, 100% velocity). Four consecutive sprints at 100% delivery rate.
+
+- **M2: Curation input structural fixes.** Resolutions dict-to-list in `materialize.prepare_curation_data` cuts 82 KB to 3 KB (96%). AskUserQuestion customer_inputs re-serialized as compact Q/A pairs (73% cut). Adopted tries capped at 10 most recent (77% cut). New `smm_cli.py get-event` subcommand for on-demand deep reads when truncated content needs full body.
+
+- **M3: CLI --help enrichment.** All four Python CLIs (smm_cli, plan_cli, sprint_cli, retro_cli) and append.sh now have compact example-rich --help output showing stdin pipe patterns and common invocations.
+
+- **M3: PROCESS_GUIDE.md tightened 49%.** 196 lines to 99 lines. CLI Tools section cut to 1-line pointers (--help now carries details). Practicing the Values compressed to bullet list. Common Recording Patterns reduced to 4 one-liner shapes. Token budget test tightened from 2000 to 1000 tokens.
+
+- **Fix: resolves-trailer probe checks all changed files.** `probe_candidates.py` now scans staged, unstaged, and untracked files instead of only staged. The probe runs before staging during quality review, so the old staged-only check always returned empty.
+
+- **Refactor: test file splits.** `test_lint.py` split into `test_lint.py` + `test_lint_detection.py`. `test_curation.py` split at 500 lines during story work.
+
+- **Tests.** 2345 total (up from 2326 at v2.15.0). 19 new tests across 7 files covering CLI --help output, curation input normalization, and probe file detection.
+
 ## v2.15.0 — Verbosity Audit M1: Per-Type Content Budgets + Bug Fixes
 
 Sprint-009 delivers Milestone 1 of the Verbosity Audit execution plan (3/3 stories, 100% velocity). Events now have per-type character budgets enforced at write time, governance prose teaches agents to write tight, and hook producers comply. Plus four maintenance bug fixes.
