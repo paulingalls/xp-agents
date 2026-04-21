@@ -52,6 +52,11 @@ Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constrain
 - Flag over-engineering — feature flags, backwards-compatibility shims, or configurability beyond what the plan requires.
 - If the plan adds complexity, ask whether a simpler approach exists.
 
+### 5b. Cross-Layer Redundancy
+- If story context rehearses milestone rationale (design_details or constraints), flag as a redundancy concern. Story context should reference the milestone, not restate it.
+- Four-layer read path: system_context=WHERE, milestone=WHY, story=WHAT uniquely, design doc=FULL RATIONALE. Each layer stays in its lane.
+- Flag specific duplicated phrases or concepts between layers.
+
 ### 6. Assumptions
 Record only assumptions that **matter** — where the wrong assumption would cause rework. Don't record obvious defaults or restatements of existing SMM constraints. For each significant assumption, write an `assumption` event:
 
