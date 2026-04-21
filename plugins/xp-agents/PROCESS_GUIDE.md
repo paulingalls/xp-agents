@@ -42,7 +42,7 @@ Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `ex
 
 All CLIs require `--smm-dir DIR`. Run each with `--help` for subcommands and examples.
 
-- **sprint_cli.py** — sprint operations (create, add-story, update-story, assign-story, list-stories, render, velocity)
+- **sprint_cli.py** — sprint operations (create, add-story, edit-story, update-story, assign-story, list-stories, render, velocity)
 - **plan_cli.py** — execution plan (create, update-status, edit-milestone, render)
 - **smm_cli.py** — shared mental model (add-item, update-item, remove-item, get-event, render)
 - **retro_cli.py** — retrospective rendering

@@ -145,6 +145,21 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_edit_story(args: argparse.Namespace) -> int:
+    raw = sys.stdin.read()
+    try:
+        updates = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    try:
+        store.edit_story(args.smm_dir, args.story_id, updates)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_assign_story(args: argparse.Namespace) -> int:
     sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
     import worktree
@@ -166,6 +181,8 @@ def main() -> None:
             " --smm-dir DIR create\n"
             "  sprint_cli.py --smm-dir DIR"
             " update-story story-001 in-progress\n"
+            '  echo \'{"context":"new"}\' | sprint_cli.py'
+            " --smm-dir DIR edit-story story-001\n"
             "  sprint_cli.py --smm-dir DIR"
             " list-stories --status ready\n"
             "  sprint_cli.py --smm-dir DIR render"
@@ -211,6 +228,9 @@ def main() -> None:
     sub.add_parser("create", help="Create sprint from stdin")
     sub.add_parser("add-story", help="Add story from stdin")
 
+    edit_p = sub.add_parser("edit-story", help="Edit story fields from stdin JSON")
+    edit_p.add_argument("story_id", help="Story ID to edit")
+
     update_p = sub.add_parser("update-story", help="Update story status")
     update_p.add_argument("story_id", help="Story ID")
     update_p.add_argument(
@@ -245,6 +265,7 @@ def main() -> None:
         "list-stories": _cmd_list_stories,
         "create": _cmd_create,
         "add-story": _cmd_add_story,
+        "edit-story": _cmd_edit_story,
         "update-story": _cmd_update_story,
         "assign-story": _cmd_assign_story,
     }

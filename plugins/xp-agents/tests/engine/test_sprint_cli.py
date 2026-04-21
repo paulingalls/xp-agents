@@ -223,5 +223,72 @@ class TestAssignStoryCommand(_SMMTestCase):
         self.assertEqual(marker.read_text().strip(), "story-003")
 
 
+class TestEditStoryCommand(_SMMTestCase):
+    """edit-story updates arbitrary story fields via stdin JSON."""
+
+    def test_updates_context_field(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"context": "Updated context."}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["context"], "Updated context.")
+
+    def test_unknown_story_id_fails(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-999"],
+            self.smm_dir,
+            json.dumps({"context": "new"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_validates_schema(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"context": "x" * 601}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("budget", result.stderr.lower())
+
+    def test_no_sprint_fails(self):
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"context": "new"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_rejects_id_override(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"id": "story-999"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("immutable", result.stderr.lower())
+
+    def test_rejects_non_object_input(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps(["not", "a", "dict"]),
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

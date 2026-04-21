@@ -81,26 +81,41 @@ def save_sprint(smm_dir: Path, data: dict) -> None:
         (smm_dir / _MARKER_NAME).unlink(missing_ok=True)
 
 
-def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
-    """Update a story's status in the sprint.
-
-    Raises:
-        ValueError: Sprint missing, story not found, or invalid
-            status.
-    """
+def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
+    """Load sprint and find story by ID. Returns (sprint, story) refs."""
     sprint = load_sprint(smm_dir)
     if sprint is None:
         raise ValueError("No sprint found")
+    matches = [s for s in sprint["stories"] if s["id"] == story_id]
+    if not matches:
+        raise ValueError(f"No story with id {story_id!r}")
+    return sprint, matches[0]
 
+
+def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
+    """Update a story's status in the sprint."""
     if status not in VALID_STORY_STATUSES:
         valid = sorted(VALID_STORY_STATUSES)
         raise ValueError(f"Invalid status {status!r}, must be one of {valid}")
 
-    matches = [s for s in sprint["stories"] if s["id"] == story_id]
-    if not matches:
-        raise ValueError(f"No story with id {story_id!r}")
+    sprint, story = _load_story(smm_dir, story_id)
+    story["status"] = status
+    save_sprint(smm_dir, sprint)
 
-    matches[0]["status"] = status
+
+_IMMUTABLE_STORY_FIELDS = frozenset({"id"})
+
+
+def edit_story(smm_dir: Path, story_id: str, updates: dict) -> None:
+    """Shallow-merge updates into a story's fields."""
+    if not isinstance(updates, dict):
+        raise ValueError("updates must be a JSON object")
+    protected = _IMMUTABLE_STORY_FIELDS & updates.keys()
+    if protected:
+        raise ValueError(f"Cannot edit immutable fields: {sorted(protected)}")
+
+    sprint, story = _load_story(smm_dir, story_id)
+    story.update(updates)
     save_sprint(smm_dir, sprint)
 
 
