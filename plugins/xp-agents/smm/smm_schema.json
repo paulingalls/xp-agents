@@ -59,7 +59,8 @@
             "type": {
               "type": "string",
               "enum": ["goal", "customer_intent"]
-            }
+            },
+            "content": { "type": "string", "maxLength": 200 }
           }
         }
       ]
@@ -74,7 +75,8 @@
               "type": "string",
               "enum": ["decision", "convention"]
             },
-            "topic": { "type": "string" }
+            "topic": { "type": "string" },
+            "content": { "type": "string", "maxLength": 150 }
           }
         }
       ]
@@ -92,13 +94,22 @@
             "severity": {
               "type": "string",
               "enum": ["problem", "uncertainty", "debt"]
-            }
+            },
+            "content": { "type": "string", "maxLength": 200 }
           }
         }
       ]
     },
     "wisdom_entry": {
-      "$ref": "#/$defs/base_entry"
+      "allOf": [
+        { "$ref": "#/$defs/base_entry" },
+        {
+          "type": "object",
+          "properties": {
+            "content": { "type": "string", "maxLength": 150 }
+          }
+        }
+      ]
     }
   }
 }

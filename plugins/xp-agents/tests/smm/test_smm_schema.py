@@ -112,6 +112,27 @@ class TestSMMSchemaFile(unittest.TestCase):
         json_severities = set(entry["properties"]["severity"]["enum"])
         self.assertEqual(json_severities, set(smm_schema.VALID_RISK_SEVERITIES))
 
+    def test_content_maxlength_matches_python(self):
+        """Per-pillar maxLength in JSON schema must match PILLAR_CONTENT_MAX_LENGTH."""
+        defs = self.schema["$defs"]
+        pillar_to_def = {
+            "intent": "intent_entry",
+            "constraints": "constraint_entry",
+            "risks": "risk_entry",
+            "wisdom": "wisdom_entry",
+        }
+        for pillar, def_name in pillar_to_def.items():
+            expected = smm_schema.PILLAR_CONTENT_MAX_LENGTH[pillar]
+            entry_def = defs[def_name]
+            content_props = entry_def["allOf"][1]["properties"]["content"]
+            self.assertEqual(
+                content_props["maxLength"],
+                expected,
+                f"{pillar} maxLength mismatch:"
+                f" JSON={content_props.get('maxLength')}"
+                f" vs Python={expected}",
+            )
+
 
 # ---------------------------------------------------------------------------
 # empty_smm() factory
