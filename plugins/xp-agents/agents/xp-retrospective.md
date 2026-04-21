@@ -26,11 +26,13 @@ Perform Keep/Fix/Try analysis on unanalyzed events from the previous session. XP
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
      - `work_signals` — work-level correlations (see Work Analysis below)
      - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, and decision resolved this session via `metadata.resolves`. Use this to detect whether previous Try items were honored — a Try mentioning a short ID present in this map was resolved.
-   - `previous_retros` — last 2-3 retrospective summaries for trend detection. Each retro's `try` is a list of `{content, event_refs}` dicts (legacy string entries are migrated to this shape on read). The most recent retro also carries a parallel `try_status` list: `[{resolved_this_session, resolver_id?, disposition?}]`, indexed in the same order as `try`. `disposition` is one of `"adopted"`, `"dropped"`, or `"deferred"` when `resolved_this_session` is true.
+   - `previous_retros` — last retrospective summary for trend detection. Each retro's `try` is a list of `{content, event_refs}` dicts (legacy string entries are migrated to this shape on read). The most recent retro also carries a parallel `try_status` list: `[{resolved_this_session, resolver_id?, disposition?}]`, indexed in the same order as `try`. `disposition` is one of `"adopted"`, `"dropped"`, or `"deferred"` when `resolved_this_session` is true.
    - `event_type_counts` — breakdown by event type
    - `session_stats` — concern resolution ratio, decision counts, etc.
 
-3. **If `.retro-input.json` doesn't exist**, there is insufficient data. Return immediately.
+3. **Read `previous_retros[0].analysis_notes`** if present. Factor cross-session trends into your analysis — increment counters ("3rd consecutive" → "4th consecutive"), drop trends that were resolved this session (note in Keep with resolver ID).
+
+4. **If `.retro-input.json` doesn't exist**, there is insufficient data. Return immediately.
 
 **Do not** browse the filesystem, `.claude/`, tool-results, or transcripts. Read `.retro-input.json` and analyze that data.
 
@@ -172,6 +174,11 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 Build a JSON object with your Keep/Fix/Try analysis and pipe it to the save script. **You must run this Bash command before returning.** Do not use the Write tool. Do not skip this step.
 
+**Budget constraints** (schema rejects violations at save time):
+- `keep[].content` ≤ 250 chars, `fix[].content` ≤ 300 chars, `try[].content` ≤ 300 chars
+- **Max 4 Try items.** >4 candidates → merge similar, promote proven carry-forwards into Wisdom, reclassify non-experiments as Fix, drop lowest-value with count noted
+- `analysis_notes` ≤ 600 chars — populate with cross-session trends this session's K/F/T don't fully capture (e.g. "4th consecutive sprint with sizing inversion", "Risks pillar growing")
+
 Use the `SMM_DIR` path from the preload output above. Pass it via `--smm-dir` so the script doesn't need CLAUDE_PLUGIN_DATA:
 
 ```bash
@@ -180,7 +187,7 @@ cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
   "keep": [{"content": "description", "event_refs": ["id1"], "values": ["Courage"]}],
   "fix": [{"content": "description", "event_refs": ["id2"], "xp_value": "Simplicity"}],
   "try": [{"content": "description", "event_refs": ["id3"]}],
-  "analysis_notes": "Optional cross-session trend notes"
+  "analysis_notes": "Cross-session trends not captured in K/F/T"
 }
 RETRO_JSON
 ```

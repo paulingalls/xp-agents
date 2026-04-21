@@ -38,6 +38,25 @@ class TestHousekeeperPurposeFilters(unittest.TestCase):
         self.assertGreaterEqual(bad_count, 4, "Need bad example per pillar")
 
 
+class TestRetroAnalysisNotesDirectives(unittest.TestCase):
+    """M7: retro prompt has analysis_notes read/write directives and Try cap."""
+
+    @classmethod
+    def setUpClass(cls):
+        path = Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
+        cls.content = path.read_text()
+
+    def test_analysis_notes_write_directive(self):
+        self.assertIn("analysis_notes", self.content)
+        self.assertIn("600", self.content)
+
+    def test_analysis_notes_read_directive(self):
+        self.assertIn("previous_retros[0].analysis_notes", self.content)
+
+    def test_try_cap_guidance(self):
+        self.assertIn("max 4", self.content.lower())
+
+
 class TestRetroAgingReferences(unittest.TestCase):
     """M5: retro prompt no longer references Risks pillar for aging."""
 
