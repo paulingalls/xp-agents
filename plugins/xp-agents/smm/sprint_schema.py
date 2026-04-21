@@ -54,7 +54,9 @@ def empty_sprint() -> dict:
     }
 
 
-def _validate_story(story: object, idx: int) -> list[str]:
+def _validate_story(
+    story: object, idx: int, *, enforce_budget: bool = True
+) -> list[str]:
     """Validate a story entry."""
     errors: list[str] = []
     if not isinstance(story, dict):
@@ -100,7 +102,7 @@ def _validate_story(story: object, idx: int) -> list[str]:
             f" at size S; max {S_SIZE_FILE_DOMAIN_MAX}"
         )
 
-    if isinstance(story.get("context"), str):
+    if enforce_budget and isinstance(story.get("context"), str):
         max_len = STORY_FIELD_MAXLENGTH["context"]
         actual = len(story["context"])
         if actual > max_len:
@@ -108,7 +110,7 @@ def _validate_story(story: object, idx: int) -> list[str]:
                 f"stories[{idx}].context exceeds budget ({actual} > {max_len} chars)"
             )
 
-    if isinstance(story.get("file_domain"), list):
+    if enforce_budget and isinstance(story.get("file_domain"), list):
         fd_max = STORY_ITEM_MAXLENGTH["file_domain"]
         for fd_idx, item in enumerate(story["file_domain"]):
             if isinstance(item, str):
@@ -122,10 +124,12 @@ def _validate_story(story: object, idx: int) -> list[str]:
     return errors
 
 
-def validate_sprint(data: object) -> list[str]:
+def validate_sprint(data: object, *, enforce_budget: bool = True) -> list[str]:
     """Validate a sprint document.
 
     Returns a list of error strings — empty list means valid.
+    When enforce_budget is False, field-length budgets are skipped
+    (read-path grandfathering, matching execution_plan_schema precedent).
     """
     errors: list[str] = []
 
@@ -149,6 +153,6 @@ def validate_sprint(data: object) -> list[str]:
         errors.append("stories must be a list")
     else:
         for idx, story in enumerate(data["stories"]):
-            errors.extend(_validate_story(story, idx))
+            errors.extend(_validate_story(story, idx, enforce_budget=enforce_budget))
 
     return errors

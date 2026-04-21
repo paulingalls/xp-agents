@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.19.2 — Fix: Sprint budget validation crashes hooks on read
+
+- **Read-path budget grandfathering for sprint.json.** `load_sprint` now calls `validate_sprint(enforce_budget=False)`, skipping field-length budget checks on read. Sprints with story contexts exceeding the 600-char budget no longer crash SessionStart and Stop hooks. Budgets remain enforced at write time (`save_sprint`). Matches the `execution_plan_store` fix from v2.19.1.
+
+- **Tests.** 2467 total (up from 2462 at v2.19.1). 5 new tests for `enforce_budget` flag behavior and `load_sprint`/`save_sprint` asymmetry.
+
 ## v2.19.1 — Fix: SessionStart crash on pre-budget execution plans
 
 - **Read-path budget grandfathering.** `load_plan` now calls `validate_plan(enforce_budget=False)`, skipping field-length budget checks on read. Plans written before budget limits were added no longer crash the SessionStart hook. Budgets remain enforced at write time (`save_plan`). Matches the existing `smm_schema.py` precedent.

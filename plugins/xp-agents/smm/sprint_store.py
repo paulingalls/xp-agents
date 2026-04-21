@@ -52,7 +52,7 @@ def load_sprint(smm_dir: Path) -> dict | None:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Corrupt sprint file at {path}: {exc}") from exc
 
-    errors = validate_sprint(data)
+    errors = validate_sprint(data, enforce_budget=False)
     if errors:
         raise ValueError(f"Schema-invalid sprint at {path}: {'; '.join(errors)}")
     return data
