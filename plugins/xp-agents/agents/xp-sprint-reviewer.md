@@ -32,7 +32,7 @@ If `execution_plan_md_path` and `milestone` are both non-empty:
      update-status <MILESTONE_NUMBER> delivered --delivered-sprint <sprint_id>
    ```
 3. **Never modify already `delivered` milestones**
-4. If milestone change_zones included architecture-level files (e.g., `agents/`, `scripts/`, config files), note that `/xp-system-context` should be re-run
+4. If milestone change_zones included files that affect system architecture, note that `/xp-system-context` should be re-run
 
 Skip if either field is empty.
 
