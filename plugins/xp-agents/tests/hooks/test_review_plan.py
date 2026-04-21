@@ -149,12 +149,14 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertEqual(marker.read_text().strip(), str(plan_path))
 
 
-class TestSizeFloorViolations(_IntegrationTestCase):
-    """M-sized stories with >15 projected files must trigger violations."""
+class _SizeViolationMixin:
+    """Shared helpers for size-violation integration tests."""
+
+    _sprint_id = "sprint-000"
 
     def _write_sprint(self, stories: list[dict]) -> None:
         (self.smm_dir / "sprint.json").write_text(
-            _sprint_json(stories, sprint_id="sprint-008")
+            _sprint_json(stories, sprint_id=self._sprint_id)
         )
 
     def _parse_violations(self, stdout: str) -> list[str]:
@@ -162,6 +164,12 @@ class TestSizeFloorViolations(_IntegrationTestCase):
             if line.startswith("size_floor_violations="):
                 return json.loads(line.split("=", 1)[1])
         self.fail("No size_floor_violations= line in output")
+
+
+class TestSizeFloorViolations(_SizeViolationMixin, _IntegrationTestCase):
+    """M-sized stories with >15 projected files must trigger violations."""
+
+    _sprint_id = "sprint-008"
 
     def test_m_story_16_files_triggers_violation(self):
         """M story with 16 non-script files (no test projection)."""
@@ -193,6 +201,76 @@ class TestSizeFloorViolations(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         violations = self._parse_violations(result.stdout)
         self.assertEqual(violations, [])
+
+
+class TestSSizeCeilingViolations(_SizeViolationMixin, _IntegrationTestCase):
+    """S-sized stories with >20 file_domain entries must trigger violations."""
+
+    _sprint_id = "sprint-014"
+
+    def test_s_story_21_files_triggers_violation(self):
+        """S story with 21 file_domain entries must trigger violation."""
+        files = [f"plugins/xp-agents/agents/f{i}.md" for i in range(21)]
+        self._write_sprint([_s("story-001", "Test", "S", "ready", file_domain=files)])
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        violations = self._parse_violations(result.stdout)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("story-001", violations[0])
+        self.assertIn("S", violations[0])
+
+    def test_s_story_20_files_no_violation(self):
+        """S story with exactly 20 file_domain entries is at the ceiling."""
+        files = [f"plugins/xp-agents/agents/f{i}.md" for i in range(20)]
+        self._write_sprint([_s("story-001", "Test", "S", "ready", file_domain=files)])
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        violations = self._parse_violations(result.stdout)
+        self.assertEqual(violations, [])
+
+
+class TestSSizeCeilingSprintSchema(unittest.TestCase):
+    """sprint_schema.py should reject S stories with >20 file_domain entries."""
+
+    def test_s_story_21_files_rejected(self):
+        from sprint_schema import validate_sprint
+
+        sprint = {
+            "sprint_id": "sprint-014",
+            "goal": "Test",
+            "started": "2026-04-20",
+            "stories": [
+                _s(
+                    "story-001",
+                    "Big S",
+                    "S",
+                    "ready",
+                    file_domain=[f"f{i}.py" for i in range(21)],
+                ),
+            ],
+        }
+        errors = validate_sprint(sprint)
+        self.assertTrue(any("S" in e and "20" in e for e in errors))
+
+    def test_s_story_20_files_passes(self):
+        from sprint_schema import validate_sprint
+
+        sprint = {
+            "sprint_id": "sprint-014",
+            "goal": "Test",
+            "started": "2026-04-20",
+            "stories": [
+                _s(
+                    "story-001",
+                    "Small S",
+                    "S",
+                    "ready",
+                    file_domain=[f"f{i}.py" for i in range(20)],
+                ),
+            ],
+        }
+        errors = validate_sprint(sprint)
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

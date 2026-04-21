@@ -41,27 +41,35 @@ fi
 rm -f "$MARKER"
 
 # Size-floor check: M stories with >15 projected files must be L or split.
+# S-size ceiling: S stories with >20 file_domain entries must be M or split.
 if [ -f "${SMM_DIR}/sprint.json" ]; then
     VIOLATIONS=$(python3 -c '
 import json, re, sys
+sys.path.insert(0, sys.argv[2])
+from sprint_schema import S_SIZE_FILE_DOMAIN_MAX
 sprint = json.load(open(sys.argv[1]))
 violations = []
 for s in sprint.get("stories", []):
-    if s.get("size") != "M":
-        continue
+    size = s.get("size")
     domain = s.get("file_domain", [])
-    projected = 0
-    for f in domain:
-        if re.match(r"plugins/xp-agents/scripts/[^/]+\.py$", f):
-            projected += 1
-    total = len(domain) + projected
-    if total > 15:
-        sid = s["id"]
+    sid = s["id"]
+    if size == "S" and len(domain) > S_SIZE_FILE_DOMAIN_MAX:
         violations.append(
-            f"size floor violation: {sid} declares {total} files"
-            f" at size M; must be L or split."
+            f"size ceiling violation: {sid} declares {len(domain)} files"
+            f" at size S (max {S_SIZE_FILE_DOMAIN_MAX}); must be M or split."
         )
+    elif size == "M":
+        projected = 0
+        for f in domain:
+            if re.match(r"plugins/xp-agents/scripts/[^/]+\.py$", f):
+                projected += 1
+        total = len(domain) + projected
+        if total > 15:
+            violations.append(
+                f"size floor violation: {sid} declares {total} files"
+                f" at size M; must be L or split."
+            )
 print(json.dumps(violations))
-' "${SMM_DIR}/sprint.json" 2>/dev/null || echo "[]")
+' "${SMM_DIR}/sprint.json" "${PLUGIN_ROOT}/smm" 2>/dev/null || echo "[]")
     echo "size_floor_violations=${VIOLATIONS}"
 fi

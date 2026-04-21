@@ -12,6 +12,8 @@ SPRINT_FILENAME = "sprint.json"
 VALID_STORY_STATUSES = frozenset({"ready", "in-progress", "done", "deferred"})
 VALID_STORY_SIZES = frozenset({"S", "M", "L"})
 
+S_SIZE_FILE_DOMAIN_MAX = 20
+
 _ACTIVE_STATUSES = frozenset({"ready", "in-progress"})
 
 _SPRINT_REQUIRED = frozenset({"sprint_id", "goal", "started", "stories"})
@@ -79,6 +81,16 @@ def _validate_story(story: object, idx: int) -> list[str]:
     ):
         if not isinstance(story[field], list):
             errors.append(f"stories[{idx}].{field} must be a list")
+
+    if (
+        story["size"] == "S"
+        and isinstance(story.get("file_domain"), list)
+        and len(story["file_domain"]) > S_SIZE_FILE_DOMAIN_MAX
+    ):
+        errors.append(
+            f"stories[{idx}] declares {len(story['file_domain'])} files"
+            f" at size S; max {S_SIZE_FILE_DOMAIN_MAX}"
+        )
 
     return errors
 
