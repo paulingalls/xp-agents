@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.21.0 — Verbosity Audit M10: Prompt tightening (5 files)
+
+Sprint-017 delivers Milestone 10 of the Verbosity Audit execution plan (5/5 stories, 100% delivery). All 10 milestones now delivered — Verbosity Audit complete.
+
+- **M10: Prompt tightening.** Applied §8 bloat-pattern checklist to 5 untouched agent/skill files. Consolidated repeated code blocks, compressed role framing, replaced verbose templates with minimum-viable shapes. Total: 581→415 lines (29% average reduction). Per file: xp-code-reviewer 107→68 (36%), xp-sprint-reviewer 89→62 (30%), xp-assign 151→100 (34%), xp-quality-review 143→108 (24%, constrained by 800-token floor), xp-accept 91→80 (12%).
+
+- **Signal-loss review.** Independent fan-out review of all 5 diffs caught two losses: architecture-level file examples in sprint-reviewer were project-specific (fixed to generic phrasing), done/deferred definitions in accept were decision criteria (restored). All other compressions confirmed safe.
+
+- **Tests.** 2478 total (unchanged). No code changes — prompt-only refactoring.
+
 ## v2.20.0 — Retro false positive fix + concern auto-resolution
 
 - **Quality review flag fix.** The `quality_reviews_missing` retro flag now compares quality review count against `review_required_commits` (commits with >= 2 code files) instead of all `code_commits`. Commits with <2 code files only require security triage, not quality review — the old comparison produced false positives. Commit metadata now records `code_file_count` for accurate threshold splitting.
