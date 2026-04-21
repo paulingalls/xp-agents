@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.21.1 — Fix: status-only updates skip budget enforcement
+
+- **Budget enforcement fix.** `update_milestone_status` and `update_story_status` now pass `enforce_budget=False` to `save_plan`/`save_sprint`, matching the load-path grandfathering from v2.19.1. Status changes don't modify content fields, so budget validation on pre-existing over-budget milestones/stories was a false rejection. Same root cause as `d041e77` but the update-status path wasn't covered.
+
+- **Test extraction.** Sprint budget tests extracted from `test_sprint_store.py` (530→421 lines) into `test_sprint_budgets.py` (131 lines) to stay under the 500-line convention.
+
+- **Tests.** 2481 total (up from 2478 at v2.21.0). 3 new tests for status-update grandfathering on over-budget plans and sprints.
+
 ## v2.21.0 — Verbosity Audit M10: Prompt tightening (5 files)
 
 Sprint-017 delivers Milestone 10 of the Verbosity Audit execution plan (5/5 stories, 100% delivery). All 10 milestones now delivered — Verbosity Audit complete.
