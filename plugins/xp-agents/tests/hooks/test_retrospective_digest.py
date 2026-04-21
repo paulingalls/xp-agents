@@ -405,8 +405,8 @@ class TestAnnotateTryStatus(_HookTestCase):
         )
         with open(self.smm_dir / ".retro-input.json") as f:
             data = json.load(f)
+        self.assertEqual(len(data["previous_retros"]), 1)
         self.assertIn("try_status", data["previous_retros"][0])
-        self.assertNotIn("try_status", data["previous_retros"][1])
 
     def test_annotate_empty_previous_retros(self):
         data = self._run_and_load_with_retro(

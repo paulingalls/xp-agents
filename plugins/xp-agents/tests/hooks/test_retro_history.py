@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for retro_history.py: Try-item annotation with disposition tracking."""
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -248,6 +249,71 @@ class TestGetTryItemsFiltering(unittest.TestCase):
         }
         lines = self._filter_try_items(data)
         self.assertIn("[refs: abc123def456]", lines[0])
+
+
+class TestRetroHistoryConstants(unittest.TestCase):
+    """MAX_RETRO_HISTORY should be 1 — only the most recent retro is needed."""
+
+    def test_max_retro_history_is_1(self):
+        self.assertEqual(retro_history.MAX_RETRO_HISTORY, 1)
+
+
+class TestGatherRetroHistoryAnalysisNotes(_HookTestCase):
+    """gather_retro_history should include analysis_notes in the slim."""
+
+    def setUp(self):
+        super().setUp()
+        self.retro_dir = self.smm_dir / "retrospectives"
+        self.retro_dir.mkdir()
+
+    def _write_retro(self, filename: str, data: dict) -> None:
+        (self.retro_dir / filename).write_text(json.dumps(data))
+
+    def test_gather_includes_analysis_notes(self):
+        self._write_retro(
+            "2026-04-20T00-00-00.json",
+            {
+                "timestamp": "2026-04-20T00:00:00+00:00",
+                "keep": [{"content": "Good"}],
+                "fix": [],
+                "try": [],
+                "analysis_notes": "Third consecutive sprint with sizing inversion",
+            },
+        )
+        result = retro_history.gather_retro_history(self.smm_dir)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(
+            result[0]["analysis_notes"],
+            "Third consecutive sprint with sizing inversion",
+        )
+
+    def test_gather_omits_analysis_notes_when_absent(self):
+        self._write_retro(
+            "2026-04-20T00-00-00.json",
+            {
+                "timestamp": "2026-04-20T00:00:00+00:00",
+                "keep": [],
+                "fix": [],
+                "try": [],
+            },
+        )
+        result = retro_history.gather_retro_history(self.smm_dir)
+        self.assertEqual(len(result), 1)
+        self.assertNotIn("analysis_notes", result[0])
+
+    def test_only_one_retro_returned(self):
+        for i in range(3):
+            self._write_retro(
+                f"2026-04-{20 + i:02d}T00-00-00.json",
+                {
+                    "timestamp": f"2026-04-{20 + i:02d}T00:00:00+00:00",
+                    "keep": [],
+                    "fix": [],
+                    "try": [],
+                },
+            )
+        result = retro_history.gather_retro_history(self.smm_dir)
+        self.assertEqual(len(result), 1)
 
 
 if __name__ == "__main__":

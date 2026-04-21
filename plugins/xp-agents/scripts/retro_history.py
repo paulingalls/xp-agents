@@ -11,7 +11,7 @@ import json
 import re
 from pathlib import Path
 
-MAX_RETRO_HISTORY = 2
+MAX_RETRO_HISTORY = 1
 MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
 
 # 12+ char hex token — matches event IDs in Try text.
@@ -34,7 +34,8 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
 
     `keep` and `fix` become content-only strings. `try` becomes a list of
     `{content, event_refs}` dicts so the annotate step can cross-reference
-    event IDs against the current session's resolutions. Legacy retros
+    event IDs against the current session's resolutions. `analysis_notes`
+    is preserved when present (carries cross-session trends). Legacy retros
     with list-of-strings `try` are migrated to the new shape on read.
     """
     retro_dir = smm_dir / "retrospectives"
@@ -59,6 +60,8 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
                         for item in items
                     ]
                 slimmed["try"] = [_slim_try_item(it) for it in data.get("try", [])]
+                if "analysis_notes" in data:
+                    slimmed["analysis_notes"] = data["analysis_notes"]
                 result.append(slimmed)
         except (json.JSONDecodeError, OSError):
             continue
