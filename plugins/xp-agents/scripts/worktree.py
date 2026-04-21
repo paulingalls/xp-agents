@@ -90,7 +90,9 @@ def has_live_teammates(cwd: str) -> bool:
             continue
         for line in block.splitlines():
             if line.startswith("worktree ") and "/.claude/worktrees/teammate-" in line:
-                return True
+                wt_path = line[len("worktree ") :]
+                if Path(wt_path).is_dir():
+                    return True
     return False
 
 

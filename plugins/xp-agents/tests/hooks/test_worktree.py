@@ -280,6 +280,16 @@ class TestHasLiveTeammates(unittest.TestCase):
         shutil.rmtree(wt_path)
         self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
 
+    def test_skips_non_prunable_missing_directory(self):
+        """Non-prunable entry whose directory is gone should not count."""
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/main\n\n"
+            "worktree /tmp/.claude/worktrees/teammate-dead\n"
+            "HEAD def456\nbranch refs/heads/teammate-dead\n\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
+
     def test_returns_false_for_non_git_cwd(self):
         import shutil
 
