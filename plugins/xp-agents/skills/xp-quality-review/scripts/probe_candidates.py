@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Pre-commit resolves-trailer probe for /xp-quality-review.
 
-Scans the staged file set for open concerns whose files overlap, drops a
-REVIEW_FINGERPRINT marker the post-commit hook consumes for dedup, and
-emits a resolves_probe_shown status event so retro._compute_resolves_link_rate
-can pair it with the subsequent commit.
+Scans changed files (staged, unstaged, and untracked) for open concerns
+whose files overlap, drops a REVIEW_FINGERPRINT marker the post-commit
+hook consumes for dedup, and emits a resolves_probe_shown status event
+so retro._compute_resolves_link_rate can pair it with the subsequent commit.
 
 Called by the xp-quality-review skill BEFORE the reviewer spawns, so the
 Resolves-Event: trailer can land on the first commit rather than needing
@@ -26,17 +26,17 @@ import markers
 import resolves_probe
 
 
-def _staged_files(cwd: str) -> list[str]:
-    """Return the list of files staged for commit (git diff --cached)."""
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return []
-    return [f.strip() for f in result.stdout.splitlines() if f.strip()]
+def _changed_files(cwd: str) -> list[str]:
+    """Return all changed files: staged, unstaged, and untracked new."""
+    files: set[str] = set()
+    for cmd in (
+        ["git", "diff", "HEAD", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    ):
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        if result.returncode == 0:
+            files.update(f.strip() for f in result.stdout.splitlines() if f.strip())
+    return sorted(files)
 
 
 def main() -> int:
@@ -49,20 +49,20 @@ def main() -> int:
     cwd = args.cwd
     agent_id = identity.resolve_agent_id_from_cwd(cwd)
 
-    staged = _staged_files(cwd)
-    if not staged:
-        print("(no staged files — skip probe)")
+    changed = _changed_files(cwd)
+    if not changed:
+        print("(no changed files — skip probe)")
         return 0
 
     candidates = resolves_probe.find_probe_candidates(
-        smm_dir, staged, resolves=[], cwd=cwd
+        smm_dir, changed, resolves=[], cwd=cwd
     )
     if not candidates:
-        print("(no open concerns match staged files — nothing to auto-link)")
+        print("(no open concerns match changed files — nothing to auto-link)")
         return 0
 
     fingerprint = resolves_probe.compute_fingerprint(
-        staged, [c["id"] for c in candidates], cwd
+        changed, [c["id"] for c in candidates], cwd
     )
     markers.marker_write(
         smm_dir,
@@ -83,7 +83,7 @@ def main() -> int:
     if status_event:
         _common.append_safe(smm_dir, status_event)
 
-    lines = [f"Found {len(candidates)} open concern(s) your staged files touch:"]
+    lines = [f"Found {len(candidates)} open concern(s) your changed files touch:"]
     for c in candidates:
         content = (c.get("content") or "")[:100]
         lines.append(f"  - {c['id']}: {content}")

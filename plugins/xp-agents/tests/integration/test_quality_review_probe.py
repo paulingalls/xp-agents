@@ -153,6 +153,56 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
         # Marker was consumed post-commit
         self.assertFalse((self.smm_dir / ".review-fingerprint-main").exists())
 
+    def test_probe_finds_unstaged_modified_files(self):
+        """Probe should detect concerns matching unstaged (not git-added) files."""
+        concern = make_event(
+            "concern",
+            id="unstaged12345",
+            content="scripts/auth.py leaks tokens",
+            files=["scripts/auth.py"],
+            severity="medium",
+        )
+        self._seed_events([concern])
+
+        (self.tmpdir / "scripts").mkdir(exist_ok=True)
+        (self.tmpdir / "scripts" / "auth.py").write_text("print('v1')\n")
+        subprocess.run(
+            ["git", "add", "scripts/auth.py"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "initial"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+        (self.tmpdir / "scripts" / "auth.py").write_text("print('v2')\n")
+
+        result = self._run_probe_script()
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("unstaged12345", result.stdout)
+
+    def test_probe_finds_untracked_new_files(self):
+        """Probe should detect concerns matching untracked new files."""
+        concern = make_event(
+            "concern",
+            id="untracked1234",
+            content="scripts/new.py missing validation",
+            files=["scripts/new.py"],
+            severity="medium",
+        )
+        self._seed_events([concern])
+
+        (self.tmpdir / "scripts").mkdir(exist_ok=True)
+        (self.tmpdir / "scripts" / "new.py").write_text("print('new')\n")
+
+        result = self._run_probe_script()
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("untracked1234", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
