@@ -69,7 +69,7 @@ For each story, produce the enhanced format:
 
 Then the enriched sections:
 
-- **Context**: 2+ sentences of inlined design context. Synthesize from the milestone's Design Details + what you learned in the codebase dive. This is NOT a pointer — it's the actual design rationale the agent needs. Can be multiple paragraphs for complex stories.
+- **Context**: 2+ sentences of what THIS story uniquely does — mechanical specifics, file-count scope, AC summary. **Do not restate milestone rationale** (design_details, constraints) — that lives in execution_plan.json and is read separately. Open with: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
 - **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain.
 - **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
 - **Acceptance Criteria**: 3-5 testable conditions. At least one E2E prefixed with "E2E:".
@@ -157,7 +157,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 - No circular dependencies
 - File domains must not overlap between stories — this enables parallel execution
 - Interface contracts are advisory — they document shared boundaries, not enforce them
-- Context should be specific enough for a subagent to plan and implement without reading the full milestone
+- Context must not restate milestone rationale — reference it. Each layer has a job: system_context=WHERE, milestone=WHY, story=WHAT uniquely, design doc=FULL RATIONALE
 - Keep acceptance criteria testable — no vague conditions
 - Recommend 5-10 stories per sprint unless mostly S-sized
 - The sprint should be achievable in scope
