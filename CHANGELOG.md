@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.19.0 — Verbosity Audit M9: Nudge Dedup + Kickoff Gate UX
+
+Sprint-016 delivers Milestone 9 of the Verbosity Audit execution plan (2/2 stories, 100% delivery). Ninth consecutive sprint at 100% delivery rate.
+
+- **M9: Open-questions nudge dedup cache.** `_open_questions_context` now tracks per-(question_id, agent_id) fire count via agent-scoped QUESTION_NUDGED marker. After 2 fires, the question is muted for that agent until SessionEnd clears markers. Saves ~60% on repeat injection (5 decisions × 3 questions = 2.2 KB).
+
+- **M9: SubagentStart docstring fix.** Module docstring updated from stale `~200 tokens` to measured sizes from VERBOSITY_AUDIT §6.3 (Explore ~5 KB, Default ~10 KB, retro ~1.6 KB, housekeeper ~1.5-3 KB, xp-* ~1.4 KB).
+
+- **Kickoff gate UX: block once, then pass.** The `.needs-kickoff` marker is now consumed on first block/nudge instead of persisting until `/xp-kickoff` runs. Users who skip kickoff for casual Q&A sessions can proceed after the initial reminder. SMM compaction is safely a no-op when the curation watermark hasn't advanced.
+
+- **Tests.** 2457 total (up from 2425 at v2.18.0). 7 new tests: 5 for nudge dedup cache, 2 for kickoff gate consume-on-block behavior.
+
 ## v2.18.0 — Verbosity Audit M7: Retro Fixes + Probe Widening
 
 Sprint-014 delivers Milestone 7 of the Verbosity Audit execution plan (3/3 stories, 100% delivery). Seventh consecutive sprint at 100% delivery rate.

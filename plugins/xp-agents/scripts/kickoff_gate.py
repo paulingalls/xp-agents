@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """UserPromptSubmit hook: gate on .needs-kickoff marker.
 
-Blocks user prompts until /xp-kickoff has been run. Allows
-the kickoff command itself through. Respects enforcement mode.
+Blocks or nudges the first non-kickoff user prompt, then passes.
+Allows the kickoff command itself through. Respects enforcement mode.
 
 Behavior depends on marker content:
 - "startup" (new session): hard block
@@ -60,10 +60,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
         markers.marker_consume(smm_dir, markers.KICKOFF)
         return None
 
-    # Read marker content to determine block vs nudge.
+    # Consume marker to determine block vs nudge.
     # "clear" = mid-session reset, nudge only.
     # "startup" or empty = new session, hard block.
-    source = markers.marker_read(smm_dir, markers.KICKOFF) or ""
+    source = markers.marker_consume(smm_dir, markers.KICKOFF) or ""
 
     if source == "clear":
         return _NUDGE

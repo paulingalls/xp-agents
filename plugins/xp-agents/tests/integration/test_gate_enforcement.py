@@ -51,8 +51,8 @@ class TestKickoffGateIntegration(_IntegrationTestCase):
         parsed = json.loads(result.stdout)
         self.assertEqual(parsed["decision"], "block")
         self.assertIn("xp-kickoff", parsed["reason"])
-        # Marker still on disk — only /xp-kickoff consumes it.
-        self.assertTrue((self.smm_dir / ".needs-kickoff").exists())
+        # Marker consumed on first block — subsequent prompts pass through.
+        self.assertFalse((self.smm_dir / ".needs-kickoff").exists())
 
     def test_kickoff_prompt_consumes_marker(self):
         (self.smm_dir / ".needs-kickoff").write_text("startup")

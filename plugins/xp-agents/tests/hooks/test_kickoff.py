@@ -154,6 +154,40 @@ class TestKickoffGate(_HookTestCase):
         self.assertIsInstance(result, dict)
         self.assertEqual(result["decision"], "block")
 
+    def test_second_prompt_passes_after_block(self):
+        """After first block consumes marker, subsequent prompts pass through."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result1 = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result1["decision"], "block")
+
+        result2 = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result2)
+
+    def test_second_prompt_passes_after_nudge(self):
+        """After first nudge consumes marker, subsequent prompts pass through."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("clear")
+        result1 = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(result1, "nudge")
+
+        result2 = kickoff_gate.run(
+            {"session_id": "test", "prompt": "do some work"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result2)
+
     def test_skips_task_notifications(self):
         import kickoff_gate
 
