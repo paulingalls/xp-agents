@@ -128,5 +128,72 @@ class TestMilestoneFieldBudgets(unittest.TestCase):
         self.assertTrue(any("must be a string" in e for e in errors))
 
 
+class TestBudgetEnforceFlag(unittest.TestCase):
+    """validate_plan(enforce_budget=False) grandfathers over-budget fields."""
+
+    def test_over_budget_accepted_when_not_enforced(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(
+                    goal="x" * 300,
+                    done="x" * 500,
+                    design_details="x" * 700,
+                    constraints=["x" * 200],
+                    change_zones=[{"path": "f.py", "note": "x" * 200}],
+                )
+            ]
+        )
+        errors = schema.validate_plan(plan, enforce_budget=False)
+        self.assertEqual(errors, [])
+
+    def test_over_budget_rejected_when_enforced(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 501)])
+        errors = schema.validate_plan(plan, enforce_budget=True)
+        self.assertTrue(any("budget" in e for e in errors))
+
+    def test_structural_errors_still_caught_without_budget(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(design_details=123)])
+        errors = schema.validate_plan(plan, enforce_budget=False)
+        self.assertTrue(any("must be a string" in e for e in errors))
+
+
+class TestLoadPlanGrandfathersBudget(unittest.TestCase):
+    """load_plan reads over-budget plans; save_plan rejects them."""
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_load_over_budget_plan_succeeds(self):
+        import json
+
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        loaded = store.load_plan(self.smm_dir)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(len(loaded["milestones"][0]["design_details"]), 700)
+
+    def test_save_over_budget_plan_rejected(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        with self.assertRaises(ValueError) as ctx:
+            store.save_plan(self.smm_dir, plan)
+        self.assertIn("budget", str(ctx.exception).lower())
+
+
 if __name__ == "__main__":
     unittest.main()

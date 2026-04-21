@@ -54,7 +54,12 @@ def empty_plan() -> dict:
 
 
 def _validate_zone_entry(
-    entry: object, field_name: str, idx: int, m_idx: int
+    entry: object,
+    field_name: str,
+    idx: int,
+    m_idx: int,
+    *,
+    enforce_budget: bool = True,
 ) -> list[str]:
     """Validate a change_zone or impact_zone entry."""
     errors: list[str] = []
@@ -70,7 +75,7 @@ def _validate_zone_entry(
     if "note" in entry:
         if not isinstance(entry["note"], str):
             errors.append(f"{prefix}.note must be a string")
-        else:
+        elif enforce_budget:
             max_len = MILESTONE_ITEM_MAXLENGTH["zone_note"]
             actual = len(entry["note"])
             if actual > max_len:
@@ -105,7 +110,9 @@ def _validate_source(source: object, idx: int) -> list[str]:
     return errors
 
 
-def _validate_milestone(milestone: object, idx: int) -> list[str]:
+def _validate_milestone(
+    milestone: object, idx: int, *, enforce_budget: bool = True
+) -> list[str]:
     """Validate a milestone entry."""
     errors: list[str] = []
     if not isinstance(milestone, dict):
@@ -139,7 +146,7 @@ def _validate_milestone(milestone: object, idx: int) -> list[str]:
         val = milestone[field]
         if not isinstance(val, str):
             errors.append(f"milestones[{idx}].{field} must be a string")
-        else:
+        elif enforce_budget:
             max_len = MILESTONE_FIELD_MAXLENGTH[field]
             actual = len(val)
             if actual > max_len:
@@ -155,7 +162,11 @@ def _validate_milestone(milestone: object, idx: int) -> list[str]:
             errors.append(f"milestones[{idx}].{field} must be a list")
         else:
             for z_idx, zone in enumerate(value):
-                errors.extend(_validate_zone_entry(zone, field, z_idx, idx))
+                errors.extend(
+                    _validate_zone_entry(
+                        zone, field, z_idx, idx, enforce_budget=enforce_budget
+                    )
+                )
 
     if not isinstance(milestone["constraints"], list):
         errors.append(f"milestones[{idx}].constraints must be a list")
@@ -166,7 +177,7 @@ def _validate_milestone(milestone: object, idx: int) -> list[str]:
                 errors.append(
                     f"milestones[{idx}].constraints[{c_idx}] must be a string"
                 )
-            else:
+            elif enforce_budget:
                 actual = len(item)
                 if actual > c_max:
                     errors.append(
@@ -177,10 +188,12 @@ def _validate_milestone(milestone: object, idx: int) -> list[str]:
     return errors
 
 
-def validate_plan(data: object) -> list[str]:
+def validate_plan(data: object, *, enforce_budget: bool = True) -> list[str]:
     """Validate an execution plan document.
 
     Returns a list of error strings — empty list means valid.
+    When enforce_budget is False, field-length budgets are skipped
+    (read-path grandfathering, matching smm_schema precedent).
     """
     errors: list[str] = []
 
@@ -210,6 +223,8 @@ def validate_plan(data: object) -> list[str]:
         errors.append("milestones must be a list")
     else:
         for idx, milestone in enumerate(data["milestones"]):
-            errors.extend(_validate_milestone(milestone, idx))
+            errors.extend(
+                _validate_milestone(milestone, idx, enforce_budget=enforce_budget)
+            )
 
     return errors

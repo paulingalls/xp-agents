@@ -54,7 +54,7 @@ def load_plan(smm_dir: Path) -> dict | None:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Corrupt plan file at {path}: {exc}") from exc
 
-    errors = validate_plan(data)
+    errors = validate_plan(data, enforce_budget=False)
     if errors:
         raise ValueError(f"Schema-invalid plan at {path}: {'; '.join(errors)}")
     return data
