@@ -13,6 +13,17 @@ PLAN_FILENAME = "execution_plan.json"
 VALID_MILESTONE_STATUSES = frozenset({"planned", "in-progress", "delivered"})
 VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 
+MILESTONE_FIELD_MAXLENGTH: dict[str, int] = {
+    "goal": 200,
+    "done": 300,
+    "design_details": 500,
+}
+
+MILESTONE_ITEM_MAXLENGTH: dict[str, int] = {
+    "constraints": 150,
+    "zone_note": 150,
+}
+
 _MILESTONE_REQUIRED = frozenset(
     {
         "number",
@@ -55,6 +66,18 @@ def _validate_zone_entry(
         errors.append(f"{prefix} missing required field: path")
     elif not isinstance(entry["path"], str):
         errors.append(f"{prefix}.path must be a string")
+
+    if "note" in entry:
+        if not isinstance(entry["note"], str):
+            errors.append(f"{prefix}.note must be a string")
+        else:
+            max_len = MILESTONE_ITEM_MAXLENGTH["zone_note"]
+            actual = len(entry["note"])
+            if actual > max_len:
+                errors.append(
+                    f"{prefix}.note exceeds budget ({actual} > {max_len} chars)"
+                )
+
     return errors
 
 
@@ -111,11 +134,19 @@ def _validate_milestone(milestone: object, idx: int) -> list[str]:
             f"milestones[{idx}].delivered_sprint is required when status is 'delivered'"
         )
 
-    if not isinstance(milestone["goal"], str):
-        errors.append(f"milestones[{idx}].goal must be a string")
-
-    if not isinstance(milestone["done"], str):
-        errors.append(f"milestones[{idx}].done must be a string")
+    _str_fields = ("goal", "done", "design_details")
+    for field in _str_fields:
+        val = milestone[field]
+        if not isinstance(val, str):
+            errors.append(f"milestones[{idx}].{field} must be a string")
+        else:
+            max_len = MILESTONE_FIELD_MAXLENGTH[field]
+            actual = len(val)
+            if actual > max_len:
+                errors.append(
+                    f"milestones[{idx}].{field} exceeds budget"
+                    f" ({actual} > {max_len} chars)"
+                )
 
     # change_zones and impact_zones must be lists of objects with path
     for field in ("change_zones", "impact_zones"):
@@ -128,6 +159,20 @@ def _validate_milestone(milestone: object, idx: int) -> list[str]:
 
     if not isinstance(milestone["constraints"], list):
         errors.append(f"milestones[{idx}].constraints must be a list")
+    else:
+        c_max = MILESTONE_ITEM_MAXLENGTH["constraints"]
+        for c_idx, item in enumerate(milestone["constraints"]):
+            if not isinstance(item, str):
+                errors.append(
+                    f"milestones[{idx}].constraints[{c_idx}] must be a string"
+                )
+            else:
+                actual = len(item)
+                if actual > c_max:
+                    errors.append(
+                        f"milestones[{idx}].constraints[{c_idx}]"
+                        f" exceeds budget ({actual} > {c_max} chars)"
+                    )
 
     return errors
 
