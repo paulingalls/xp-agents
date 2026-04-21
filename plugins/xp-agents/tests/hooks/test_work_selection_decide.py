@@ -23,7 +23,7 @@ from conftest import _HookTestCase
 
 
 class _DecideTestCase(_HookTestCase):
-    """Shared setup: expose mod + _last_event()."""
+    """Shared setup: expose mod + _last_event() + _run_main()."""
 
     def setUp(self):
         super().setUp()
@@ -33,6 +33,17 @@ class _DecideTestCase(_HookTestCase):
         events = self._read_events()
         self.assertGreater(len(events), 0, "expected at least one event")
         return events[-1]
+
+    def _run_main(self, argv: list[str]) -> int:
+        old_argv = sys.argv
+        sys.argv = ["work_selection_decide.py", *argv]
+        try:
+            self.mod.main()
+            return 0
+        except SystemExit as e:
+            return int(e.code) if e.code is not None else 0
+        finally:
+            sys.argv = old_argv
 
 
 class TestAdopt(_DecideTestCase):
@@ -242,6 +253,23 @@ class TestValidationRaises(_DecideTestCase):
             )
         self.assertEqual(self._read_events(), [])
 
+    def test_triage_without_event_id_raises(self):
+        with self.assertRaises(ValueError):
+            self.mod.run(
+                action="triage-adopt",
+                smm_dir=self.smm_dir,
+                content="",
+            )
+
+    def test_triage_with_invalid_event_id_raises(self):
+        with self.assertRaises(ValueError):
+            self.mod.run(
+                action="triage-adopt",
+                smm_dir=self.smm_dir,
+                content="",
+                event_id="not-a-hex-id",
+            )
+
     def test_unknown_action_raises(self):
         with self.assertRaises(ValueError):
             self.mod.run(
@@ -254,17 +282,6 @@ class TestValidationRaises(_DecideTestCase):
 
 class TestCliArgparse(_DecideTestCase):
     """End-to-end argparse behavior via main()."""
-
-    def _run_main(self, argv: list[str]) -> int:
-        old_argv = sys.argv
-        sys.argv = ["work_selection_decide.py", *argv]
-        try:
-            self.mod.main()
-            return 0
-        except SystemExit as e:
-            return int(e.code) if e.code is not None else 0
-        finally:
-            sys.argv = old_argv
 
     def test_adopt_without_topic_exits_with_error(self):
         code = self._run_main(
@@ -312,6 +329,129 @@ class TestCliArgparse(_DecideTestCase):
             event["metadata"],
             {"resolves": ["abc123def456"], "disposition": "deferred"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Triage subcommands (debt/concern/question triage)
+# ---------------------------------------------------------------------------
+
+
+class TestTriageAdopt(_DecideTestCase):
+    """triage-adopt: status event, disposition=adopted, resolves=[id]."""
+
+    def test_creates_status_with_resolves(self):
+        self.mod.run(
+            action="triage-adopt",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id="abc123def456",
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["metadata"]["disposition"], "adopted")
+        self.assertEqual(event["working_on"], [])
+
+    def test_content_includes_short_id(self):
+        self.mod.run(
+            action="triage-adopt",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id="abc123def456",
+        )
+        event = self._last_event()
+        self.assertIn("abc123de", event["content"])
+
+
+class TestTriageDefer(_DecideTestCase):
+    """triage-defer: status event, disposition=deferred, no resolves."""
+
+    def test_creates_status_without_resolves(self):
+        self.mod.run(
+            action="triage-defer",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id="abc123def456",
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["metadata"]["disposition"], "deferred")
+        self.assertNotIn("resolves", event["metadata"])
+        self.assertEqual(event["working_on"], [])
+
+
+class TestTriageDrop(_DecideTestCase):
+    """triage-drop: status event, disposition=dropped, resolves=[id]."""
+
+    def test_creates_status_with_resolves(self):
+        self.mod.run(
+            action="triage-drop",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id="abc123def456",
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["metadata"]["disposition"], "dropped")
+
+    def test_content_includes_short_id(self):
+        self.mod.run(
+            action="triage-drop",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id="abc123def456",
+        )
+        event = self._last_event()
+        self.assertIn("abc123de", event["content"])
+
+
+class TestTriageCliArgparse(_DecideTestCase):
+    """End-to-end argparse for triage subcommands."""
+
+    def test_triage_adopt_persists_event(self):
+        code = self._run_main(
+            [
+                "triage-adopt",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--event-id",
+                "abc123def456",
+            ]
+        )
+        self.assertEqual(code, 0)
+        event = self._last_event()
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+
+    def test_triage_defer_persists_event(self):
+        code = self._run_main(
+            [
+                "triage-defer",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--event-id",
+                "abc123def456",
+            ]
+        )
+        self.assertEqual(code, 0)
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["disposition"], "deferred")
+
+    def test_triage_drop_persists_event(self):
+        code = self._run_main(
+            [
+                "triage-drop",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--event-id",
+                "abc123def456",
+            ]
+        )
+        self.assertEqual(code, 0)
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["disposition"], "dropped")
+        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
 
 
 if __name__ == "__main__":

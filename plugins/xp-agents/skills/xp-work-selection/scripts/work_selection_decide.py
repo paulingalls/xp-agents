@@ -60,11 +60,13 @@ def run(
     smm_dir: Path,
     content: str,
     topic: str | None = None,
+    event_id: str | None = None,
 ) -> str:
     """Append the event and return its id.
 
-    action: "adopt" | "defer" | "drop".
-    `topic` is required for adopt, ignored otherwise.
+    Retro Try actions: "adopt" | "defer" | "drop" (content-based).
+    Triage actions: "triage-adopt" | "triage-defer" | "triage-drop"
+    (event-id-based).
     """
     clean_content, ids = _extract_refs(content)
 
@@ -88,6 +90,25 @@ def run(
                 clean_content,
                 working_on=[],
                 metadata=_build_metadata(ids, disposition),
+            )
+        case "triage-adopt" | "triage-defer" | "triage-drop":
+            if event_id is None:
+                raise ValueError(f"{action} requires --event-id")
+            if not EVENT_ID_RE.match(event_id):
+                raise ValueError(f"Invalid event ID format: {event_id}")
+            _triage_dispositions = {
+                "triage-adopt": "adopted",
+                "triage-defer": "deferred",
+                "triage-drop": "dropped",
+            }
+            disposition = _triage_dispositions[action]
+            resolve_ids = [event_id] if disposition != "deferred" else []
+            event = _common.make_event(
+                "status",
+                "xp-work-selection",
+                f"Triage: {disposition} {event_id[:8]}",
+                working_on=[],
+                metadata=_build_metadata(resolve_ids, disposition),
             )
         case _:
             raise ValueError(f"Unknown action: {action}")
@@ -118,13 +139,19 @@ def main() -> None:
     drop.add_argument("--smm-dir", type=Path, required=True)
     drop.add_argument("--content", required=True)
 
+    for name in ("triage-adopt", "triage-defer", "triage-drop"):
+        p = sub.add_parser(name, help=f"Triage: {name.split('-')[1]}")
+        p.add_argument("--smm-dir", type=Path, required=True)
+        p.add_argument("--event-id", required=True, help="Event ID to triage")
+
     args = parser.parse_args()
     try:
         event_id = run(
             action=args.action,
             smm_dir=args.smm_dir,
-            content=args.content,
+            content=getattr(args, "content", ""),
             topic=getattr(args, "topic", None),
+            event_id=getattr(args, "event_id", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)

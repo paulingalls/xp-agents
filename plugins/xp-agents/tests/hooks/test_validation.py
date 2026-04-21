@@ -164,7 +164,7 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
         skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-work-selection"
         content = (skill_dir / "SKILL.md").read_text()
         self.assertIn("Open Questions", content)
-        self.assertIn('--type "answer"', content)
+        self.assertIn("triage-adopt", content)
 
     # AC 12: retrospective escalates aging debt
     def test_retrospective_escalates_aging_debt(self):

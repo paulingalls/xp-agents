@@ -58,22 +58,38 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
   --content "<item text including any [refs: ...] suffix>"
 ```
 
-## Step 2: Open Questions (if shown)
+## Step 2: Open Debts (if shown)
 
-If the preload shows "### Open Questions", present blocking or high-priority
-items to the user. Ask via AskUserQuestion for resolution.
+If the preload shows "### Open Debts:", present each item to the user via AskUserQuestion.
+Options per item: **adopt-now**, **keep-deferred**, **drop**.
 
-Record answers:
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "answer" --agent "xp-work-selection" \
-  --content "Answer: <user response>" \
-  --references '["<question-event-id>"]'
+# adopt-now: resolve the debt, pull into current work
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-adopt \
+  --smm-dir <SMM_DIR> --event-id <event-id>
+
+# keep-deferred: leave open for future triage
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-defer \
+  --smm-dir <SMM_DIR> --event-id <event-id>
+
+# drop: resolve and forget
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-drop \
+  --smm-dir <SMM_DIR> --event-id <event-id>
 ```
 
-If the user declines to answer, move on gracefully.
+## Step 3: Open Concerns (if shown)
 
-## Step 3: Sprint / Work Selection (ALWAYS)
+If the preload shows "### Open Concerns:", present each item via AskUserQuestion.
+Same options as Step 2 (adopt-now, keep-deferred, drop). Same commands with
+the concern's event-id.
+
+## Step 4: Open Questions (if shown)
+
+If the preload shows "### Open Questions:", present each item via AskUserQuestion.
+Same options as Step 2 (adopt-now, keep-deferred, drop). Same commands with
+the question's event-id.
+
+## Step 5: Sprint / Work Selection (ALWAYS)
 
 **If sprint active with ready stories:**
 1. Show the ready stories from preload.
