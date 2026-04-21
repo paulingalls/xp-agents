@@ -402,5 +402,48 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         self.assertEqual(event_schema.RETRO_ACTION_SPRINT_DONE, "sprint_retro_done")
 
 
+class TestSaveRetrospectiveSchemaEnforcement(_HookTestCase):
+    """save_retrospective.run should reject retros that fail schema validation."""
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir(exist_ok=True)
+
+    def test_five_tries_rejected(self):
+        import save_retrospective
+
+        kft = {
+            "keep": [{"content": "Good"}],
+            "fix": [],
+            "try": [{"content": f"Try {i}"} for i in range(5)],
+        }
+        result = save_retrospective.run(kft, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        events = self._read_events()
+        retro_events = [e for e in events if e["type"] == "retrospective"]
+        self.assertEqual(len(retro_events), 0)
+
+    def test_over_budget_keep_rejected(self):
+        import save_retrospective
+
+        kft = {"keep": [{"content": "x" * 251}], "fix": [], "try": []}
+        result = save_retrospective.run(kft, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_within_budget_passes(self):
+        import save_retrospective
+
+        kft = {
+            "keep": [{"content": "x" * 250}],
+            "fix": [{"content": "x" * 300}],
+            "try": [{"content": "x" * 300}],
+        }
+        result = save_retrospective.run(kft, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        events = self._read_events()
+        retro_events = [e for e in events if e["type"] == "retrospective"]
+        self.assertEqual(len(retro_events), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

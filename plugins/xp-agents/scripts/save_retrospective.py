@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _append_impl
 import _common
+import retro_schema
 from event_schema import RETRO_ACTION_SESSION_DONE, RETRO_ACTION_SPRINT_DONE
 
 
@@ -55,6 +56,12 @@ def run(
             kft_data[field] = [
                 {"content": item} if isinstance(item, str) else item for item in items
             ]
+
+    retro_errors = retro_schema.validate_retro(kft_data)
+    if retro_errors:
+        for err in retro_errors:
+            print(f"Retro schema error: {err}", file=sys.stderr)
+        return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
