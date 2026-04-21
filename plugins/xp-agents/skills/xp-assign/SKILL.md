@@ -67,8 +67,11 @@ Write({
   file_path: "/tmp/prompt-step-N.txt",
   content: "You are implementing step N: <title>
 
-## Context
-<inlined design context from the plan step>
+## Milestone Context
+<milestone design_details and constraints from execution_plan.json — read the milestone before writing this section>
+
+## Story Context
+<inlined design context from the plan step — what THIS story uniquely does, not restating milestone rationale>
 
 ## File Domain
 <list of files this step exclusively owns>
