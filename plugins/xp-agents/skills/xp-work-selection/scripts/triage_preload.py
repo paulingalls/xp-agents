@@ -26,6 +26,31 @@ def _collect_session_end_timestamps(events: list[dict]) -> list[str]:
     )
 
 
+def find_overlapping_commits(
+    concern: dict,
+    events: list[dict],
+) -> list[dict]:
+    """Find commit events whose files overlap the concern's files.
+
+    Only considers commits after the concern's timestamp.
+    """
+    concern_files = set(concern.get("files") or [])
+    if not concern_files:
+        return []
+    concern_ts = concern.get("ts", "")
+
+    overlapping = []
+    for e in events:
+        if e.get("type") != event_schema.EVENT_TYPE_COMMIT:
+            continue
+        if e.get("ts", "") <= concern_ts:
+            continue
+        commit_files = set(e.get("files") or [])
+        if concern_files & commit_files:
+            overlapping.append(e)
+    return overlapping
+
+
 def find_unresolved(
     events: list[dict],
     event_type: str,
@@ -44,6 +69,8 @@ def format_triage_section(
     header: str,
     items: list[dict],
     session_end_timestamps: list[str],
+    *,
+    commit_overlap: dict[str, list[dict]] | None = None,
 ) -> str:
     """Format a triage section with aging info."""
     if not items:
@@ -57,6 +84,11 @@ def format_triage_section(
         )
         age_str = f"{age} sessions" if age != 1 else "1 session"
         lines.append(f"- [id: {event_id}] {content} ({age_str} old)")
+        if commit_overlap and event_id in commit_overlap:
+            msgs = "; ".join(
+                c.get("content", "")[:80] for c in commit_overlap[event_id][:3]
+            )
+            lines.append(f"  **LIKELY ADDRESSED** by: {msgs}")
     return "\n".join(lines)
 
 
@@ -75,14 +107,28 @@ def run(smm_dir: Path) -> str:
 
     session_end_ts = _collect_session_end_timestamps(events)
 
+    concern_items = find_unresolved(
+        events, event_schema.EVENT_TYPE_CONCERN, all_resolved
+    )
+    overlap: dict[str, list[dict]] = {}
+    for concern in concern_items:
+        hits = find_overlapping_commits(concern, events)
+        if hits:
+            overlap[concern.get("id", "")] = hits
+
     sections: list[str] = []
     for event_type, header in [
         (event_schema.EVENT_TYPE_DEBT, "Open Debts"),
         (event_schema.EVENT_TYPE_CONCERN, "Open Concerns"),
         (event_schema.EVENT_TYPE_QUESTION, "Open Questions"),
     ]:
-        items = find_unresolved(events, event_type, all_resolved)
-        section = format_triage_section(header, items, session_end_ts)
+        if event_type == event_schema.EVENT_TYPE_CONCERN:
+            items = concern_items
+            kw: dict = {"commit_overlap": overlap}
+        else:
+            items = find_unresolved(events, event_type, all_resolved)
+            kw = {}
+        section = format_triage_section(header, items, session_end_ts, **kw)
         if section:
             sections.append(section)
 

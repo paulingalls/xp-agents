@@ -148,5 +148,128 @@ class TestRun(_SMMTestCase):
         self.assertIn(f"[id: {d['id']}]", output)
 
 
+class TestFindOverlappingCommits(unittest.TestCase):
+    """find_overlapping_commits detects file overlap between concerns and commits."""
+
+    def test_finds_overlap(self):
+        concern = make_event(
+            "concern",
+            content="Auth bug",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            "commit",
+            content="Fix token leak",
+            files=["scripts/auth.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        result = triage_preload.find_overlapping_commits(concern, [concern, commit])
+        self.assertEqual(len(result), 1)
+        self.assertIn("Fix token leak", result[0]["content"])
+
+    def test_no_overlap_different_files(self):
+        concern = make_event(
+            "concern",
+            content="Auth bug",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            "commit",
+            content="Fix db",
+            files=["scripts/db.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        result = triage_preload.find_overlapping_commits(concern, [concern, commit])
+        self.assertEqual(result, [])
+
+    def test_no_overlap_without_files(self):
+        concern = make_event(
+            "concern",
+            content="Vague concern",
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            "commit",
+            content="Some change",
+            files=["scripts/auth.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        result = triage_preload.find_overlapping_commits(concern, [concern, commit])
+        self.assertEqual(result, [])
+
+    def test_only_post_concern_commits(self):
+        commit = make_event(
+            "commit",
+            content="Earlier fix",
+            files=["scripts/auth.py"],
+            ts="2025-12-01T00:00:00+00:00",
+        )
+        concern = make_event(
+            "concern",
+            content="Auth bug",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        result = triage_preload.find_overlapping_commits(concern, [commit, concern])
+        self.assertEqual(result, [])
+
+
+class TestFormatWithOverlap(unittest.TestCase):
+    """format_triage_section annotates concerns with commit overlap."""
+
+    def test_annotated_concern_shows_likely_addressed(self):
+        concern = make_event(
+            "concern",
+            content="Auth bug",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            "commit",
+            content="Fix token leak in auth",
+            files=["scripts/auth.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        overlap = {concern["id"]: [commit]}
+        result = triage_preload.format_triage_section(
+            "Open Concerns", [concern], [], commit_overlap=overlap
+        )
+        self.assertIn("LIKELY ADDRESSED", result)
+        self.assertIn("Fix token leak", result)
+
+    def test_no_annotation_without_overlap(self):
+        concern = make_event(
+            "concern",
+            content="Auth bug",
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        result = triage_preload.format_triage_section("Open Concerns", [concern], [])
+        self.assertNotIn("LIKELY ADDRESSED", result)
+
+
+class TestRunWithOverlap(_SMMTestCase):
+    """run() annotates concerns with commit overlap in output."""
+
+    def test_concern_with_overlap_annotated(self):
+        concern = make_event(
+            "concern",
+            content="Auth validation bug",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            "commit",
+            content="Fix auth validation",
+            files=["scripts/auth.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        self._write_events([concern, commit])
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("LIKELY ADDRESSED", output)
+        self.assertIn("Fix auth validation", output)
+
+
 if __name__ == "__main__":
     unittest.main()

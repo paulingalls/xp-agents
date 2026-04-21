@@ -223,6 +223,47 @@ class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
         self.assertEqual(signals["planning_events"], 0)
 
 
+class TestReviewRequiredCommits(unittest.TestCase):
+    """Tests for review_required_commits signal splitting."""
+
+    def test_counts_review_required_commits(self):
+        import honesty_signals
+
+        events = [
+            make_event(
+                "commit",
+                content="Big change",
+                metadata={"code_commit": True, "code_file_count": 3},
+            ),
+            make_event(
+                "commit",
+                content="Small fix",
+                metadata={"code_commit": True, "code_file_count": 1},
+            ),
+            make_event(
+                "commit",
+                content="Config only",
+                metadata={"code_commit": False, "code_file_count": 0},
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["review_required_commits"], 1)
+        self.assertEqual(signals["code_commits"], 2)
+
+    def test_legacy_commits_default_review_required(self):
+        import honesty_signals
+
+        events = [
+            make_event(
+                "commit",
+                content="Old commit",
+                metadata={"code_commit": True, "commit_hash": "abc"},
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["review_required_commits"], 1)
+
+
 class TestCommitAsSignalEvent(_HookTestCase):
     """Commit events should appear in the retro digest as signal events."""
 

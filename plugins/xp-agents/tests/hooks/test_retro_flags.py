@@ -18,6 +18,7 @@ def _healthy_signals():
         "commits_without_security_check": 0,
         "total_commits": 3,
         "code_commits": 3,
+        "review_required_commits": 3,
         "code_file_writes": 5,
         "concerns_raised": 2,
         "assumptions_stated": 3,
@@ -213,9 +214,9 @@ class TestQuestionsOpen(unittest.TestCase):
 
 
 class TestQualityReviews(unittest.TestCase):
-    def test_fires_when_reviews_less_than_commits(self):
+    def test_fires_when_reviews_less_than_required(self):
         h, w, s, ss = _healthy_signals()
-        h["code_commits"] = 3
+        h["review_required_commits"] = 3
         s["quality_reviews"] = 1
         flags = retro_flags.evaluate_flags(h, w, s, ss)
         names = [f["metric"] for f in flags]
@@ -224,10 +225,29 @@ class TestQualityReviews(unittest.TestCase):
     def test_no_flag_when_no_code_commits(self):
         h, w, s, ss = _healthy_signals()
         h["code_commits"] = 0
+        h["review_required_commits"] = 0
         s["quality_reviews"] = 0
         flags = retro_flags.evaluate_flags(h, w, s, ss)
         names = [f["metric"] for f in flags]
         self.assertNotIn("quality_reviews_missing", names)
+
+    def test_no_flag_when_only_security_only_commits(self):
+        h, w, s, ss = _healthy_signals()
+        h["review_required_commits"] = 0
+        h["code_commits"] = 3
+        s["quality_reviews"] = 0
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        names = [f["metric"] for f in flags]
+        self.assertNotIn("quality_reviews_missing", names)
+
+    def test_fires_when_reviews_less_than_review_required(self):
+        h, w, s, ss = _healthy_signals()
+        h["review_required_commits"] = 2
+        h["code_commits"] = 3
+        s["quality_reviews"] = 1
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        names = [f["metric"] for f in flags]
+        self.assertIn("quality_reviews_missing", names)
 
 
 class TestFlagStructure(unittest.TestCase):

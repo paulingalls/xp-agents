@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import security
+from commits import REVIEW_CYCLE_THRESHOLD
 
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
 _TEST_RUN_RE = _common.TEST_RUN_RE
@@ -36,6 +37,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
     commits_without_security_check = 0
     total_commits = 0
     code_commits = 0
+    review_required_commits = 0
     last_security_check_seen = False
     concern_count = 0
     assumption_count = 0
@@ -56,6 +58,9 @@ def build_honesty_signals(events: list[dict]) -> dict:
             is_code = e.get("metadata", {}).get("code_commit", True)
             if is_code:
                 code_commits += 1
+                cfc = e.get("metadata", {}).get("code_file_count")
+                if cfc is None or cfc >= REVIEW_CYCLE_THRESHOLD:
+                    review_required_commits += 1
             if not last_security_check_seen and is_code:
                 commits_without_security_check += 1
             last_security_check_seen = False
@@ -92,6 +97,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
     signals["concerns_raised"] = concern_count
     signals["assumptions_stated"] = assumption_count
     signals["code_commits"] = code_commits
+    signals["review_required_commits"] = review_required_commits
     signals["planning_events"] = planning_events
 
     return signals

@@ -183,16 +183,17 @@ def evaluate_flags(
             )
         )
 
-    code_commits = honesty_signals.get("code_commits", 0)
+    review_required = honesty_signals.get("review_required_commits", 0)
     reviews = status_summary.get("quality_reviews", 0)
-    if code_commits > 0 and reviews < code_commits:
+    if review_required > 0 and reviews < review_required:
         flags.append(
             _flag(
                 "quality_reviews_missing",
                 reviews,
-                code_commits,
+                review_required,
                 "Feedback",
-                f"{reviews} quality reviews for {code_commits} code commits",
+                f"{reviews} quality reviews for"
+                f" {review_required} review-required commits",
             )
         )
 
