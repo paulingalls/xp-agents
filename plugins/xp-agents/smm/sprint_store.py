@@ -58,7 +58,7 @@ def load_sprint(smm_dir: Path) -> dict | None:
     return data
 
 
-def save_sprint(smm_dir: Path, data: dict) -> None:
+def save_sprint(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None:
     """Validate and atomically write the sprint.
 
     Clears the NEEDS_SPRINT marker if the sprint has active stories.
@@ -71,7 +71,7 @@ def save_sprint(smm_dir: Path, data: dict) -> None:
     if path.is_symlink():
         raise OSError(f"Sprint path is a symlink: {path}")
 
-    errors = validate_sprint(data)
+    errors = validate_sprint(data, enforce_budget=enforce_budget)
     if errors:
         raise ValueError(f"Sprint validation failed: {'; '.join(errors)}")
 
@@ -100,7 +100,7 @@ def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
 
     sprint, story = _load_story(smm_dir, story_id)
     story["status"] = status
-    save_sprint(smm_dir, sprint)
+    save_sprint(smm_dir, sprint, enforce_budget=False)
 
 
 _IMMUTABLE_STORY_FIELDS = frozenset({"id"})

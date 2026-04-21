@@ -60,7 +60,7 @@ def load_plan(smm_dir: Path) -> dict | None:
     return data
 
 
-def save_plan(smm_dir: Path, data: dict) -> None:
+def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None:
     """Validate and atomically write the execution plan.
 
     Clears the NEEDS_EXECUTION_PLAN marker on success.
@@ -73,7 +73,7 @@ def save_plan(smm_dir: Path, data: dict) -> None:
     if path.is_symlink():
         raise OSError(f"Plan path is a symlink: {path}")
 
-    errors = validate_plan(data)
+    errors = validate_plan(data, enforce_budget=enforce_budget)
     if errors:
         raise ValueError(f"Plan validation failed: {'; '.join(errors)}")
 
@@ -110,7 +110,7 @@ def update_milestone_status(
                 milestone["delivered_sprint"] = delivered_sprint
             elif milestone.get("delivered_sprint"):
                 milestone["delivered_sprint"] = None
-            save_plan(smm_dir, plan)
+            save_plan(smm_dir, plan, enforce_budget=False)
             return
     raise ValueError(f"No milestone with number {milestone_num}")
 

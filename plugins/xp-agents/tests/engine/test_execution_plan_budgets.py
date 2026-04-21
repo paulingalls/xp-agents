@@ -195,5 +195,41 @@ class TestLoadPlanGrandfathersBudget(unittest.TestCase):
         self.assertIn("budget", str(ctx.exception).lower())
 
 
+class TestStatusUpdateGrandfathersBudget(unittest.TestCase):
+    """Status-only updates must not fail on pre-existing over-budget content."""
+
+    def setUp(self):
+        import json
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+        plan = _make_plan(
+            milestones=[_make_milestone(design_details="x" * 700, status="planned")]
+        )
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_update_milestone_status_succeeds_with_over_budget_content(self):
+        import execution_plan_store as store
+
+        store.update_milestone_status(
+            self.smm_dir, 1, "delivered", delivered_sprint="sprint-017"
+        )
+        plan = store.load_plan(self.smm_dir)
+        self.assertEqual(plan["milestones"][0]["status"], "delivered")
+        self.assertEqual(plan["milestones"][0]["delivered_sprint"], "sprint-017")
+
+    def test_save_plan_still_enforces_budget_for_new_content(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        with self.assertRaises(ValueError) as ctx:
+            store.save_plan(self.smm_dir, plan)
+        self.assertIn("budget", str(ctx.exception).lower())
+
+
 if __name__ == "__main__":
     unittest.main()
