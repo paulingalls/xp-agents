@@ -428,9 +428,8 @@ def generate_smm(root: Path) -> dict:
         _seed_entry(
             "wisdom",
             "Commit after every green test run — "
-            "the commit gate enforces the review cycle "
-            "(/simplify, /xp-quality-review, /xp-security-triage) "
-            "so frequent commits keep reviews small and fast",
+            "frequent commits keep review cycle "
+            "(/simplify, /xp-quality-review, /xp-security-triage) small",
         ),
         _seed_entry(
             "wisdom",
@@ -462,8 +461,7 @@ def generate_smm(root: Path) -> dict:
             "wisdom",
             "Test at boundaries — validate at system edges "
             "(external input, APIs, I/O), trust internal logic. "
-            "Don't write tests for trivially correct code — "
-            "test behavior, not implementation",
+            "Test behavior, not implementation",
         ),
     ]
 

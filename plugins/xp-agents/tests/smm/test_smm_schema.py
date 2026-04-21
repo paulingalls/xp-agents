@@ -505,5 +505,51 @@ class TestValidateEntry(unittest.TestCase):
         self.assertTrue(any("source_event_id" in err for err in errors))
 
 
+# ---------------------------------------------------------------------------
+# Per-pillar content maxLength
+# ---------------------------------------------------------------------------
+
+
+class TestPillarContentMaxLength(unittest.TestCase):
+    """PILLAR_CONTENT_MAX_LENGTH enforces per-pillar content budgets."""
+
+    def test_constant_exists_with_correct_values(self):
+        expected = {"intent": 200, "constraints": 150, "risks": 200, "wisdom": 150}
+        self.assertEqual(smm_schema.PILLAR_CONTENT_MAX_LENGTH, expected)
+
+    def test_validate_entry_rejects_over_budget_intent(self):
+        e = _entry(content="x" * 201, type="goal")
+        errors = smm_schema.validate_entry(e, "intent")
+        self.assertTrue(any("201" in err and "200" in err for err in errors))
+
+    def test_validate_entry_rejects_over_budget_constraints(self):
+        e = _entry(content="x" * 151, type="convention")
+        errors = smm_schema.validate_entry(e, "constraints")
+        self.assertTrue(any("151" in err and "150" in err for err in errors))
+
+    def test_validate_entry_rejects_over_budget_risks(self):
+        e = _entry(content="x" * 201, type="concern", severity="problem")
+        errors = smm_schema.validate_entry(e, "risks")
+        self.assertTrue(any("201" in err and "200" in err for err in errors))
+
+    def test_validate_entry_rejects_over_budget_wisdom(self):
+        e = _entry(content="x" * 151)
+        errors = smm_schema.validate_entry(e, "wisdom")
+        self.assertTrue(any("151" in err and "150" in err for err in errors))
+
+    def test_validate_entry_accepts_at_budget_limit(self):
+        e = _entry(content="x" * 200, type="goal")
+        self.assertEqual(smm_schema.validate_entry(e, "intent"), [])
+
+    def test_validate_entry_accepts_under_budget(self):
+        e = _entry(content="short", type="goal")
+        self.assertEqual(smm_schema.validate_entry(e, "intent"), [])
+
+    def test_validate_smm_accepts_over_budget_entry(self):
+        """validate_smm (read path) grandfathers existing over-budget entries."""
+        e = _entry(content="x" * 201, type="goal")
+        self.assertEqual(smm_schema.validate_smm(_smm(intent=[e])), [])
+
+
 if __name__ == "__main__":
     unittest.main()

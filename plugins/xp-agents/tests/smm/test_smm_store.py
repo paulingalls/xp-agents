@@ -239,6 +239,16 @@ class TestAddItem(_StoreTestCase):
         uid2 = smm_store.add_item(self.smm_dir, "wisdom", "Second")
         self.assertNotEqual(uid1, uid2)
 
+    def test_rejects_over_budget_content(self):
+        with self.assertRaises(ValueError) as ctx:
+            smm_store.add_item(self.smm_dir, "wisdom", "x" * 151)
+        self.assertIn("151", str(ctx.exception))
+        self.assertIn("150", str(ctx.exception))
+
+    def test_accepts_at_budget_content(self):
+        uid = smm_store.add_item(self.smm_dir, "wisdom", "x" * 150)
+        self.assertRegex(uid, r"^[0-9a-f]{12}$")
+
 
 # ---------------------------------------------------------------------------
 # update_item
@@ -294,6 +304,11 @@ class TestUpdateItem(_StoreTestCase):
     def test_validates_after_patch(self):
         with self.assertRaises(ValueError):
             smm_store.update_item(self.smm_dir, self.uid, type="concern")
+
+    def test_rejects_over_budget_content_update(self):
+        with self.assertRaises(ValueError) as ctx:
+            smm_store.update_item(self.smm_dir, self.uid, content="x" * 151)
+        self.assertIn("151", str(ctx.exception))
 
     def test_finds_across_pillars(self):
         uid_risk = smm_store.add_item(

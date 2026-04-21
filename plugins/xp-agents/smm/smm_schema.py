@@ -30,6 +30,18 @@ VALID_CONSTRAINT_TYPES = frozenset({"decision", "convention"})
 VALID_RISK_TYPES = frozenset({"concern", "assumption", "debt", "question"})
 VALID_RISK_SEVERITIES = frozenset({"problem", "uncertainty", "debt"})
 
+# Budget keeps curated entries tight so the injected SMM context stays
+# within prompt-token targets.  Intent/risks need more room for sprint
+# goals and structured concern descriptions; constraints/wisdom are
+# short aphorisms by design.
+PILLAR_CONTENT_MAX_LENGTH: dict[str, int] = {
+    PILLAR_INTENT: 200,
+    PILLAR_CONSTRAINTS: 150,
+    PILLAR_RISKS: 200,
+    PILLAR_WISDOM: 150,
+}
+assert set(PILLAR_CONTENT_MAX_LENGTH) == set(PILLARS)
+
 EVENT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
@@ -92,7 +104,13 @@ _PILLAR_SPECS: tuple[PillarSpec, ...] = (
 _PILLAR_SPEC_MAP: dict[str, PillarSpec] = {s.name: s for s in _PILLAR_SPECS}
 
 
-def _validate_base_entry(entry: object, pillar: str, idx: int) -> list[str]:
+def _validate_base_entry(
+    entry: object,
+    pillar: str,
+    idx: int,
+    *,
+    enforce_budget: bool = True,
+) -> list[str]:
     """Validate the common id/content/source/ts fields on every entry."""
     errors: list[str] = []
     if not isinstance(entry, dict):
@@ -109,6 +127,13 @@ def _validate_base_entry(entry: object, pillar: str, idx: int) -> list[str]:
 
     if not isinstance(entry["content"], str) or not entry["content"]:
         errors.append(f"{pillar}[{idx}] field 'content' must be a non-empty string")
+    elif enforce_budget and pillar in PILLAR_CONTENT_MAX_LENGTH:
+        max_len = PILLAR_CONTENT_MAX_LENGTH[pillar]
+        if len(entry["content"]) > max_len:
+            errors.append(
+                f"{pillar}[{idx}] content exceeds budget"
+                f" ({len(entry['content'])} > {max_len} chars)"
+            )
 
     if entry["source"] not in VALID_SOURCES:
         errors.append(
@@ -175,13 +200,19 @@ def validate_entry(entry: object, pillar: str) -> list[str]:
 
 
 def _validate_pillar(entries: object, spec: PillarSpec) -> list[str]:
-    """Validate entries in one pillar — base fields + pillar-specific rules."""
+    """Validate entries in one pillar — base fields + pillar-specific rules.
+
+    Budget enforcement is off here: validate_smm is the read-path
+    validator (used by load_smm/save_smm). Existing over-budget entries
+    are grandfathered; budgets are enforced at write time via
+    validate_entry (used by add_item/update_item).
+    """
     errors: list[str] = []
     if not isinstance(entries, list):
         return [f"Pillar {spec.name!r} must be an array"]
 
     for idx, entry in enumerate(entries):
-        base_errors = _validate_base_entry(entry, spec.name, idx)
+        base_errors = _validate_base_entry(entry, spec.name, idx, enforce_budget=False)
         errors.extend(base_errors)
         if base_errors:
             continue
