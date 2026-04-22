@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.22.0 — System context migrated to JSON
+
+Sprint-019 delivers Milestones 2 and 3 of the System Context JSON Migration plan (3/3 stories, 100% delivery). All 3 milestones now delivered — migration complete.
+
+- **system_context.json replaces system_context.md.** System context is now JSON with schema validation and CLI (`system_context_cli.py`), matching the execution_plan/sprint pattern. No migration script — kickoff triggers `/xp-system-context` which creates fresh `.json` when none exists.
+
+- **Shell preload migration.** All 4 preload scripts (`_preload_base.sh`, `check_session_needs.sh`, `xp-system-context/preload.sh`, `xp-plan/preload.sh`) check for `.json`. Shared `SYSTEM_CONTEXT_FILE` constant in `_preload_base.sh` eliminates hardcoded filename duplication.
+
+- **Python consumer migration.** `session_start.py` uses `system_context_store.load_system_context()` + `render_markdown()` for teammate context injection (was raw `.md` read). `sprint_state.py` delegates to `system_context_store.system_context_exists()`. `sprint_store.py` render updated.
+
+- **Agent output format.** `xp-system-analyzer` agent now emits JSON via `system_context_cli.py` (create/edit-field/add-module/add-decision) instead of piping markdown to `save_planning_doc.py`. Skill allowed-tools updated.
+
+- **Dead code removed.** `save_planning_doc.py` and `test_save_planning_doc.py` deleted. Tests relocated: `TestMarkerNames` → `test_markers.py`, `TestSprintStateFileChecks` → `test_sprint_state.py`.
+
+- **Tests.** 2572 total (down from 2581 at v2.21.1). 6 `save_planning_doc` tests removed, 9 tests relocated (2 marker + 7 sprint_state file checks). Duplicate `execution_plan_exists` tests deduplicated during relocation.
+
 ## v2.21.1 — Fix: status-only updates skip budget enforcement
 
 - **Budget enforcement fix.** `update_milestone_status` and `update_story_status` now pass `enforce_budget=False` to `save_plan`/`save_sprint`, matching the load-path grandfathering from v2.19.1. Status changes don't modify content fields, so budget validation on pre-existing over-budget milestones/stories was a false rejection. Same root cause as `d041e77` but the update-status path wasn't covered.
