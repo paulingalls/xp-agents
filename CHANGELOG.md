@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.23.1 — Thread resolutions through _handle_commit
+
+Sprint-021 delivers Milestone 3 of the Consolidation Refactor plan (2/2 stories, 100% delivery). All 3 milestones now complete — consolidation refactor finished.
+
+- **Single resolution computation in _handle_commit.** `_handle_commit` now calls `load_events_with_resolutions` once and threads the `resolutions` dict to all downstream consumers: `_resolve_lint_on_commit`, `find_probe_candidates`, and `open_issues_matching_commit`. Multi-file commits with lint concerns previously called `compute_resolutions` up to 3x — now exactly 1x.
+
+- **`_resolve_lint_on_commit` resolutions kwarg.** New optional `resolutions: dict | None = None` parameter threads pre-computed resolutions to `concerns.resolve_concerns`, which passes them to `_find_unresolved` to skip internal recomputation.
+
+- **`find_probe_candidates` resolutions kwarg.** New optional `resolutions` parameter threads to `commits.open_issues_matching_commit`, which already accepted it but was never called with it from the post-commit path.
+
+- **Test mixin extraction.** `_LintTmpDirMixin` extracted from `TestAutoResolveLintConcerns` setUp/tearDown, shared with new `TestResolutionsThreading` class. `shutil` import moved to module level.
+
+- **Tests.** 2603 total (up from 2581 at v2.23.0). New tests: `test_precomputed_resolutions_skip_recomputation` (unit), `test_multi_file_commit_computes_resolutions_once` (E2E).
+
 ## v2.23.0 — Consolidation refactor + concern auto-link support
 
 Sprint-020 delivers Milestones 1 and 2 of the Consolidation Refactor plan (6/6 stories, 100% delivery). Post-sprint: concern events now carry file paths for auto-link detection.
