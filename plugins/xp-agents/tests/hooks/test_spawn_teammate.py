@@ -235,5 +235,70 @@ class TestTeammateIdRemoved(unittest.TestCase):
         self.assertNotIn("TEAMMATE_ID", source)
 
 
+class TestTeammateNameEnvVar(unittest.TestCase):
+    """spawn_teammate sets XP_TEAMMATE_NAME env var for teammate detection."""
+
+    def test_env_includes_xp_teammate_name(self):
+        """XP_TEAMMATE_NAME is set to the prefixed name in subprocess env."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        captured_env = {}
+
+        def capture_run(cmd, *, cwd=None, env=None, stdin=None, check=False, **kw):
+            if env and "XP_TEAMMATE_NAME" in env:
+                captured_env.update(env)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch("subprocess.run", side_effect=capture_run),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "astro",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+            self.assertEqual(captured_env.get("XP_TEAMMATE_NAME"), "teammate-astro")
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+
+class TestNameAutoPrefix(unittest.TestCase):
+    """spawn_teammate auto-prefixes teammate- when missing."""
+
+    def test_name_without_prefix_gets_prefixed(self):
+        """--name astro becomes teammate-astro."""
+        import spawn_teammate
+
+        result = spawn_teammate.ensure_teammate_prefix("astro")
+        self.assertEqual(result, "teammate-astro")
+
+    def test_name_with_prefix_unchanged(self):
+        """--name teammate-step-1 stays teammate-step-1."""
+        import spawn_teammate
+
+        result = spawn_teammate.ensure_teammate_prefix("teammate-step-1")
+        self.assertEqual(result, "teammate-step-1")
+
+    def test_empty_name_gets_prefixed(self):
+        """Empty name gets teammate- prefix."""
+        import spawn_teammate
+
+        result = spawn_teammate.ensure_teammate_prefix("")
+        self.assertEqual(result, "teammate-")
+
+
 if __name__ == "__main__":
     unittest.main()

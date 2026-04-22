@@ -81,6 +81,13 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     worktree.write_story_assignment(smm_dir, name, story_id)
 
 
+def ensure_teammate_prefix(name: str) -> str:
+    """Auto-prefix teammate- if not already present."""
+    if name.startswith(identity._TEAMMATE_PREFIX):
+        return name
+    return identity._TEAMMATE_PREFIX + name
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
@@ -94,15 +101,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """Parse args and spawn the teammate."""
     args = parse_args(argv)
+    name = ensure_teammate_prefix(args.name)
 
     cwd = os.getcwd()
-    wt_path = create_worktree(args.name, cwd)
-    cmd = build_command(args.name)
+    wt_path = create_worktree(name, cwd)
+    cmd = build_command(name)
 
-    write_story_assignment(Path(args.smm_dir), args.name, args.story_id)
+    write_story_assignment(Path(args.smm_dir), name, args.story_id)
 
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir
+    env[identity._XP_TEAMMATE_ENV] = name
 
     try:
         with open(args.prompt_file) as prompt_stdin:
