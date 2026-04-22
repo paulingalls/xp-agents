@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -27,17 +28,44 @@ import worktree
 
 get_current_branch = identity.get_current_branch
 
+_DECISION_BLOCK = "block"
+
+
+def _iter_json_objects(lines: list[str]) -> Iterator[dict]:
+    """Yield parsed JSON objects from stream-json lines, skipping malformed."""
+    for line in lines:
+        try:
+            yield json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
 
 def parse_result_event(lines: list[str]) -> dict | None:
     """Find the type:result event in stream-json lines."""
-    for line in lines:
-        try:
-            data = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
+    for data in _iter_json_objects(lines):
         if data.get("type") == "result":
             return data
     return None
+
+
+def extract_diagnostics(lines: list[str]) -> str:
+    """Scan stream-json lines for block events, errors, and other diagnostics.
+
+    Returns a human-readable summary for debugging spawn failures.
+    """
+    if not lines:
+        return "No output received from claude -p"
+
+    blocks: list[str] = []
+    for data in _iter_json_objects(lines):
+        reason = data.get("reason", "")
+        if data.get("decision") == _DECISION_BLOCK and reason:
+            blocks.append(reason)
+
+    if blocks:
+        return "Blocked by hook: " + "; ".join(blocks)
+
+    return f"No result event in {len(lines)} stream-json lines (no block detected)"
 
 
 def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:
@@ -80,15 +108,12 @@ def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
 
 def process_stream(smm_dir: Path, teammate_id: str) -> None:
     """Read stdin stream-json, capture result, write report."""
-    lines = [line for line in sys.stdin]
-    lines = [line.rstrip("\n") for line in lines]
+    lines = [line.rstrip("\n") for line in sys.stdin]
     result = parse_result_event(lines)
 
     if result is None:
-        print(
-            "No result event found in stream-json output",
-            file=sys.stderr,
-        )
+        diag = extract_diagnostics(lines)
+        print(diag, file=sys.stderr)
         sys.exit(1)
 
     cost = result.get("total_cost_usd", 0.0)

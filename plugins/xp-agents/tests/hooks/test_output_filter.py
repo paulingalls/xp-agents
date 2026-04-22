@@ -181,6 +181,62 @@ class TestFormatSummary(unittest.TestCase):
         self.assertIn("0.32", summary)
 
 
+_BLOCK_LINE = json.dumps(
+    {
+        "type": "system",
+        "subtype": "hook_block",
+        "decision": "block",
+        "reason": "Session kickoff required. Run /xp-kickoff.",
+    }
+)
+
+
+class TestExtractDiagnostics(unittest.TestCase):
+    """extract_diagnostics surfaces block events and errors from stream-json."""
+
+    def test_finds_block_event(self):
+        """Extracts block reason from a hook_block system event."""
+        import teammate_output_filter
+
+        lines = [_SYSTEM_LINE, _BLOCK_LINE]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("kickoff", diags.lower())
+
+    def test_empty_stream_returns_generic_message(self):
+        """Returns a useful message when stream is empty."""
+        import teammate_output_filter
+
+        diags = teammate_output_filter.extract_diagnostics([])
+        self.assertIn("no output", diags.lower())
+
+    def test_no_block_returns_line_count(self):
+        """When no block found, reports number of lines processed."""
+        import teammate_output_filter
+
+        lines = [_SYSTEM_LINE, _ASSISTANT_LINE]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("2", diags)
+
+    def test_finds_decision_block_in_result(self):
+        """Extracts block reason from top-level decision:block JSON."""
+        import teammate_output_filter
+
+        block = json.dumps({"decision": "block", "reason": "Blocked by gate"})
+        diags = teammate_output_filter.extract_diagnostics([block])
+        self.assertIn("Blocked by gate", diags)
+
+    def test_multiple_blocks_joined(self):
+        """Multiple block events are joined with semicolons."""
+        import teammate_output_filter
+
+        b1 = json.dumps({"decision": "block", "reason": "Gate A"})
+        b2 = json.dumps({"decision": "block", "reason": "Gate B"})
+        diags = teammate_output_filter.extract_diagnostics([b1, b2])
+        self.assertIn("Gate A", diags)
+        self.assertIn("Gate B", diags)
+        self.assertIn(";", diags)
+
+
 class TestMainE2E(_HookTestCase):
     """E2E: pipe mock stream-json through main()."""
 
