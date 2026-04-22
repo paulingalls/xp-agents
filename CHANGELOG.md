@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.24.0 — Risk lifecycle: resolution, verification, and discoverability
+
+Risks in the SMM pillar now have a full resolution lifecycle — they can be targeted by `Resolves-Event:` trailers and `metadata.resolves`, and the housekeeper verifies remaining risks are still relevant.
+
+- **Resolved risk annotation.** `materialize.prepare_curation_data` cross-references risk item IDs and `source_event_id` against resolution targets. Resolved risks get `resolved: true` in the curation data (copies before mutating to avoid persisted SMM corruption).
+
+- **Risk ID rendering.** `smm_cli.py render` now shows risk entries as `- content [id]`, making IDs visible for `Resolves-Event:` targeting. Other pillars render without IDs. Uses `PILLAR_RISKS` constant.
+
+- **Housekeeper verification.** Agent prompt updated to remove `resolved: true` risks and verify remaining unresolved risks are still relevant by checking the codebase.
+
+- **PROCESS_GUIDE updated.** Resolution Discipline section documents that `metadata.resolves` targets risk pillar item IDs. "Linking Commits to Events" notes `Resolves-Event:` works for risk items.
+
+- **Tests.** 2609 total (up from 2603 at v2.23.1). 6 new tests: 4 for resolved risk annotation (by item ID, by source_event_id, unresolved negative, no-mutation guard), 2 for risk ID rendering (risk shows ID, constraint does not).
+
 ## v2.23.1 — Thread resolutions through _handle_commit
 
 Sprint-021 delivers Milestone 3 of the Consolidation Refactor plan (2/2 stories, 100% delivery). All 3 milestones now complete — consolidation refactor finished.
