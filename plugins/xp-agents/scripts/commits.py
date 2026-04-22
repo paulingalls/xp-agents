@@ -110,6 +110,7 @@ def open_issues_matching_commit(
     commit_files: list[str],
     cwd: str,
     events: list[dict] | None = None,
+    resolutions: dict | None = None,
 ) -> list[dict]:
     """Return open concerns and debts whose files intersect commit_files.
 
@@ -120,12 +121,16 @@ def open_issues_matching_commit(
 
     When ``events`` is provided, filters from the given list without reading
     disk — used by callers that already loaded events (e.g. resolves_probe).
+    When both ``events`` and ``resolutions`` are provided, skips computing
+    resolutions entirely — avoids redundant work when the caller already has
+    the resolution map (e.g. from ``load_events_with_resolutions``).
     """
     if not commit_files:
         return []
     if events is None:
-        events = _common.read_events_raw(smm_dir)
-    resolutions = resolution.compute_resolutions(events)
+        events, resolutions = _common.load_events_with_resolutions(smm_dir)
+    elif resolutions is None:
+        resolutions = resolution.compute_resolutions(events)
     resolved = resolutions["resolved_concern_ids"] | resolutions["resolved_debt_ids"]
 
     commit_set: set[str] = set()

@@ -514,6 +514,28 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], concern["id"])
 
+    def test_resolutions_kwarg_skips_recompute(self):
+        """Both events= and resolutions= provided skips compute_resolutions."""
+        from unittest.mock import patch
+
+        import resolution
+
+        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        _common.append_safe(self.smm_dir, concern)
+        events = _common.read_events_raw(self.smm_dir)
+        resolutions = resolution.compute_resolutions(events)
+        with patch("commits.resolution.compute_resolutions") as mock_compute:
+            result = commits.open_issues_matching_commit(
+                self.smm_dir,
+                ["scripts/auth.py"],
+                self.cwd,
+                events=events,
+                resolutions=resolutions,
+            )
+        mock_compute.assert_not_called()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], concern["id"])
+
 
 if __name__ == "__main__":
     unittest.main()
