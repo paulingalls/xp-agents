@@ -18,7 +18,6 @@ import _common
 import coordination
 import identity
 import markers
-import resolution
 from event_builder import generate_id
 from event_schema import CONTENT_BUDGETS
 
@@ -27,7 +26,7 @@ from event_schema import CONTENT_BUDGETS
 # ---------------------------------------------------------------------------
 
 
-def _compute_summary(events: list[dict]) -> dict:
+def _compute_summary(events: list[dict], resolutions: dict) -> dict:
     """Compute session summary from events."""
     event_count = len(events)
 
@@ -53,7 +52,6 @@ def _compute_summary(events: list[dict]) -> dict:
         e["id"] for e in events if e.get("type") == _common.CONCERN and e.get("id")
     }
 
-    resolutions = resolution.compute_resolutions(events)
     unresolved = sorted(
         (question_ids - resolutions["answered_question_ids"])
         | (concern_ids - resolutions["resolved_concern_ids"])
@@ -90,8 +88,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     # Read events and compute summary
-    events = _common.read_events_raw(smm_dir)
-    summary = _compute_summary(events)
+    events, resolutions = _common.load_events_with_resolutions(smm_dir)
+    summary = _compute_summary(events, resolutions)
 
     agent_id = identity.resolve_agent_id(input_data)
 
