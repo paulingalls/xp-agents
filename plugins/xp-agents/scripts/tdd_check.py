@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
-from _append_impl import compute_resolutions
+import resolution
 
 # Patterns that indicate test results in status/concern events
 TEST_PASS_RE = re.compile(
@@ -31,7 +31,7 @@ def find_last_test_signal(events: list[dict]) -> str | None:
 
     Skips resolved concerns — a resolved test failure should not block.
     """
-    resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
+    resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
 
     for e in reversed(events):
         content = e.get("content", "")

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 
 import _common
-from _append_impl import compute_resolutions
+import resolution
 
 
 def main() -> None:
@@ -23,7 +23,7 @@ def main() -> None:
         print("(no events)")
         return
 
-    resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
+    resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
 
     found = False
     for e in events:

@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import resolution
 from _append_impl import (
     LockTimeoutError,
     _validate_smm_dir,
@@ -42,7 +43,6 @@ from event_schema import (
     sessions_since_event,
 )
 from materialize import read_curation_watermark, write_curation_watermark
-from resolution import compute_resolutions
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -71,7 +71,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     conventions, unresolved concerns/debt, open customer_intents.
     Retrospectives kept via separate retention logic (last 2).
     """
-    resolutions = compute_resolutions(events)
+    resolutions = resolution.compute_resolutions(events)
     referenced: set[str] = set()
 
     # Build session_end timestamps for decision aging

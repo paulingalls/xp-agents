@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 import read_delta
+import resolution
 from conftest import _SMMTestCase, make_event
 
 
@@ -28,7 +29,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=["src/app.py"],
             metadata={"resolves": [goal["id"]]},
         )
-        result = _append_impl.compute_resolutions([goal, resolver])
+        result = resolution.compute_resolutions([goal, resolver])
         self.assertIn(goal["id"], result["goal_resolutions"])
         self.assertEqual(result["goal_resolutions"][goal["id"]], resolver)
         self.assertIn(goal["id"], result["resolved_goal_ids"])
@@ -41,7 +42,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=["test.py"],
             metadata={"resolves": [concern["id"]]},
         )
-        result = _append_impl.compute_resolutions([concern, resolver])
+        result = resolution.compute_resolutions([concern, resolver])
         self.assertIn(concern["id"], result["concern_resolutions"])
         self.assertIn(concern["id"], result["resolved_concern_ids"])
 
@@ -53,7 +54,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=["config.py"],
             metadata={"resolves": [debt["id"]]},
         )
-        result = _append_impl.compute_resolutions([debt, resolver])
+        result = resolution.compute_resolutions([debt, resolver])
         self.assertIn(debt["id"], result["debt_resolutions"])
         self.assertIn(debt["id"], result["resolved_debt_ids"])
 
@@ -66,7 +67,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=["test.py"],
             references=[concern["id"]],  # old pattern, no metadata.resolves
         )
-        result = _append_impl.compute_resolutions([concern, non_resolver])
+        result = resolution.compute_resolutions([concern, non_resolver])
         self.assertNotIn(concern["id"], result["concern_resolutions"])
 
     def test_multiple_resolves_in_one_event(self):
@@ -78,7 +79,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=["app.py"],
             metadata={"resolves": [goal["id"], concern["id"]]},
         )
-        result = _append_impl.compute_resolutions([goal, concern, resolver])
+        result = resolution.compute_resolutions([goal, concern, resolver])
         self.assertIn(goal["id"], result["goal_resolutions"])
         self.assertIn(concern["id"], result["concern_resolutions"])
 
@@ -86,7 +87,7 @@ class TestMetadataResolves(unittest.TestCase):
         """Question-answer linking via answer type + references is unchanged."""
         q = make_event("question", content="Which DB?")
         a = make_event("answer", content="Postgres", references=[q["id"]])
-        result = _append_impl.compute_resolutions([q, a])
+        result = resolution.compute_resolutions([q, a])
         self.assertIn(q["id"], result["question_answers"])
         self.assertIn(q["id"], result["answered_question_ids"])
 
@@ -99,7 +100,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={"resolves": [q["id"]]},
         )
-        result = _append_impl.compute_resolutions([q, resolver])
+        result = resolution.compute_resolutions([q, resolver])
         self.assertIn(q["id"], result["question_answers"])
         self.assertIn(q["id"], result["answered_question_ids"])
 
@@ -113,7 +114,7 @@ class TestMetadataResolves(unittest.TestCase):
             metadata={"resolves": [q["id"]]},
         )
         answer = make_event("answer", content="Postgres", references=[q["id"]])
-        result = _append_impl.compute_resolutions([q, resolver, answer])
+        result = resolution.compute_resolutions([q, resolver, answer])
         self.assertIn(q["id"], result["question_answers"])
         # Answer event should be the resolution, not the metadata resolver
         self.assertEqual(result["question_answers"][q["id"]], answer)
@@ -128,14 +129,14 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={"resolves": [q["id"]]},
         )
-        result = _append_impl.compute_resolutions([q, answer, resolver])
+        result = resolution.compute_resolutions([q, answer, resolver])
         self.assertEqual(result["question_answers"][q["id"]], answer)
 
     def test_unresolved_items_not_in_results(self):
         goal = make_event("goal", content="Ship v1.0")
         concern = make_event("concern", content="Missing tests")
         debt = make_event("debt", content="Tech debt", files=["old.py"])
-        result = _append_impl.compute_resolutions([goal, concern, debt])
+        result = resolution.compute_resolutions([goal, concern, debt])
         self.assertEqual(len(result["goal_resolutions"]), 0)
         self.assertEqual(len(result["concern_resolutions"]), 0)
         self.assertEqual(len(result["debt_resolutions"]), 0)
@@ -148,7 +149,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=["app.py"],
             metadata={"resolves": ["nonexistent-id"]},
         )
-        result = _append_impl.compute_resolutions([resolver])
+        result = resolution.compute_resolutions([resolver])
         self.assertEqual(len(result["goal_resolutions"]), 0)
         self.assertEqual(len(result["concern_resolutions"]), 0)
         self.assertEqual(len(result["debt_resolutions"]), 0)
@@ -170,7 +171,7 @@ class TestMetadataResolves(unittest.TestCase):
                 ]
             },
         )
-        result = _append_impl.compute_resolutions([concern, goal, debt, resolver])
+        result = resolution.compute_resolutions([concern, goal, debt, resolver])
         self.assertIn(concern["id"], result["concern_resolutions"])
         self.assertIn(goal["id"], result["goal_resolutions"])
         self.assertIn(debt["id"], result["debt_resolutions"])
@@ -183,13 +184,13 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={"resolves": [assumption["id"]]},
         )
-        result = _append_impl.compute_resolutions([assumption, resolver])
+        result = resolution.compute_resolutions([assumption, resolver])
         self.assertIn(assumption["id"], result["assumption_resolutions"])
         self.assertIn(assumption["id"], result["resolved_assumption_ids"])
 
     def test_unresolved_assumption_not_in_results(self):
         assumption = make_event("assumption", content="API returns JSON")
-        result = _append_impl.compute_resolutions([assumption])
+        result = resolution.compute_resolutions([assumption])
         self.assertEqual(len(result["assumption_resolutions"]), 0)
         self.assertEqual(len(result["resolved_assumption_ids"]), 0)
 
@@ -206,7 +207,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={"resolves": [sprint_evt["id"]], "disposition": "dropped"},
         )
-        result = _append_impl.compute_resolutions([sprint_evt, dropper])
+        result = resolution.compute_resolutions([sprint_evt, dropper])
         self.assertIn(sprint_evt["id"], result["other_resolutions"])
         self.assertIn(sprint_evt["id"], result["resolved_other_ids"])
 
@@ -223,7 +224,7 @@ class TestMetadataResolves(unittest.TestCase):
             topic="retro-try-fix",
             metadata={"resolves": [status_evt["id"]]},
         )
-        result = _append_impl.compute_resolutions([status_evt, resolver])
+        result = resolution.compute_resolutions([status_evt, resolver])
         self.assertIn(status_evt["id"], result["other_resolutions"])
 
     def test_resolve_prefix_ambiguous_skipped(self):
@@ -240,7 +241,7 @@ class TestMetadataResolves(unittest.TestCase):
             working_on=[],
             metadata={"resolves": [shared]},
         )
-        result = _append_impl.compute_resolutions([c1, c2, resolver])
+        result = resolution.compute_resolutions([c1, c2, resolver])
         # Ambiguous — neither should be resolved
         self.assertEqual(len(result["concern_resolutions"]), 0)
 
@@ -259,7 +260,7 @@ class TestCascadeResolution(unittest.TestCase):
             references=[q["id"]],
         )
         answer = make_event("answer", content="Postgres", references=[q["id"]])
-        result = _append_impl.compute_resolutions([q, flag, answer])
+        result = resolution.compute_resolutions([q, flag, answer])
         self.assertIn(flag["id"], result["resolved_concern_ids"])
         self.assertEqual(result["concern_resolutions"][flag["id"]], answer)
 
@@ -276,7 +277,7 @@ class TestCascadeResolution(unittest.TestCase):
             working_on=[],
             metadata={"resolves": [decision["id"]]},
         )
-        result = _append_impl.compute_resolutions([decision, flag, resolver])
+        result = resolution.compute_resolutions([decision, flag, resolver])
         self.assertIn(flag["id"], result["resolved_concern_ids"])
 
     def test_no_cascade_when_target_unresolved(self):
@@ -285,7 +286,7 @@ class TestCascadeResolution(unittest.TestCase):
             content="References an event that never resolves",
             references=["deadbeef0000"],
         )
-        result = _append_impl.compute_resolutions([flag])
+        result = resolution.compute_resolutions([flag])
         self.assertNotIn(flag["id"], result["resolved_concern_ids"])
 
     def test_cascade_handles_multiple_references_or_semantics(self):
@@ -298,7 +299,7 @@ class TestCascadeResolution(unittest.TestCase):
         )
         # Only A resolves; flag still closes (ANY referenced id resolving is enough).
         answer_a = make_event("answer", content="A answered", references=[a["id"]])
-        result = _append_impl.compute_resolutions([a, b, flag, answer_a])
+        result = resolution.compute_resolutions([a, b, flag, answer_a])
         self.assertIn(flag["id"], result["resolved_concern_ids"])
 
     def test_cascade_is_single_level_only(self):
@@ -306,7 +307,7 @@ class TestCascadeResolution(unittest.TestCase):
         c_inner = make_event("concern", content="inner", references=[q["id"]])
         c_outer = make_event("concern", content="outer", references=[c_inner["id"]])
         answer = make_event("answer", content="answered", references=[q["id"]])
-        result = _append_impl.compute_resolutions([q, c_inner, c_outer, answer])
+        result = resolution.compute_resolutions([q, c_inner, c_outer, answer])
         # Inner cascades closed (references a resolved question).
         self.assertIn(c_inner["id"], result["resolved_concern_ids"])
         # Outer does NOT cascade closed — cascade is one-level by design.
@@ -315,7 +316,7 @@ class TestCascadeResolution(unittest.TestCase):
     def test_cascade_self_reference_is_no_op(self):
         flag = make_event("concern", content="self-ref")
         flag["references"] = [flag["id"]]
-        result = _append_impl.compute_resolutions([flag])
+        result = resolution.compute_resolutions([flag])
         self.assertNotIn(flag["id"], result["resolved_concern_ids"])
 
     def test_cascade_respects_event_type_buckets(self):
@@ -323,7 +324,7 @@ class TestCascadeResolution(unittest.TestCase):
         q = make_event("question", content="root")
         g = make_event("goal", content="dependent goal", references=[q["id"]])
         answer = make_event("answer", content="resolved", references=[q["id"]])
-        result = _append_impl.compute_resolutions([q, g, answer])
+        result = resolution.compute_resolutions([q, g, answer])
         self.assertIn(g["id"], result["resolved_goal_ids"])
         self.assertNotIn(g["id"], result["resolved_concern_ids"])
 

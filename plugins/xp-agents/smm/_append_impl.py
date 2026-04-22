@@ -102,9 +102,6 @@ from event_schema import (  # noqa: E402
     validate_event,
 )
 
-# Resolution tracking: see resolution.py
-from resolution import compute_resolutions  # noqa: F401, E402
-
 # ---------------------------------------------------------------------------
 # Shared JSONL parsing
 # ---------------------------------------------------------------------------

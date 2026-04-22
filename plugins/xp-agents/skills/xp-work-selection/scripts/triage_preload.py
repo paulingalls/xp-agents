@@ -14,7 +14,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
 import event_schema  # noqa: E402
 import materialize  # noqa: E402
-from resolution import compute_resolutions  # noqa: E402
+import resolution  # noqa: E402
 
 
 def _collect_session_end_timestamps(events: list[dict]) -> list[str]:
@@ -98,7 +98,7 @@ def run(smm_dir: Path) -> str:
     if not events:
         return ""
 
-    resolutions = compute_resolutions(events)
+    resolutions = resolution.compute_resolutions(events)
 
     all_resolved: set[str] = set()
     for key in resolutions:

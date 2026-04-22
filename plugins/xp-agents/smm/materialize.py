@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import event_schema
+import resolution
 import smm_store
 from _append_impl import (
     parse_jsonl,
@@ -22,7 +23,6 @@ from _append_impl import (
     read_with_lock as _read_with_lock,
 )
 from event_schema import METADATA_KEY_RESOLVES, sessions_since_event
-from resolution import compute_resolutions
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     # --- new_since_last_curation (events after watermark) ---
 
     new_events = events[wm_count:]
-    new_resolutions = compute_resolutions(new_events)
+    new_resolutions = resolution.compute_resolutions(new_events)
     resolved_concern_ids = new_resolutions.get("resolved_concern_ids", set())
     new_since = _bucket_new_events(new_events, resolved_concern_ids)
 
