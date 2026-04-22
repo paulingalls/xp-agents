@@ -42,13 +42,13 @@ Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `ex
 
 ## CLI Tools
 
-All CLIs require `--smm-dir DIR`. Run each with `--help` for subcommands and examples.
+All CLIs require `--smm-dir DIR`. Run `--help` for subcommands.
 
-- **sprint_cli.py** — sprint operations (create, add-story, edit-story, update-story, assign-story, list-stories, render, velocity)
-- **plan_cli.py** — execution plan (create, update-status, edit-milestone, render)
-- **smm_cli.py** — shared mental model (add-item, update-item, remove-item, get-event, render)
+- **sprint_cli.py** — sprint operations
+- **plan_cli.py** — execution plan
+- **smm_cli.py** — shared mental model
 - **retro_cli.py** — retrospective rendering
-- **append.sh** — event log writes (see budgets and examples via `--help`)
+- **append.sh** — event log writes
 
 ## Recording Events
 
@@ -96,6 +96,14 @@ append.sh --smm-dir DIR --type status --agent main --content "..." --working-on 
 append.sh --smm-dir DIR --type decision --agent main --content "..." --topic "..."
 append.sh --smm-dir DIR --type debt --agent main --content "..." --files '[...]'
 append.sh --smm-dir DIR --type concern --agent main --content "..." --severity medium
+```
+
+### Refactor Mode
+
+Declare before behavior-preserving changes. TDD metric excludes file writes until the next commit.
+
+```
+append.sh --smm-dir DIR --type assumption --agent main --content "refactor mode: <description>"
 ```
 
 Read Intent and Risks before every significant action. Check Constraints when making architectural choices.
