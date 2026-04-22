@@ -28,11 +28,11 @@ Beyond `events.jsonl`, three persistent files live in the SMM directory:
 
 | File | Created By | Updated By | Purpose |
 |---|---|---|---|
-| `system_context.md` | `/xp-system-context` | `/xp-system-context` (re-run after architecture changes) | Product/system description — architecture, components, constraints |
+| `system_context.json` | `/xp-system-context` | `/xp-system-context` (re-run after architecture changes) | Product/system description — architecture, components, constraints |
 | `execution_plan.json` | `/xp-plan` | `/xp-sprint-review` (milestone delivery markers) | Ordered milestones with change zones, impact zones, design details |
 | `sprint.json` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint stories with context gradient — file domains, interface contracts |
 
-Execution plan and sprint are JSON with schema validation and CLI tools (`plan_cli.py`, `sprint_cli.py`). System context is markdown. System context and execution plan are stable across sprints; sprint.json is ephemeral (one active at a time).
+All three are JSON with schema validation and CLI tools (`system_context_cli.py`, `plan_cli.py`, `sprint_cli.py`). System context and execution plan are stable across sprints; sprint.json is ephemeral (one active at a time).
 
 ## Event Types
 

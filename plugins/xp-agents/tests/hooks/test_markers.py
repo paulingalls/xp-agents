@@ -513,5 +513,19 @@ class TestCleanupAgentMarkers(_HookTestCase):
         )
 
 
+class TestMarkerNameConstants(unittest.TestCase):
+    """Tests for marker_names.py constant values."""
+
+    def test_needs_execution_plan_exists(self):
+        import marker_names
+
+        self.assertEqual(marker_names.NEEDS_EXECUTION_PLAN, ".needs-execution-plan")
+
+    def test_needs_system_context_exists(self):
+        import marker_names
+
+        self.assertEqual(marker_names.NEEDS_SYSTEM_CONTEXT, ".needs-system-context")
+
+
 if __name__ == "__main__":
     unittest.main()

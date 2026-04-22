@@ -124,6 +124,13 @@ class TestExecutionPlanExists(_HookTestCase):
         link.symlink_to(target)
         self.assertFalse(sprint_state.execution_plan_exists(self.smm_dir))
 
+    def test_md_not_detected(self):
+        """Old .md format is not detected by execution_plan_exists."""
+        import sprint_state
+
+        (self.smm_dir / "execution_plan.md").write_text("# Plan")
+        self.assertFalse(sprint_state.execution_plan_exists(self.smm_dir))
+
 
 class TestHasReadyStories(_HookTestCase):
     """Test has_ready_stories — delegates to sprint_store."""
@@ -184,6 +191,29 @@ class TestIsSprintComplete(_HookTestCase):
         import sprint_state
 
         self.assertTrue(sprint_state.is_sprint_complete(self.smm_dir))
+
+
+class TestSystemContextExists(_HookTestCase):
+    """Test system_context_exists — checks system_context.json in SMM dir."""
+
+    def test_exists(self):
+        import sprint_state
+
+        (self.smm_dir / "system_context.json").write_text("{}")
+        self.assertTrue(sprint_state.system_context_exists(self.smm_dir))
+
+    def test_missing(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.system_context_exists(self.smm_dir))
+
+    def test_symlink(self):
+        import sprint_state
+
+        real = self.smm_dir / "real.json"
+        real.write_text("{}")
+        (self.smm_dir / "system_context.json").symlink_to(real)
+        self.assertFalse(sprint_state.system_context_exists(self.smm_dir))
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ allowed-tools:
 
 # Execution Plan
 
-The preload above shows the current state: milestone counts + `EXECUTION_PLAN=<path>` (update mode), or "No execution plan found" (create mode). It also reports whether system_context.md exists.
+The preload above shows the current state: milestone counts + `EXECUTION_PLAN=<path>` (update mode), or "No execution plan found" (create mode). It also reports whether system_context.json exists.
 
 ## Mode Detection
 

@@ -209,7 +209,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── shared_mental_model.json  ← curated four-pillar view, written by housekeeping
 ├── execution_plan.json       ← ordered milestones with change zones and design context
 ├── sprint.json               ← current sprint stories with file domains and acceptance criteria
-├── system_context.md         ← autonomous codebase analysis (architecture, constraints)
+├── system_context.json       ← autonomous codebase analysis (architecture, constraints)
 ├── .curation-watermark       ← last-curated event position
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .plan-awaiting-review     ← plan review gate marker

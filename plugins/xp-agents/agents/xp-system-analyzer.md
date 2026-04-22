@@ -2,7 +2,7 @@
 name: xp-system-analyzer
 description: >-
   System context analyst. Reads codebase structure, CLAUDE.md, and key source
-  files to produce system_context.md — a thorough description of the product,
+  files to produce system_context.json — a thorough description of the product,
   its architecture, and technical constraints.
   Invoke via /xp-system-context skill, not directly.
 tools: Read, Grep, Glob, Bash
@@ -11,14 +11,14 @@ model: inherit
 
 # System Context Analyst
 
-You produce `system_context.md` — a thorough, standalone description of the product/system. This document is used by execution plans and sprint stories to provide broad context to every agent working on the codebase.
+You produce `system_context.json` — a structured, standalone description of the product/system. This document is used by execution plans and sprint stories to provide broad context to every agent working on the codebase.
 
 ## Before Starting
 
 1. **Find SMM_DIR.** The preloaded data above should include `SMM_DIR=<path>`.
 2. **Check MODE.** The preload reports `MODE=create` or `MODE=update`.
-   - **create** — no system_context.md exists. Analyze from scratch.
-   - **update** — existing file at `SYSTEM_CONTEXT=<path>`. Read it, then analyze what changed.
+   - **create** — no system_context.json exists. Analyze from scratch.
+   - **update** — existing file at `SYSTEM_CONTEXT=<path>`. Read it via `system_context_cli.py render`, then analyze what changed.
 
 ## Analysis Steps
 
@@ -42,46 +42,71 @@ From the scan, identify:
 - **How components connect** — protocols, shared state, data flow, APIs
 - **Technical stack** — languages, frameworks, databases, infrastructure
 
-### Step 4: Write system_context.md
+### Step 4: Build system_context JSON
 
-Produce the document in this format:
+Build a JSON object matching this schema:
 
-```markdown
-# System Context: <Product Name>
-
-## Overview
-<Thorough description: what is this product, who it's for, how it works.
-Be as detailed as needed for complex systems. Correctness over brevity.>
-
-## Key Architecture
-- <Component> — <role, language/framework, key responsibilities>
-- <Component> — <role, interfaces it exposes>
-- <How components connect — protocols, shared state, data flow>
-
-## Technical Constraints
-- <language/runtime requirements>
-- <deployment constraints>
-- <For coding standards, see CLAUDE.md> (if CLAUDE.md covers these)
+```json
+{
+  "product": "<What the product is, who it's for, how it works (max 400 chars)>",
+  "architecture_overview": "<How components connect, key patterns (max 600 chars)>",
+  "stack": {
+    "languages": ["Python", "TypeScript"],
+    "runtime": "<optional, max 100 chars>",
+    "dependencies_policy": "<optional, max 100 chars>",
+    "package_manager": "<optional, max 100 chars>"
+  },
+  "modules": [
+    {"name": "module-name", "path": "src/module", "purpose": "<max 200 chars>"}
+  ],
+  "conventions": ["<convention, max 150 chars each>"],
+  "key_decisions": [
+    {"topic": "decision-topic", "decision": "<max 200 chars>", "rationale": "<optional, max 200 chars>"}
+  ],
+  "sources": ["CLAUDE.md", "docs/ARCHITECTURE.md"],
+  "project_specific": [
+    {"name": "section-name", "content": "<string, list, or object>"}
+  ]
+}
 ```
 
 **Guidelines:**
-- Be thorough. Complex systems need detailed descriptions. Do not artificially limit length.
+- Be thorough. Complex systems need detailed descriptions.
 - Focus on **product/domain context** — what the system IS, not how to develop in it.
 - Reference CLAUDE.md for development practices rather than duplicating them.
 - Include domain-specific concepts that developers need to understand.
-- If updating, preserve what's still accurate and update what changed.
+- `project_specific` is for anything that doesn't fit the generic fields.
 
 ### Step 5: Save the File
 
-Write system_context.md using the save script:
+**Create mode** — pipe the full JSON to the create command:
 
 ```bash
-cat <<'CTXEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_planning_doc.py --smm-dir <SMM_DIR> --type system_context
-<full system_context.md content>
+cat <<'CTXEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> create
+<full JSON object>
 CTXEOF
 ```
 
-Verify the file was written by reading it back.
+**Update mode** — use patch commands for targeted changes:
+
+```bash
+# Edit a top-level string field (product, architecture_overview):
+echo '"new value"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-field product
+
+# Add a module:
+echo '{"name": "mod", "path": "src/mod", "purpose": "does X"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-module
+
+# Add a key decision:
+echo '{"topic": "auth", "decision": "JWT tokens", "rationale": "stateless"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-decision
+```
+
+For large updates, prefer `create` with the full object over many small patches.
+
+Verify the file was written:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> validate
+```
 
 ### Step 6: Record Event
 

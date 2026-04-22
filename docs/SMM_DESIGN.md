@@ -111,7 +111,7 @@ Sprint and planning state live in separate files, not in the curated SMM pillars
 
 | File | Created By | Lifecycle | Purpose |
 |---|---|---|---|
-| `system_context.md` | `/xp-system-context` | Persistent, updated as system evolves | Product overview, architecture, technical constraints |
+| `system_context.json` | `/xp-system-context` | Persistent, updated as system evolves | Product overview, architecture, technical constraints |
 | `execution_plan.json` | `/xp-plan` | Persistent across sprints, archived when all milestones delivered | Milestones, change zones, impact zones, design details |
 | `sprint.json` | `/xp-sprint-start` | One active at a time | Stories, sizes, statuses, acceptance criteria |
 

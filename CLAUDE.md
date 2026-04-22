@@ -85,7 +85,7 @@ Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), 
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
 - Python 3.10+, stdlib only, zero dependencies
-- Four-file architecture: events.jsonl + system_context.md + execution_plan.json + sprint.json (execution plan is JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
+- Four-file architecture: events.jsonl + system_context.json + execution_plan.json + sprint.json (all JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
 - Teammates detected by `is_worktree_teammate()` — cwd-based detection via `/.claude/worktrees/teammate-` prefix
