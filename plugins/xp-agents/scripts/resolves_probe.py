@@ -32,10 +32,11 @@ def find_probe_candidates(
     resolves: list[str],
     cwd: str,
     events: list[dict] | None = None,
+    resolutions: dict | None = None,
 ) -> list[dict]:
     """Open concerns/debts with file overlap, minus resolved, capped."""
     open_matches = commits.open_issues_matching_commit(
-        smm_dir, commit_files, cwd, events=events
+        smm_dir, commit_files, cwd, events=events, resolutions=resolutions
     )
     return [c for c in open_matches if c["id"] not in resolves][:PROBE_CANDIDATE_LIMIT]
 

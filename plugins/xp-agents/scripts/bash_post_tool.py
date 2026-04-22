@@ -254,10 +254,10 @@ def _handle_commit(
         )
     ]
 
-    events = _common.read_events_raw(smm_dir)
+    events, resolutions = _common.load_events_with_resolutions(smm_dir)
 
     candidates = resolves_probe.find_probe_candidates(
-        smm_dir, committed_files, resolves, cwd, events=events
+        smm_dir, committed_files, resolves, cwd, events=events, resolutions=resolutions
     )
     marker_data = markers.marker_consume(smm_dir, markers.REVIEW_FINGERPRINT, agent_id)
 
@@ -296,7 +296,9 @@ def _handle_commit(
 
     _common.bulk_append_safe(smm_dir, pending)
 
-    _resolve_lint_on_commit(smm_dir, cwd, agent_id, committed_files, events=events)
+    _resolve_lint_on_commit(
+        smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
+    )
     security.consume_security_triaged(smm_dir, agent_id)
 
     if commit_hash:

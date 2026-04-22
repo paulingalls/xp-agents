@@ -441,5 +441,54 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
             self.assertNotIn("quality review", result.lower())
 
 
+class TestResolutionComputationCount(_HookTestCase):
+    """Verify _handle_commit computes resolutions exactly once."""
+
+    def test_multi_file_commit_computes_resolutions_once(self):
+        """Multiple committed files should not re-compute resolutions per file."""
+        import resolution
+        import worktree
+
+        cwd = str(self.smm_dir)
+        norm_a = worktree.normalize_path("scripts/auth.py", cwd)
+        norm_b = worktree.normalize_path("scripts/routes.py", cwd)
+
+        c1 = make_event(
+            "concern",
+            content=f"Lint errors in {norm_a}:\nE302",
+            severity="medium",
+        )
+        c2 = make_event(
+            "concern",
+            content=f"Lint errors in {norm_b}:\nE303",
+            severity="medium",
+        )
+        self._write_events([c1, c2])
+
+        with (
+            patch(
+                "commits.get_committed_files",
+                return_value=["scripts/auth.py", "scripts/routes.py"],
+            ),
+            patch("commits.get_commit_message_body", return_value="Fix lint"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch("lint_check.detect_linter_config", return_value=("ruff", None)),
+            patch("lint_check.run_linter", return_value=None),
+            patch(
+                "resolution.compute_resolutions",
+                wraps=resolution.compute_resolutions,
+            ) as mock_compute,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix lint'",
+                    stdout="[main abc123] Fix lint\n 2 files changed",
+                    cwd=cwd,
+                ),
+                smm_dir=self.smm_dir,
+            )
+            self.assertEqual(mock_compute.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
