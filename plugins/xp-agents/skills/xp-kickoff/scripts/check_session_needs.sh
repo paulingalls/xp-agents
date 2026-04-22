@@ -20,10 +20,9 @@ if [ -f "$RETRO_INPUT" ]; then
 fi
 
 # 2. Check for system context
-SYSTEM_CONTEXT="${SMM_DIR}/system_context.md"
-if [ ! -f "$SYSTEM_CONTEXT" ] || [ -L "$SYSTEM_CONTEXT" ]; then
+if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo "### NEEDS_SYSTEM_CONTEXT"
-    echo "No system_context.md found. Run /xp-system-context to create one."
+    echo "No system_context.json found. Run /xp-system-context to create one."
     echo ""
 fi
 

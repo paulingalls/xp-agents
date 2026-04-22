@@ -143,7 +143,7 @@ class TestExecutionPlanPreload(_IntegrationTestCase):
         self.assertIn("NEEDS_SYSTEM_CONTEXT=true", result.stdout)
 
     def test_reports_system_context_present(self):
-        (self.smm_dir / "system_context.md").write_text("# Context")
+        (self.smm_dir / "system_context.json").write_text("{}")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SYSTEM_CONTEXT=", result.stdout)

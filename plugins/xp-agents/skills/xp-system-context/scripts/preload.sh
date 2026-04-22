@@ -6,12 +6,10 @@ source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
 
-CTX_FILE="${SMM_DIR}/system_context.md"
-
 # Real file = update; symlink or missing = create
-if [ -f "$CTX_FILE" ] && [ ! -L "$CTX_FILE" ]; then
+if [ -f "$SYSTEM_CONTEXT_FILE" ] && [ ! -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo "MODE=update"
-    echo "SYSTEM_CONTEXT=${CTX_FILE}"
+    echo "SYSTEM_CONTEXT=${SYSTEM_CONTEXT_FILE}"
 else
     echo "MODE=create"
 fi

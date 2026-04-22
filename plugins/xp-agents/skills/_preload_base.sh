@@ -187,9 +187,12 @@ smm_section() {
     python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" section "$name" 2>/dev/null
 }
 
-# Output SYSTEM_CONTEXT=<path> if system_context.md exists (not a symlink).
+# Canonical filename — single source of truth for shell scripts.
+SYSTEM_CONTEXT_FILE="${SMM_DIR}/system_context.json"
+
+# Output SYSTEM_CONTEXT=<path> if system_context.json exists (not a symlink).
 check_system_context() {
-    local ctx="${SMM_DIR}/system_context.md"
+    local ctx="${SYSTEM_CONTEXT_FILE}"
     if [ -f "$ctx" ] && [ ! -L "$ctx" ]; then
         echo ""
         echo "SYSTEM_CONTEXT=${ctx}"

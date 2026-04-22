@@ -20,10 +20,9 @@ else
 fi
 
 # Check system context availability — xp-plan needs the NEEDS flag
-CTX_FILE="${SMM_DIR}/system_context.md"
-if [ -f "$CTX_FILE" ] && [ ! -L "$CTX_FILE" ]; then
+if [ -f "$SYSTEM_CONTEXT_FILE" ] && [ ! -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo ""
-    echo "SYSTEM_CONTEXT=${CTX_FILE}"
+    echo "SYSTEM_CONTEXT=${SYSTEM_CONTEXT_FILE}"
 else
     echo ""
     echo "NEEDS_SYSTEM_CONTEXT=true"

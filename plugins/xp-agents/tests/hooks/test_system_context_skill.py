@@ -67,23 +67,23 @@ class TestSystemContextPreload(_IntegrationTestCase):
         self.assertIn("SMM_DIR=", result.stdout)
 
     def test_create_mode_when_missing(self):
-        """Reports create mode when system_context.md doesn't exist."""
+        """Reports create mode when system_context.json doesn't exist."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("MODE=create", result.stdout)
 
     def test_update_mode_when_exists(self):
-        """Reports update mode when system_context.md exists."""
-        (self.smm_dir / "system_context.md").write_text("# System Context: Test")
+        """Reports update mode when system_context.json exists."""
+        (self.smm_dir / "system_context.json").write_text("{}")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("MODE=update", result.stdout)
 
     def test_symlink_treated_as_missing(self):
-        """Symlink system_context.md is treated as missing (create mode)."""
-        real = self.smm_dir / "real.md"
-        real.write_text("real")
-        (self.smm_dir / "system_context.md").symlink_to(real)
+        """Symlink system_context.json is treated as missing (create mode)."""
+        real = self.smm_dir / "real.json"
+        real.write_text("{}")
+        (self.smm_dir / "system_context.json").symlink_to(real)
 
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -91,8 +91,8 @@ class TestSystemContextPreload(_IntegrationTestCase):
 
     def test_existing_path_output(self):
         """When file exists, preload outputs its path."""
-        ctx = self.smm_dir / "system_context.md"
-        ctx.write_text("# System Context: Test")
+        ctx = self.smm_dir / "system_context.json"
+        ctx.write_text("{}")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SYSTEM_CONTEXT=", result.stdout)
