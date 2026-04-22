@@ -113,21 +113,21 @@ def _build_retro_input(
     events: list[dict],
     start_idx: int,
     retro_history: list[dict],
+    resolutions: dict | None = None,
 ) -> dict:
     """Build the .retro-input.json structure."""
     import resolution
     from retro_flags import evaluate_flags
 
+    if resolutions is None:
+        resolutions = resolution.compute_resolutions(events)
+
     unanalyzed = events[start_idx:]
     type_counts = dict(Counter(e.get("type", "unknown") for e in unanalyzed))
     session_stats = _compute_session_stats(unanalyzed)
-    resolutions = resolution.compute_resolutions(unanalyzed)
     digest = _build_retro_digest(events, start_idx, resolutions)
 
-    # Try-status needs full-scope resolutions: drop/adopt decisions
-    # reference event IDs from prior sessions outside the unanalyzed window
-    all_resolutions = resolution.compute_resolutions(events)
-    annotate_try_status(retro_history, build_resolutions_map(all_resolutions))
+    annotate_try_status(retro_history, build_resolutions_map(resolutions))
 
     decision_topics: list[str] = [
         topic
@@ -235,7 +235,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    events = _common.read_events_raw(smm_dir)
+    events, resolutions = _common.load_events_with_resolutions(smm_dir)
 
     sprint_id = needs_sprint_retro(events)
 
@@ -246,7 +246,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     retro_history = gather_retro_history(smm_dir)
-    retro_input = _build_retro_input(events, start_idx, retro_history)
+    retro_input = _build_retro_input(events, start_idx, retro_history, resolutions)
 
     if sprint_id is not None:
         sizing = sizing_metrics.compute_sizing_analysis(smm_dir, events)
