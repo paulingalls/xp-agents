@@ -200,5 +200,49 @@ class TestSmmCliHelp(_SMMTestCase):
         self.assertIn("Examples:", result.stdout)
 
 
+class TestRiskIdRendering(_SMMTestCase):
+    """Risk entries should render with [id] suffix for discoverability."""
+
+    def test_risk_entries_show_id(self):
+        """Risk items render as '- content [id]'."""
+        import smm_store
+        from smm_schema import empty_smm
+
+        data = empty_smm()
+        data["risks"] = [
+            {
+                "id": "aaa111bbb222",
+                "content": "Quality gate broken",
+                "source": "curated",
+                "ts": "2026-01-01T00:00:00+00:00",
+                "type": "concern",
+                "severity": "problem",
+            }
+        ]
+        smm_store.save_smm(self.smm_dir, data)
+        result = run_cli(_CLI, ["dump"], self.smm_dir)
+        self.assertIn("Quality gate broken [aaa111bbb222]", result.stdout)
+
+    def test_constraint_entries_no_id(self):
+        """Non-risk pillar entries should NOT show IDs."""
+        import smm_store
+        from smm_schema import empty_smm
+
+        data = empty_smm()
+        data["constraints"] = [
+            {
+                "id": "ccc333ddd444",
+                "content": "Use Postgres",
+                "source": "seed",
+                "ts": "2026-01-01T00:00:00+00:00",
+                "type": "decision",
+            }
+        ]
+        smm_store.save_smm(self.smm_dir, data)
+        result = run_cli(_CLI, ["dump"], self.smm_dir)
+        self.assertIn("- Use Postgres", result.stdout)
+        self.assertNotIn("ccc333ddd444", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

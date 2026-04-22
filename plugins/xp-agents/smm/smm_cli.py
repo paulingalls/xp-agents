@@ -20,7 +20,7 @@ import marker_names
 import markers
 import smm_store
 from identity import resolve_agent_id_from_cwd
-from smm_schema import PILLARS
+from smm_schema import PILLAR_RISKS, PILLARS
 
 _PILLAR_TITLES = {
     "intent": "Intent",
@@ -30,17 +30,21 @@ _PILLAR_TITLES = {
 }
 
 
-def _render_entry(entry: dict) -> str:
+def _render_entry(entry: dict, show_id: bool = False) -> str:
     """Render a single pillar entry as a markdown bullet."""
-    return f"- {entry.get('content', '')}"
+    content = entry.get("content", "")
+    if show_id:
+        return f"- {content} [{entry.get('id', '')}]"
+    return f"- {content}"
 
 
 def _render_pillar_section(entries: list, pillar: str) -> str:
     """Render one pillar as a markdown section."""
     title = _PILLAR_TITLES.get(pillar, pillar.title())
+    show_id = pillar == PILLAR_RISKS
     lines = [f"## {title}"]
     for entry in entries:
-        lines.append(_render_entry(entry))
+        lines.append(_render_entry(entry, show_id=show_id))
     return "\n".join(lines)
 
 
