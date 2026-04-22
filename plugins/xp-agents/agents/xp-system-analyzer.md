@@ -42,6 +42,47 @@ From the scan, identify:
 - **How components connect** — protocols, shared state, data flow, APIs
 - **Technical stack** — languages, frameworks, databases, infrastructure
 
+### Step 3.5: Branching Signal Detection
+
+Analyze the repo to determine the appropriate branching stage (0–3). Run these commands:
+
+1. **Contributor count:** `git shortlog -sn --all --since="90 days ago"` — count unique contributors.
+2. **CI presence:** Check for `.github/workflows/`, `.gitlab-ci.yml`, `.circleci/`, `Jenkinsfile`.
+3. **Branch patterns:** `git branch -a` — look for `develop`, `staging`, `release/*`, `rc/*`.
+4. **Commit patterns:** `git log --oneline --merges --first-parent -20` — ratio of merge commits to direct commits.
+5. **Review signals:** Check for `CODEOWNERS`, `.github/pull_request_template.md`, branch protection references.
+
+**Stage proposal logic:**
+- **Stage 0** — No signals at all. Solo prototype. Below plugin floor (tolerated, not enforced).
+- **Stage 1** — Solo or small team (1-2 contributors), no CI, no existing branch discipline. Plugin floor.
+- **Stage 2** — Multiple contributors (3+) OR CI present OR existing PRs/merge-commit patterns.
+- **Stage 3** — Integration branch exists (`develop`/`staging`) + CI + signals of multi-environment workflow.
+
+Build a `branching_strategy` object:
+```json
+{
+  "stage": <0-3>,
+  "user_namespace": "<from git config user.email local-part, slugified>",
+  "protected_branches": ["main"],
+  "integration_branch": null,
+  "rationale": "<why this stage was chosen, citing specific signals>"
+}
+```
+
+Write via CLI:
+```bash
+echo '<json>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-branching
+```
+
+**Update mode:** If `branching_strategy` already exists and was explicitly declared (rationale mentions "declared" or "explicit"), respect the existing stage — do not override explicit declarations with signal-based inference. Only raise a migration concern if signals suggest a higher stage.
+
+**Migration concern:** If signals suggest a higher stage than the current declaration, raise a concern via append.sh:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-system-analyzer" --severity "medium" \
+  --content "Repo signals suggest Stage N (reasons), but current branching is Stage M. Consider migrating: [specific next steps]. To dismiss, declare Stage M explicitly with rationale."
+```
+
 ### Step 4: Build system_context JSON
 
 Build a JSON object matching this schema:
@@ -76,6 +117,7 @@ Build a JSON object matching this schema:
 - Reference CLAUDE.md for development practices rather than duplicating them.
 - Include domain-specific concepts that developers need to understand.
 - `project_specific` is for anything that doesn't fit the generic fields.
+- `branching_strategy` is written separately via `edit-branching` in Step 3.5 — do not include it in the create JSON.
 
 ### Step 5: Save the File
 
