@@ -160,7 +160,7 @@ class TestRetrospective(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(
             _sprint_json(
-                [_s("story-001", "foo", "S", "done")],
+                [_s("story-001", "foo", "done")],
                 sprint_id=sprint_id,
                 started="2026-04-08",
             )

@@ -122,14 +122,12 @@ def _multi_story_sprint_worktree() -> str:
             _s(
                 "story-001",
                 "User registration",
-                "M",
                 "ready",
                 file_domain=["src/auth/register.py", "tests/test_register.py"],
             ),
             _s(
                 "story-002",
                 "Admin dashboard",
-                "L",
                 "ready",
                 file_domain=["src/admin/dashboard.py", "tests/test_dashboard.py"],
             ),
@@ -146,14 +144,12 @@ def _multi_story_sprint_solo_deps() -> str:
             _s(
                 "story-001",
                 "User model",
-                "M",
                 "ready",
                 file_domain=["src/models/user.py"],
             ),
             _s(
                 "story-002",
                 "User API",
-                "M",
                 "ready",
                 file_domain=["src/api/user.py"],
                 dependencies=["story-001"],
@@ -171,14 +167,12 @@ def _multi_story_sprint_all_small() -> str:
             _s(
                 "story-001",
                 "Fix typo",
-                "S",
                 "ready",
                 file_domain=["src/ui/header.py"],
             ),
             _s(
                 "story-002",
                 "Update readme",
-                "S",
                 "ready",
                 file_domain=["docs/README.md"],
             ),
@@ -192,8 +186,8 @@ def _multi_story_sprint_no_domains() -> str:
     """Sprint with missing file domains (forces solo mode)."""
     return _sprint_json(
         [
-            _s("story-001", "Feature A", "M", "ready"),
-            _s("story-002", "Feature B", "M", "ready"),
+            _s("story-001", "Feature A", "ready"),
+            _s("story-002", "Feature B", "ready"),
         ],
         sprint_id="sprint-004",
         started="2026-04-01",
@@ -207,14 +201,12 @@ def _multi_story_sprint_overlapping_domains() -> str:
             _s(
                 "story-001",
                 "Auth flow",
-                "M",
                 "ready",
                 file_domain=["src/auth/login.py", "src/shared/utils.py"],
             ),
             _s(
                 "story-002",
                 "Password reset",
-                "M",
                 "ready",
                 file_domain=["src/auth/reset.py", "src/shared/utils.py"],
             ),
@@ -718,7 +710,7 @@ class TestAcceptPreloadTeammate(_IntegrationTestCase):
         super().setUp()
         (self.smm_dir / "sprint.json").write_text(
             _sprint_json(
-                [_s("story-001", "Feature", "M", "in-progress")],
+                [_s("story-001", "Feature", "in-progress")],
                 sprint_id="sprint-017",
                 started="2026-04-13",
             )

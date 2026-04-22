@@ -51,7 +51,6 @@ class TestResolveStoryId(_HookTestCase):
                     _s(
                         "story-001",
                         "Auth",
-                        "M",
                         "in-progress",
                         file_domain=["scripts/auth.py \u2014 login"],
                     )
@@ -71,14 +70,12 @@ class TestResolveStoryId(_HookTestCase):
                     _s(
                         "story-001",
                         "Auth",
-                        "M",
                         "in-progress",
                         file_domain=["scripts/auth.py \u2014 login"],
                     ),
                     _s(
                         "story-002",
                         "UI",
-                        "M",
                         "in-progress",
                         file_domain=["src/ui.py \u2014 layout"],
                     ),
@@ -98,14 +95,12 @@ class TestResolveStoryId(_HookTestCase):
                     _s(
                         "story-001",
                         "Auth",
-                        "M",
                         "in-progress",
                         file_domain=["scripts/auth.py \u2014 login"],
                     ),
                     _s(
                         "story-002",
                         "UI",
-                        "M",
                         "in-progress",
                         file_domain=["src/ui.py \u2014 layout"],
                     ),
@@ -125,14 +120,12 @@ class TestResolveStoryId(_HookTestCase):
                     _s(
                         "story-001",
                         "Auth",
-                        "M",
                         "in-progress",
                         file_domain=["scripts/auth.py \u2014 login"],
                     ),
                     _s(
                         "story-002",
                         "UI",
-                        "M",
                         "in-progress",
                         file_domain=["src/ui.py \u2014 layout"],
                     ),
@@ -157,7 +150,6 @@ class TestResolveStoryId(_HookTestCase):
                     _s(
                         "story-001",
                         "Auth",
-                        "M",
                         "done",
                         file_domain=["scripts/auth.py \u2014 login"],
                     ),

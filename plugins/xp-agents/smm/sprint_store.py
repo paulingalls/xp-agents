@@ -305,7 +305,6 @@ def render_story_sections(sprint: dict, story_ids: list[str]) -> str:
 def _render_story(lines: list[str], s: dict[str, Any]) -> None:
     """Render a single story to the lines list."""
     lines.append(f"### {s['id']}: {s['title']}")
-    lines.append(f"- **Size:** {s['size']}")
     lines.append(f"- **Status:** {s['status']}")
 
     deps = ", ".join(s.get("dependencies", [])) or "none"

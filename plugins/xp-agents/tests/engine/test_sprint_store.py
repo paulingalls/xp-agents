@@ -66,13 +66,6 @@ class TestValidateSprint(unittest.TestCase):
             errors = sprint_schema.validate_sprint(sprint)
             self.assertEqual(errors, [], f"Status {status!r} should be valid")
 
-    def test_invalid_story_size(self):
-        import sprint_schema
-
-        sprint = _make_sprint(stories=[_make_story(size="XL")])
-        errors = sprint_schema.validate_sprint(sprint)
-        self.assertTrue(any("size" in e for e in errors))
-
     def test_story_missing_required_fields(self):
         import sprint_schema
 

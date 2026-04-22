@@ -46,7 +46,7 @@ class TestSaveSprint(_HookTestCase):
             "goal": "Build auth system",
             "started": "2026-04-01",
             "milestone": "",
-            "stories": [_s("story-001", "Register", "M", "ready")],
+            "stories": [_s("story-001", "Register", "ready")],
         }
         base.update(overrides)
         return base
@@ -85,9 +85,9 @@ class TestSaveSprint(_HookTestCase):
         data = self._sample_sprint(
             sprint_id="sprint-002",
             stories=[
-                _s("story-001", "Register", "M", "done"),
-                _s("story-002", "Login", "S", "deferred"),
-                _s("story-003", "Admin list", "L", "ready"),
+                _s("story-001", "Register", "done"),
+                _s("story-002", "Login", "deferred"),
+                _s("story-003", "Admin list", "ready"),
             ],
         )
         self._run_save(data)
@@ -105,7 +105,7 @@ def _local_sprint(status="done"):
         "goal": "Build auth",
         "started": "2026-04-01",
         "milestone": "",
-        "stories": [_s("story-001", "login", "M", status)],
+        "stories": [_s("story-001", "login", status)],
     }
 
 
@@ -247,7 +247,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
             "goal": "Build X",
             "started": "2026-04-01",
             "milestone": milestone_text,
-            "stories": [_s("story-001", "task", "M", "ready")],
+            "stories": [_s("story-001", "task", "ready")],
         }
 
     def test_planned_milestone_flipped_to_in_progress(self):
@@ -487,8 +487,8 @@ class TestSprintStartPreload(_IntegrationTestCase):
         (self.smm_dir / "sprint.json").write_text(
             _sprint_json(
                 [
-                    _s("story-001", "Register", "M", "done"),
-                    _s("story-002", "Login", "S", "deferred"),
+                    _s("story-001", "Register", "done"),
+                    _s("story-002", "Login", "deferred"),
                 ],
                 goal="Previous",
             )

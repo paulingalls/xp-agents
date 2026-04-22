@@ -409,10 +409,10 @@ class TestHousekeepingDone(_HookTestCase):
 
 _SPRINT_REVIEW_MIXED = _sprint_json(
     [
-        _s("story-001", "Login", "M", "done"),
-        _s("story-002", "Register", "S", "done"),
-        _s("story-003", "Logout", "S", "deferred"),
-        _s("story-004", "Profile", "L", "ready"),
+        _s("story-001", "Login", "done"),
+        _s("story-002", "Register", "done"),
+        _s("story-003", "Logout", "deferred"),
+        _s("story-004", "Profile", "ready"),
     ],
     sprint_id="sprint-001",
     started="2026-03-15",

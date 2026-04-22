@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Sprint sizing metrics: commit-to-story attribution and aggregation.
+"""Sprint story metrics: commit-to-story attribution and aggregation.
 
-Computes per-story and per-size metrics using metadata.story_id set
-at commit time. Used by retrospective.py to enrich .retro-input.json
-when a sprint has ended.
+Computes per-story metrics using metadata.story_id set at commit time.
+Used by retrospective.py to enrich .retro-input.json when a sprint
+has ended.
 """
 
 from __future__ import annotations
@@ -83,31 +83,6 @@ def _attribute_commits(
     return metrics
 
 
-def _per_size_aggregates(
-    story_metrics: dict[str, dict], stories: list[dict]
-) -> dict[str, dict]:
-    """Aggregate metrics by story size (S/M/L)."""
-    by_size: dict[str, list[dict]] = {}
-    size_map = {s["id"]: s["size"] for s in stories}
-
-    for sid, m in story_metrics.items():
-        size = size_map.get(sid, "?")
-        by_size.setdefault(size, []).append(m)
-
-    result: dict[str, dict] = {}
-    for size, items in sorted(by_size.items()):
-        count = len(items)
-        total_commits = sum(m["commits"] for m in items)
-        total_files = sum(m["files_changed"] for m in items)
-        result[size] = {
-            "count": count,
-            "avg_commits": total_commits / count,
-            "avg_files": total_files / count,
-        }
-
-    return result
-
-
 def _per_agent_event_counts(events: list[dict], started: str) -> dict:
     """Count max events-to-commit per agent within the sprint window."""
     counters: dict[str, int] = {}
@@ -151,7 +126,6 @@ def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
     ]
 
     story_metrics = _attribute_commits(commit_events, sprint["stories"])
-    per_size = _per_size_aggregates(story_metrics, sprint["stories"])
 
     per_story = []
     for s in sprint["stories"]:
@@ -161,7 +135,6 @@ def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
                 "id": s["id"],
                 "title": s["title"],
                 "status": s["status"],
-                "size": s["size"],
                 **m,
                 "attribution_anomaly": (s["status"] == "deferred" and m["commits"] > 0),
             }
@@ -173,6 +146,5 @@ def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
         "started": started,
         "velocity": velocity,
         "per_story": per_story,
-        "per_size": per_size,
         "per_agent": _per_agent_event_counts(events, started),
     }

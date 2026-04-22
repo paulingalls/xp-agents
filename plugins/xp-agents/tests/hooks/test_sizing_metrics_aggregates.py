@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for sizing_metrics.py — per-size aggregates and full analysis."""
+"""Tests for sizing_metrics.py — full analysis and per-agent aggregates."""
 
 import sys
 import unittest
@@ -16,80 +16,23 @@ SPRINT_WITH_DOMAINS = _sprint_json(
         _s(
             "story-001",
             "Add auth",
-            "M",
             "done",
             file_domain=[
-                "scripts/auth.py \u2014 add login",
-                "scripts/session.py \u2014 token mgmt",
+                "scripts/auth.py — add login",
+                "scripts/session.py — token mgmt",
             ],
         ),
         _s(
             "story-002",
             "Add tests",
-            "S",
             "done",
-            file_domain=["tests/test_auth.py \u2014 auth tests"],
+            file_domain=["tests/test_auth.py — auth tests"],
         ),
     ],
     sprint_id="sprint-001",
     started="2026-04-01",
     goal="Build auth system",
 )
-
-
-class TestPerSizeAggregates(unittest.TestCase):
-    def test_basic_aggregation(self):
-        import sizing_metrics
-
-        stories = [
-            {"id": "story-001", "size": "M", "title": "A", "status": "done"},
-            {"id": "story-002", "size": "S", "title": "B", "status": "done"},
-            {"id": "story-003", "size": "S", "title": "C", "status": "done"},
-        ]
-        metrics = {
-            "story-001": {
-                "commits": 4,
-                "files_changed": 10,
-                "cascade_size": 2,
-            },
-            "story-002": {
-                "commits": 2,
-                "files_changed": 3,
-                "cascade_size": 0,
-            },
-            "story-003": {
-                "commits": 1,
-                "files_changed": 5,
-                "cascade_size": 1,
-            },
-        }
-        result = sizing_metrics._per_size_aggregates(metrics, stories)
-
-        self.assertEqual(result["M"]["count"], 1)
-        self.assertAlmostEqual(result["M"]["avg_commits"], 4.0)
-        self.assertAlmostEqual(result["M"]["avg_files"], 10.0)
-        self.assertEqual(result["S"]["count"], 2)
-        self.assertAlmostEqual(result["S"]["avg_commits"], 1.5)
-        self.assertAlmostEqual(result["S"]["avg_files"], 4.0)
-
-    def test_empty_size_category_excluded(self):
-        import sizing_metrics
-
-        stories = [
-            {"id": "story-001", "size": "M", "title": "A", "status": "done"},
-        ]
-        metrics = {
-            "story-001": {
-                "commits": 2,
-                "files_changed": 5,
-                "cascade_size": 1,
-            },
-        }
-        result = sizing_metrics._per_size_aggregates(metrics, stories)
-
-        self.assertIn("M", result)
-        self.assertNotIn("S", result)
-        self.assertNotIn("L", result)
 
 
 class TestComputeSizingAnalysis(_HookTestCase):
@@ -156,7 +99,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
         result = sizing_metrics.compute_sizing_analysis(self.smm_dir, [])
         self.assertIsNone(result)
 
-    def test_per_size_present(self):
+    def test_per_story_has_no_size_field(self):
         import sizing_metrics
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_DOMAINS)
@@ -172,8 +115,9 @@ class TestComputeSizingAnalysis(_HookTestCase):
             self.smm_dir,
             events,
         )
-        self.assertIn("per_size", result)
-        self.assertIn("M", result["per_size"])
+        self.assertNotIn("per_size", result)
+        for story in result["per_story"]:
+            self.assertNotIn("size", story)
 
     def test_attribution_anomaly_truth_table(self):
         """attribution_anomaly is True iff status=deferred AND commits>0."""
@@ -192,7 +136,6 @@ class TestComputeSizingAnalysis(_HookTestCase):
                         _s(
                             "story-x",
                             "Story",
-                            "M",
                             status,
                             file_domain=["scripts/a.py"],
                         ),
@@ -226,9 +169,9 @@ class TestPerAgentAggregates(_HookTestCase):
 
         sprint = _sprint_json(
             [
-                _s("story-001", "Auth", "M", "done", file_domain=["a.py"]),
-                _s("story-002", "Tests", "S", "done", file_domain=["b.py"]),
-                _s("story-003", "Docs", "S", "done", file_domain=["c.py"]),
+                _s("story-001", "Auth", "done", file_domain=["a.py"]),
+                _s("story-002", "Tests", "done", file_domain=["b.py"]),
+                _s("story-003", "Docs", "done", file_domain=["c.py"]),
             ],
             sprint_id="sprint-t",
             started="2026-04-01",

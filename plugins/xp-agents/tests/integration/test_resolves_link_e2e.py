@@ -94,7 +94,6 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
                     _s(
                         "story-001",
                         "test",
-                        "S",
                         "done",
                         file_domain=["scripts/foo.py"],
                     )

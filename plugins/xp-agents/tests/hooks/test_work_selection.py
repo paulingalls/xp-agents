@@ -27,8 +27,8 @@ _PRELOAD_SCRIPT = (
 
 SPRINT_IN_PROGRESS = _sprint_json(
     [
-        _s("story-001", "As a user I can log in", "M", "in-progress"),
-        _s("story-002", "As a user I can register", "S", "ready"),
+        _s("story-001", "As a user I can log in", "in-progress"),
+        _s("story-002", "As a user I can register", "ready"),
     ],
     sprint_id="sprint-001",
     started="2026-04-01",

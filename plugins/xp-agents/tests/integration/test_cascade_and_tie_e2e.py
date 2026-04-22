@@ -41,14 +41,12 @@ class TestCascadeAndTieE2E(_IntegrationTestCase):
                     _s(
                         "story-001",
                         "Auth",
-                        "M",
                         "in-progress",
                         file_domain=["scripts/auth.py \u2014 login"],
                     ),
                     _s(
                         "story-002",
                         "UI",
-                        "M",
                         "in-progress",
                         file_domain=["src/ui.py \u2014 layout"],
                     ),

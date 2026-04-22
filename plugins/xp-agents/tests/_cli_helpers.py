@@ -68,7 +68,6 @@ VALID_SPRINT_STORY = {
     "id": "story-001",
     "title": "User registration",
     "status": "ready",
-    "size": "M",
     "dependencies": [],
     "milestone_ref": "",
     "design_sources": "",

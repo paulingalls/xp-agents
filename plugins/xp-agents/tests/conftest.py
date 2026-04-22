@@ -98,13 +98,12 @@ _STORY_BASE = {
 }
 
 
-def _s(id: str, title: str, size: str, status: str, **kw) -> dict:
+def _s(id: str, title: str, status: str, **kw) -> dict:
     deps = kw.pop("dependencies", [])
     return {
         **_STORY_BASE,
         "id": id,
         "title": title,
-        "size": size,
         "status": status,
         "dependencies": deps,
         **kw,
@@ -130,24 +129,22 @@ def _sprint_json(
 
 
 SPRINT_IN_PROGRESS = _sprint_json(
-    [_s("story-001", "As a user I can log in", "M", "in-progress")]
+    [_s("story-001", "As a user I can log in", "in-progress")]
 )
 
-SPRINT_READY_ONLY = _sprint_json(
-    [_s("story-001", "As a user I can log in", "M", "ready")]
-)
+SPRINT_READY_ONLY = _sprint_json([_s("story-001", "As a user I can log in", "ready")])
 
 SPRINT_ALL_DONE = _sprint_json(
     [
-        _s("story-001", "As a user I can log in", "M", "done"),
-        _s("story-002", "As a user I can register", "S", "deferred"),
+        _s("story-001", "As a user I can log in", "done"),
+        _s("story-002", "As a user I can register", "deferred"),
     ]
 )
 
 SPRINT_COMPLETE_WITH_ID = _sprint_json(
     [
-        _s("story-001", "As a user I can log in", "M", "done"),
-        _s("story-002", "As a user I can register", "S", "deferred"),
+        _s("story-001", "As a user I can log in", "done"),
+        _s("story-002", "As a user I can register", "deferred"),
     ],
     sprint_id="sprint-001",
     started="2026-04-01",
@@ -155,12 +152,11 @@ SPRINT_COMPLETE_WITH_ID = _sprint_json(
 
 SPRINT_MIXED = _sprint_json(
     [
-        _s("story-001", "As a user I can log in", "M", "done"),
-        _s("story-002", "As a user I can register", "S", "ready"),
+        _s("story-001", "As a user I can log in", "done"),
+        _s("story-002", "As a user I can register", "ready"),
         _s(
             "story-003",
             "As an admin I can list users",
-            "L",
             "ready",
             dependencies=["story-002"],
         ),
@@ -171,11 +167,10 @@ SPRINT_MIXED = _sprint_json(
 
 SPRINT_MIXED_IN_PROGRESS = _sprint_json(
     [
-        _s("story-001", "As a user I can log in", "M", "done"),
+        _s("story-001", "As a user I can log in", "done"),
         _s(
             "story-002",
             "As a user I can register",
-            "S",
             "in-progress",
         ),
     ],
@@ -215,17 +210,14 @@ SAMPLE_SPRINT_MD = """\
 ## Stories
 
 ### story-001: User registration
-- **Size:** M
 - **Status:** done
 - **Dependencies:** none
 
 ### story-002: JWT authentication
-- **Size:** M
 - **Status:** in-progress
 - **Dependencies:** story-001
 
 ### story-003: Admin user list
-- **Size:** S
 - **Status:** ready
 - **Dependencies:** story-001
 """

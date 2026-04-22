@@ -20,7 +20,6 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 add login"],
             ),
@@ -45,14 +44,12 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 add login"],
             ),
             _s(
                 "story-002",
                 "Tests",
-                "S",
                 "done",
                 file_domain=["scripts/auth.py \u2014 update"],
             ),
@@ -75,7 +72,6 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 add login"],
             ),
@@ -93,7 +89,6 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 add login"],
             ),
@@ -117,7 +112,7 @@ class TestAttributeCommits(unittest.TestCase):
         import sizing_metrics
 
         stories = [
-            _s("story-001", "Auth", "M", "done", file_domain=[]),
+            _s("story-001", "Auth", "done", file_domain=[]),
         ]
         commits = [
             commit_event(
@@ -138,7 +133,6 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=[
                     "scripts/retro_flags.py \u2014 add suppression",
@@ -166,7 +160,6 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 add login"],
             ),
@@ -188,7 +181,6 @@ class TestAttributeCommits(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 add login"],
             ),
@@ -222,7 +214,6 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["scripts/auth.py \u2014 login"],
             ),
@@ -246,7 +237,6 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
             _s(
                 "story-001",
                 "Auth",
-                "M",
                 "done",
                 file_domain=["CLAUDE.md \u2014 docs"],
             ),

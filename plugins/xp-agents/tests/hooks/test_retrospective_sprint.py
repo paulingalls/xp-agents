@@ -33,14 +33,12 @@ class TestSprintSizingInRetro(_HookTestCase):
                     _s(
                         "story-001",
                         "Add auth",
-                        "M",
                         "done",
                         file_domain=["scripts/auth.py \u2014 add login"],
                     ),
                     _s(
                         "story-002",
                         "Add tests",
-                        "S",
                         "done",
                         file_domain=["tests/test_auth.py \u2014 auth tests"],
                     ),
@@ -93,7 +91,7 @@ class TestSprintSizingInRetro(_HookTestCase):
         self.assertEqual(sizing["sprint_id"], "sprint-042")
         self.assertEqual(sizing["velocity"]["stories_delivered"], 2)
         self.assertIn("per_story", sizing)
-        self.assertIn("per_size", sizing)
+        self.assertNotIn("per_size", sizing)
 
     def test_no_sprint_ended_no_sizing(self):
         import retrospective
@@ -172,7 +170,7 @@ class TestResolvesLinkRate(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(
             _sprint_json(
-                [_s("story-001", "Work", "S", "done")],
+                [_s("story-001", "Work", "done")],
                 sprint_id="sprint-005",
                 started="2026-04-01",
                 goal="Resolves-trailer loop",

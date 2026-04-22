@@ -10,9 +10,6 @@ Follows the same pattern as execution_plan_schema.py.
 SPRINT_FILENAME = "sprint.json"
 
 VALID_STORY_STATUSES = frozenset({"ready", "in-progress", "done", "deferred"})
-VALID_STORY_SIZES = frozenset({"S", "M", "L"})
-
-S_SIZE_FILE_DOMAIN_MAX = 20
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,
@@ -31,7 +28,6 @@ _STORY_REQUIRED = frozenset(
         "id",
         "title",
         "status",
-        "size",
         "dependencies",
         "milestone_ref",
         "design_sources",
@@ -79,10 +75,6 @@ def _validate_story(
         valid = sorted(VALID_STORY_STATUSES)
         errors.append(f"stories[{idx}].status must be one of {valid}")
 
-    if story["size"] not in VALID_STORY_SIZES:
-        valid = sorted(VALID_STORY_SIZES)
-        errors.append(f"stories[{idx}].size must be one of {valid}")
-
     for field in (
         "dependencies",
         "file_domain",
@@ -91,16 +83,6 @@ def _validate_story(
     ):
         if not isinstance(story[field], list):
             errors.append(f"stories[{idx}].{field} must be a list")
-
-    if (
-        story["size"] == "S"
-        and isinstance(story.get("file_domain"), list)
-        and len(story["file_domain"]) > S_SIZE_FILE_DOMAIN_MAX
-    ):
-        errors.append(
-            f"stories[{idx}] declares {len(story['file_domain'])} files"
-            f" at size S; max {S_SIZE_FILE_DOMAIN_MAX}"
-        )
 
     if enforce_budget and isinstance(story.get("context"), str):
         max_len = STORY_FIELD_MAXLENGTH["context"]

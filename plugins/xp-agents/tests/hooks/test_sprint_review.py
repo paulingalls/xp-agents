@@ -33,10 +33,10 @@ from conftest import (
 
 SPRINT_MIXED = _sprint_json(
     [
-        _s("story-001", "User login", "M", "done"),
-        _s("story-002", "User registration", "S", "done"),
-        _s("story-003", "Password reset", "M", "deferred", dependencies=["story-001"]),
-        _s("story-004", "OAuth integration", "L", "ready", dependencies=["story-001"]),
+        _s("story-001", "User login", "done"),
+        _s("story-002", "User registration", "done"),
+        _s("story-003", "Password reset", "deferred", dependencies=["story-001"]),
+        _s("story-004", "OAuth integration", "ready", dependencies=["story-001"]),
     ],
     sprint_id="sprint-001",
     started="2026-03-15",
@@ -45,9 +45,9 @@ SPRINT_MIXED = _sprint_json(
 
 SPRINT_ALL_DONE = _sprint_json(
     [
-        _s("story-001", "User login", "M", "done"),
-        _s("story-002", "User registration", "S", "done"),
-        _s("story-003", "Password reset", "M", "done", dependencies=["story-001"]),
+        _s("story-001", "User login", "done"),
+        _s("story-002", "User registration", "done"),
+        _s("story-003", "Password reset", "done", dependencies=["story-001"]),
     ],
     sprint_id="sprint-001",
     started="2026-03-15",
@@ -56,8 +56,8 @@ SPRINT_ALL_DONE = _sprint_json(
 
 SPRINT_ALL_DEFERRED = _sprint_json(
     [
-        _s("story-001", "User login", "M", "deferred"),
-        _s("story-002", "User registration", "S", "deferred"),
+        _s("story-001", "User login", "deferred"),
+        _s("story-002", "User registration", "deferred"),
     ],
     sprint_id="sprint-001",
     started="2026-03-15",
@@ -65,7 +65,7 @@ SPRINT_ALL_DEFERRED = _sprint_json(
 )
 
 SPRINT_WITH_MILESTONE = _sprint_json(
-    [_s("story-001", "User login", "M", "done")],
+    [_s("story-001", "User login", "done")],
     sprint_id="sprint-001",
     started="2026-03-15",
     goal="Build auth system",
@@ -73,7 +73,7 @@ SPRINT_WITH_MILESTONE = _sprint_json(
 )
 
 SPRINT_NO_ID = _sprint_json(
-    [_s("story-001", "User login", "M", "done")],
+    [_s("story-001", "User login", "done")],
     goal="Build auth system",
 )
 
