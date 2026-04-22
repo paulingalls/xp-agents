@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Shared triage helpers for concern/debt/question resolution.
 
-Used by xp-work-selection preload to find unresolved events and
-detect file overlap with commits.
+Used by xp-work-selection and xp-accept preloads to find unresolved
+events and detect file overlap with commits.
 """
 
 import event_schema
+
+_EM_DASH = "—"
 
 
 def find_unresolved(
@@ -45,3 +47,19 @@ def find_overlapping_commits(
         if concern_files & commit_files:
             overlapping.append(e)
     return overlapping
+
+
+def extract_file_domain_paths(file_domain: list[str]) -> set[str]:
+    """Extract file paths from file_domain entries.
+
+    Entries are "path — description" or just "path".
+    """
+    paths: set[str] = set()
+    for entry in file_domain:
+        if _EM_DASH in entry:
+            path = entry.split(_EM_DASH, 1)[0].strip()
+        else:
+            path = entry.strip()
+        if path:
+            paths.add(path)
+    return paths

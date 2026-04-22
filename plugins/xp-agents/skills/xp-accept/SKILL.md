@@ -40,6 +40,21 @@ Read the sprint file at `SPRINT_FILE`. For each in-progress story:
    - **deferred** — incomplete, carry forward to next sprint
 5. Resolve any user questions before marking
 
+## Step 1b: Concern Triage
+
+If the preload shows `### Concerns for story-NNN`, review each listed concern against the story's work. For each concern, judge whether the story's commits address it:
+
+- **If clearly addressed** — resolve it:
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+    --type "status" --agent "xp-accept" \
+    --content "Story story-NNN addresses concern: <brief reason>" \
+    --working-on '[]' --metadata '{"resolves": ["<concern-id>"]}'
+  ```
+- **If unsure** — leave it open for manual triage at next work-selection.
+
+File overlap alone does not mean a concern is resolved. Use your judgment based on the concern's content and what the commits actually changed.
+
 ## Step 2: Update sprint.json
 
 Update each story's status via CLI:

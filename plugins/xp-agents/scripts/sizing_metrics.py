@@ -8,28 +8,17 @@ when a sprint has ended.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
 import sprint_store
+import triage
 
-_EM_DASH = "\u2014"
-
-
-def extract_file_domain_paths(file_domain: list[str]) -> set[str]:
-    """Extract file paths from file_domain entries.
-
-    Entries are "path — description" or just "path".
-    """
-    paths: set[str] = set()
-    for entry in file_domain:
-        if _EM_DASH in entry:
-            path = entry.split(_EM_DASH, 1)[0].strip()
-        else:
-            path = entry.strip()
-        if path:
-            paths.add(path)
-    return paths
+# Re-export for backward compat — canonical impl lives in smm/triage.py
+extract_file_domain_paths = triage.extract_file_domain_paths
 
 
 def file_matches_domain(file_path: str, domain: set[str]) -> bool:
