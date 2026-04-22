@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import read_delta
-from resolution import compute_resolutions
 
 # Signal types worth surfacing, in priority order.
 # Higher priority = more likely to affect the agent's current work.
@@ -68,10 +67,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except Exception:
         return None
 
-    # Filter out resolved concerns/debt/decisions — read full history
-    # to catch resolutions from earlier delta windows
-    all_events = _common.read_events_raw(smm_dir)
-    resolved = compute_resolutions(all_events)
+    _all_events, resolved = _common.load_events_with_resolutions(smm_dir)
     resolved_ids = (
         resolved.get("resolved_concern_ids", set())
         | resolved.get("resolved_debt_ids", set())
