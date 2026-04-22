@@ -277,6 +277,16 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
     return events
 
 
+def load_events_with_resolutions(
+    smm_dir: Path,
+) -> tuple[list[dict], dict]:
+    """Read events.jsonl and compute resolutions in one call."""
+    import resolution
+
+    events = read_events_raw(smm_dir)
+    return events, resolution.compute_resolutions(events)
+
+
 # ---------------------------------------------------------------------------
 # SMM directory validation (imported from _append_impl, with convenience wrapper)
 # ---------------------------------------------------------------------------
@@ -331,12 +341,12 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
 
 def count_unresolved_concerns(events: list[dict]) -> int:
     """Count concern events that have no resolution."""
-    from resolution import compute_resolutions
+    import resolution
 
     concern_ids = {e["id"] for e in events if e.get("type") == CONCERN and e.get("id")}
     if not concern_ids:
         return 0
-    resolved = compute_resolutions(events)["resolved_concern_ids"]
+    resolved = resolution.compute_resolutions(events)["resolved_concern_ids"]
     return len(concern_ids - resolved)
 
 

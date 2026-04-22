@@ -121,6 +121,35 @@ class TestIsXpAgent(unittest.TestCase):
         self.assertFalse(_common.is_xp_agent({"agent_type": 42}))
 
 
+class TestLoadEventsWithResolutions(_HookTestCase):
+    def test_returns_events_and_resolutions_tuple(self):
+        self._write_events(
+            [
+                make_event("concern", content="bug found"),
+                make_event("status", content="working"),
+            ]
+        )
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        self.assertEqual(len(events), 2)
+        self.assertIsInstance(resolutions, dict)
+        self.assertIn("resolved_concern_ids", resolutions)
+        self.assertIn("answered_question_ids", resolutions)
+
+    def test_empty_smm_returns_empty(self):
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        self.assertEqual(events, [])
+        self.assertIsInstance(resolutions, dict)
+
+    def test_resolutions_reflect_resolved_concerns(self):
+        concern = make_event("concern", content="test fail")
+        resolver = make_event(
+            "status", content="fixed", metadata={"resolves": [concern["id"]]}
+        )
+        self._write_events([concern, resolver])
+        _events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        self.assertIn(concern["id"], resolutions["resolved_concern_ids"])
+
+
 class TestResolvePluginRoot(unittest.TestCase):
     def test_from_env_var(self):
         with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/opt/plugins/xp"}):
