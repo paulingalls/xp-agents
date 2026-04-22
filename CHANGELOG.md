@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.25.0 — Refactor-mode TDD metric + sizing_metrics rename
+
+Sprint-023 delivers both milestones: refactor-mode-aware TDD gap metric and sizing_metrics rename. 4/4 stories, 100% velocity.
+
+- **Refactor-mode exclusion in honesty signals.** `build_honesty_signals()` detects assumption events matching "refactor mode" or "refactor-mode", excludes file writes within those spans from `max_unique_files_without_test`. Spans reset on commit. New signal key `refactor_mode_excluded_files` provides transparency.
+
+- **Refactor-mode annotation in retro flags.** TDD gap flag message now includes ", N excluded as refactor-mode" when exclusions exist. Backward compatible — message unchanged when key absent or zero. `_flag()` type hints narrowed from `object` to `int`.
+
+- **Refactor-mode convention in PROCESS_GUIDE.** New "Refactor Mode" subsection under Common Patterns instructs agents to emit an assumption event with "refactor mode:" prefix before behavior-preserving changes. Idea doc moved to `docs/completed/`.
+
+- **sizing_metrics renamed to story_metrics.** `sizing_metrics.py` → `story_metrics.py`, `compute_sizing_analysis` → `compute_story_analysis`. All imports and 3 test files renamed. Docstring and variable shadowing fixed by code reviewer. Closes debt `9eac0f57ecbb`.
+
+- **Tests.** 2607 total (down from 2609 at v2.24.0 — sizing removal dropped 2 size-specific tests, added 8 new). 5 refactor-mode exclusion tests, 3 retro flags annotation tests.
+
 ## v2.24.0 — Risk lifecycle: resolution, verification, and discoverability
 
 Risks in the SMM pillar now have a full resolution lifecycle — they can be targeted by `Resolves-Event:` trailers and `metadata.resolves`, and the housekeeper verifies remaining risks are still relevant.
