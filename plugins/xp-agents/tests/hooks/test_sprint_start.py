@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for save_sprint.py and sprint start preload."""
+"""Tests for save_sprint.py: atomic writer, acceptance flow, milestones.
+
+Preload script tests live in test_sprint_start_preload.py.
+"""
 
 import json
 import sys
@@ -9,10 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, _IntegrationTestCase, make_milestone_dict
+from conftest import _HookTestCase, make_milestone_dict
 
 # ===========================================================================
-# save_sprint.py — Atomic writer for sprint.json
+# save_sprint.py -- Atomic writer for sprint.json
 # ===========================================================================
 
 _SAVE_SCRIPT = (
@@ -110,7 +113,7 @@ def _local_sprint(status="done"):
 
 
 class TestSaveSprintAcceptanceFlow(_HookTestCase):
-    """save_sprint.py handles .accept marker clearing and iteration_complete."""
+    """save_sprint.py handles .accept marker and iteration_complete."""
 
     def _run_save(self, data: dict) -> None:
         if not _SAVE_SCRIPT.is_file():
@@ -132,13 +135,13 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         return [json.loads(line) for line in text.split("\n") if line.strip()]
 
     def test_clears_accept_marker_when_no_in_progress(self):
-        """.accept present and no in-progress stories → cleared."""
+        """.accept present and no in-progress stories -> cleared."""
         (self.smm_dir / ".accept").write_text("done")
         self._run_save(_local_sprint(status="done"))
         self.assertFalse((self.smm_dir / ".accept").exists())
 
     def test_keeps_accept_marker_when_in_progress_remains(self):
-        """.accept present with in-progress stories → preserved."""
+        """.accept present with in-progress stories -> preserved."""
         (self.smm_dir / ".accept").write_text("done")
         self._run_save(_local_sprint(status="in-progress"))
         self.assertTrue((self.smm_dir / ".accept").exists())
@@ -155,7 +158,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         self.assertEqual(len(iter_events), 0)
 
     def test_iteration_complete_recorded_on_accept_flow(self):
-        """.accept present → iteration_complete status event."""
+        """.accept present -> iteration_complete status event."""
         (self.smm_dir / ".accept").write_text("done")
         self._run_save(_local_sprint(status="done"))
         events = self._read_events()
@@ -167,7 +170,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         self.assertEqual(len(iter_events), 1)
 
     def test_sprint_complete_nudge_printed(self):
-        """Sprint complete in accept flow → stdout nudge."""
+        """Sprint complete in accept flow -> stdout nudge."""
         from contextlib import redirect_stdout
         from io import StringIO
 
@@ -179,7 +182,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         self.assertIn("xp-sprint-review", buf.getvalue())
 
     def test_no_nudge_when_sprint_not_complete(self):
-        """Accept flow but sprint has ready stories → no nudge."""
+        """Accept flow but sprint has ready stories -> no nudge."""
         from contextlib import redirect_stdout
         from io import StringIO
 
@@ -203,12 +206,12 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
 
 
 # ===========================================================================
-# save_sprint.py — Milestone status transition (story-005)
+# save_sprint.py -- Milestone status transition (story-005)
 # ===========================================================================
 
 
 def _plan_with_milestones(milestones: list[dict]) -> dict:
-    """Build a valid execution plan dict with the given milestones."""
+    """Build a valid execution plan dict with given milestones."""
     return {
         "title": "Test Plan",
         "sources": [],
@@ -221,7 +224,7 @@ _make_milestone = make_milestone_dict
 
 
 class TestSaveSprintMilestoneTransition(_HookTestCase):
-    """save_sprint flips the target milestone from planned to in-progress."""
+    """save_sprint flips target milestone from planned to in-progress."""
 
     def _run_save(self, data: dict) -> None:
         sys.path.insert(0, str(_SAVE_SCRIPT.parent))
@@ -239,7 +242,10 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
     def _load_plan(self) -> dict:
         return json.loads((self.smm_dir / "execution_plan.json").read_text())
 
-    def _sprint(self, milestone_text: str = "Milestone 1: Kickoff migration") -> dict:
+    def _sprint(
+        self,
+        milestone_text: str = "Milestone 1: Kickoff migration",
+    ) -> dict:
         from conftest import _s
 
         return {
@@ -251,7 +257,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
         }
 
     def test_planned_milestone_flipped_to_in_progress(self):
-        """Happy path: planned milestone becomes in-progress after save_sprint."""
+        """planned milestone becomes in-progress after save_sprint."""
         self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
         self._run_save(self._sprint("Milestone 1: Kickoff migration"))
 
@@ -259,7 +265,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
         self.assertEqual(plan["milestones"][0]["status"], "in-progress")
 
     def test_already_in_progress_is_idempotent(self):
-        """Re-running against an already in-progress milestone is a no-op."""
+        """Re-running against in-progress milestone is a no-op."""
         self._write_plan(
             [
                 _make_milestone(
@@ -269,15 +275,13 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
                 )
             ]
         )
-        # Must not raise.
         self._run_save(self._sprint("Milestone 1: Kickoff migration"))
 
         plan = self._load_plan()
         self.assertEqual(plan["milestones"][0]["status"], "in-progress")
 
-    def test_unparseable_milestone_text_records_concern_does_not_fail(self):
-        """If sprint.milestone doesn't parse to 'Milestone N:', sprint still
-        saves, a concern event is appended, and no milestone status changes."""
+    def test_unparseable_milestone_text_records_concern(self):
+        """Unparseable milestone text records concern, no crash."""
         self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
         self._run_save(self._sprint("Free-form milestone name without number"))
 
@@ -298,10 +302,8 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
             f"expected a milestone-related concern; got {concerns}",
         )
 
-    def test_missing_execution_plan_records_concern_does_not_fail(self):
-        """If execution_plan.json is absent, sprint still saves and a concern
-        is recorded. No exception raised."""
-        # Intentionally do NOT write execution_plan.json.
+    def test_missing_execution_plan_records_concern(self):
+        """Missing execution_plan.json records concern, no crash."""
         self._run_save(self._sprint("Milestone 1: Kickoff migration"))
 
         self.assertTrue((self.smm_dir / "sprint.json").is_file())
@@ -313,12 +315,11 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
         concerns = [e for e in events if e.get("type") == "concern"]
         self.assertTrue(
             any("execution plan" in e.get("content", "").lower() for e in concerns),
-            f"expected an execution-plan-related concern; got {concerns}",
+            f"expected execution-plan concern; got {concerns}",
         )
 
     def test_leaked_in_progress_milestone_flags_concern(self):
-        """If a DIFFERENT milestone is already in-progress, we still flip the
-        target to in-progress but append a concern about the orphaned one."""
+        """Different milestone already in-progress -> concern."""
         self._write_plan(
             [
                 _make_milestone(
@@ -337,7 +338,6 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
         plan = self._load_plan()
         statuses = {m["number"]: m["status"] for m in plan["milestones"]}
         self.assertEqual(statuses[2], "in-progress")
-        # Milestone 1 status is not mutated here — our job is to flag it.
         self.assertEqual(statuses[1], "in-progress")
 
         events = [
@@ -355,180 +355,6 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
             ),
             f"expected leaked-milestone concern; got {concerns}",
         )
-
-
-# ===========================================================================
-# preload.sh — Sprint start preload script
-# ===========================================================================
-
-_PRELOAD_SCRIPT = (
-    Path(__file__).parent.parent.parent
-    / "skills"
-    / "xp-sprint-start"
-    / "scripts"
-    / "preload.sh"
-)
-
-
-class TestSprintStartPreload(_IntegrationTestCase):
-    """Tests for the sprint start preload script."""
-
-    def _write_plan(self, milestones=None):
-        """Write a valid JSON plan with given milestones."""
-        m_base = {
-            "goal": "G",
-            "done": "D",
-            "sources": "",
-            "change_zones": [],
-            "impact_zones": [],
-            "design_details": "",
-            "constraints": [],
-        }
-        if milestones is None:
-            milestones = [
-                {
-                    **m_base,
-                    "number": 1,
-                    "name": "Auth",
-                    "status": "planned",
-                    "delivered_sprint": None,
-                }
-            ]
-        (self.smm_dir / "execution_plan.json").write_text(
-            json.dumps(
-                {
-                    "title": "T",
-                    "sources": [],
-                    "overview": "",
-                    "milestones": milestones,
-                }
-            )
-        )
-
-    def test_preload_outputs_smm_dir(self):
-        """Preload output includes SMM_DIR= line."""
-        self._write_plan()
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("SMM_DIR=", result.stdout)
-
-    def test_preload_no_execution_plan(self):
-        """Outputs error when no execution_plan.json exists."""
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("ERROR", result.stdout)
-        self.assertIn("execution_plan", result.stdout.lower())
-
-    def test_preload_no_planned_milestones(self):
-        """Outputs error when plan has only delivered milestones."""
-        m_base = {
-            "goal": "G",
-            "done": "D",
-            "sources": "",
-            "change_zones": [],
-            "impact_zones": [],
-            "design_details": "",
-            "constraints": [],
-        }
-        self._write_plan(
-            [
-                {
-                    **m_base,
-                    "number": 1,
-                    "name": "Auth",
-                    "status": "delivered",
-                    "delivered_sprint": "sprint-001",
-                }
-            ]
-        )
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("ERROR", result.stdout)
-
-    def test_preload_with_planned_milestones(self):
-        """Outputs path and counts."""
-        m_base = {
-            "goal": "G",
-            "done": "D",
-            "sources": "",
-            "change_zones": [],
-            "impact_zones": [],
-            "design_details": "",
-            "constraints": [],
-        }
-        self._write_plan(
-            [
-                {
-                    **m_base,
-                    "number": 1,
-                    "name": "Auth",
-                    "status": "planned",
-                    "delivered_sprint": None,
-                },
-                {
-                    **m_base,
-                    "number": 2,
-                    "name": "Search",
-                    "status": "planned",
-                    "delivered_sprint": None,
-                },
-            ]
-        )
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("EXECUTION_PLAN=", result.stdout)
-        self.assertIn("planned=2", result.stdout)
-
-    def test_preload_existing_sprint_deferred(self):
-        """Shows deferred stories from existing sprint.json."""
-        from conftest import _s, _sprint_json
-
-        self._write_plan()
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json(
-                [
-                    _s("story-001", "Register", "done"),
-                    _s("story-002", "Login", "deferred"),
-                ],
-                goal="Previous",
-            )
-        )
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("Deferred", result.stdout)
-
-    def test_preload_sprint_count(self):
-        """Outputs correct NEXT_SPRINT_ID from sprint event count."""
-        self._write_plan()
-        # Seed two sprint-start events
-        events = [
-            json.dumps(
-                {
-                    "id": "e1",
-                    "ts": "2026-03-01T00:00:00Z",
-                    "type": "sprint",
-                    "agent_id": "xp-sprint-start",
-                    "content": "Sprint 1",
-                    "metadata": {"sprint_id": "sprint-001", "action": "start"},
-                    "schema_version": 1,
-                }
-            ),
-            json.dumps(
-                {
-                    "id": "e2",
-                    "ts": "2026-03-15T00:00:00Z",
-                    "type": "sprint",
-                    "agent_id": "xp-sprint-start",
-                    "content": "Sprint 2",
-                    "metadata": {"sprint_id": "sprint-002", "action": "start"},
-                    "schema_version": 1,
-                }
-            ),
-        ]
-        (self.smm_dir / "events.jsonl").write_text("\n".join(events) + "\n")
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("sprint-003", result.stdout)
 
 
 if __name__ == "__main__":
