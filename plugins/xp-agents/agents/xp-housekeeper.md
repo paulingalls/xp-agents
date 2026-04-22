@@ -111,7 +111,8 @@ Review `current_smm.risks` (existing), `new_since_last_curation` (concerns, assu
 Items that fail the filter → do NOT promote; keep as events. They surface via work-selection triage at kickoff.
 
 Actions:
-- Remove risks whose `source_event_id` appears in resolutions.
+- Remove risks marked `"resolved": true` in the curation data (already addressed by resolution events targeting their item ID or source_event_id).
+- For each remaining unresolved risk, verify it is still relevant: read the risk content and check whether the underlying condition persists. Remove risks that are no longer applicable.
 - Add only systemic concerns/assumptions as risk entries with appropriate `type` and `severity` (problem/uncertainty/debt).
 - For risks with aging 6+ sessions: keep visible, record a `question` event.
 - **Cap: ~10 items.**

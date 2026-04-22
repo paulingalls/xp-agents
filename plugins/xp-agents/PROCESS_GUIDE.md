@@ -11,8 +11,8 @@
 
 ## Resolution Discipline
 
-Three link types close events:
-- **STRONG**: `metadata.resolves=[id]` (required when a decision answers a question).
+Three link types close events and risk pillar items:
+- **STRONG**: `metadata.resolves=[id]` (required when a decision answers a question). Risk IDs shown as `[id]` in rendered SMM.
 - **WEAK**: `references=[id]` on flag concerns — cascade-closes with the root.
 - **STRUCTURAL**: `files=[...]` on reviewer concerns — commit-auto-link nudges for a `Resolves-Event:` trailer.
 
@@ -28,9 +28,9 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` — skill provides preload + cleanup. Kickoff retro and housekeeping are inline Agent-tool calls; after each, run the render CLI and echo the signature line verbatim.
+**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` — skill provides preload + cleanup. Kickoff retro and housekeeping are inline Agent-tool calls; after each, render and echo the signature line verbatim.
 
-**Work assignment:** `/xp-assign` reads plan steps, decides solo vs CLI teammates. Teammates are independent `claude -p` processes in git worktrees with full TDD + review cycle.
+**Work assignment:** `/xp-assign` reads plan steps, decides solo vs CLI teammates in git worktrees with full TDD + review cycle.
 
 **Tests:** Check for FAIL/ERROR first. Never re-run the full suite just to find failure names.
 
@@ -52,7 +52,7 @@ All CLIs require `--smm-dir DIR`. Run each with `--help` for subcommands and exa
 
 ## Recording Events
 
-Use `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` for all event writes. Never write directly to `events.jsonl`. Per-type content budgets enforced at write time — run `append.sh --help` for limits.
+Use `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` for all event writes. Never write directly to `events.jsonl`. Content budgets enforced at write time — run `--help` for limits.
 
 ### Event Types
 
@@ -87,7 +87,7 @@ Link related events by ID: `--references '["question-id"]'`. An answer reference
 
 ### Linking Commits to Events
 
-Add `Resolves-Event: <id>` trailer to commit body when a commit closes an SMM event. Case-insensitive, comma-separated. IDs are 12 hex chars. The hook auto-populates `metadata.resolves`.
+Add `Resolves-Event: <id>` trailer to commit body when a commit closes an SMM event or risk item. Case-insensitive, comma-separated. IDs are 12 hex chars. The hook auto-populates `metadata.resolves`.
 
 ### Common Patterns
 
