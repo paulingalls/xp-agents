@@ -15,6 +15,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 import event_schema  # noqa: E402
 import materialize  # noqa: E402
 import resolution  # noqa: E402
+import triage  # noqa: E402
 
 
 def _collect_session_end_timestamps(events: list[dict]) -> list[str]:
@@ -24,45 +25,6 @@ def _collect_session_end_timestamps(events: list[dict]) -> list[str]:
         for e in events
         if e.get("type") == event_schema.EVENT_TYPE_SESSION_END
     )
-
-
-def find_overlapping_commits(
-    concern: dict,
-    events: list[dict],
-) -> list[dict]:
-    """Find commit events whose files overlap the concern's files.
-
-    Only considers commits after the concern's timestamp.
-    """
-    concern_files = set(concern.get("files") or [])
-    if not concern_files:
-        return []
-    concern_ts = concern.get("ts", "")
-
-    overlapping = []
-    for e in events:
-        if e.get("type") != event_schema.EVENT_TYPE_COMMIT:
-            continue
-        if e.get("ts", "") <= concern_ts:
-            continue
-        commit_files = set(e.get("files") or [])
-        if concern_files & commit_files:
-            overlapping.append(e)
-    return overlapping
-
-
-def find_unresolved(
-    events: list[dict],
-    event_type: str,
-    resolved_ids: set[str],
-) -> list[dict]:
-    """Return unresolved events of a given type, newest first."""
-    unresolved = [
-        e
-        for e in events
-        if e.get("type") == event_type and e.get("id") not in resolved_ids
-    ]
-    return sorted(unresolved, key=lambda e: e.get("ts", ""), reverse=True)
 
 
 def format_triage_section(
@@ -107,12 +69,12 @@ def run(smm_dir: Path) -> str:
 
     session_end_ts = _collect_session_end_timestamps(events)
 
-    concern_items = find_unresolved(
+    concern_items = triage.find_unresolved(
         events, event_schema.EVENT_TYPE_CONCERN, all_resolved
     )
     overlap: dict[str, list[dict]] = {}
     for concern in concern_items:
-        hits = find_overlapping_commits(concern, events)
+        hits = triage.find_overlapping_commits(concern, events)
         if hits:
             overlap[concern.get("id", "")] = hits
 
@@ -126,7 +88,7 @@ def run(smm_dir: Path) -> str:
             items = concern_items
             kw: dict = {"commit_overlap": overlap}
         else:
-            items = find_unresolved(events, event_type, all_resolved)
+            items = triage.find_unresolved(events, event_type, all_resolved)
             kw = {}
         section = format_triage_section(header, items, session_end_ts, **kw)
         if section:

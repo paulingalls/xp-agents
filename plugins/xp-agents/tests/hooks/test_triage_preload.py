@@ -18,42 +18,6 @@ import triage_preload
 from conftest import _SMMTestCase, make_event
 
 
-class TestFindUnresolved(_SMMTestCase):
-    """find_unresolved filters and sorts events."""
-
-    def test_returns_unresolved_debts(self):
-        d1 = make_event("debt", content="Fix auth")
-        d2 = make_event("debt", content="Fix logging")
-        result = triage_preload.find_unresolved([d1, d2], "debt", set())
-        self.assertEqual(len(result), 2)
-
-    def test_excludes_resolved_events(self):
-        d1 = make_event("debt", content="Fix auth")
-        d2 = make_event("debt", content="Fix logging")
-        result = triage_preload.find_unresolved([d1, d2], "debt", {d1["id"]})
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["content"], "Fix logging")
-
-    def test_filters_by_type(self):
-        d = make_event("debt", content="A debt")
-        c = make_event("concern", content="A concern")
-        result = triage_preload.find_unresolved([d, c], "debt", set())
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["content"], "A debt")
-
-    def test_returns_newest_first(self):
-        d1 = make_event("debt", content="Older", ts="2026-01-01T00:00:00+00:00")
-        d2 = make_event("debt", content="Newer", ts="2026-04-01T00:00:00+00:00")
-        result = triage_preload.find_unresolved([d1, d2], "debt", set())
-        self.assertEqual(result[0]["content"], "Newer")
-        self.assertEqual(result[1]["content"], "Older")
-
-    def test_empty_when_no_matching_type(self):
-        c = make_event("concern", content="A concern")
-        result = triage_preload.find_unresolved([c], "debt", set())
-        self.assertEqual(result, [])
-
-
 class TestFormatTriageSection(unittest.TestCase):
     """format_triage_section produces markdown triage output."""
 
@@ -146,74 +110,6 @@ class TestRun(_SMMTestCase):
 
         output = triage_preload.run(self.smm_dir)
         self.assertIn(f"[id: {d['id']}]", output)
-
-
-class TestFindOverlappingCommits(unittest.TestCase):
-    """find_overlapping_commits detects file overlap between concerns and commits."""
-
-    def test_finds_overlap(self):
-        concern = make_event(
-            "concern",
-            content="Auth bug",
-            files=["scripts/auth.py"],
-            ts="2026-01-01T00:00:00+00:00",
-        )
-        commit = make_event(
-            "commit",
-            content="Fix token leak",
-            files=["scripts/auth.py"],
-            ts="2026-01-02T00:00:00+00:00",
-        )
-        result = triage_preload.find_overlapping_commits(concern, [concern, commit])
-        self.assertEqual(len(result), 1)
-        self.assertIn("Fix token leak", result[0]["content"])
-
-    def test_no_overlap_different_files(self):
-        concern = make_event(
-            "concern",
-            content="Auth bug",
-            files=["scripts/auth.py"],
-            ts="2026-01-01T00:00:00+00:00",
-        )
-        commit = make_event(
-            "commit",
-            content="Fix db",
-            files=["scripts/db.py"],
-            ts="2026-01-02T00:00:00+00:00",
-        )
-        result = triage_preload.find_overlapping_commits(concern, [concern, commit])
-        self.assertEqual(result, [])
-
-    def test_no_overlap_without_files(self):
-        concern = make_event(
-            "concern",
-            content="Vague concern",
-            ts="2026-01-01T00:00:00+00:00",
-        )
-        commit = make_event(
-            "commit",
-            content="Some change",
-            files=["scripts/auth.py"],
-            ts="2026-01-02T00:00:00+00:00",
-        )
-        result = triage_preload.find_overlapping_commits(concern, [concern, commit])
-        self.assertEqual(result, [])
-
-    def test_only_post_concern_commits(self):
-        commit = make_event(
-            "commit",
-            content="Earlier fix",
-            files=["scripts/auth.py"],
-            ts="2025-12-01T00:00:00+00:00",
-        )
-        concern = make_event(
-            "concern",
-            content="Auth bug",
-            files=["scripts/auth.py"],
-            ts="2026-01-01T00:00:00+00:00",
-        )
-        result = triage_preload.find_overlapping_commits(concern, [commit, concern])
-        self.assertEqual(result, [])
 
 
 class TestFormatWithOverlap(unittest.TestCase):
