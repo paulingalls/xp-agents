@@ -5,7 +5,9 @@
 - **Honesty**: Record decisions, assumptions, concerns in the SMM. Never silently override — record a concern or set `metadata.supersedes`. State assumptions explicitly.
 - **Communication**: Share *why*, not just *what*. Answer open questions promptly.
 - **Feedback**: Fix what `/simplify` or `/xp-quality-review` flags. Tests are production code — same review cycle.
-- **Collaboration**: Honor collective decisions. Deliver what was asked before adding extras.
+- **Courage**: Make the tough call. If there is a better way than the existing, use the better way and flag the old with a concern.
+- **Respect**: Honor collective decisions. Deliver what was asked before adding extras.
+
 
 ## Resolution Discipline
 
@@ -36,7 +38,7 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 ## Project Files
 
-Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_plan.json`, `system_context.md`. Resolve via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
+Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_plan.json`, `system_context.json`. Resolve via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
 
 ## CLI Tools
 

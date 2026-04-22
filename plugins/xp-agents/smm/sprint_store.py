@@ -276,7 +276,7 @@ def render_markdown(sprint: dict) -> str:
 
     lines.append("## System Context")
     lines.append("")
-    lines.append("See: system_context.md")
+    lines.append("See: system_context.json")
     lines.append("")
 
     lines.append("## Stories")

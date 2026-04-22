@@ -414,7 +414,7 @@ class TestSessionStartSystemContextMarker(_HookTestCase):
     """session_start writes NEEDS_SYSTEM_CONTEXT marker when missing."""
 
     def test_startup_no_system_context_writes_marker(self):
-        """Startup with no system_context.md writes NEEDS_SYSTEM_CONTEXT."""
+        """Startup with no system_context.json writes NEEDS_SYSTEM_CONTEXT."""
         import markers
         import session_start
 
@@ -428,12 +428,12 @@ class TestSessionStartSystemContextMarker(_HookTestCase):
         )
 
     def test_startup_with_system_context_no_marker(self):
-        """Startup with system_context.md present does NOT write marker."""
+        """Startup with system_context.json present does NOT write marker."""
         import markers
         import session_start
 
         self._write_events([make_event()])
-        (self.smm_dir / "system_context.md").write_text("# System Context\n")
+        (self.smm_dir / "system_context.json").write_text("{}")
         session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -689,14 +689,26 @@ class TestTeammateSessionStart(_HookTestCase):
         self.assertIn("Ship v1", result)
 
     def test_teammate_gets_system_context(self):
-        """Teammate gets system_context.md when present."""
-        (self.smm_dir / "system_context.md").write_text("Microservices arch.\n")
+        """Teammate gets system_context.json when present."""
+        import json
+
+        ctx = {
+            "product": "Microservices arch.",
+            "architecture_overview": "Test arch.",
+            "stack": {"languages": ["Python"]},
+            "modules": [],
+            "conventions": [],
+            "key_decisions": [],
+            "sources": [],
+            "project_specific": [],
+        }
+        (self.smm_dir / "system_context.json").write_text(json.dumps(ctx))
         result = self._run_teammate()
         self.assertIn("System Context", result)
         self.assertIn("Microservices arch.", result)
 
     def test_teammate_no_system_context_ok(self):
-        """Teammate works without system_context.md."""
+        """Teammate works without system_context.json."""
         result = self._run_teammate()
         self.assertNotIn("System Context", result)
         self.assertIn("XP Values", result)

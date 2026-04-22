@@ -23,6 +23,8 @@ import markers
 import smm_cli
 import smm_store
 import sprint_state
+import system_context_store
+from system_context_cli import render_markdown as render_system_context
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -55,18 +57,15 @@ def _run_teammate(smm_dir: Path | None) -> str | None:
     if guide:
         parts.append(guide)
     if smm_dir is not None:
-        ctx_path = smm_dir / "system_context.md"
-        if ctx_path.exists() and not ctx_path.is_symlink():
-            try:
-                ctx = ctx_path.read_text(encoding="utf-8")
-                if ctx.strip():
-                    parts.append(f"## System Context\n{ctx}")
-            except OSError:
-                pass
+        data = system_context_store.load_system_context(smm_dir)
+        if data:
+            ctx_rendered = render_system_context(data)
+            if ctx_rendered.strip():
+                parts.append(ctx_rendered)
         smm_data = smm_store.load_smm(smm_dir)
-        rendered = smm_cli.render_markdown(smm_data)
-        if rendered.strip():
-            parts.append(rendered)
+        smm_rendered = smm_cli.render_markdown(smm_data)
+        if smm_rendered.strip():
+            parts.append(smm_rendered)
     return "\n\n".join(parts) if parts else None
 
 

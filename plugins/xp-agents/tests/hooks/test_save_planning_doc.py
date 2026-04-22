@@ -141,7 +141,7 @@ class TestSprintStateAdditions(unittest.TestCase):
     def test_system_context_exists_true(self):
         from sprint_state import system_context_exists
 
-        (self.smm_dir / "system_context.md").write_text("# Context")
+        (self.smm_dir / "system_context.json").write_text("{}")
         self.assertTrue(system_context_exists(self.smm_dir))
 
     def test_system_context_exists_false(self):
@@ -152,9 +152,9 @@ class TestSprintStateAdditions(unittest.TestCase):
     def test_system_context_rejects_symlink(self):
         from sprint_state import system_context_exists
 
-        real = self.smm_dir / "real.md"
-        real.write_text("real")
-        (self.smm_dir / "system_context.md").symlink_to(real)
+        real = self.smm_dir / "real.json"
+        real.write_text("{}")
+        (self.smm_dir / "system_context.json").symlink_to(real)
 
         self.assertFalse(system_context_exists(self.smm_dir))
 

@@ -65,5 +65,7 @@ def has_remaining_work(smm_dir: Path) -> bool:
 
 
 def system_context_exists(smm_dir: Path) -> bool:
-    """Check if system_context.md exists in SMM dir (not a symlink)."""
-    return _safe_file_exists(smm_dir, "system_context.md")
+    """Check if system_context.json exists in SMM dir (not a symlink)."""
+    from system_context_store import system_context_exists as _store_fn
+
+    return _store_fn(smm_dir)
