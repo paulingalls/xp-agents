@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _append_impl import compute_resolutions
+import resolution
 from _common import (
     ASSUMPTION,
     CONCERN,
@@ -65,14 +65,18 @@ def lint_concern_matches(content: str, rel_path: str) -> bool:
 
 
 def _find_unresolved(
-    events: list[dict], matcher: Callable[[str], object]
+    events: list[dict],
+    matcher: Callable[[str], object],
+    resolutions: dict | None = None,
 ) -> list[dict]:
     """Return unresolved concern events whose content matches *matcher*."""
     if not any(
         e.get("type") == CONCERN and matcher(e.get("content", "")) for e in events
     ):
         return []
-    resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
+    if resolutions is None:
+        resolutions = resolution.compute_resolutions(events)
+    resolved_ids = resolutions["resolved_concern_ids"]
     return [
         e
         for e in events
@@ -82,10 +86,16 @@ def _find_unresolved(
     ]
 
 
-def has_unresolved_concerns(smm_dir: Path, matcher: Callable[[str], object]) -> bool:
+def has_unresolved_concerns(
+    smm_dir: Path,
+    matcher: Callable[[str], object],
+    events: list[dict] | None = None,
+    resolutions: dict | None = None,
+) -> bool:
     """Check whether any unresolved concern matches *matcher*."""
-    events = read_events_raw(smm_dir)
-    return len(_find_unresolved(events, matcher)) > 0
+    if events is None:
+        events = read_events_raw(smm_dir)
+    return len(_find_unresolved(events, matcher, resolutions)) > 0
 
 
 def resolve_concerns(
@@ -94,6 +104,7 @@ def resolve_concerns(
     agent_id: str,
     label: str,
     events: list[dict] | None = None,
+    resolutions: dict | None = None,
 ) -> bool:
     """Auto-resolve unresolved concerns whose content matches *matcher*.
 
@@ -105,7 +116,7 @@ def resolve_concerns(
     if events is None:
         events = read_events_raw(smm_dir)
 
-    unresolved = _find_unresolved(events, matcher)
+    unresolved = _find_unresolved(events, matcher, resolutions)
     if not unresolved:
         return False
 
@@ -155,7 +166,7 @@ def detect_conflicts(
     Deduplicates: skips concerns whose content already exists in the event log.
     """
     # Collect existing concern state for deduplication and escalation.
-    resolutions = compute_resolutions(events)
+    resolutions = resolution.compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
     existing_unresolved = {
         e.get("content", "")
