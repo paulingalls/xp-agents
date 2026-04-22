@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import materialize
+import smm_store
 from conftest import _SMMTestCase, make_event, write_smm_fixture
 
 
@@ -320,6 +321,84 @@ class TestPrepareCurationData(_SMMTestCase):
         result = materialize.prepare_curation_data(self.smm_dir)
         self.assertIn("Big commits", result["retro_history"]["recurring_fixes"])
         self.assertNotIn("Unique 0", result["retro_history"]["recurring_fixes"])
+
+    def test_resolved_risk_by_item_id(self):
+        """Risks whose id appears in resolutions are marked resolved: True."""
+        write_smm_fixture(
+            self.smm_dir,
+            risks=[("Stale risk", "concern", "problem")],
+        )
+        risk_id = smm_store.load_smm(self.smm_dir)["risks"][0]["id"]
+        resolver = make_event(
+            "status",
+            content="Fixed the risk",
+            working_on=[],
+            metadata={"resolves": [risk_id]},
+        )
+        self._write_events([resolver])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        risk = result["current_smm"]["risks"][0]
+        self.assertTrue(risk.get("resolved", False))
+
+    def test_resolved_risk_by_source_event_id(self):
+        """Risks whose source_event_id appears in resolutions are marked resolved."""
+        source_id = "abc123def456"
+        data = {
+            "intent": [],
+            "constraints": [],
+            "risks": [
+                {
+                    "id": "aaa111bbb222",
+                    "content": "Old concern",
+                    "source": "curated",
+                    "ts": "2026-01-01T00:00:00+00:00",
+                    "type": "concern",
+                    "severity": "problem",
+                    "source_event_id": source_id,
+                }
+            ],
+            "wisdom": [],
+        }
+        smm_store.save_smm(self.smm_dir, data)
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [source_id]},
+        )
+        self._write_events([resolver])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        risk = result["current_smm"]["risks"][0]
+        self.assertTrue(risk.get("resolved", False))
+
+    def test_unresolved_risk_no_resolved_flag(self):
+        """Risks not in resolutions should NOT have resolved flag."""
+        write_smm_fixture(
+            self.smm_dir,
+            risks=[("Open risk", "concern", "problem")],
+        )
+        self._write_events([make_event("status", content="Unrelated")])
+        result = materialize.prepare_curation_data(self.smm_dir)
+        risk = result["current_smm"]["risks"][0]
+        self.assertFalse(risk.get("resolved", False))
+
+    def test_resolved_risk_does_not_mutate_persisted_smm(self):
+        """Annotation must not modify the on-disk SMM."""
+        write_smm_fixture(
+            self.smm_dir,
+            risks=[("Risk to resolve", "concern", "problem")],
+        )
+        risk_id = smm_store.load_smm(self.smm_dir)["risks"][0]["id"]
+        resolver = make_event(
+            "status",
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [risk_id]},
+        )
+        self._write_events([resolver])
+        materialize.prepare_curation_data(self.smm_dir)
+        persisted = smm_store.load_smm(self.smm_dir)
+        self.assertFalse(persisted["risks"][0].get("resolved", False))
 
     def test_team_scenario_multiple_agents(self):
         """Events from multiple agents all feed into curation data."""

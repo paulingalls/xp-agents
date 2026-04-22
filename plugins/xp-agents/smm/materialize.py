@@ -303,6 +303,18 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     resolved_concern_ids = new_resolutions.get("resolved_concern_ids", set())
     new_since = _bucket_new_events(new_events, resolved_concern_ids)
 
+    # --- annotate resolved risks (copy to avoid mutating persisted SMM) ---
+
+    resolution_targets = set(new_since["resolutions"])
+    if resolution_targets and current_smm.get("risks"):
+        current_smm = {**current_smm, "risks": [dict(r) for r in current_smm["risks"]]}
+        for risk in current_smm["risks"]:
+            if (
+                risk["id"] in resolution_targets
+                or risk.get("source_event_id") in resolution_targets
+            ):
+                risk["resolved"] = True
+
     # --- aging (sessions since each risk item in current_smm) ---
 
     aging: dict[str, int] = {
