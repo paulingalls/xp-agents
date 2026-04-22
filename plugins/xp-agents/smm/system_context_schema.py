@@ -25,6 +25,13 @@ MODULE_FIELD_MAXLENGTH: dict[str, int] = {
 
 CONVENTION_MAXLENGTH: int = 150
 
+BRANCHING_STRATEGY_FIELD_MAXLENGTH: dict[str, int] = {
+    "rationale": 300,
+    "user_namespace": 50,
+}
+
+_BRANCHING_STRATEGY_REQUIRED = frozenset({"stage"})
+
 KEY_DECISION_FIELD_MAXLENGTH: dict[str, int] = {
     "decision": 200,
     "rationale": 200,
@@ -165,6 +172,69 @@ def _validate_key_decision(
     return errors
 
 
+def _validate_branching_strategy(
+    bs: object, *, enforce_budget: bool = True
+) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(bs, dict):
+        return ["branching_strategy must be an object"]
+
+    for field in _BRANCHING_STRATEGY_REQUIRED:
+        if field not in bs:
+            errors.append(f"branching_strategy missing required field: {field}")
+
+    if errors:
+        return errors
+
+    stage = bs["stage"]
+    if not isinstance(stage, int) or isinstance(stage, bool):
+        errors.append("branching_strategy.stage must be an integer")
+    elif stage < 0 or stage > 3:
+        errors.append(f"branching_strategy.stage must be 0-3 (got {stage})")
+
+    if "user_namespace" in bs:
+        if not isinstance(bs["user_namespace"], str):
+            errors.append("branching_strategy.user_namespace must be a string")
+        elif enforce_budget:
+            max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["user_namespace"]
+            if len(bs["user_namespace"]) > max_len:
+                errors.append(
+                    f"branching_strategy.user_namespace exceeds budget"
+                    f" ({len(bs['user_namespace'])} > {max_len} chars)"
+                )
+
+    if "protected_branches" in bs:
+        pb = bs["protected_branches"]
+        if not isinstance(pb, list):
+            errors.append("branching_strategy.protected_branches must be a list")
+        else:
+            for idx, item in enumerate(pb):
+                if not isinstance(item, str):
+                    errors.append(
+                        f"branching_strategy.protected_branches[{idx}] must be a string"
+                    )
+
+    if "integration_branch" in bs:
+        ib = bs["integration_branch"]
+        if ib is not None and not isinstance(ib, str):
+            errors.append(
+                "branching_strategy.integration_branch must be a string or null"
+            )
+
+    if "rationale" in bs:
+        if not isinstance(bs["rationale"], str):
+            errors.append("branching_strategy.rationale must be a string")
+        elif enforce_budget:
+            max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["rationale"]
+            if len(bs["rationale"]) > max_len:
+                errors.append(
+                    f"branching_strategy.rationale exceeds budget"
+                    f" ({len(bs['rationale'])} > {max_len} chars)"
+                )
+
+    return errors
+
+
 def _validate_project_specific_entry(entry: object, idx: int) -> list[str]:
     errors: list[str] = []
     if not isinstance(entry, dict):
@@ -256,5 +326,12 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
                     )
                 else:
                     seen_names.add(entry["name"])
+
+    if "branching_strategy" in data:
+        errors.extend(
+            _validate_branching_strategy(
+                data["branching_strategy"], enforce_budget=enforce_budget
+            )
+        )
 
     return errors
