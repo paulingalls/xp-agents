@@ -146,11 +146,18 @@ def make_concern(
     severity: str,
     agent_id: str,
     references: list[str] | None = None,
+    files: list[str] | None = None,
 ) -> dict:
-    """Build a concern event dict. `references` attaches WEAK cascade links."""
+    """Build a concern event dict.
+
+    `references` attaches WEAK cascade links.
+    `files` records affected file paths for file-overlap resolution.
+    """
     extra: dict = {"severity": severity}
     if references:
         extra["references"] = references
+    if files:
+        extra["files"] = files
     return make_event(CONCERN, agent_id, content, **extra)
 
 
@@ -188,6 +195,7 @@ def detect_conflicts(
         content: str,
         severity: str,
         references: list[str] | None = None,
+        files: list[str] | None = None,
     ) -> None:
         """Append concern only if no unresolved duplicate exists.
 
@@ -203,7 +211,13 @@ def detect_conflicts(
             elif prior_count >= 1:
                 severity = "medium"
             concerns.append(
-                make_concern(content, severity, agent_id, references=references)
+                make_concern(
+                    content,
+                    severity,
+                    agent_id,
+                    references=references,
+                    files=files,
+                )
             )
             existing_unresolved.add(content)
 
@@ -224,6 +238,7 @@ def detect_conflicts(
                     f"Overlapping working_on: agent '{aid}' is also working on "
                     f"'{file_path}'. Coordinate to avoid conflicts.",
                     "medium",
+                    files=[normalized],
                 )
 
     # 2. Assumption contradicted by discovery

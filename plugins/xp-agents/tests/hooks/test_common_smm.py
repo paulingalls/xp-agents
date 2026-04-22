@@ -113,6 +113,19 @@ class TestDetectConflictsCommon(_HookTestCase):
         )
         self.assertTrue(any("overlap" in c["content"].lower() for c in found))
 
+    def test_overlap_concern_has_files_field(self):
+        events = [
+            make_event("status", agent_id="other", working_on=["/tmp/src/app.ts"]),
+        ]
+        found = concerns.detect_conflicts(
+            events, "main", file_path="/tmp/src/app.ts", cwd="/tmp"
+        )
+        overlap = [c for c in found if "overlap" in c["content"].lower()]
+        self.assertTrue(len(overlap) > 0)
+        self.assertIn("files", overlap[0])
+        self.assertEqual(len(overlap[0]["files"]), 1)
+        self.assertTrue(overlap[0]["files"][0].endswith("app.ts"))
+
     def test_no_overlap_different_file(self):
         events = [
             make_event("status", agent_id="other", working_on=["/tmp/src/other.ts"]),
@@ -462,6 +475,33 @@ class TestAppendSafeBudget(_HookTestCase):
         _common.append_safe(self.smm_dir, event)
         events = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(events), 1)
+
+
+class TestMakeConcernFiles(unittest.TestCase):
+    def test_make_concern_without_files(self):
+        event = concerns.make_concern("bug found", "medium", "main")
+        self.assertNotIn("files", event)
+
+    def test_make_concern_with_files(self):
+        event = concerns.make_concern(
+            "lint error", "medium", "main", files=["scripts/foo.py"]
+        )
+        self.assertEqual(event["files"], ["scripts/foo.py"])
+
+    def test_make_concern_empty_files_not_set(self):
+        event = concerns.make_concern("bug", "low", "main", files=[])
+        self.assertNotIn("files", event)
+
+    def test_make_concern_with_references_and_files(self):
+        event = concerns.make_concern(
+            "issue",
+            "high",
+            "main",
+            references=["abc123def456"],
+            files=["scripts/bar.py"],
+        )
+        self.assertEqual(event["references"], ["abc123def456"])
+        self.assertEqual(event["files"], ["scripts/bar.py"])
 
 
 if __name__ == "__main__":
