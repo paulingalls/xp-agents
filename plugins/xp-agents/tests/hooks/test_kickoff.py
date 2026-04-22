@@ -6,9 +6,11 @@ part of the PostToolUse:Skill replacement plan — the housekeeping handler
 now lives in subagent_stop.py.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -130,6 +132,53 @@ class TestKickoffGate(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
+        self.assertIsNone(result)
+
+    def test_worktree_teammate_skips_via_cwd(self):
+        """Teammate detected by CWD path skips kickoff gate."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result = kickoff_gate.run(
+            {
+                "session_id": "test",
+                "prompt": "work",
+                "cwd": "/project/.claude/worktrees/teammate-step-1/src",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    def test_non_teammate_worktree_not_skipped(self):
+        """Non-teammate worktrees (e.g. user EnterWorktree) go through the gate."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        result = kickoff_gate.run(
+            {
+                "session_id": "test",
+                "prompt": "work",
+                "cwd": "/project/.claude/worktrees/explore-abc/src",
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["decision"], "block")
+
+    def test_worktree_teammate_skips_via_env_var(self):
+        """Teammate detected by XP_TEAMMATE_NAME env var skips kickoff gate."""
+        import kickoff_gate
+
+        (self.smm_dir / ".needs-kickoff").write_text("startup")
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "teammate-step-1"}):
+            result = kickoff_gate.run(
+                {
+                    "session_id": "test",
+                    "prompt": "work",
+                    "cwd": "/project/src",
+                },
+                smm_dir=self.smm_dir,
+            )
         self.assertIsNone(result)
 
     def test_clear_marker_nudges_instead_of_blocking(self):

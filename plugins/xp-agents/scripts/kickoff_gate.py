@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import identity
 import markers
 
 _NUDGE = "nudge"
@@ -37,8 +38,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> dict | str | None:
     if _common.is_xp_agent(input_data):
         return None
 
-    cwd = input_data.get("cwd", "")
-    if "/.claude/worktrees/" in cwd:
+    if identity.is_worktree_teammate(input_data):
         return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
