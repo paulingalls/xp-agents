@@ -292,7 +292,7 @@ When layers stay in their lanes, dedup saves tokens without losing signal. When 
 2. Teammate spawn prompt must include milestone context + story context (not just story). Update prompt-writing logic in `spawn_teammate.py` or teammate prompt template.
 3. `/xp-review-plan`: flag "story context rehearses milestone rationale" as **redundancy concern**, not density feature.
 
-**Stronger governance via JSON migration.** `system_context.md` is the only plan-artifact still stored as free-form markdown (others are JSON-with-schema-with-render-CLI). Converting enables per-field `maxLength` (same discipline as §1/§2), targeted section reads, runtime-derived inventory fields (no drift), and ecosystem consistency. Generic-core schema + `project_specific` extension point keeps it portable across projects (xp-agents = hook API + SMM engine; React webapp = component library + routing). Own initiative — 4 stories, ships after M1 establishes schema patterns. See **[SYSTEM_CONTEXT_JSON_MIGRATION.md](./SYSTEM_CONTEXT_JSON_MIGRATION.md)**.
+**Stronger governance via JSON migration.** `system_context.md` is the only plan-artifact still stored as free-form markdown (others are JSON-with-schema-with-render-CLI). Converting enables per-field `maxLength` (same discipline as §1/§2), targeted section reads, runtime-derived inventory fields (no drift), and ecosystem consistency. Generic-core schema + `project_specific` extension point keeps it portable across projects (xp-agents = hook API + SMM engine; React webapp = component library + routing). Own initiative — 4 stories, ships after M1 establishes schema patterns. See **[SYSTEM_CONTEXT_JSON_MIGRATION.md](SYSTEM_CONTEXT_JSON_MIGRATION.md)**.
 
 **Aggregate savings (composite plan surface):** ours 48 KB → ~34 KB (**29% composite**). Above 10% ceiling but via relocation (content lives in canonical home), not deletion. User-warned caution: ship dedup + read-path updates in same sprint; measure reviewer insufficiency concerns for 2-3 sprints; relax budgets if needed.
 
@@ -635,7 +635,7 @@ This doc is the design source for `/xp-plan` to consume. Each milestone maps to 
 | **M7** | Plan-layer dedup (execution_plan / sprint.json field budgets) + plan-reader skill updates | §5 | ~14 KB composite. Generous 10% target. | Independent. Monitor rework risk. |
 | **M8** | Open-questions nudge dedup cache + SubagentStart tier docstring cleanup | §6 | ~1-2 KB/session direct. Small, bounded. | None. |
 | **M9** | Dedicated prompt-tightening mini-sprint — 5 untouched files (xp-code-reviewer, xp-sprint-reviewer, xp-assign, xp-quality-review, xp-accept) | §8 | ~17 KB one-time + per-subagent-load ongoing. | After M4-M7 so bloat-pattern discipline is established. |
-| **(side)** | SYSTEM_CONTEXT_JSON_MIGRATION | — | Schema enforcement + targeted reads + runtime-derived counts | See [SYSTEM_CONTEXT_JSON_MIGRATION.md](./SYSTEM_CONTEXT_JSON_MIGRATION.md). Ships after M1. |
+| **(side)** | SYSTEM_CONTEXT_JSON_MIGRATION | — | Schema enforcement + targeted reads + runtime-derived counts | See [SYSTEM_CONTEXT_JSON_MIGRATION.md](SYSTEM_CONTEXT_JSON_MIGRATION.md). Ships after M1. |
 
 **/xp-plan consumption:** each row → one milestone. `sources` field points back to `docs/ideas/VERBOSITY_AUDIT.md §N`. Milestone fields (`goal`, `done`, `design_details`, `constraints`, `change_zones`) come from that section's `Recommended changes` + `Implementation` + `Signal-loss check` subsections.
 

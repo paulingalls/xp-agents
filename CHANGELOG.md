@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.23.0 — Consolidation refactor + concern auto-link support
+
+Sprint-020 delivers Milestones 1 and 2 of the Consolidation Refactor plan (6/6 stories, 100% delivery). Post-sprint: concern events now carry file paths for auto-link detection.
+
+- **`load_events_with_resolutions` helper.** New `_common.load_events_with_resolutions(smm_dir)` consolidates the scattered `read_events_raw` + `compute_resolutions` two-step prologue into a single call returning `(events, resolutions)`. 7 call sites migrated: `pre_tool_bash.py`, `commits.py`, `prompt_nugget.py`, `concerns.py`, `session_end.py`, `retrospective.py`, `retro_metrics.py` (indirect).
+
+- **Import normalization.** All `compute_resolutions` imports normalized to module-qualified `import resolution` style. Stale `_append_impl.py` re-export removed. 3 import styles collapsed to 1 across 14+ files.
+
+- **Optional `resolutions` threading.** `concerns._find_unresolved`, `resolve_concerns`, `has_unresolved_concerns`, `commits.open_issues_matching_commit`, `session_end._compute_summary`, and `retrospective._build_retro_input` accept optional `resolutions` kwarg to skip redundant computation.
+
+- **Concern `files` field.** `make_concern()` gains optional `files` param. Populated at 4 call sites: lint concerns (`lint_check.py`), commit-size concerns (`bash_post_tool.py`), write-conflict concerns (`pre_tool_write.py`), and overlapping-working_on concerns (`concerns.py`). Enables `triage_preload` file-overlap detection for "LIKELY ADDRESSED" annotation.
+
+- **Test file splits.** `test_session_start.py` split (756→406+362 lines), `test_markers.py` split (531→284+268 lines). Both under 500-line max.
+
+- **Tests.** 2581 total (up from 2576 at v2.22.0). 5 new tests for `load_events_with_resolutions` helper, `make_concern` files param, and overlap concern files field.
+
 ## v2.22.0 — System context migrated to JSON
 
 Sprint-019 delivers Milestones 2 and 3 of the System Context JSON Migration plan (3/3 stories, 100% delivery). All 3 milestones now delivered — migration complete.
