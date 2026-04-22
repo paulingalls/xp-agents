@@ -107,10 +107,10 @@ def _per_agent_event_counts(events: list[dict], started: str) -> dict:
     }
 
 
-def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
-    """Compute full sizing analysis for a completed sprint.
+def compute_story_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
+    """Compute per-story metrics for a completed sprint.
 
-    Returns sizing_analysis dict or None if no sprint data.
+    Returns story analysis dict or None if no sprint data.
     """
     sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
@@ -125,11 +125,11 @@ def compute_sizing_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
         if e.get("type") == _common.COMMIT and e.get("ts", "")[:10] >= started
     ]
 
-    story_metrics = _attribute_commits(commit_events, sprint["stories"])
+    attribution = _attribute_commits(commit_events, sprint["stories"])
 
     per_story = []
     for s in sprint["stories"]:
-        m = story_metrics[s["id"]]
+        m = attribution[s["id"]]
         per_story.append(
             {
                 "id": s["id"],

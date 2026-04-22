@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for sizing_metrics.py — full analysis and per-agent aggregates."""
+"""Tests for story_metrics.py — full analysis and per-agent aggregates."""
 
 import sys
 import unittest
@@ -37,7 +37,7 @@ SPRINT_WITH_DOMAINS = _sprint_json(
 
 class TestComputeSizingAnalysis(_HookTestCase):
     def test_full_sizing_analysis(self):
-        import sizing_metrics
+        import story_metrics
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_DOMAINS)
         events = [
@@ -53,7 +53,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
             ),
         ]
 
-        result = sizing_metrics.compute_sizing_analysis(
+        result = story_metrics.compute_story_analysis(
             self.smm_dir,
             events,
         )
@@ -75,7 +75,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
         self.assertEqual(story_002["commits"], 1)
 
     def test_commit_before_sprint_excluded(self):
-        import sizing_metrics
+        import story_metrics
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_DOMAINS)
         events = [
@@ -86,7 +86,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
             ),
         ]
 
-        result = sizing_metrics.compute_sizing_analysis(
+        result = story_metrics.compute_story_analysis(
             self.smm_dir,
             events,
         )
@@ -94,13 +94,13 @@ class TestComputeSizingAnalysis(_HookTestCase):
         self.assertEqual(story_001["commits"], 0)
 
     def test_no_sprint_returns_none(self):
-        import sizing_metrics
+        import story_metrics
 
-        result = sizing_metrics.compute_sizing_analysis(self.smm_dir, [])
+        result = story_metrics.compute_story_analysis(self.smm_dir, [])
         self.assertIsNone(result)
 
     def test_per_story_has_no_size_field(self):
-        import sizing_metrics
+        import story_metrics
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_DOMAINS)
         events = [
@@ -111,7 +111,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
             ),
         ]
 
-        result = sizing_metrics.compute_sizing_analysis(
+        result = story_metrics.compute_story_analysis(
             self.smm_dir,
             events,
         )
@@ -121,7 +121,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
 
     def test_attribution_anomaly_truth_table(self):
         """attribution_anomaly is True iff status=deferred AND commits>0."""
-        import sizing_metrics
+        import story_metrics
 
         cases = [
             ("deferred", True, True),
@@ -156,7 +156,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
                     else []
                 )
 
-                result = sizing_metrics.compute_sizing_analysis(self.smm_dir, events)
+                result = story_metrics.compute_story_analysis(self.smm_dir, events)
                 self.assertIs(result["per_story"][0]["attribution_anomaly"], expected)
 
 
@@ -165,7 +165,7 @@ class TestPerAgentAggregates(_HookTestCase):
 
     def test_parallel_teammates_per_agent_max_events(self):
         """3 teammates x 30 events each: per_agent max=30, not aggregate 90."""
-        import sizing_metrics
+        import story_metrics
 
         sprint = _sprint_json(
             [
@@ -203,7 +203,7 @@ class TestPerAgentAggregates(_HookTestCase):
             )
             events[-1]["agent_id"] = agent_id
 
-        result = sizing_metrics.compute_sizing_analysis(self.smm_dir, events)
+        result = story_metrics.compute_story_analysis(self.smm_dir, events)
         self.assertIn("per_agent", result)
         pa = result["per_agent"]
         self.assertEqual(len(pa), 3)
@@ -211,9 +211,9 @@ class TestPerAgentAggregates(_HookTestCase):
             self.assertIn(agent_id, pa)
             self.assertEqual(pa[agent_id]["max_events_to_commit"], 30)
 
-    def test_compute_sizing_analysis_gains_per_agent_key(self):
-        """compute_sizing_analysis return shape gains per_agent dict."""
-        import sizing_metrics
+    def test_compute_story_analysis_gains_per_agent_key(self):
+        """compute_story_analysis return shape gains per_agent dict."""
+        import story_metrics
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_DOMAINS)
         events = [
@@ -223,7 +223,7 @@ class TestPerAgentAggregates(_HookTestCase):
                 story_id="story-001",
             ),
         ]
-        result = sizing_metrics.compute_sizing_analysis(self.smm_dir, events)
+        result = story_metrics.compute_story_analysis(self.smm_dir, events)
         self.assertIn("per_agent", result)
         self.assertIsInstance(result["per_agent"], dict)
 

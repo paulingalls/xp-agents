@@ -2,7 +2,7 @@
 """E2E test for sprint-006 M2: retire domain_accuracy; fix multi-way ties.
 
 Cross-story integration test that exercises BOTH:
-- story-001 (sizing_metrics retires domain_accuracy/in_domain_files/out_of_domain_files;
+- story-001 (story_metrics retires domain_accuracy/in_domain_files/out_of_domain_files;
   emits informational cascade_size in per-story sizing_analysis dicts).
 - story-002 (_resolve_story_id returns None on multi-way domain-overlap ties so
   cross-cutting commits aggregate at sprint level instead of polluting one story).

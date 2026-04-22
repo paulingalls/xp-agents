@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import sizing_metrics
+import story_metrics
 from event_schema import (
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
@@ -249,7 +249,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     retro_input = _build_retro_input(events, start_idx, retro_history, resolutions)
 
     if sprint_id is not None:
-        sizing = sizing_metrics.compute_sizing_analysis(smm_dir, events)
+        sizing = story_metrics.compute_story_analysis(smm_dir, events)
         if sizing is not None:
             link_stats = _compute_resolves_link_rate(events, sizing.get("started"))
             if link_stats["resolves_probe_total"] > 0:

@@ -130,8 +130,8 @@ def _resolve_story_id(
             so cross-cutting commits aggregate at sprint level.
     Tier 3: Non-sprint / infrastructure — returns None.
     """
-    import sizing_metrics
     import sprint_store
+    import story_metrics
 
     name = identity.extract_worktree_name(cwd) or "main"
     assignment = worktree.story_assignment_path(smm_dir, name)
@@ -157,11 +157,11 @@ def _resolve_story_id(
     best_overlap = 0
     tied = False
     for story in in_progress:
-        domain = sizing_metrics.extract_file_domain_paths(story.get("file_domain", []))
+        domain = story_metrics.extract_file_domain_paths(story.get("file_domain", []))
         if not domain:
             continue
         overlap = sum(
-            1 for f in committed_files if sizing_metrics.file_matches_domain(f, domain)
+            1 for f in committed_files if story_metrics.file_matches_domain(f, domain)
         )
         if overlap > best_overlap:
             best_overlap = overlap
