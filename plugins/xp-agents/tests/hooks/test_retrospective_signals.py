@@ -15,26 +15,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
 
+# -- Shared helpers for honesty-signal tests ----------------------------------
+
+
+def _make_write_status(path: str) -> dict:
+    return make_event("status", content=f"Wrote to {path}", working_on=[path])
+
+
+def _make_test_status() -> dict:
+    return make_event("status", content="Tests: 5 passed, 0 failed", working_on=[])
+
 
 class TestHonestySignals(unittest.TestCase):
     """Tests for _build_honesty_signals unique file counting."""
-
-    def _make_write_status(self, path: str) -> dict:
-        return make_event("status", content=f"Wrote to {path}", working_on=[path])
-
-    def _make_test_status(self) -> dict:
-        return make_event("status", content="Tests: 5 passed, 0 failed", working_on=[])
 
     def test_counts_unique_files_not_raw_writes(self):
         """4 writes to same file between tests should count as 1."""
         import honesty_signals
 
         events = [
-            self._make_write_status("src/app.py"),
-            self._make_write_status("src/app.py"),
-            self._make_write_status("src/app.py"),
-            self._make_write_status("src/app.py"),
-            self._make_test_status(),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/app.py"),
+            _make_test_status(),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
@@ -44,10 +48,10 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            self._make_write_status("src/app.py"),
-            self._make_write_status("src/db.py"),
-            self._make_write_status("src/api.py"),
-            self._make_test_status(),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/db.py"),
+            _make_write_status("src/api.py"),
+            _make_test_status(),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 3)
@@ -57,11 +61,11 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            self._make_write_status("src/app.py"),
-            self._make_write_status("src/db.py"),
-            self._make_test_status(),
-            self._make_write_status("src/api.py"),
-            self._make_test_status(),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/db.py"),
+            _make_test_status(),
+            _make_write_status("src/api.py"),
+            _make_test_status(),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 2)
@@ -71,9 +75,9 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            self._make_write_status("tests/test_app.py"),
-            self._make_write_status("src/app.py"),
-            self._make_test_status(),
+            _make_write_status("tests/test_app.py"),
+            _make_write_status("src/app.py"),
+            _make_test_status(),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
@@ -83,10 +87,10 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            self._make_write_status("README.md"),
-            self._make_write_status("config.json"),
-            self._make_write_status("src/app.py"),
-            self._make_test_status(),
+            _make_write_status("README.md"),
+            _make_write_status("config.json"),
+            _make_write_status("src/app.py"),
+            _make_test_status(),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
@@ -290,6 +294,94 @@ class TestCommitAsSignalEvent(_HookTestCase):
         data = json.loads((self.smm_dir / ".retro-input.json").read_text())
         signal_types = [e["type"] for e in data["digest"]["signal_events"]]
         self.assertIn("commit", signal_types)
+
+
+class TestRefactorModeExclusion(unittest.TestCase):
+    """Tests for refactor-mode span exclusion in build_honesty_signals."""
+
+    def _make_refactor_mode_assumption(
+        self, content: str = "refactor mode: splitting modules"
+    ) -> dict:
+        return make_event("assumption", content=content)
+
+    def _make_commit(self) -> dict:
+        return make_event(
+            "commit",
+            content="Fix something",
+            metadata={"code_commit": True, "commit_hash": "abc123"},
+        )
+
+    def test_refactor_mode_excludes_files(self):
+        """File writes within a refactor-mode span should not count."""
+        import honesty_signals
+
+        events = [
+            self._make_refactor_mode_assumption(),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/db.py"),
+            _make_write_status("src/api.py"),
+            _make_test_status(),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 0)
+
+    def test_undeclared_batch_still_counts(self):
+        """File writes without a refactor-mode assumption still count."""
+        import honesty_signals
+
+        events = [
+            _make_write_status("src/app.py"),
+            _make_write_status("src/db.py"),
+            _make_write_status("src/api.py"),
+            _make_test_status(),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 3)
+
+    def test_refactor_mode_resets_on_commit(self):
+        """Refactor-mode span ends at commit — subsequent writes count."""
+        import honesty_signals
+
+        events = [
+            self._make_refactor_mode_assumption(),
+            _make_write_status("src/app.py"),
+            self._make_commit(),
+            _make_write_status("src/db.py"),
+            _make_write_status("src/api.py"),
+            _make_test_status(),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["max_unique_files_without_test"], 2)
+
+    def test_refactor_mode_excluded_count(self):
+        """refactor_mode_excluded_files key should reflect excluded count."""
+        import honesty_signals
+
+        events = [
+            self._make_refactor_mode_assumption(),
+            _make_write_status("src/app.py"),
+            _make_write_status("src/db.py"),
+            _make_test_status(),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["refactor_mode_excluded_files"], 2)
+
+    def test_refactor_mode_case_insensitive(self):
+        """Both 'Refactor Mode:' and 'refactor-mode' should match."""
+        import honesty_signals
+
+        for content in ["Refactor Mode: file split", "refactor-mode: renaming"]:
+            events = [
+                self._make_refactor_mode_assumption(content),
+                _make_write_status("src/app.py"),
+                _make_test_status(),
+            ]
+            signals = honesty_signals.build_honesty_signals(events)
+            self.assertEqual(
+                signals["max_unique_files_without_test"],
+                0,
+                f"Failed for content: {content}",
+            )
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ _TEST_RUN_RE = _common.TEST_RUN_RE
 _SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
 _PLAN_RE = re.compile(r"plan_awaiting_review:", re.IGNORECASE)
+_REFACTOR_MODE_RE = re.compile(r"refactor.mode", re.IGNORECASE)
 
 
 def build_honesty_signals(events: list[dict]) -> dict:
@@ -43,6 +44,8 @@ def build_honesty_signals(events: list[dict]) -> dict:
     assumption_count = 0
     file_write_count = 0
     planning_events = 0
+    in_refactor_mode = False
+    refactor_mode_excluded: set[str] = set()
 
     from pre_tool_write import is_test_file
 
@@ -55,6 +58,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
         )
         if is_commit:
             total_commits += 1
+            in_refactor_mode = False
             is_code = e.get("metadata", {}).get("code_commit", True)
             if is_code:
                 code_commits += 1
@@ -70,7 +74,12 @@ def build_honesty_signals(events: list[dict]) -> dict:
                 if security.is_code_file(path):
                     file_write_count += 1
                     if not is_test_file(path):
-                        unique_files_since_test.add(path)
+                        target = (
+                            refactor_mode_excluded
+                            if in_refactor_mode
+                            else unique_files_since_test
+                        )
+                        target.add(path)
             elif _TEST_RUN_RE.search(content):
                 max_unique_files_without_test = max(
                     max_unique_files_without_test,
@@ -85,12 +94,15 @@ def build_honesty_signals(events: list[dict]) -> dict:
             concern_count += 1
         elif etype == _common.ASSUMPTION:
             assumption_count += 1
+            if _REFACTOR_MODE_RE.search(content):
+                in_refactor_mode = True
 
     max_unique_files_without_test = max(
         max_unique_files_without_test, len(unique_files_since_test)
     )
 
     signals["max_unique_files_without_test"] = max_unique_files_without_test
+    signals["refactor_mode_excluded_files"] = len(refactor_mode_excluded)
     signals["commits_without_security_check"] = commits_without_security_check
     signals["total_commits"] = total_commits
     signals["code_file_writes"] = file_write_count
