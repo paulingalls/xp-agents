@@ -6,6 +6,7 @@ Detects CLI teammates by worktree directory prefix.
 """
 
 import os
+import re
 import subprocess
 
 _WORKTREE_PATH_MARKER = "/.claude/worktrees/"
@@ -13,11 +14,11 @@ _TEAMMATE_PREFIX = "teammate-"
 _XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 
 
-def get_current_branch(cwd: str) -> str:
-    """Get current git branch name, or empty string on failure."""
+def _git_stdout(args: list[str], cwd: str) -> str:
+    """Run a git command and return stripped stdout, or empty on failure."""
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            args,
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -26,6 +27,11 @@ def get_current_branch(cwd: str) -> str:
         return result.stdout.strip() if result.returncode == 0 else ""
     except (subprocess.SubprocessError, OSError):
         return ""
+
+
+def get_current_branch(cwd: str) -> str:
+    """Get current git branch name, or empty string on failure."""
+    return _git_stdout(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
 
 
 def extract_worktree_name(cwd: str) -> str | None:
@@ -60,3 +66,35 @@ def resolve_agent_id_from_cwd(cwd: str) -> str:
     For skill-invoked scripts that have cwd but no hook input_data.
     """
     return extract_worktree_name(cwd) or "main"
+
+
+def _slugify(s: str) -> str:
+    """Lowercase, replace non-alphanumeric with dash, collapse, strip."""
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-")
+
+
+def _git_config(key: str, cwd: str) -> str:
+    """Read a git config value, or return empty string on failure."""
+    return _git_stdout(["git", "config", key], cwd)
+
+
+def user_namespace(cwd: str) -> str:
+    """Derive a branch-naming namespace from git config.
+
+    Tries user.email local-part first, falls back to user.name, then "user".
+    """
+    email = _git_config("user.email", cwd)
+    if email and "@" in email:
+        slug = _slugify(email.split("@")[0])
+        if slug:
+            return slug
+
+    name = _git_config("user.name", cwd)
+    if name:
+        slug = _slugify(name)
+        if slug:
+            return slug
+
+    return "user"
