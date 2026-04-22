@@ -17,7 +17,6 @@ import markers
 import security
 import worktree
 from event_schema import METADATA_KEY_RESOLVES
-from resolution import compute_resolutions
 
 # ---------------------------------------------------------------------------
 # Bash file-modification heuristic
@@ -57,10 +56,10 @@ def _open_questions_context(smm_dir: Path, agent_id: str) -> str | None:
     Tracks per-(question_id, agent_id) fire count via QUESTION_NUDGED marker.
     After _MAX_NUDGE_FIRES fires, that question is muted for this agent.
     """
-    events = _common.read_events_raw(smm_dir)
+    events, resolutions = _common.load_events_with_resolutions(smm_dir)
     if not events:
         return None
-    answered = compute_resolutions(events)["answered_question_ids"]
+    answered = resolutions["answered_question_ids"]
 
     fire_counts: dict[str, int] = {}
     marker_data = markers.marker_read(smm_dir, markers.QUESTION_NUDGED, agent_id)
