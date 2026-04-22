@@ -288,6 +288,7 @@ def _handle_commit(
                 agent_id,
                 f"Commit touches {file_count} files — consider smaller commits.",
                 severity="medium",
+                files=committed_files,
             )
         )
 

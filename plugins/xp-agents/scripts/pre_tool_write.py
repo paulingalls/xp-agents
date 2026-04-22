@@ -238,6 +238,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 agent_id,
                 conflict,
                 severity="high",
+                files=[target_file],
             )
             _common.append_safe(smm_dir, concern_event)
             raise _common.BlockedError(

@@ -351,6 +351,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 agent_id,
                 f"{concerns.LINT_CONCERN_PREFIX}{normalized}: {summary}",
                 severity="medium",
+                files=[normalized],
             )
             _common.append_safe(smm_dir, concern)
         # Return as additionalContext for immediate feedback
