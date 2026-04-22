@@ -9,8 +9,8 @@ uses directly — no LLM judgment on numeric thresholds.
 
 def _flag(
     metric: str,
-    value: object,
-    threshold: object,
+    value: int,
+    threshold: int,
     xp_value: str,
     message: str,
 ) -> dict:
@@ -41,15 +41,18 @@ def evaluate_flags(
     active_decisions = set(decisions) if decisions else set()
 
     tdd = honesty_signals.get("max_unique_files_without_test", 0)
+    refactor_excluded = honesty_signals.get("refactor_mode_excluded_files", 0)
     if tdd >= 5:
+        msg = f"TDD gap: {tdd} unique files written without a test run (threshold: 5)"
+        if refactor_excluded > 0:
+            msg += f", {refactor_excluded} excluded as refactor-mode"
         flags.append(
             _flag(
                 "max_unique_files_without_test",
                 tdd,
                 5,
                 "Feedback",
-                f"TDD gap: {tdd} unique files written "
-                f"without a test run (threshold: 5)",
+                msg,
             )
         )
 

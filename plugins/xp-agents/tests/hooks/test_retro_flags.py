@@ -63,6 +63,32 @@ class TestTDDStreak(unittest.TestCase):
         names = [f["metric"] for f in flags]
         self.assertNotIn("max_unique_files_without_test", names)
 
+    def test_message_includes_refactor_mode_annotation(self):
+        h, w, s, ss = _healthy_signals()
+        h["max_unique_files_without_test"] = 5
+        h["refactor_mode_excluded_files"] = 3
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        tdd = [f for f in flags if f["metric"] == "max_unique_files_without_test"]
+        self.assertEqual(len(tdd), 1)
+        self.assertIn("3 excluded as refactor-mode", tdd[0]["message"])
+
+    def test_message_unchanged_without_refactor_mode_key(self):
+        h, w, s, ss = _healthy_signals()
+        h["max_unique_files_without_test"] = 5
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        tdd = [f for f in flags if f["metric"] == "max_unique_files_without_test"]
+        self.assertEqual(len(tdd), 1)
+        self.assertNotIn("excluded as refactor-mode", tdd[0]["message"])
+
+    def test_message_unchanged_when_zero_excluded(self):
+        h, w, s, ss = _healthy_signals()
+        h["max_unique_files_without_test"] = 5
+        h["refactor_mode_excluded_files"] = 0
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        tdd = [f for f in flags if f["metric"] == "max_unique_files_without_test"]
+        self.assertEqual(len(tdd), 1)
+        self.assertNotIn("excluded as refactor-mode", tdd[0]["message"])
+
 
 class TestCommitsWithoutSecurityCheck(unittest.TestCase):
     def test_fires_when_nonzero(self):
