@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for auto-resolve of test-failure and lint concerns."""
 
+import shutil
 import sys
 import tempfile
 import unittest
@@ -147,8 +148,8 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         self.assertIsNone(result)
 
 
-class TestAutoResolveLintConcerns(_HookTestCase):
-    """Tests for auto-resolve of lint concerns when lint passes."""
+class _LintTmpDirMixin:
+    """Shared setUp/tearDown for tests needing a tmpdir with ruff.toml."""
 
     def setUp(self):
         super().setUp()
@@ -156,10 +157,12 @@ class TestAutoResolveLintConcerns(_HookTestCase):
         (self._lint_tmpdir / "ruff.toml").touch()
 
     def tearDown(self):
-        import shutil as sh
-
-        sh.rmtree(self._lint_tmpdir, ignore_errors=True)
+        shutil.rmtree(self._lint_tmpdir, ignore_errors=True)
         super().tearDown()
+
+
+class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
+    """Tests for auto-resolve of lint concerns when lint passes."""
 
     def _normalized(self, rel_path: str) -> str:
         """Return the normalized absolute path lint_check will use."""
@@ -247,6 +250,47 @@ class TestAutoResolveLintConcerns(_HookTestCase):
             if e.get("metadata", {}).get("resolves")
         ]
         self.assertEqual(len(new_resolutions), 0)
+
+
+class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
+    """Verify _resolve_lint_on_commit threads resolutions without re-computation."""
+
+    def test_precomputed_resolutions_skip_recomputation(self):
+        """When resolutions kwarg is provided, compute_resolutions is not called."""
+        import bash_post_tool
+        import resolution
+
+        norm = worktree.normalize_path("src/app.py", str(self._lint_tmpdir))
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
+            severity="medium",
+        )
+        self._write_events([concern])
+
+        events = self._read_events()
+        precomputed = resolution.compute_resolutions(events)
+
+        with (
+            patch(
+                "lint_check.detect_linter_config",
+                return_value=("ruff", None),
+            ),
+            patch("lint_check.run_linter", return_value=None),
+            patch(
+                "resolution.compute_resolutions",
+                wraps=resolution.compute_resolutions,
+            ) as mock_compute,
+        ):
+            bash_post_tool._resolve_lint_on_commit(
+                self.smm_dir,
+                str(self._lint_tmpdir),
+                "main",
+                ["src/app.py"],
+                events=events,
+                resolutions=precomputed,
+            )
+            mock_compute.assert_not_called()
 
 
 class TestLintConcernMatches(unittest.TestCase):

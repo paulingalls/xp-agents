@@ -38,6 +38,7 @@ def _resolve_lint_on_commit(
     agent_id: str,
     files: list[str],
     events: list[dict] | None = None,
+    resolutions: dict | None = None,
 ) -> None:
     """Run linter on committed files and resolve lint concerns for passing ones."""
     if not files:
@@ -61,6 +62,7 @@ def _resolve_lint_on_commit(
                 agent_id,
                 "Lint concern resolved on commit",
                 events=events,
+                resolutions=resolutions,
             )
 
 
