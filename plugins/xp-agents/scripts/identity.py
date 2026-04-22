@@ -5,9 +5,12 @@ Resolves agent identity from hook input, worktree CWD path, or defaults.
 Detects CLI teammates by worktree directory prefix.
 """
 
+import os
 import subprocess
 
 _WORKTREE_PATH_MARKER = "/.claude/worktrees/"
+_TEAMMATE_PREFIX = "teammate-"
+_XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 
 
 def get_current_branch(cwd: str) -> str:
@@ -35,9 +38,12 @@ def extract_worktree_name(cwd: str) -> str | None:
 
 
 def is_worktree_teammate(input_data: dict) -> bool:
-    """Detect CLI teammates by worktree cwd path with teammate- prefix."""
+    """Detect CLI teammates by worktree cwd path or XP_TEAMMATE_NAME env var."""
     name = extract_worktree_name(input_data.get("cwd", ""))
-    return name.startswith("teammate-") if name else False
+    if name and name.startswith(_TEAMMATE_PREFIX):
+        return True
+    env_name = os.environ.get(_XP_TEAMMATE_ENV, "")
+    return env_name.startswith(_TEAMMATE_PREFIX)
 
 
 def resolve_agent_id(input_data: dict) -> str:

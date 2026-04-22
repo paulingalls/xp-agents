@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -59,7 +60,7 @@ class TestResolveAgentId(unittest.TestCase):
 
 
 class TestIsWorktreeTeammate(unittest.TestCase):
-    """is_worktree_teammate detects CLI teammates by cwd path."""
+    """is_worktree_teammate detects CLI teammates by cwd path or env var."""
 
     def test_teammate_cwd_detected(self):
         inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src"}
@@ -82,6 +83,24 @@ class TestIsWorktreeTeammate(unittest.TestCase):
 
     def test_no_cwd_field_not_detected(self):
         self.assertFalse(identity.is_worktree_teammate({}))
+
+    def test_env_var_fallback_when_cwd_fails(self):
+        """XP_TEAMMATE_NAME env var detected when cwd has no worktree path."""
+        inp = {"cwd": "/home/user/project/src"}
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "teammate-step-1"}):
+            self.assertTrue(identity.is_worktree_teammate(inp))
+
+    def test_env_var_without_teammate_prefix_not_detected(self):
+        """XP_TEAMMATE_NAME without teammate- prefix is not detected."""
+        inp = {"cwd": "/home/user/project/src"}
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "explorer-1"}):
+            self.assertFalse(identity.is_worktree_teammate(inp))
+
+    def test_cwd_takes_precedence_over_env_var(self):
+        """CWD detection still works even when env var is set."""
+        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001"}
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "teammate-step-2"}):
+            self.assertTrue(identity.is_worktree_teammate(inp))
 
 
 class TestGetCurrentBranch(unittest.TestCase):
