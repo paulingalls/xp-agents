@@ -357,6 +357,110 @@ class TestAddDecisionCommand(_SMMTestCase):
 # ── E2E ─────────────────────────────────────────────────────────
 
 
+# ── edit-branching ─────────────────────────────────────────────
+
+
+class TestEditBranchingCommand(_SMMTestCase):
+    def test_edit_branching_valid(self) -> None:
+        _write_doc(self.smm_dir)
+        bs = {"stage": 1, "user_namespace": "paul"}
+        result = run_cli(
+            _CLI,
+            ["edit-branching"],
+            self.smm_dir,
+            stdin_data=json.dumps(bs),
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["branching_strategy"]["stage"], 1)
+        self.assertEqual(data["branching_strategy"]["user_namespace"], "paul")
+
+    def test_edit_branching_invalid_stage(self) -> None:
+        _write_doc(self.smm_dir)
+        bs = {"stage": 5}
+        result = run_cli(
+            _CLI,
+            ["edit-branching"],
+            self.smm_dir,
+            stdin_data=json.dumps(bs),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Validation error", result.stderr)
+
+    def test_edit_branching_no_existing_context(self) -> None:
+        bs = {"stage": 1}
+        result = run_cli(
+            _CLI,
+            ["edit-branching"],
+            self.smm_dir,
+            stdin_data=json.dumps(bs),
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_edit_branching_replaces_existing(self) -> None:
+        doc = _valid_doc()
+        doc["branching_strategy"] = {"stage": 0}
+        _write_doc(self.smm_dir, doc)
+        bs = {"stage": 2, "protected_branches": ["main"]}
+        result = run_cli(
+            _CLI,
+            ["edit-branching"],
+            self.smm_dir,
+            stdin_data=json.dumps(bs),
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["branching_strategy"]["stage"], 2)
+
+
+# ── render branching strategy ──────────────────────────────────
+
+
+class TestRenderBranchingStrategy(_SMMTestCase):
+    def test_render_includes_branching_strategy(self) -> None:
+        doc = _valid_doc()
+        doc["branching_strategy"] = {
+            "stage": 2,
+            "user_namespace": "paul",
+            "protected_branches": ["main"],
+            "rationale": "Team project with CI",
+        }
+        _write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Branching Strategy", result.stdout)
+        self.assertIn("Stage 2", result.stdout)
+        self.assertIn("paul", result.stdout)
+        self.assertIn("main", result.stdout)
+
+    def test_render_omits_when_absent(self) -> None:
+        _write_doc(self.smm_dir)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("Branching Strategy", result.stdout)
+
+    def test_render_shows_integration_branch(self) -> None:
+        doc = _valid_doc()
+        doc["branching_strategy"] = {
+            "stage": 3,
+            "integration_branch": "develop",
+        }
+        _write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertIn("develop", result.stdout)
+
+    def test_section_command_returns_branching(self) -> None:
+        doc = _valid_doc()
+        doc["branching_strategy"] = {"stage": 1}
+        _write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["section", "branching_strategy"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Stage 1", result.stdout)
+
+
+# ── e2e ────────────────────────────────────────────────────────
+
+
 class TestE2E(_SMMTestCase):
     def test_create_edit_render_roundtrip(self) -> None:
         doc = _valid_doc()

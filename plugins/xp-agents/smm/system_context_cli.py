@@ -13,6 +13,7 @@ Usage:
     system_context_cli.py edit-field NAME --smm-dir DIR  < value.json
     system_context_cli.py add-module --smm-dir DIR       < module.json
     system_context_cli.py add-decision --smm-dir DIR     < decision.json
+    system_context_cli.py edit-branching --smm-dir DIR   < branching.json
 """
 
 import argparse
@@ -33,6 +34,7 @@ _SECTION_HEADINGS: dict[str, str] = {
     "conventions": "Conventions",
     "key_decisions": "Key Decisions",
     "sources": "Sources",
+    "branching_strategy": "Branching Strategy",
 }
 
 
@@ -61,6 +63,9 @@ def render_markdown(data: dict) -> str:
 
     for entry in data.get("project_specific", []):
         lines.extend(_render_project_specific(entry))
+
+    if "branching_strategy" in data:
+        _render_branching_strategy(lines, data["branching_strategy"])
 
     return "\n".join(lines)
 
@@ -112,6 +117,31 @@ def _render_sources(lines: list[str], sources: list[str]) -> None:
     lines.append("")
     for s in sources:
         lines.append(f"- {s}")
+    lines.append("")
+
+
+_STAGE_NAMES = {
+    0: "Stage 0 — Trunk (below plugin floor)",
+    1: "Stage 1 — Story branches",
+    2: "Stage 2 — Integration",
+    3: "Stage 3 — Release flow",
+}
+
+
+def _render_branching_strategy(lines: list[str], bs: dict) -> None:
+    lines.append("## Branching Strategy")
+    lines.append("")
+    stage = bs.get("stage", 0)
+    lines.append(f"- **Stage:** {_STAGE_NAMES.get(stage, f'Stage {stage}')}")
+    if "user_namespace" in bs:
+        lines.append(f"- **User Namespace:** {bs['user_namespace']}")
+    if bs.get("protected_branches"):
+        branches = ", ".join(f"`{b}`" for b in bs["protected_branches"])
+        lines.append(f"- **Protected Branches:** {branches}")
+    if bs.get("integration_branch"):
+        lines.append(f"- **Integration Branch:** `{bs['integration_branch']}`")
+    if bs.get("rationale"):
+        lines.append(f"- **Rationale:** {bs['rationale']}")
     lines.append("")
 
 
@@ -167,6 +197,9 @@ def _render_section(data: dict, name: str) -> str | None:
                 _render_key_decisions(lines, data["key_decisions"])
             case "sources":
                 _render_sources(lines, data["sources"])
+            case "branching_strategy":
+                if "branching_strategy" in data:
+                    _render_branching_strategy(lines, data["branching_strategy"])
         return "\n".join(lines)
 
     for entry in data.get("project_specific", []):
@@ -233,6 +266,9 @@ def _cmd_section(args: argparse.Namespace) -> int:
     return 0
 
 
+_OPTIONAL_TOP_LEVEL_FIELDS = frozenset({"branching_strategy"})
+
+
 def _cmd_edit_field(args: argparse.Namespace) -> int:
     data = store.load_system_context(args.smm_dir)
     if data is None:
@@ -240,7 +276,11 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
         return 1
 
     name = args.name
-    if name not in data and name != "project_specific":
+    if (
+        name not in data
+        and name != "project_specific"
+        and name not in _OPTIONAL_TOP_LEVEL_FIELDS
+    ):
         ps_names = [e["name"] for e in data.get("project_specific", [])]
         if name not in ps_names:
             print(f"Unknown field: {name!r}", file=sys.stderr)
@@ -253,7 +293,7 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
 
-    if name in data:
+    if name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
         data[name] = value
     else:
         for entry in data.get("project_specific", []):
@@ -289,6 +329,11 @@ def _cmd_append_to_list(args: argparse.Namespace, field: str) -> int:
     return 0
 
 
+def _cmd_edit_branching(args: argparse.Namespace) -> int:
+    args.name = "branching_strategy"
+    return _cmd_edit_field(args)
+
+
 def _cmd_add_module(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "modules")
 
@@ -320,6 +365,7 @@ def main() -> None:
 
     sub.add_parser("add-module", help="Add module from stdin JSON")
     sub.add_parser("add-decision", help="Add key decision from stdin JSON")
+    sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
 
     args = parser.parse_args()
 
@@ -332,6 +378,7 @@ def main() -> None:
         "edit-field": _cmd_edit_field,
         "add-module": _cmd_add_module,
         "add-decision": _cmd_add_decision,
+        "edit-branching": _cmd_edit_branching,
     }
 
     sys.exit(dispatch[args.command](args))
