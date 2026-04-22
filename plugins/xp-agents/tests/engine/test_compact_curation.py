@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for curation-watermark-based compaction.
+"""Tests for curation-watermark-based compaction: basic operations.
 
-Split from test_compact.py — covers TestCompactAfterCuration.
+Sprint lifecycle and team safety tests in test_compact_curation_sprint.py.
 """
 
 import json
@@ -54,12 +54,11 @@ class TestCompactAfterCuration(_SMMTestCase):
         old = self._make_session(session_num=1)
         new = self._make_session(session_num=2)
         self._write_events(old + new)
-        self._set_curation_watermark(len(old))  # watermark at boundary
+        self._set_curation_watermark(len(old))
 
         result = compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
         retained_contents = [e.get("content", "") for e in retained]
-        # All "new" session events retained
         for e in new:
             self.assertIn(e["content"], retained_contents)
         self.assertGreater(result["archived"], 0)
@@ -69,17 +68,15 @@ class TestCompactAfterCuration(_SMMTestCase):
         import compact
 
         all_events = []
-        for s in range(1, 7):  # 6 sessions
+        for s in range(1, 7):
             all_events.extend(self._make_session(session_num=s))
         self._write_events(all_events)
-        # Watermark after session 5, so session 6 events are post-watermark
-        wm = sum(4 for _ in range(5))  # 5 sessions * 4 events each
+        wm = sum(4 for _ in range(5))
         self._set_curation_watermark(wm)
 
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
         session_ends = [e for e in retained if e.get("type") == "session_end"]
-        # Session 6 (post-watermark) + 3 oldest retained
         pre_wm_ends = [
             e for e in session_ends if e.get("content", "") != "end session 6"
         ]
@@ -106,7 +103,7 @@ class TestCompactAfterCuration(_SMMTestCase):
             "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
         )
         self._write_events([goal, decision, concern, filler, session_end])
-        self._set_curation_watermark(5)  # all pre-watermark
+        self._set_curation_watermark(5)
 
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
@@ -114,7 +111,6 @@ class TestCompactAfterCuration(_SMMTestCase):
         self.assertIn(goal["id"], retained_ids)
         self.assertIn(decision["id"], retained_ids)
         self.assertIn(concern["id"], retained_ids)
-        # Filler status should be archived
         self.assertNotIn(filler["id"], retained_ids)
 
     def test_archives_resolved_permanent_before_watermark(self):
@@ -135,12 +131,11 @@ class TestCompactAfterCuration(_SMMTestCase):
             "status", content="new work", ts="2026-02-01T00:00:00+00:00"
         )
         self._write_events([goal, resolution, session_end, new_event])
-        self._set_curation_watermark(3)  # watermark before new_event
+        self._set_curation_watermark(3)
 
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
-        # Resolved goal is archivable
         self.assertNotIn(goal["id"], retained_ids)
 
     def test_unresolved_assumption_retained(self):
@@ -172,7 +167,7 @@ class TestCompactAfterCuration(_SMMTestCase):
         self.assertIn(assumption["id"], retained_ids)
 
     def test_resolved_assumption_archived(self):
-        """Resolved assumptions are archivable — fixes the accumulation bug."""
+        """Resolved assumptions are archivable."""
         import compact
 
         assumption = make_event(
@@ -210,7 +205,6 @@ class TestCompactAfterCuration(_SMMTestCase):
         import compact
 
         goal = make_event("goal", content="Ship v1", ts="2026-01-01T00:00:00+00:00")
-        # Goal is unresolved — no resolution event
         concern = make_event(
             "concern", content="Open issue", ts="2026-01-01T00:00:00+00:00"
         )
@@ -229,11 +223,8 @@ class TestCompactAfterCuration(_SMMTestCase):
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
         retained_ids = {e["id"] for e in retained}
-        # Goal is unresolved — retained
         self.assertIn(goal["id"], retained_ids)
-        # Concern is resolved — not retained
         self.assertNotIn(concern["id"], retained_ids)
-        # Resolution event for concern — not retained (concern is resolved)
         self.assertNotIn(partial_resolution["id"], retained_ids)
 
     def test_creates_backup_archive(self):
@@ -268,7 +259,6 @@ class TestCompactAfterCuration(_SMMTestCase):
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
         ids = [e["id"] for e in retained]
-        # Goal (unresolved) should come before session_end and new_event
         self.assertEqual(ids[0], goal["id"])
 
     def test_no_watermark_keeps_all(self):
@@ -277,7 +267,6 @@ class TestCompactAfterCuration(_SMMTestCase):
 
         events = self._make_session(session_num=1)
         self._write_events(events)
-        # No watermark set
 
         result = compact.compact_after_curation(self.smm_dir)
         self.assertEqual(result["archived"], 0)
@@ -291,13 +280,11 @@ class TestCompactAfterCuration(_SMMTestCase):
         all_events = self._make_session(session_num=1)
         new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
         self._write_events([*all_events, new_event])
-        # Create an old prompt-nugget watermark at a high value
         (self.smm_dir / ".watermark-prompt-nugget").write_text("100")
         self._set_curation_watermark(len(all_events))
 
         result = compact.compact_after_curation(self.smm_dir)
         self.assertGreater(result["archived"], 0)
-        # Watermark should be reset to retained count
         wm_text = (self.smm_dir / ".watermark-prompt-nugget").read_text().strip()
         self.assertEqual(int(wm_text), result["retained"])
 
@@ -316,10 +303,8 @@ class TestCompactAfterCuration(_SMMTestCase):
 
         compact.compact_after_curation(self.smm_dir)
         wm = materialize.read_curation_watermark(self.smm_dir)
-        # Curation watermark should point to the boundary between
-        # retained pre-watermark events and post-watermark events
         retained = self._read_events()
-        post_wm_count = 1  # new_event
+        post_wm_count = 1
         self.assertEqual(wm["event_count"], len(retained) - post_wm_count)
 
     def test_removes_orphaned_watermarks(self):
@@ -328,30 +313,24 @@ class TestCompactAfterCuration(_SMMTestCase):
 
         self._write_events(self._make_session(session_num=1))
         self._set_curation_watermark(4)
-        # Create orphaned watermarks
         (self.smm_dir / ".watermark-abc123").write_text("5")
         (self.smm_dir / ".watermark-main").write_text("3")
         (self.smm_dir / ".watermark-prompt-nugget").write_text("10")
 
         compact.compact_after_curation(self.smm_dir)
-        # Orphaned watermarks removed
         self.assertFalse((self.smm_dir / ".watermark-abc123").exists())
         self.assertFalse((self.smm_dir / ".watermark-main").exists())
-        # Prompt-nugget preserved (with updated value)
         self.assertTrue((self.smm_dir / ".watermark-prompt-nugget").exists())
-        # Curation watermark preserved
         self.assertTrue((self.smm_dir / ".curation-watermark").exists())
 
     def test_reads_events_under_lock(self):
         """compact_after_curation uses read_with_lock, not unlocked read_text."""
         import compact
 
-        # Seed events and set watermark
         events = self._make_session(session_num=1)
         self._write_events(events)
         self._set_curation_watermark(len(events))
 
-        # Monkey-patch read_with_lock to confirm it is called
         called = {"count": 0}
         original_rwl = _append_impl.read_with_lock
 
@@ -371,7 +350,6 @@ class TestCompactAfterCuration(_SMMTestCase):
         """All team curation watermarks are adjusted after compaction."""
         import compact
 
-        # 3 sessions (4 events each = 12 total) + 1 post-watermark event
         all_events = []
         for s in range(1, 4):
             all_events.extend(self._make_session(session_num=s))
@@ -379,7 +357,6 @@ class TestCompactAfterCuration(_SMMTestCase):
         all_events.append(post)
         self._write_events(all_events)
 
-        # Primary watermark at 4, agent-a at 8
         self._set_curation_watermark(4)
         wm_a = self.smm_dir / ".curation-watermark-agent-a"
         wm_a.write_text(json.dumps({"event_count": 8, "agent_id": "agent-a"}))
@@ -388,345 +365,8 @@ class TestCompactAfterCuration(_SMMTestCase):
         archived = result["archived"]
         self.assertGreater(archived, 0)
 
-        # Agent-a watermark should be adjusted by archived_count
         wm_a_data = json.loads(wm_a.read_text())
         self.assertEqual(wm_a_data["event_count"], 8 - archived)
-
-    def test_team_safety_uses_oldest_watermark(self):
-        """With multiple curation watermarks, uses min(event_count)."""
-        import compact
-
-        all_events = []
-        for s in range(1, 4):
-            all_events.extend(self._make_session(session_num=s))
-        filler = make_event("status", content="extra", ts="2026-03-04T00:00:00+00:00")
-        all_events.append(filler)
-        self._write_events(all_events)
-
-        # Agent A curated up to event 8, agent B only up to event 4
-        materialize.write_curation_watermark(self.smm_dir, 8, "agent-a")
-        # Overwrite with agent B's older watermark to simulate team
-        # For now, we test by writing a second watermark file
-        wm_b = self.smm_dir / ".curation-watermark-agent-b"
-        wm_b.write_text(json.dumps({"event_count": 4, "agent_id": "agent-b"}))
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        # Should retain everything from event 4 onward (agent B's boundary)
-        # = 3 sessions * 4 events + 1 filler - 4 = 9 post-watermark events
-        # Plus any SMM-referenced or session_ends from pre-watermark
-        self.assertGreaterEqual(len(retained), len(all_events) - 4)
-
-    # --- Sprint event compaction ---
-
-    def test_retains_active_sprint_start(self):
-        """Sprint start with no matching end is retained (active sprint)."""
-        import compact
-
-        sprint_start = make_event(
-            "sprint",
-            content="Build user API",
-            ts="2026-01-01T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "start",
-                "goal": "Build user API",
-            },
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-02T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([sprint_start, session_end, new_event])
-        self._set_curation_watermark(2)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        retained_ids = {e["id"] for e in retained}
-        self.assertIn(sprint_start["id"], retained_ids)
-
-    def test_archives_ended_sprint_start(self):
-        """Sprint start is archived when a matching end event exists."""
-        import compact
-
-        sprint_start = make_event(
-            "sprint",
-            content="Build user API",
-            ts="2026-01-01T00:00:00+00:00",
-            metadata={"sprint_id": "sprint-001", "action": "start"},
-        )
-        sprint_end = make_event(
-            "sprint",
-            content="Sprint complete",
-            ts="2026-01-05T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "end",
-                "stories_planned": 5,
-                "stories_delivered": 4,
-                "stories_carried": 1,
-            },
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-06T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([sprint_start, sprint_end, session_end, new_event])
-        self._set_curation_watermark(3)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        retained_ids = {e["id"] for e in retained}
-        self.assertNotIn(sprint_start["id"], retained_ids)
-
-    def test_retains_latest_sprint_end(self):
-        """Most recent sprint end retained for velocity data."""
-        import compact
-
-        sprint_end = make_event(
-            "sprint",
-            content="Sprint complete",
-            ts="2026-01-05T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "end",
-                "stories_planned": 5,
-                "stories_delivered": 4,
-                "stories_carried": 1,
-            },
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-06T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([sprint_end, session_end, new_event])
-        self._set_curation_watermark(2)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        retained_ids = {e["id"] for e in retained}
-        self.assertIn(sprint_end["id"], retained_ids)
-
-    def test_archives_old_sprint_ends(self):
-        """Only the most recent sprint end is retained; older ones archived."""
-        import compact
-
-        sprint_end_1 = make_event(
-            "sprint",
-            content="Sprint 1 complete",
-            ts="2026-01-05T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "end",
-                "stories_planned": 5,
-                "stories_delivered": 4,
-                "stories_carried": 1,
-            },
-        )
-        sprint_end_2 = make_event(
-            "sprint",
-            content="Sprint 2 complete",
-            ts="2026-01-15T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-002",
-                "action": "end",
-                "stories_planned": 8,
-                "stories_delivered": 7,
-                "stories_carried": 1,
-            },
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-16T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([sprint_end_1, sprint_end_2, session_end, new_event])
-        self._set_curation_watermark(3)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        retained_ids = {e["id"] for e in retained}
-        self.assertIn(sprint_end_2["id"], retained_ids)
-        self.assertNotIn(sprint_end_1["id"], retained_ids)
-
-    def test_retains_sprint_retro_done_paired_with_sprint_end(self):
-        """M7: sprint_retro_done status event with sprint_id matching a
-        retained sprint_end is also retained. Required by the
-        needs_sprint_retro detection scan to correctly identify that
-        the retained sprint has been retrospected."""
-        import compact
-
-        sprint_end = make_event(
-            "sprint",
-            content="Sprint complete",
-            ts="2026-01-05T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "end",
-                "stories_planned": 5,
-                "stories_delivered": 4,
-                "stories_carried": 1,
-            },
-        )
-        sprint_retro_done = make_event(
-            "status",
-            content="Sprint retrospective complete.",
-            ts="2026-01-06T00:00:00+00:00",
-            working_on=[],
-            metadata={"sprint_id": "sprint-001", "action": "sprint_retro_done"},
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-07T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([sprint_end, sprint_retro_done, session_end, new_event])
-        self._set_curation_watermark(3)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        retained_ids = {e["id"] for e in retained}
-        self.assertIn(sprint_end["id"], retained_ids)
-        self.assertIn(sprint_retro_done["id"], retained_ids)
-
-    def test_archives_stale_sprint_retro_done(self):
-        """M7: sprint_retro_done whose sprint_id does NOT match any retained
-        sprint_end gets archived (not retained indefinitely)."""
-        import compact
-
-        # Old sprint end (will be archived — only last 1 retained)
-        sprint_end_old = make_event(
-            "sprint",
-            content="Sprint 1 complete",
-            ts="2026-01-05T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "end",
-                "stories_planned": 5,
-                "stories_delivered": 4,
-                "stories_carried": 1,
-            },
-        )
-        retro_done_old = make_event(
-            "status",
-            content="Sprint retrospective complete.",
-            ts="2026-01-06T00:00:00+00:00",
-            working_on=[],
-            metadata={"sprint_id": "sprint-001", "action": "sprint_retro_done"},
-        )
-        # New sprint end (will be retained — most recent)
-        sprint_end_new = make_event(
-            "sprint",
-            content="Sprint 2 complete",
-            ts="2026-01-15T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-002",
-                "action": "end",
-                "stories_planned": 8,
-                "stories_delivered": 7,
-                "stories_carried": 1,
-            },
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-16T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events(
-            [sprint_end_old, retro_done_old, sprint_end_new, session_end, new_event]
-        )
-        self._set_curation_watermark(4)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-        retained_ids = {e["id"] for e in retained}
-        self.assertIn(sprint_end_new["id"], retained_ids)
-        self.assertNotIn(sprint_end_old["id"], retained_ids)
-        self.assertNotIn(retro_done_old["id"], retained_ids)
-
-    def test_detection_works_after_compaction(self):
-        """M7: round-trip — seed sprint_end + sprint_retro_done, compact,
-        run needs_sprint_retro → returns None (retro was done)."""
-        import compact
-        import retrospective
-
-        sprint_end = make_event(
-            "sprint",
-            content="Sprint complete",
-            ts="2026-01-05T00:00:00+00:00",
-            metadata={
-                "sprint_id": "sprint-001",
-                "action": "end",
-                "stories_planned": 5,
-                "stories_delivered": 4,
-                "stories_carried": 1,
-            },
-        )
-        retro_done = make_event(
-            "status",
-            content="Sprint retrospective complete.",
-            ts="2026-01-06T00:00:00+00:00",
-            working_on=[],
-            metadata={"sprint_id": "sprint-001", "action": "sprint_retro_done"},
-        )
-        session_end = make_event(
-            "session_end",
-            content="end",
-            ts="2026-01-07T00:00:00+00:00",
-            working_on=[],
-        )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
-        self._write_events([sprint_end, retro_done, session_end, new_event])
-        self._set_curation_watermark(3)
-
-        compact.compact_after_curation(self.smm_dir)
-        retained = self._read_events()
-
-        # Detection should return None — retro has been done for sprint-001.
-        self.assertIsNone(retrospective.needs_sprint_retro(retained))
-
-    def test_watermark_updated_true_when_compaction_runs(self):
-        """Return includes watermark_updated=True when main path runs."""
-        import compact
-
-        events = self._make_session(session_num=1)
-        self._write_events(events)
-        self._set_curation_watermark(len(events))
-
-        result = compact.compact_after_curation(self.smm_dir)
-        self.assertTrue(result["watermark_updated"])
-
-    def test_watermark_updated_false_no_events_file(self):
-        """Return includes watermark_updated=False when no events file."""
-        import compact
-
-        result = compact.compact_after_curation(self.smm_dir)
-        self.assertFalse(result["watermark_updated"])
-
-    def test_watermark_updated_false_no_watermarks(self):
-        """Return includes watermark_updated=False when no watermarks exist."""
-        import compact
-
-        events = self._make_session(session_num=1)
-        self._write_events(events)
-
-        result = compact.compact_after_curation(self.smm_dir)
-        self.assertFalse(result["watermark_updated"])
 
 
 if __name__ == "__main__":
