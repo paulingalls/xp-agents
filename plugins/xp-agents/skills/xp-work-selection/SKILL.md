@@ -108,7 +108,7 @@ the question's event-id.
    Options: individual story IDs, "all ready stories", or "add ad-hoc story".
 3. For ad-hoc stories: ask for title and brief description, then add via CLI:
    ```bash
-   echo '{"id":"story-NNN","title":"...","status":"in-progress","size":"M","dependencies":[],"acceptance_criteria":["..."]}' \
+   echo '{"id":"story-NNN","title":"...","status":"in-progress","dependencies":[],"acceptance_criteria":["..."]}' \
      | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> add-story
    ```
 4. For selected stories: update each story's status via CLI:

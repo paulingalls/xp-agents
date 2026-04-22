@@ -62,7 +62,6 @@ For each story, produce the enhanced format:
 
 - **Unique ID**: `story-001`, `story-002`, etc.
 - **Title**: Clear, descriptive name using the milestone's technical language.
-- **Size**: S, M, or L. If XL, split immediately.
 - **Dependencies**: Other story IDs, or "none".
 - **Milestone**: `execution_plan.md §Milestone N` — traces back to the milestone.
 - **Design Sources**: Direct references to the original design documents (from the milestone's Sources field) with section pointers. Preserves the connection to the full design work.
@@ -85,8 +84,8 @@ Write a one-sentence sprint goal. This becomes the sprint title.
 Present a **compact summary table** via `AskUserQuestion`:
 
 - Sprint goal + milestone reference
-- Story count and size distribution
-- Table: ID, Title, Size, Deps
+- Story count
+- Table: ID, Title, Deps
 
 Options: "Confirm this sprint" or "Adjust sprint scope"
 
@@ -108,7 +107,6 @@ cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <S
       "id": "story-001",
       "title": "<title>",
       "status": "ready",
-      "size": "<S|M|L>",
       "dependencies": [],
       "milestone_ref": "execution_plan.json §Milestone N",
       "design_sources": "<doc> §section",
@@ -143,7 +141,7 @@ Then record a status event:
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" \
   --agent "xp-sprint-start" \
-  --content "Sprint <NEXT_SPRINT_ID> created: <N> stories (<size distribution>)" \
+  --content "Sprint <NEXT_SPRINT_ID> created: <N> stories" \
   --working-on '["sprint.json"]'
 ```
 
@@ -159,5 +157,5 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 - Interface contracts are advisory — they document shared boundaries, not enforce them
 - Context must not restate milestone rationale — reference it. Each layer has a job: system_context=WHERE, milestone=WHY, story=WHAT uniquely, design doc=FULL RATIONALE
 - Keep acceptance criteria testable — no vague conditions
-- Recommend 5-10 stories per sprint unless mostly S-sized
+- Recommend 5-10 stories per sprint
 - The sprint should be achievable in scope

@@ -22,7 +22,6 @@ Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constrain
 - Count the plan steps (numbered list items or bullet points).
 - If the plan has **>10 steps**, flag it — consider whether it should be split into smaller increments.
 - If no test-related keywords (test, tdd, spec, assert, verify) appear anywhere in the plan, flag it: "No TDD strategy detected."
-- **Size-floor check:** If preload output contains `size_floor_violations=` with a non-empty JSON array, block approval. Report each violation verbatim — the format is: `size floor violation: story-NNN declares <N> files at size M; must be L or split.`
 
 ### 2. TDD Ordering
 
