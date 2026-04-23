@@ -177,18 +177,6 @@ class TestResolvesLinkRate(_HookTestCase):
             )
         )
 
-    def _probe(self, candidate_ids: list[str], ts: str, commit_hash: str) -> dict:
-        return make_event(
-            "status",
-            content=f"resolves_probe_shown: {len(candidate_ids)} candidates",
-            working_on=[],
-            ts=ts,
-            metadata={
-                "probe_candidates": candidate_ids,
-                "commit_hash": commit_hash,
-            },
-        )
-
     def _commit(self, resolves_ids: list[str], ts: str, commit_hash: str) -> dict:
         return make_event(
             "commit",
@@ -220,14 +208,11 @@ class TestResolvesLinkRate(_HookTestCase):
         with open(self.smm_dir / ".retro-input.json") as f:
             return json.load(f)
 
-    def test_three_probes_two_hits_one_miss(self):
+    def test_three_commits_two_with_trailers_one_without(self):
         self._write_sprint_json()
         events = [
-            self._probe(["aaaaaaaaaaaa"], "2026-04-05T10:00:00+00:00", "h1"),
             self._commit(["aaaaaaaaaaaa"], "2026-04-05T10:01:00+00:00", "h1"),
-            self._probe(["bbbbbbbbbbbb"], "2026-04-06T10:00:00+00:00", "h2"),
             self._commit(["bbbbbbbbbbbb"], "2026-04-06T10:01:00+00:00", "h2"),
-            self._probe(["cccccccccccc"], "2026-04-07T10:00:00+00:00", "h3"),
             self._commit([], "2026-04-07T10:01:00+00:00", "h3"),
             self._sprint_end(),
         ]
@@ -254,11 +239,10 @@ class TestResolvesLinkRate(_HookTestCase):
         self.assertNotIn("resolves_trailer_hits", sizing)
         self.assertNotIn("resolves_trailer_total", sizing)
 
-    def test_probe_direct_hit(self):
+    def test_commit_with_trailer_is_hit(self):
         """Commit with resolves=[X] -> hit."""
         self._write_sprint_json()
         events = [
-            self._probe(["abc123def456"], "2026-04-05T10:00:00+00:00", "h1"),
             self._commit(["abc123def456"], "2026-04-05T10:01:00+00:00", "h1"),
             self._sprint_end(),
         ]
@@ -268,11 +252,10 @@ class TestResolvesLinkRate(_HookTestCase):
         self.assertEqual(sizing["resolves_trailer_hits"], 1)
         self.assertEqual(sizing["resolves_link_rate"], 1.0)
 
-    def test_probe_miss_empty_resolves(self):
+    def test_commit_without_trailer_is_miss(self):
         """Commit with empty resolves -> miss."""
         self._write_sprint_json()
         events = [
-            self._probe(["abc123def456"], "2026-04-05T10:00:00+00:00", "h1"),
             self._commit([], "2026-04-05T10:01:00+00:00", "h1"),
             self._sprint_end(),
         ]
@@ -282,13 +265,11 @@ class TestResolvesLinkRate(_HookTestCase):
         self.assertEqual(sizing["resolves_trailer_hits"], 0)
         self.assertEqual(sizing["resolves_link_rate"], 0.0)
 
-    def test_probe_before_sprint_start_ignored(self):
+    def test_commits_before_sprint_start_excluded(self):
         """Commits from before the sprint's started date do not count."""
         self._write_sprint_json()
         events = [
-            self._probe(["aaaaaaaaaaaa"], "2026-03-15T10:00:00+00:00", "h0"),
             self._commit([], "2026-03-15T10:01:00+00:00", "h0"),
-            self._probe(["bbbbbbbbbbbb"], "2026-04-05T10:00:00+00:00", "h1"),
             self._commit([], "2026-04-05T10:01:00+00:00", "h1"),
             self._sprint_end(),
         ]
@@ -296,58 +277,6 @@ class TestResolvesLinkRate(_HookTestCase):
         sizing = data["sizing_analysis"]
         self.assertEqual(sizing["resolves_trailer_total"], 1)
         self.assertEqual(sizing["resolves_trailer_hits"], 0)
-
-
-class TestResolvesLinkRatePerAgent(unittest.TestCase):
-    """per_agent trailer rates scoped to each agent's code commits."""
-
-    def _probe(self, candidate_ids, ts, commit_hash, agent_id="main"):
-        return make_event(
-            "status",
-            content=(f"resolves_probe_shown: {len(candidate_ids)} candidates"),
-            working_on=[],
-            ts=ts,
-            agent_id=agent_id,
-            metadata={
-                "probe_candidates": candidate_ids,
-                "commit_hash": commit_hash,
-            },
-        )
-
-    def _commit(self, resolves_ids, ts, commit_hash, agent_id="main"):
-        return make_event(
-            "commit",
-            content="Work",
-            ts=ts,
-            files=["scripts/x.py"],
-            agent_id=agent_id,
-            metadata={
-                "code_commit": True,
-                "commit_hash": commit_hash,
-                "resolves": resolves_ids,
-            },
-        )
-
-    def test_per_agent_link_rate_two_agents(self):
-        """Two agents: agent-1 hits, agent-2 misses -- per_agent scoped."""
-        import retro_metrics
-
-        events = [
-            self._probe(["aaa"], "2026-04-05T10:00:00+00:00", "h1", "agent-1"),
-            self._commit(["aaa"], "2026-04-05T10:01:00+00:00", "h1", "agent-1"),
-            self._probe(["bbb"], "2026-04-05T10:00:00+00:00", "h2", "agent-2"),
-            self._commit([], "2026-04-05T10:01:00+00:00", "h2", "agent-2"),
-        ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
-        self.assertIn("per_agent", result)
-        pa = result["per_agent"]
-        self.assertEqual(len(pa), 2)
-        self.assertEqual(pa["agent-1"]["resolves_trailer_hits"], 1)
-        self.assertEqual(pa["agent-1"]["resolves_trailer_total"], 1)
-        self.assertEqual(pa["agent-1"]["resolves_link_rate"], 1.0)
-        self.assertEqual(pa["agent-2"]["resolves_trailer_hits"], 0)
-        self.assertEqual(pa["agent-2"]["resolves_trailer_total"], 1)
-        self.assertEqual(pa["agent-2"]["resolves_link_rate"], 0.0)
 
 
 class TestDirectTrailerCount(unittest.TestCase):
