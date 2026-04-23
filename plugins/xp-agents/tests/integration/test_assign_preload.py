@@ -8,23 +8,122 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
     _IntegrationTestCase,
+    _s,
+    _sprint_json,
     write_smm_fixture,
 )
-from test_assign import (
-    _extract_preload_var,
-    _multi_story_sprint_all_small,
-    _multi_story_sprint_no_domains,
-    _multi_story_sprint_overlapping_domains,
-    _multi_story_sprint_solo_deps,
-    _multi_story_sprint_worktree,
-)
+
+
+def _extract_preload_var(stdout: str, name: str) -> str | None:
+    """Extract a VAR=value from preload stdout. Returns value or None."""
+    prefix = f"{name}="
+    for line in stdout.splitlines():
+        if line.startswith(prefix):
+            return line.split("=", 1)[1]
+    return None
+
+
+def _multi_story_sprint_worktree() -> str:
+    return _sprint_json(
+        [
+            _s(
+                "story-001",
+                "User registration",
+                "ready",
+                file_domain=["src/auth/register.py", "tests/test_register.py"],
+            ),
+            _s(
+                "story-002",
+                "Admin dashboard",
+                "ready",
+                file_domain=["src/admin/dashboard.py", "tests/test_dashboard.py"],
+            ),
+        ],
+        sprint_id="sprint-001",
+        started="2026-04-01",
+    )
+
+
+def _multi_story_sprint_solo_deps() -> str:
+    return _sprint_json(
+        [
+            _s(
+                "story-001",
+                "User model",
+                "ready",
+                file_domain=["src/models/user.py"],
+            ),
+            _s(
+                "story-002",
+                "User API",
+                "ready",
+                file_domain=["src/api/user.py"],
+                dependencies=["story-001"],
+            ),
+        ],
+        sprint_id="sprint-002",
+        started="2026-04-01",
+    )
+
+
+def _multi_story_sprint_all_small() -> str:
+    return _sprint_json(
+        [
+            _s(
+                "story-001",
+                "Fix typo",
+                "ready",
+                file_domain=["src/ui/header.py"],
+            ),
+            _s(
+                "story-002",
+                "Update readme",
+                "ready",
+                file_domain=["docs/README.md"],
+            ),
+        ],
+        sprint_id="sprint-003",
+        started="2026-04-01",
+    )
+
+
+def _multi_story_sprint_no_domains() -> str:
+    return _sprint_json(
+        [
+            _s("story-001", "Feature A", "ready"),
+            _s("story-002", "Feature B", "ready"),
+        ],
+        sprint_id="sprint-004",
+        started="2026-04-01",
+    )
+
+
+def _multi_story_sprint_overlapping_domains() -> str:
+    return _sprint_json(
+        [
+            _s(
+                "story-001",
+                "Auth flow",
+                "ready",
+                file_domain=["src/auth/login.py", "src/shared/utils.py"],
+            ),
+            _s(
+                "story-002",
+                "Password reset",
+                "ready",
+                file_domain=["src/auth/reset.py", "src/shared/utils.py"],
+            ),
+        ],
+        sprint_id="sprint-005",
+        started="2026-04-01",
+    )
+
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_SCRIPT = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
