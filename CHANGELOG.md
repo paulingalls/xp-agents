@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.26.6 — Acceptance testing doctrine, deterministic hooks
+
+- **Add `acceptance_execution` schema to sprint stories.** Optional field with `type` (runner name) and `command` (exact invocation), plus optional `setup` and `notes`. Schema validates structure when present; backward compatible when absent. Sprint store renders the field in markdown output.
+
+- **Surface acceptance type in accept preload.** New `acceptance_types.py` script outputs each in-progress story's runner type (defaulting to "manual") so `/xp-accept` can route between automated execution and manual walkthrough.
+
+- **Rewrite `/xp-accept` with automated runner.** Non-manual stories run `setup` then `command` via Bash; exit 0 = pass. On failure: three options (debug and re-run, override with concern, defer). No auto-retry — flaky acceptance is information. Manual type preserves current walkthrough behavior.
+
+- **Update `/xp-sprint-start` to write `acceptance_execution`.** Story decomposition template now includes the optional field with guidance on determining runner type from the project's acceptance surface.
+
+- **Move QR resolves probe to PreToolUse:Skill hook.** The resolves-trailer probe now runs deterministically before `/xp-quality-review` loads, injecting results via `additionalContext`. Removes manual Step 1 from the skill. Deleted dead `probe_candidates.py`.
+
+- **Strip dropped Tries from retro input deterministically.** `annotate_try_status` now removes dropped Try items from both `try` and `try_status` lists so the retro agent never sees them. Previously relied on an LLM instruction ("do not re-propose") which was not reliably followed.
+
+- **Always remind about Resolves-Event trailer.** Pre-commit hook now nudges `Resolves-Event: <id>` or `Resolves-Event: none` on every commit with staged files, not just when open concerns overlap. Builds the habit of explicit resolution tracking.
+
+- **Remove dead `assign-story` CLI subcommand.** Solo agents use file-domain matching for story attribution; the `--name main` marker path was dead code.
+
 ## v2.26.5 — Teammate diagnostics, QR counting fix
 
 - **Surface Python tracebacks and git fatals in teammate diagnostics.** When `spawn_teammate.py` crashes before `claude -p` starts, `extract_diagnostics` now scans non-JSON lines for error signals (`Error:`, `fatal:`, `Traceback`) and reports them as `"Spawn failed: <details>"` instead of the opaque `"No result event in N stream-json lines"`. Closes AC4 from the spawn-teammate bug report.
