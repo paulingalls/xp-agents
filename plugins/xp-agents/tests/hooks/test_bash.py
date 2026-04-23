@@ -184,6 +184,36 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(committed), 1)
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
+    def test_commit_with_sprint_has_sprint_id_metadata(self):
+        """Commit event has metadata.sprint_id when sprint.json exists."""
+        from conftest import _s, _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Add auth", "in-progress")],
+                sprint_id="sprint-042",
+            )
+        )
+        with (
+            patch("commits.get_committed_files", return_value=["a.py"]),
+            patch("commits.get_commit_message_body", return_value="feat"),
+            patch("commits.get_head_commit_hash", return_value="abc123"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'feat'",
+                    stdout="[main abc123] feat\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        committed = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(committed), 1)
+        self.assertEqual(
+            committed[0].get("metadata", {}).get("sprint_id"),
+            "sprint-042",
+        )
+
     def test_pytest_pass(self):
         bash_post_tool.run(
             _make_bash_input(
