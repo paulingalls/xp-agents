@@ -72,11 +72,17 @@ Read the branching stage once:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
 ```
 
-If stage >= 1, merge each story marked **done**. Branch names follow `<user>/story-NNN-<slug>` — check `git branch` to find the exact name.
+If stage >= 1, get the merge target branch:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  get-base --cwd .
+```
+
+Merge each story marked **done** into the base branch. Branch names follow `<user>/story-NNN-<slug>` — check `git branch` to find the exact name.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  merge --cwd . --branch <story-branch-name> --target main
+  merge --cwd . --branch <story-branch-name> --target <base-branch>
 
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <story-branch-name>

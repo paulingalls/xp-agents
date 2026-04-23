@@ -146,22 +146,39 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --working-on '["sprint.json"]'
 ```
 
-### Step 8: Create Story Branches
+### Step 8: Create Sprint Branch (Stage 2+)
 
 Read the branching stage:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
 ```
 
-If stage >= 1, create a story branch for each story. The CLI constructs the full branch name internally using the user namespace from git config — you provide only story-id and slug:
+If stage >= 2, create the sprint branch:
 ```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  create-sprint --cwd . --sprint <sprint_id> --slug <goal-slug>
+```
+
+**Stage 0-1:** Skip sprint branch creation.
+
+### Step 9: Create Story Branches
+
+If stage >= 1, get the base branch for story branches:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  get-base --cwd .
+```
+
+Checkout the base branch, then create each story branch:
+```bash
+git checkout <base-branch>
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create --cwd . --story <story-id> --slug <title-slug>
 ```
 
-After creating all branches, checkout main:
+After creating all branches, checkout the base branch:
 ```bash
-git checkout main
+git checkout <base-branch>
 ```
 
 **Stage 0 or missing:** Skip branch creation entirely.
