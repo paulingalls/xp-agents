@@ -5,6 +5,7 @@ description: >-
   guide e2e test execution, mark stories done or deferred, update sprint.json.
 allowed-tools:
   - Read
+  - Bash
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
@@ -31,15 +32,39 @@ Skip if no TEAMMATE_WORKTREES section.
 
 ## Step 1: Review Each In-Progress Story
 
-Read the sprint file at `SPRINT_FILE`. For each in-progress story:
+Read the sprint file at `SPRINT_FILE`. For each in-progress story, check its `acceptance_execution` field (the preload's `### Acceptance Types` section shows the type per story for quick reference):
 
-1. Present the story title and all acceptance criteria
+### Automated acceptance (type != "manual")
+
+When `acceptance_execution` is present and `type` is not `"manual"`:
+
+1. Present the story title and acceptance criteria.
+2. If `acceptance_execution.setup` is present, run it first via Bash.
+3. Run `acceptance_execution.command` via Bash.
+4. **Exit code 0 = pass.** Report success, proceed to mark done.
+5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
+   - **Debug and re-run** — investigate the failure, fix the cause, then re-run the command
+   - **Override with concern** — mark as passing despite failure. Requires a reason string. Records a `concern` event:
+     ```bash
+     ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+       --type "concern" --agent "xp-accept" --severity "medium" \
+       --content "Acceptance override for story-NNN: <user's reason>"
+     ```
+   - **Defer** — move story to `deferred` with a reason
+
+Do **not** retry automatically. Flaky acceptance is information — fix the harness, don't mask the signal.
+
+### Manual acceptance (type = "manual" or no acceptance_execution)
+
+When `acceptance_execution` is absent or `type` is `"manual"`:
+
+1. Present the story title and all acceptance criteria.
 2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash. Report results.
-3. For **non-E2E criteria** — ask the user to verify
+3. For **non-E2E criteria** — ask the user to verify.
 4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
    - **done** — all acceptance criteria verified and passing
    - **deferred** — incomplete, carry forward to next sprint
-5. Resolve any user questions before marking
+5. Resolve any user questions before marking.
 
 ## Step 1b: Concern Triage
 
