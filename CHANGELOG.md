@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.26.4 — Marker cleanup fix, batch threshold tuning, CI updates
+
+- **Fix SECURITY_TRIAGED marker cleanup.** `SECURITY_TRIAGED` was defined with `agent_scoped=True` but missing from `_AGENT_SCOPED_MARKERS`, so `cleanup_agent_markers()` never removed it. Stale markers persisted after session end.
+
+- **Raise batch-size threshold from 50 to 75.** The review cycle generates ~20 status events per commit, so 50 was noise for normal workflows. Prior sessions flagged at 50, 57, 67, 75 — the new threshold filters noise while still catching genuinely large batches.
+
+- **Fix `decisions` variable shadowing in retro_flags.py.** Parameter `decisions: list[str]` was reassigned to an `int` on line 98. Renamed to `decisions_total` to prevent latent type-safety bugs.
+
+- **Bump GitHub Actions to Node.js 24.** `actions/checkout` v4 → v5, `actions/setup-python` v5 → v6. Node.js 20 deprecated June 2026.
+
 ## v2.26.3 — Probe metrics, nudge improvements, CI fix
 
 - **Add `code_free` flag to sizing analysis.** `per_story` output now distinguishes investigation-only stories (0 commits, 0 files) from attribution gaps. Helps retro avoid miscalibrating on stories that were intentionally code-free.
