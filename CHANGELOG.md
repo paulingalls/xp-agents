@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.26.5 — Teammate diagnostics, QR counting fix
+
+- **Surface Python tracebacks and git fatals in teammate diagnostics.** When `spawn_teammate.py` crashes before `claude -p` starts, `extract_diagnostics` now scans non-JSON lines for error signals (`Error:`, `fatal:`, `Traceback`) and reports them as `"Spawn failed: <details>"` instead of the opaque `"No result event in N stream-json lines"`. Closes AC4 from the spawn-teammate bug report.
+
+- **Broaden QR completion regex.** `QUALITY_REVIEW_RE` now matches both `"Quality review complete"` and `"QR complete"` (case-insensitive). The old regex missed LLM-abbreviated phrasings, causing false "0 quality reviews" retro flags in the AJE PoC project for 4 consecutive sprints. Fixes both retro counting (`retro_metrics._classify_status_events`) and the advisory nudge (`bash_post_tool._check_qr_linkage`).
+
 ## v2.26.4 — Marker cleanup fix, batch threshold tuning, CI updates
 
 - **Fix SECURITY_TRIAGED marker cleanup.** `SECURITY_TRIAGED` was defined with `agent_scoped=True` but missing from `_AGENT_SCOPED_MARKERS`, so `cleanup_agent_markers()` never removed it. Stale markers persisted after session end.
