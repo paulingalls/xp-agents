@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Tests for branching.py — pure-function unit tests.
 
-Covers: branch_name, get_branching_stage, is_protected_branch,
-extract_commit_message, is_escape_hatch_commit.
+Covers: branch_name, sprint_branch_name, get_branching_stage,
+is_protected_branch, is_sprint_branch, extract_commit_message,
+is_escape_hatch_commit.
 
 Git-operation lifecycle tests (create, merge, delete, CLI) are in
 test_branching_lifecycle.py.
@@ -68,6 +69,37 @@ class TestGetBranchingStage(unittest.TestCase):
             }
             (Path(td) / "system_context.json").write_text(json.dumps(ctx))
             self.assertEqual(branching.get_branching_stage(Path(td)), 0)
+
+
+class TestSprintBranchName(unittest.TestCase):
+    def test_basic_format(self):
+        result = branching.sprint_branch_name("paul", "sprint-027", "integration")
+        self.assertEqual(result, "paul/sprint-027-integration")
+
+    def test_slug_sanitization(self):
+        result = branching.sprint_branch_name("paul", "sprint-027", "Stage 2 Flow!!")
+        self.assertEqual(result, "paul/sprint-027-stage-2-flow")
+
+    def test_sprint_id_preserved(self):
+        result = branching.sprint_branch_name("alice", "sprint-001", "test")
+        self.assertEqual(result, "alice/sprint-001-test")
+
+
+class TestIsSprintBranch(unittest.TestCase):
+    def test_valid_sprint_branch(self):
+        self.assertTrue(branching.is_sprint_branch("paul/sprint-027-integration"))
+
+    def test_story_branch_not_sprint(self):
+        self.assertFalse(branching.is_sprint_branch("paul/story-001-feature"))
+
+    def test_main_not_sprint(self):
+        self.assertFalse(branching.is_sprint_branch("main"))
+
+    def test_bare_sprint_prefix_not_sprint(self):
+        self.assertFalse(branching.is_sprint_branch("sprint-027"))
+
+    def test_empty_not_sprint(self):
+        self.assertFalse(branching.is_sprint_branch(""))
 
 
 class TestIsProtectedBranch(unittest.TestCase):

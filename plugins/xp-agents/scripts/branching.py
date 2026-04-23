@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import identity
+import sprint_store
 
 
 def _slugify(s: str) -> str:
@@ -27,8 +28,19 @@ def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
 
 
-def branch_name(user_ns: str, story_id: str, slug: str) -> str:
-    return f"{user_ns}/{story_id}-{_slugify(slug)}"
+def branch_name(user_ns: str, id_: str, slug: str) -> str:
+    return f"{user_ns}/{id_}-{_slugify(slug)}"
+
+
+def sprint_branch_name(user_ns: str, sprint_id: str, slug: str) -> str:
+    return branch_name(user_ns, sprint_id, slug)
+
+
+_SPRINT_BRANCH_RE = re.compile(r"^[^/]+/sprint-\d{3}-[a-z0-9-]+$")
+
+
+def is_sprint_branch(name: str) -> bool:
+    return bool(_SPRINT_BRANCH_RE.match(name))
 
 
 def get_branching_stage(smm_dir: Path) -> int:
@@ -89,16 +101,15 @@ def branch_exists(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
-def create_story_branch(
-    cwd: str, story_id: str, slug: str, smm_dir: Path
+def _create_branch(
+    cwd: str, id_: str, slug: str, smm_dir: Path, min_stage: int
 ) -> str | None:
-    """Returns branch name or None if Stage 0."""
     stage = get_branching_stage(smm_dir)
-    if stage < 1:
+    if stage < min_stage:
         return None
 
     user_ns = identity.user_namespace(cwd)
-    name = branch_name(user_ns, story_id, slug)
+    name = branch_name(user_ns, id_, slug)
 
     if branch_exists(cwd, name):
         r = _git(["git", "checkout", name], cwd)
@@ -117,6 +128,39 @@ def create_story_branch(
         sys.exit(1)
 
     return name
+
+
+def create_story_branch(
+    cwd: str, story_id: str, slug: str, smm_dir: Path
+) -> str | None:
+    """Returns branch name or None if Stage 0."""
+    return _create_branch(cwd, story_id, slug, smm_dir, min_stage=1)
+
+
+def create_sprint_branch(
+    cwd: str, sprint_id: str, slug: str, smm_dir: Path
+) -> str | None:
+    """Returns sprint branch name or None if stage < 2."""
+    return _create_branch(cwd, sprint_id, slug, smm_dir, min_stage=2)
+
+
+def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
+    """Return the base branch for stories: sprint branch at stage 2+, else main."""
+    stage = get_branching_stage(smm_dir)
+    if stage < 2:
+        return "main"
+
+    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        return "main"
+
+    user_ns = identity.user_namespace(cwd)
+    name = sprint_branch_name(user_ns, sprint["sprint_id"], sprint["goal"])
+
+    if branch_exists(cwd, name):
+        return name
+
+    return "main"
 
 
 def merge_story_branch(cwd: str, story_branch: str, target: str = "main") -> None:
@@ -158,6 +202,21 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _cmd_create_sprint(args: argparse.Namespace) -> int:
+    result = create_sprint_branch(args.cwd, args.sprint, args.slug, Path(args.smm_dir))
+    if result is None:
+        print("Skipped (stage < 2)")
+    else:
+        print(result)
+    return 0
+
+
+def _cmd_get_base(args: argparse.Namespace) -> int:
+    result = get_story_base_branch(Path(args.smm_dir), args.cwd)
+    print(result)
+    return 0
+
+
 def _cmd_stage(args: argparse.Namespace) -> int:
     stage = get_branching_stage(Path(args.smm_dir))
     print(stage)
@@ -185,6 +244,16 @@ def main() -> int:
     p_delete.add_argument("--cwd", required=True)
     p_delete.add_argument("--branch", required=True)
     p_delete.set_defaults(func=_cmd_delete)
+
+    p_csprint = sub.add_parser("create-sprint", help="Create a sprint branch")
+    p_csprint.add_argument("--cwd", required=True)
+    p_csprint.add_argument("--sprint", required=True)
+    p_csprint.add_argument("--slug", required=True)
+    p_csprint.set_defaults(func=_cmd_create_sprint)
+
+    p_base = sub.add_parser("get-base", help="Print story base branch")
+    p_base.add_argument("--cwd", required=True)
+    p_base.set_defaults(func=_cmd_get_base)
 
     p_stage = sub.add_parser("stage", help="Print branching stage")
     p_stage.set_defaults(func=_cmd_stage)
