@@ -196,6 +196,7 @@ def set_review_flag(
 # ---------------------------------------------------------------------------
 
 _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
+    SECURITY_TRIAGED,
     TDD_TRACKER,
     REVIEW_CYCLE,
     PENDING_RENDER_RETRO,

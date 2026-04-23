@@ -235,6 +235,20 @@ class TestCleanupAgentMarkers(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.TDD_TRACKER, "task-2")
         )
 
+    def test_removes_security_triaged(self):
+        markers.marker_write(
+            self.smm_dir, markers.SECURITY_TRIAGED, {"triaged": True}, "task-1"
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED, "task-1")
+        )
+
+        markers.cleanup_agent_markers(self.smm_dir, "task-1")
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.SECURITY_TRIAGED, "task-1")
+        )
+
     def test_no_error_when_markers_missing(self):
         markers.cleanup_agent_markers(self.smm_dir, "nonexistent")
 
