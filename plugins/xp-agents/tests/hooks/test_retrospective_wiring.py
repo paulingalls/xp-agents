@@ -128,10 +128,8 @@ class TestDroppedTryResolution(_HookTestCase):
             data = json.load(f)
         prev = data.get("previous_retros", [])
         self.assertTrue(len(prev) > 0)
-        try_status = prev[0].get("try_status", [])
-        self.assertTrue(len(try_status) > 0)
-        self.assertTrue(try_status[0]["resolved_this_session"])
-        self.assertEqual(try_status[0]["disposition"], "dropped")
+        self.assertEqual(len(prev[0].get("try", [])), 0)
+        self.assertEqual(len(prev[0].get("try_status", [])), 0)
 
 
 if __name__ == "__main__":

@@ -69,7 +69,10 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
 
 
 def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> None:
-    """Attach try_status to previous_retros[0] based on this session's resolutions.
+    """Annotate and filter Try items on previous_retros[0].
+
+    Attaches a parallel try_status list, then strips dropped Tries from
+    both try and try_status so the retro analyst never sees them.
 
     Only the most recent retro gets annotated — older retros already
     went through a retro cycle, so their Try items are not candidates
@@ -105,3 +108,11 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
         else:
             statuses.append({"resolved_this_session": False})
     latest["try_status"] = statuses
+
+    kept = [
+        (t, s)
+        for t, s in zip(latest["try"], statuses, strict=True)
+        if s.get("disposition") != "dropped"
+    ]
+    latest["try"] = [t for t, _ in kept]
+    latest["try_status"] = [s for _, s in kept]

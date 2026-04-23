@@ -46,6 +46,7 @@ class TestAnnotateTryDisposition(_HookTestCase):
         self.assertEqual(status.get("disposition"), "adopted")
 
     def test_dropped_try_gets_disposition_dropped(self):
+        """Dropped Try is stripped — verify via empty lists."""
         target_id = "aabbccdd1111"
         resolver_id = "eeffaabb5555"
         resolutions_map = self._make_resolutions_map(
@@ -59,9 +60,8 @@ class TestAnnotateTryDisposition(_HookTestCase):
             }
         ]
         retro_history.annotate_try_status(retros, resolutions_map)
-        status = retros[0]["try_status"][0]
-        self.assertTrue(status["resolved_this_session"])
-        self.assertEqual(status["disposition"], "dropped")
+        self.assertEqual(len(retros[0]["try"]), 0)
+        self.assertEqual(len(retros[0]["try_status"]), 0)
 
     def test_deferred_try_gets_disposition_deferred(self):
         target_id = "aabbccdd1111"
@@ -93,6 +93,58 @@ class TestAnnotateTryDisposition(_HookTestCase):
         status = retros[0]["try_status"][0]
         self.assertFalse(status["resolved_this_session"])
         self.assertNotIn("disposition", status)
+
+    def test_adopted_try_remains_in_try_list(self):
+        """Adopted Tries stay visible for the LLM to check if work was delivered."""
+        target_id = "aabbccdd1111"
+        resolver_id = "eeffaabb5555"
+        resolutions_map = self._make_resolutions_map(target_id, resolver_id, "Adopted")
+        retros = [
+            {
+                "try": [{"content": f"try {target_id}", "event_refs": []}],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        retro_history.annotate_try_status(retros, resolutions_map)
+        self.assertEqual(len(retros[0]["try"]), 1)
+        self.assertEqual(len(retros[0]["try_status"]), 1)
+
+    def test_mixed_dispositions_only_drops_stripped(self):
+        """Only dropped Tries are stripped; adopted and unresolved remain."""
+        drop_id = "dd0011111111"
+        adopt_id = "aa0022222222"
+        resolutions_map = {
+            drop_id: {
+                "type": "status",
+                "resolver_id": "r1",
+                "resolver_content": "Dropped",
+                "disposition": "dropped",
+            },
+            adopt_id: {
+                "type": "decision",
+                "resolver_id": "r2",
+                "resolver_content": "Adopted",
+            },
+        }
+        retros = [
+            {
+                "try": [
+                    {"content": f"try {adopt_id}", "event_refs": []},
+                    {"content": f"try {drop_id}", "event_refs": []},
+                    {"content": "unresolved try", "event_refs": []},
+                ],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        retro_history.annotate_try_status(retros, resolutions_map)
+        self.assertEqual(len(retros[0]["try"]), 2)
+        contents = [t["content"] for t in retros[0]["try"]]
+        self.assertIn(f"try {adopt_id}", contents)
+        self.assertIn("unresolved try", contents)
+        self.assertNotIn(f"try {drop_id}", contents)
+        self.assertEqual(len(retros[0]["try_status"]), 2)
 
     def test_decision_resolver_without_disposition_defaults_to_adopted(self):
         """A decision event without explicit disposition metadata is an adoption."""
