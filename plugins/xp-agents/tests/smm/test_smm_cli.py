@@ -257,6 +257,29 @@ class TestCompleteCuration(_HookTestCase):
         with patch("compact.compact_after_curation", side_effect=OSError("boom")):
             smm_cli.complete_curation(self.smm_dir)
 
+    def test_watermark_advances_after_compaction(self):
+        from _append_impl import append_event
+
+        events = [make_event("goal", content="Ship v1")]
+        events += [
+            make_event("status", content=f"work {i}", working_on=[]) for i in range(20)
+        ]
+        self._write_events(events)
+        smm_cli.complete_curation(self.smm_dir)
+        import materialize as _mat
+
+        wm1 = _mat.read_curation_watermark(self.smm_dir)
+        self.assertEqual(wm1["event_count"], 21)
+
+        for i in range(10):
+            e = make_event("status", content=f"more {i}", working_on=[])
+            append_event(self.smm_dir, e)
+
+        smm_cli.complete_curation(self.smm_dir)
+        wm2 = _mat.read_curation_watermark(self.smm_dir)
+        events_after, _ = _mat.parse_events(self.smm_dir)
+        self.assertEqual(wm2["event_count"], len(events_after))
+
     def test_save_calls_complete_curation(self):
         from unittest.mock import patch
 
