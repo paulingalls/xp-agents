@@ -14,6 +14,7 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
+  - Bash(python3 */scripts/branching.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -68,7 +69,7 @@ For each story, produce the enhanced format:
 
 Then the enriched sections:
 
-- **Context**: 2+ sentences of what THIS story uniquely does — mechanical specifics, file-count scope, AC summary. **Do not restate milestone rationale** (design_details, constraints) — that lives in execution_plan.json and is read separately. Open with: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
+- **Context**: 2+ sentences of what THIS story uniquely does — mechanical specifics, file-count scope, AC summary. **Story context must NOT copy text from milestone design_details or constraints — reference the milestone by number only.** The context field describes WHAT this story uniquely does, not WHY the milestone exists. Open with: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
 - **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain.
 - **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
 - **Acceptance Criteria**: 3-5 testable conditions. At least one E2E prefixed with "E2E:".
@@ -144,6 +145,27 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Sprint <NEXT_SPRINT_ID> created: <N> stories" \
   --working-on '["sprint.json"]'
 ```
+
+### Step 8: Create Story Branches
+
+Read the branching stage:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
+```
+
+If stage >= 1, create a story branch for each story. The CLI constructs the full branch name internally using the user namespace from git config — you provide only story-id and slug:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  create --cwd . --story <story-id> --slug <title-slug>
+```
+
+After creating all branches, checkout main:
+```bash
+git checkout main
+```
+
+**Stage 0 or missing:** Skip branch creation entirely.
+**Resume:** If a branch already exists, the CLI checks out the existing branch instead of failing.
 
 ---
 

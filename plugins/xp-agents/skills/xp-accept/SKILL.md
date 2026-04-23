@@ -8,6 +8,7 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
+  - Bash(python3 */scripts/branching.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -63,6 +64,28 @@ Update each story's status via CLI:
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN <done|deferred>
 ```
+
+## Step 2b: Merge Story Branches
+
+Read the branching stage once:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
+```
+
+If stage >= 1, merge each story marked **done**. Branch names follow `<user>/story-NNN-<slug>` — check `git branch` to find the exact name.
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  merge --cwd . --branch <story-branch-name> --target main
+
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  delete --cwd . --branch <story-branch-name>
+```
+
+If merge fails (conflict or error), report the failure and skip that story's branch deletion. Do not proceed to delete a branch whose merge failed.
+
+**Stage 0 or missing:** Skip merge and cleanup entirely.
+**Deferred stories:** Do not merge — leave their branches intact for the next sprint.
 
 ## Step 3: Record Events
 
