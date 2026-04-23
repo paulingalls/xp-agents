@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.26.0 — Branching Doctrine: progressive branching stages 1-2
+
+Sprints 024-027 deliver the complete Branching Doctrine execution plan (4 milestones). Projects can now declare a branching stage (0-3) and the plugin enforces stage-appropriate discipline.
+
+- **Stage detection and schema (M1, sprint-024).** `branching_strategy` field in system_context.json with stage, user namespace, protected branches. `xp-system-analyzer` detects contributor count, CI presence, and branch patterns to propose a stage. `identity.user_namespace()` derives branch namespaces from git config.
+
+- **Story branch lifecycle (M2, sprint-025).** `branching.py` module with `create_story_branch()`, `merge_story_branch()`, `delete_branch()`. Story branches auto-created on story start at Stage 1+, merged on acceptance, deleted after merge. Branch naming: `<user>/story-NNN-<slug>`.
+
+- **Main-branch commit gate (M3, sprint-026).** PreToolUse:Bash gate raises advisory concern when committing directly to main/master at Stage 1+. Escape-hatch prefixes `[release]`/`[chore]` bypass the gate. Sprint-scoped commit attribution via `metadata.sprint_id` (fixes 0% resolves-trailer rate). Direct trailer counting replaces probe-based methodology.
+
+- **Sprint integration branches (M4, sprint-027).** `create_sprint_branch()`, `get_story_base_branch()`, `is_sprint_branch()` for Stage 2. Sprint branches: `<user>/sprint-NNN-<slug>`. Stories branch off sprint branch at Stage 2+, merge back on acceptance. Sprint branch commit gate (advisory, no escape hatch). Sprint reviewer opens PR from sprint branch to main via `gh` on milestone delivery.
+
+- **Test infrastructure.** Branching tests split across 3 files (unit, story lifecycle, sprint lifecycle). Dead `_probe()` helpers removed from retro tests. Test helper deduplication via shared `_make_bash_input`. 2722 tests total.
+
 ## v2.25.0 — Refactor-mode TDD metric + sizing_metrics rename
 
 Sprint-023 delivers both milestones: refactor-mode-aware TDD gap metric and sizing_metrics rename. 4/4 stories, 100% velocity.
