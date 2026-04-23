@@ -73,6 +73,11 @@ Then the enriched sections:
 - **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain.
 - **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
 - **Acceptance Criteria**: 3-5 testable conditions. At least one E2E prefixed with "E2E:".
+- **Acceptance Execution** (optional): How `/xp-accept` runs this story's acceptance test. Only include when the project has an automated acceptance surface (test runner, CLI, HTTP endpoint). Omit for stories without automated acceptance — `/xp-accept` defaults to manual walkthrough.
+  - `type`: Runner name (e.g., `pytest`, `playwright`, `bash`, `bats`, `cargo`).
+  - `command`: Exact invocation. Exit code 0 = pass.
+  - `setup` (optional): Prerequisite commands (e.g., `docker compose up -d`).
+  - `notes` (optional): Anything the agent needs to know before running.
 
 Include deferred stories from the previous sprint, renumbered to fit.
 
