@@ -38,7 +38,7 @@ _ALL_SKILL_NAMES = (
     "xp-work-selection",
 )
 
-# Inline skills with substantial instructional content (800-2500 token budget)
+# Inline skills with substantial instructional content (700-2500 token budget)
 _CONTENT_SKILL_NAMES = (
     "xp-quality-review",
     "xp-sprint-start",
@@ -131,7 +131,7 @@ class TestMilestone6Files(unittest.TestCase):
             self.assertEqual(name_match.group(1), name)
 
     def test_skill_token_budgets(self):
-        """Content skills should be within 800-2500 token estimate."""
+        """Content skills should be within 700-2500 token estimate."""
         for name in _CONTENT_SKILL_NAMES:
             skill_file = self.plugin_root / "skills" / name / "SKILL.md"
             if not skill_file.exists():
@@ -140,7 +140,7 @@ class TestMilestone6Files(unittest.TestCase):
             estimated_tokens = words / 0.75
             self.assertGreaterEqual(
                 estimated_tokens,
-                800,
+                700,
                 f"{name} too short: ~{estimated_tokens:.0f} tokens",
             )
             self.assertLessEqual(

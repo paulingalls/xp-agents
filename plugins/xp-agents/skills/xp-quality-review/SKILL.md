@@ -24,18 +24,9 @@ allowed-tools:
 
 Post-simplify review. `/simplify` just ran (3 agents: code reuse, quality, efficiency). You orchestrate an independent review and resolve plan concerns.
 
-## Step 1: Pre-commit Resolves-Trailer Probe
+## Step 1: Spawn Independent Code Reviewer
 
-Before spawning the reviewer, surface open concerns whose files intersect staged changes. If the commit closes one, add `Resolves-Event: <event-id>` as a commit trailer so the link lands on the first commit.
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-quality-review/scripts/probe_candidates.py \
-  --smm-dir <SMM_DIR> --cwd $(pwd)
-```
-
-Echo candidate IDs inline so the subagent sees them in context. The PreToolUse commit hook will also nudge the agent at commit time if staged files overlap unresolved concerns, suggesting the `Resolves-Event:` trailer.
-
-## Step 2: Spawn Independent Code Reviewer
+The PreToolUse:Skill hook automatically runs the resolves-trailer probe before this skill loads. If open concerns overlap changed files, the probe results appear in the hook's additionalContext above — relay them to the subagent.
 
 ### Gather Simplify Findings
 
@@ -61,7 +52,7 @@ Agent(
 
 Wait for the subagent to complete. Its findings and any recorded events will be returned as a tool result.
 
-## Step 3: Resolve Plan Review Concerns
+## Step 2: Resolve Plan Review Concerns
 
 The preload lists open concerns from the plan reviewer. For each concern:
 
@@ -77,7 +68,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 If no open plan concerns are listed in the preload, skip this step.
 
-## Step 4: Act on Subagent Findings
+## Step 3: Act on Subagent Findings
 
 Review the xp-code-reviewer's summary. For each finding:
 
@@ -90,7 +81,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "What needs fixing and why" --files '["path/to/file.py"]'
 ```
 
-## Step 5: Record Summary
+## Step 4: Record Summary
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
