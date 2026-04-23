@@ -32,7 +32,7 @@ class TestDecisionTopicsWiring(_HookTestCase):
             topic="retro-try-kickoff-exemption",
         )
         code_event = make_event("status", content="wrote code", working_on=["foo.py"])
-        filler = [make_event(content=f"f{i}") for i in range(55)]
+        filler = [make_event(content=f"f{i}") for i in range(80)]
         commit = make_event("commit", content="git commit")
         events = [decision, code_event, *filler, commit]
         self._write_events(events)
@@ -49,7 +49,7 @@ class TestDecisionTopicsWiring(_HookTestCase):
         import retrospective
 
         code_event = make_event("status", content="wrote code", working_on=["foo.py"])
-        filler = [make_event(content=f"f{i}") for i in range(55)]
+        filler = [make_event(content=f"f{i}") for i in range(80)]
         commit = make_event("commit", content="git commit")
         events = [code_event, *filler, commit]
         self._write_events(events)

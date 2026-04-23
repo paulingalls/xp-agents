@@ -95,8 +95,8 @@ def evaluate_flags(
             )
         )
 
-    decisions = session_stats.get("decisions_total", 0)
-    if planning > 0 and decisions == 0:
+    decisions_total = session_stats.get("decisions_total", 0)
+    if planning > 0 and decisions_total == 0:
         flags.append(
             _flag(
                 "planning_without_decisions",
@@ -134,17 +134,17 @@ def evaluate_flags(
         )
 
     events_to_commit = work_signals.get("max_events_to_commit", 0)
-    if events_to_commit >= 50:
+    if events_to_commit >= 75:
         suppressor = _FLAG_SUPPRESSIONS.get("max_events_to_commit")
         if not (suppressor and suppressor in active_decisions):
             flags.append(
                 _flag(
                     "max_events_to_commit",
                     events_to_commit,
-                    50,
+                    75,
                     "Simplicity",
                     f"Large batch: {events_to_commit} events between "
-                    f"first edit and commit (threshold: 50)",
+                    f"first edit and commit (threshold: 75)",
                 )
             )
 

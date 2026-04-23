@@ -183,14 +183,14 @@ class TestUnaddressedConcerns(unittest.TestCase):
 class TestEventsToCommit(unittest.TestCase):
     def test_fires_at_threshold(self):
         h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 50
+        w["max_events_to_commit"] = 75
         flags = retro_flags.evaluate_flags(h, w, s, ss)
         names = [f["metric"] for f in flags]
         self.assertIn("max_events_to_commit", names)
 
     def test_below_threshold(self):
         h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 49
+        w["max_events_to_commit"] = 74
         flags = retro_flags.evaluate_flags(h, w, s, ss)
         names = [f["metric"] for f in flags]
         self.assertNotIn("max_events_to_commit", names)
