@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Tests for branching.py — branch lifecycle operations.
 
-Covers: branch_name, get_branching_stage, is_worktree_clean, branch_exists,
-create_story_branch, merge_story_branch, delete_branch, CLI.
+Covers: branch_name, get_branching_stage, is_protected_branch,
+extract_commit_message, is_escape_hatch_commit, is_worktree_clean,
+branch_exists, create_story_branch, merge_story_branch, delete_branch, CLI.
 """
 
 import json
@@ -112,6 +113,94 @@ class TestGetBranchingStage(unittest.TestCase):
             }
             (Path(td) / "system_context.json").write_text(json.dumps(ctx))
             self.assertEqual(branching.get_branching_stage(Path(td)), 0)
+
+
+class TestIsProtectedBranch(unittest.TestCase):
+    def test_main_protected_at_stage_1(self):
+        self.assertTrue(branching.is_protected_branch(1, "main"))
+
+    def test_master_protected_at_stage_1(self):
+        self.assertTrue(branching.is_protected_branch(1, "master"))
+
+    def test_main_protected_at_stage_2(self):
+        self.assertTrue(branching.is_protected_branch(2, "main"))
+
+    def test_not_protected_at_stage_0(self):
+        self.assertFalse(branching.is_protected_branch(0, "main"))
+
+    def test_feature_branch_not_protected(self):
+        self.assertFalse(branching.is_protected_branch(1, "paul/story-001-feat"))
+
+    def test_empty_branch_not_protected(self):
+        self.assertFalse(branching.is_protected_branch(1, ""))
+
+
+class TestExtractCommitMessage(unittest.TestCase):
+    def test_double_quoted(self):
+        self.assertEqual(
+            branching.extract_commit_message('git commit -m "fix bug"'),
+            "fix bug",
+        )
+
+    def test_single_quoted(self):
+        self.assertEqual(
+            branching.extract_commit_message("git commit -m 'add feature'"),
+            "add feature",
+        )
+
+    def test_no_m_flag(self):
+        self.assertIsNone(branching.extract_commit_message("git commit"))
+
+    def test_heredoc_style(self):
+        cmd = """git commit -m "$(cat <<'EOF'
+[release] bump version
+
+Co-Authored-By: Claude
+EOF
+)" """
+        result = branching.extract_commit_message(cmd)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("[release]"))
+
+    def test_empty_message(self):
+        self.assertEqual(
+            branching.extract_commit_message('git commit -m ""'),
+            "",
+        )
+
+    def test_message_with_special_chars(self):
+        self.assertEqual(
+            branching.extract_commit_message('git commit -m "[chore] update deps"'),
+            "[chore] update deps",
+        )
+
+
+class TestIsEscapeHatchCommit(unittest.TestCase):
+    def test_release_prefix(self):
+        self.assertTrue(
+            branching.is_escape_hatch_commit('git commit -m "[release] v1.0"')
+        )
+
+    def test_chore_prefix(self):
+        self.assertTrue(
+            branching.is_escape_hatch_commit('git commit -m "[chore] cleanup"')
+        )
+
+    def test_case_insensitive(self):
+        self.assertTrue(
+            branching.is_escape_hatch_commit('git commit -m "[Release] v2.0"')
+        )
+
+    def test_no_prefix(self):
+        self.assertFalse(branching.is_escape_hatch_commit('git commit -m "fix bug"'))
+
+    def test_no_m_flag(self):
+        self.assertFalse(branching.is_escape_hatch_commit("git commit"))
+
+    def test_prefix_not_at_start(self):
+        self.assertFalse(
+            branching.is_escape_hatch_commit('git commit -m "fix [release] tag"')
+        )
 
 
 class TestIsWorktreeClean(unittest.TestCase):

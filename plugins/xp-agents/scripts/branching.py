@@ -42,6 +42,43 @@ def get_branching_stage(smm_dir: Path) -> int:
         return 0
 
 
+_PROTECTED_BRANCHES = {"main", "master"}
+
+
+def is_protected_branch(stage: int, branch: str) -> bool:
+    return stage >= 1 and branch in _PROTECTED_BRANCHES
+
+
+_HEREDOC_MSG_RE = re.compile(
+    r"-m\s+\"\$\(cat\s+<<'?\w+'?\n(.*?)\n\w+\n\)\"",
+    re.DOTALL,
+)
+_SIMPLE_MSG_RE = re.compile(
+    r"""-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')""",
+)
+
+
+def extract_commit_message(command: str) -> str | None:
+    """Extract the -m argument value from a git commit command."""
+    heredoc = _HEREDOC_MSG_RE.search(command)
+    if heredoc:
+        return heredoc.group(1)
+    m = _SIMPLE_MSG_RE.search(command)
+    if m:
+        return m.group(1) if m.group(1) is not None else m.group(2)
+    return None
+
+
+_ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore)\]", re.IGNORECASE)
+
+
+def is_escape_hatch_commit(command: str) -> bool:
+    msg = extract_commit_message(command)
+    if msg is None:
+        return False
+    return bool(_ESCAPE_HATCH_RE.match(msg))
+
+
 def is_worktree_clean(cwd: str) -> bool:
     r = _git(["git", "status", "--porcelain"], cwd)
     return r.returncode == 0 and r.stdout.strip() == ""
