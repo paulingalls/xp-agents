@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import branching
 import commits
 import coordination
 import identity
@@ -163,6 +164,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     smm_dir, agent_id, exempt_reason="no-code-files"
                 )
 
+        stage = branching.get_branching_stage(smm_dir)
+        if stage >= 1:
+            branch = identity.get_current_branch(cwd)
+            if branching.is_protected_branch(
+                stage, branch
+            ) and not branching.is_escape_hatch_commit(command):
+                parts.append(
+                    f"You're committing directly to {branch} "
+                    f"(branching stage {stage}). Use a story "
+                    f"branch, or prefix with [release]/[chore] "
+                    f"for legitimate main commits."
+                )
+
     if (
         smm_dir is not None
         and re.search(r"update-story\s+\S+\s+done\b", command)
@@ -173,7 +187,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Acceptance verification required.",
         )
 
-    # Non-blocking nudge — agent may re-run with --metadata or proceed.
     if smm_dir is not None:
         args = _common.parse_append_sh_args(command)
         if args.get("type") == _common.DECISION and not _decision_metadata_has_resolves(

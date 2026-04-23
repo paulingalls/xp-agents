@@ -303,6 +303,83 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestMainBranchGate(_HookTestCase):
+    """Main-branch gate: nudge when committing on protected branch at stage >= 1."""
+
+    def _commit_input(self, command="git commit -m 'test'", **kw) -> dict:
+        data = {
+            "session_id": "t",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "cwd": "/tmp",
+            "agent_id": "main",
+        }
+        data.update(kw)
+        return data
+
+    @patch("identity.get_current_branch", return_value="main")
+    @patch("branching.get_branching_stage", return_value=1)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_nudge_on_main_stage_1(self, *_mocks):
+        result = pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("story branch", result)
+
+    @patch("identity.get_current_branch", return_value="main")
+    @patch("branching.get_branching_stage", return_value=0)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_silent_at_stage_0(self, *_mocks):
+        result = pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    @patch("identity.get_current_branch", return_value="paul/story-001-feat")
+    @patch("branching.get_branching_stage", return_value=1)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_silent_on_feature_branch(self, *_mocks):
+        result = pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    @patch("identity.get_current_branch", return_value="main")
+    @patch("branching.get_branching_stage", return_value=1)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_escape_hatch_release(self, *_mocks):
+        result = pre_tool_bash.run(
+            self._commit_input(command='git commit -m "[release] bump version"'),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    @patch("identity.get_current_branch", return_value="main")
+    @patch("branching.get_branching_stage", return_value=1)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_escape_hatch_chore(self, *_mocks):
+        result = pre_tool_bash.run(
+            self._commit_input(command='git commit -m "[chore] update deps"'),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    @patch("identity.get_current_branch", return_value="master")
+    @patch("branching.get_branching_stage", return_value=2)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_nudge_on_master_stage_2(self, *_mocks):
+        result = pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("story branch", result)
+
+
 class TestPreToolBashWorktreeAgentId(_HookTestCase):
     """Commit gate reads markers under worktree-derived agent_id."""
 
