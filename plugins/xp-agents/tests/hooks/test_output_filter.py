@@ -236,6 +236,26 @@ class TestExtractDiagnostics(unittest.TestCase):
         self.assertIn("Gate B", diags)
         self.assertIn(";", diags)
 
+    def test_surfaces_python_traceback(self):
+        """Non-JSON traceback lines appear in diagnostics."""
+        import teammate_output_filter
+
+        lines = [
+            "Traceback (most recent call last):",
+            '  File "spawn_teammate.py", line 110, in main',
+            "ModuleNotFoundError: No module named '_append_impl'",
+        ]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("ModuleNotFoundError", diags)
+
+    def test_surfaces_git_fatal(self):
+        """Git fatal errors appear in diagnostics."""
+        import teammate_output_filter
+
+        lines = ["fatal: not a git repository"]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("fatal:", diags)
+
 
 class TestMainE2E(_HookTestCase):
     """E2E: pipe mock stream-json through main()."""

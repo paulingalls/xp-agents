@@ -65,6 +65,15 @@ def extract_diagnostics(lines: list[str]) -> str:
     if blocks:
         return "Blocked by hook: " + "; ".join(blocks)
 
+    _ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
+    errors = [
+        line
+        for line in lines
+        if not line.startswith("{") and any(sig in line for sig in _ERROR_SIGNALS)
+    ]
+    if errors:
+        return "Spawn failed: " + "; ".join(errors)
+
     return f"No result event in {len(lines)} stream-json lines (no block detected)"
 
 
