@@ -95,7 +95,9 @@ If `.retro-input.json` contains a `sizing_analysis` key, a sprint has just ended
 The `sizing_analysis` object contains:
 - `sprint_id`, `goal` — identify the sprint
 - `velocity` — `{stories_planned, stories_delivered, stories_carried}`
-- `per_story` — `[{id, title, status, commits, files_changed, cascade_size, attribution_anomaly}]`
+- `per_story` — `[{id, title, status, commits, files_changed, cascade_size, code_free, attribution_anomaly}]`
+
+`code_free` is `true` when the story has no `file_domain` — investigation, research, or verification work with no expected code changes. Zero-commit stories with `code_free=true` are expected and should NOT be flagged. Zero-commit stories with `code_free=false` and `status=done` indicate a pipeline gap (commits exist but lack `story_id` metadata) — flag as a Fix.
 
 `attribution_anomaly` is `true` when `status == "deferred" AND commits > 0`. It surfaces two possible causes deterministically: (1) commits were mis-attributed to a deferred story, or (2) the story was functionally complete but never marked done.
 
@@ -107,7 +109,7 @@ Did the sprint achieve its goal? Reference `velocity` (delivery rate) and any de
 #### Per-Story Metrics Table
 | Story | Commits | Files | Cascade Size |
 |-------|---------|-------|--------------|
-For each entry in `per_story`, report the metrics. cascade_size is informational: it names the count of committed files outside the declared file_domain. No threshold. Call it out descriptively if it tells a story about planning drift, but do not flag.
+For each entry in `per_story`, report the metrics. cascade_size is informational: it names the count of committed files outside the declared file_domain. No threshold. Call it out descriptively if it tells a story about planning drift, but do not flag. For `code_free=true` stories with 0 commits, annotate as "(code-free)" in the table — these are expected. For `code_free=false` stories with 0 commits and `status=done`, annotate as "(pipeline gap?)" — these need investigation.
 
 #### Attribution Anomalies
 If any `per_story` entry has `attribution_anomaly=true`, list them with a short investigation prompt:

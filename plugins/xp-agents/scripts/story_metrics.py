@@ -140,6 +140,7 @@ def compute_story_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
                 "title": s["title"],
                 "status": s["status"],
                 **m,
+                "code_free": not bool(s.get("file_domain")),
                 "attribution_anomaly": (s["status"] == "deferred" and m["commits"] > 0),
             }
         )

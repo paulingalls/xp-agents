@@ -14,6 +14,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _s, commit_event
 
 
+def _write_sprint(
+    smm_dir: Path,
+    stories: list[dict],
+    sprint_id: str = "sprint-001",
+) -> None:
+    sprint = {
+        "sprint_id": sprint_id,
+        "goal": "test",
+        "started": "2026-04-22",
+        "milestone": "test",
+        "stories": stories,
+    }
+    (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+
 class TestAttributeCommits(unittest.TestCase):
     def test_single_commit_single_story(self):
         import story_metrics
@@ -262,33 +277,54 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
         self.assertEqual(result["story-001"]["files_changed"], 1)
 
 
+class TestCodeFreeFlag(unittest.TestCase):
+    """code_free flag distinguishes investigation-only from code-expected stories."""
+
+    def test_empty_file_domain_is_code_free(self):
+        import story_metrics
+
+        with tempfile.TemporaryDirectory() as td:
+            smm_dir = Path(td)
+            _write_sprint(
+                smm_dir,
+                [_s("story-001", "Investigate auth gap", "done", file_domain=[])],
+            )
+            result = story_metrics.compute_story_analysis(smm_dir, [])
+            self.assertTrue(result["per_story"][0]["code_free"])
+
+    def test_populated_file_domain_is_not_code_free(self):
+        import story_metrics
+
+        with tempfile.TemporaryDirectory() as td:
+            smm_dir = Path(td)
+            _write_sprint(
+                smm_dir,
+                [
+                    _s(
+                        "story-001",
+                        "Add auth",
+                        "done",
+                        file_domain=["scripts/auth.py — login"],
+                    )
+                ],
+            )
+            result = story_metrics.compute_story_analysis(smm_dir, [])
+            self.assertFalse(result["per_story"][0]["code_free"])
+
+
 class TestSprintScopedAttribution(unittest.TestCase):
     """compute_story_analysis must scope commits by sprint_id."""
-
-    def _write_sprint(self, smm_dir: Path, sprint_id: str) -> None:
-        sprint = {
-            "sprint_id": sprint_id,
-            "goal": "test",
-            "started": "2026-04-22",
-            "milestone": "test",
-            "stories": [
-                _s(
-                    "story-001",
-                    "Auth",
-                    "done",
-                    file_domain=["scripts/auth.py — login"],
-                ),
-            ],
-        }
-        (smm_dir / "sprint.json").write_text(json.dumps(sprint))
 
     def test_excludes_commits_from_other_sprint(self):
         """Commits with a different sprint_id are excluded even if story_id matches."""
         import story_metrics
 
+        stories = [
+            _s("story-001", "Auth", "done", file_domain=["scripts/auth.py — login"]),
+        ]
         with tempfile.TemporaryDirectory() as td:
             smm_dir = Path(td)
-            self._write_sprint(smm_dir, "sprint-002")
+            _write_sprint(smm_dir, stories, sprint_id="sprint-002")
 
             events = [
                 commit_event(
@@ -320,9 +356,12 @@ class TestSprintScopedAttribution(unittest.TestCase):
         """Old commits without sprint_id are included (backward compat)."""
         import story_metrics
 
+        stories = [
+            _s("story-001", "Auth", "done", file_domain=["scripts/auth.py — login"]),
+        ]
         with tempfile.TemporaryDirectory() as td:
             smm_dir = Path(td)
-            self._write_sprint(smm_dir, "sprint-002")
+            _write_sprint(smm_dir, stories, sprint_id="sprint-002")
 
             events = [
                 commit_event(
