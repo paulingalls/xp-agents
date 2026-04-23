@@ -35,11 +35,7 @@ Present recommendation via `AskUserQuestion`: mode + rationale. For teammate mod
 
 ## Solo Mode
 
-If a sprint is active with in-progress stories, assign the most relevant story for commit attribution:
-
-```bash
-python3 ${PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> assign-story story-NNN --name main
-```
+Solo mode uses file-domain matching at commit time — no story assignment needed. The commit hook resolves story attribution by matching committed files against each in-progress story's `file_domain`.
 
 Output "Proceeding with solo execution." and stop.
 

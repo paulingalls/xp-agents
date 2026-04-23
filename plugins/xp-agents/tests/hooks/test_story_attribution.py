@@ -211,14 +211,86 @@ class TestResolveStoryId(_HookTestCase):
         self.assertEqual(len(commit_ev), 1)
         self.assertNotIn("story_id", commit_ev[0]["metadata"])
 
-    def test_lead_agent_reads_story_assignment_main(self):
-        """Lead agent (non-worktree) uses .story-assignment-main marker."""
+    def test_solo_agent_ignores_marker_uses_file_domain(self):
+        """Solo agent (name=main) ignores .story-assignment-main, uses Tier 2."""
         import worktree
 
         assignment = worktree.story_assignment_path(self.smm_dir, "main")
-        assignment.write_text("story-002")
-        result = bash_post_tool._resolve_story_id(self.smm_dir, "/proj", ["src/app.py"])
+        assignment.write_text("story-001")
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Auth",
+                        "in-progress",
+                        file_domain=["scripts/auth.py — login"],
+                    ),
+                    _s(
+                        "story-002",
+                        "UI",
+                        "in-progress",
+                        file_domain=["src/ui.py — layout"],
+                    ),
+                ]
+            )
+        )
+        result = bash_post_tool._resolve_story_id(self.smm_dir, "/proj", ["src/ui.py"])
         self.assertEqual(result, "story-002")
+
+    def test_solo_agent_single_story_ignores_stale_marker(self):
+        """Solo agent with one in-progress story ignores stale marker."""
+        import worktree
+
+        assignment = worktree.story_assignment_path(self.smm_dir, "main")
+        assignment.write_text("story-old")
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Auth",
+                        "in-progress",
+                        file_domain=["scripts/auth.py — login"],
+                    ),
+                ]
+            )
+        )
+        result = bash_post_tool._resolve_story_id(
+            self.smm_dir, "/proj", ["scripts/auth.py"]
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_teammate_still_reads_assignment_marker(self):
+        """Teammates still use Tier 1 marker (regression guard)."""
+        import worktree
+
+        assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
+        assignment.write_text("story-001")
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Auth",
+                        "in-progress",
+                        file_domain=["scripts/auth.py — login"],
+                    ),
+                    _s(
+                        "story-002",
+                        "UI",
+                        "in-progress",
+                        file_domain=["src/ui.py — layout"],
+                    ),
+                ]
+            )
+        )
+        result = bash_post_tool._resolve_story_id(
+            self.smm_dir,
+            "/proj/.claude/worktrees/teammate-step-1",
+            ["src/ui.py"],
+        )
+        self.assertEqual(result, "story-001")
 
 
 if __name__ == "__main__":

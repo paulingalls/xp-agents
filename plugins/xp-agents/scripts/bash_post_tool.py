@@ -133,14 +133,15 @@ def _resolve_story_id(
     import sprint_store
     import story_metrics
 
-    name = identity.extract_worktree_name(cwd) or "main"
-    assignment = worktree.story_assignment_path(smm_dir, name)
-    try:
-        story_id = assignment.read_text(encoding="utf-8").strip()
-        if story_id:
-            return story_id
-    except (FileNotFoundError, OSError):
-        pass
+    wt_name = identity.extract_worktree_name(cwd)
+    if wt_name is not None:
+        assignment = worktree.story_assignment_path(smm_dir, wt_name)
+        try:
+            story_id = assignment.read_text(encoding="utf-8").strip()
+            if story_id:
+                return story_id
+        except (FileNotFoundError, OSError):
+            pass
 
     if sprint is None:
         sprint = sprint_store.load_sprint(smm_dir)
