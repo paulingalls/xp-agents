@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Resolves-trailer probe: find open concerns/debts a commit should auto-link.
 
-Pure module called by two paths:
-- bash_post_tool._handle_commit (post-commit nudge + status event)
-- xp-quality-review/scripts/probe_candidates.py (pre-commit probe)
+Pure module called by three paths:
+- pre_tool_bash.run (pre-commit nudge via additionalContext)
+- bash_post_tool._handle_commit (post-commit status event for metrics)
+- xp-quality-review/scripts/probe_candidates.py (quality-review pre-commit probe)
 """
 
-import hashlib
-import json
 import sys
 from pathlib import Path
 
@@ -16,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import commits
-import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_PROBE_CANDIDATES,
@@ -44,34 +42,12 @@ def find_probe_candidates(
 def build_nudge_lines(candidates: list[dict]) -> list[str]:
     """Format auto-link nudge text for each candidate."""
     return [
-        f"Auto-link nudge: {c.get('type', 'concern')} {c['id']}"
-        f" — {(c.get('content') or '')[:80]}. "
-        f"If correct, re-commit with:\n"
-        f'  git commit --amend --trailer "Resolves-Event: {c["id"]}"'
+        f"Open {c.get('type', 'concern')} {c['id']}"
+        f" overlaps staged files — {(c.get('content') or '')[:80]}. "
+        f"If this commit addresses it, add trailer: "
+        f"Resolves-Event: {c['id']}"
         for c in candidates
     ]
-
-
-def compute_fingerprint(files: list[str], concern_ids: list[str], cwd: str) -> str:
-    """sha256 over sorted normalized files + sorted issue ids. Order-invariant.
-
-    Used by /xp-quality-review pre-commit and bash_post_tool._handle_commit to
-    detect when the pre-commit probe and the post-commit commit are covering
-    the same set of (staged files, open concerns/debts) — fingerprint match
-    means the post-commit nudge is redundant. Files that fail to normalize are
-    silently skipped, mirroring commits.open_issues_matching_commit so both
-    sides of the pre/post comparison agree on which files are fingerprinted.
-    """
-    norm_files: set[str] = set()
-    for f in files:
-        try:
-            norm_files.add(worktree.normalize_path(f, cwd))
-        except (ValueError, OSError):
-            continue
-    payload = json.dumps(
-        {"files": sorted(norm_files), "ids": sorted(concern_ids)}, sort_keys=True
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def build_probe_status_event(

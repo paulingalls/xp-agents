@@ -177,9 +177,7 @@ def _resolve_story_id(
 _QR_WINDOW_CAP = 30
 
 
-def _check_qr_linkage(
-    events: list[dict], agent_id: str, marker_matched: bool
-) -> str | None:
+def _check_qr_linkage(events: list[dict], agent_id: str) -> str | None:
     """Return a warning if no quality-review status since previous commit.
 
     The backward scan for the previous commit is capped at _QR_WINDOW_CAP
@@ -188,9 +186,6 @@ def _check_qr_linkage(
     may suppress the warning.  Acceptable because this is an advisory
     nudge, not a commit gate.
     """
-    if marker_matched:
-        return None
-
     prev_commit_idx: int | None = None
     start = max(0, len(events) - _QR_WINDOW_CAP)
     for i in range(len(events) - 1, start - 1, -1):
@@ -267,26 +262,9 @@ def _handle_commit(
     candidates = resolves_probe.find_probe_candidates(
         smm_dir, committed_files, resolves, cwd, events=events, resolutions=resolutions
     )
-    marker_data = markers.marker_consume(smm_dir, markers.REVIEW_FINGERPRINT, agent_id)
-
-    marker_matched = False
-    if not isinstance(marker_data, dict):
-        nudge_lines = resolves_probe.build_nudge_lines(candidates)
-        status_event = resolves_probe.build_probe_status_event(
-            candidates, commit_hash, agent_id
-        )
-    else:
-        fingerprint = resolves_probe.compute_fingerprint(
-            committed_files, [c["id"] for c in candidates], cwd
-        )
-        if marker_data.get("fingerprint") == fingerprint:
-            nudge_lines = []
-            status_event = None
-            marker_matched = True
-        else:
-            nudge_lines = resolves_probe.build_nudge_lines(candidates)
-            status_event = None
-
+    status_event = resolves_probe.build_probe_status_event(
+        candidates, commit_hash, agent_id
+    )
     if status_event:
         pending.append(status_event)
 
@@ -312,14 +290,9 @@ def _handle_commit(
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
-    qr_warning = _check_qr_linkage(events, agent_id, marker_matched)
+    qr_warning = _check_qr_linkage(events, agent_id)
 
-    parts: list[str] = []
-    if nudge_lines:
-        parts.extend(nudge_lines)
-    if qr_warning:
-        parts.append(qr_warning)
-    return "\n".join(parts) if parts else None
+    return qr_warning
 
 
 # ---------------------------------------------------------------------------

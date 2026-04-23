@@ -69,15 +69,13 @@ class TestBuildNudgeLines(unittest.TestCase):
     def test_empty_candidates_returns_empty_list(self):
         self.assertEqual(resolves_probe.build_nudge_lines([]), [])
 
-    def test_nudge_includes_id_content_and_amend_command(self):
+    def test_nudge_includes_id_content_and_trailer(self):
         candidate = {"id": "abc123def456", "content": "Auth middleware leaks tokens"}
         lines = resolves_probe.build_nudge_lines([candidate])
         self.assertEqual(len(lines), 1)
         self.assertIn("abc123def456", lines[0])
         self.assertIn("Auth middleware leaks tokens", lines[0])
-        self.assertIn(
-            'git commit --amend --trailer "Resolves-Event: abc123def456"', lines[0]
-        )
+        self.assertIn("Resolves-Event: abc123def456", lines[0])
 
     def test_nudge_truncates_long_content_to_80_chars(self):
         long_content = "x" * 200
@@ -103,57 +101,6 @@ class TestBuildNudgeLines(unittest.TestCase):
         candidate = {"id": "abc123def456", "type": "concern", "content": "Bug found"}
         lines = resolves_probe.build_nudge_lines([candidate])
         self.assertIn("concern abc123def456", lines[0])
-
-
-class TestComputeFingerprint(unittest.TestCase):
-    """compute_fingerprint produces a stable sha256 over files + concern ids."""
-
-    def test_same_inputs_produce_same_hash(self):
-        fp1 = resolves_probe.compute_fingerprint(
-            ["a.py", "b.py"], ["id1", "id2"], cwd="/tmp"
-        )
-        fp2 = resolves_probe.compute_fingerprint(
-            ["a.py", "b.py"], ["id1", "id2"], cwd="/tmp"
-        )
-        self.assertEqual(fp1, fp2)
-
-    def test_file_order_invariance(self):
-        fp1 = resolves_probe.compute_fingerprint(["a.py", "b.py"], ["id1"], cwd="/tmp")
-        fp2 = resolves_probe.compute_fingerprint(["b.py", "a.py"], ["id1"], cwd="/tmp")
-        self.assertEqual(fp1, fp2)
-
-    def test_concern_id_order_invariance(self):
-        fp1 = resolves_probe.compute_fingerprint(["a.py"], ["id1", "id2"], cwd="/tmp")
-        fp2 = resolves_probe.compute_fingerprint(["a.py"], ["id2", "id1"], cwd="/tmp")
-        self.assertEqual(fp1, fp2)
-
-    def test_path_normalization(self):
-        fp1 = resolves_probe.compute_fingerprint(["./a.py"], [], cwd="/tmp")
-        fp2 = resolves_probe.compute_fingerprint(["a.py"], [], cwd="/tmp")
-        self.assertEqual(fp1, fp2)
-
-    def test_different_files_produce_different_hash(self):
-        fp1 = resolves_probe.compute_fingerprint(["a.py"], ["id1"], cwd="/tmp")
-        fp2 = resolves_probe.compute_fingerprint(["b.py"], ["id1"], cwd="/tmp")
-        self.assertNotEqual(fp1, fp2)
-
-    def test_different_concern_ids_produce_different_hash(self):
-        fp1 = resolves_probe.compute_fingerprint(["a.py"], ["id1"], cwd="/tmp")
-        fp2 = resolves_probe.compute_fingerprint(["a.py"], ["id2"], cwd="/tmp")
-        self.assertNotEqual(fp1, fp2)
-
-    def test_returns_hex_string(self):
-        fp = resolves_probe.compute_fingerprint(["a.py"], ["id1"], cwd="/tmp")
-        self.assertIsInstance(fp, str)
-        self.assertRegex(fp, r"^[0-9a-f]+$")
-
-    def test_empty_inputs_produce_stable_hash(self):
-        # Post-commit coordinator may fingerprint an empty probe (no candidates);
-        # the helper must not raise and must be deterministic across calls.
-        fp1 = resolves_probe.compute_fingerprint([], [], cwd="/tmp")
-        fp2 = resolves_probe.compute_fingerprint([], [], cwd="/tmp")
-        self.assertEqual(fp1, fp2)
-        self.assertRegex(fp1, r"^[0-9a-f]+$")
 
 
 class TestBuildProbeStatusEvent(unittest.TestCase):

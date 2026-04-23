@@ -33,7 +33,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-quality-review/scripts/probe_candidates.
   --smm-dir <SMM_DIR> --cwd $(pwd)
 ```
 
-Echo candidate IDs inline so the subagent sees them in context. The script drops a `REVIEW_FINGERPRINT` marker that suppresses the duplicate post-commit nudge when the staged set + open-concern set match at commit time.
+Echo candidate IDs inline so the subagent sees them in context. The PreToolUse commit hook will also nudge the agent at commit time if staged files overlap unresolved concerns, suggesting the `Resolves-Event:` trailer.
 
 ## Step 2: Spawn Independent Code Reviewer
 

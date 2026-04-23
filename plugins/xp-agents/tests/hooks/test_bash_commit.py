@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for bash_post_tool post-commit behaviors: probe dedup, review cycle,
+"""Tests for bash_post_tool post-commit behaviors: review cycle,
 worktree markers, green nudge, push warning, QR linkage.
 
 Split from test_bash.py.
@@ -21,10 +21,10 @@ import security
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 
 
-class TestResolvesProbeDedup(_ProbeTestHelpers, _HookTestCase):
-    """REVIEW_FINGERPRINT marker suppresses post-commit nudge when matching."""
+class TestPostCommitProbeEvent(_ProbeTestHelpers, _HookTestCase):
+    """Post-commit emits probe status event but no nudge text."""
 
-    def _run_auth_commit(self, agent_id: str = "main"):
+    def _run_auth_commit(self):
         with (
             patch("commits.get_committed_files", return_value=["scripts/auth.py"]),
             patch("commits.get_commit_message_body", return_value="Fix auth"),
@@ -35,72 +35,24 @@ class TestResolvesProbeDedup(_ProbeTestHelpers, _HookTestCase):
                     command="git commit -m 'Fix auth'",
                     stdout="[main abc123] Fix auth\n 1 file changed",
                     cwd=str(self.smm_dir),
-                    agent_id=agent_id,
                 ),
                 smm_dir=self.smm_dir,
             )
 
-    def _write_fingerprint_marker(self, files: list[str], concern_ids: list[str]):
-        import resolves_probe
-
-        fp = resolves_probe.compute_fingerprint(
-            files, concern_ids, cwd=str(self.smm_dir)
-        )
-        markers.marker_write(
+    def test_no_nudge_text_returned(self):
+        self._seed_auth_concern()
+        _common.append_safe(
             self.smm_dir,
-            markers.REVIEW_FINGERPRINT,
-            {"fingerprint": fp, "candidate_ids": concern_ids},
-            "main",
+            make_event("status", content="Quality review complete."),
         )
-        return fp
-
-    def test_fingerprint_match_suppresses_nudge_and_status_event(self):
-        cid = self._seed_auth_concern()
-        self._write_fingerprint_marker(["scripts/auth.py"], [cid])
-
         result = self._run_auth_commit()
-
         self.assertIsNone(result)
-        self.assertEqual(self._probes(), [])
 
-    def test_fingerprint_files_mismatch_emits_nudge_only(self):
+    def test_probe_event_still_emitted(self):
         cid = self._seed_auth_concern()
-        self._write_fingerprint_marker(["scripts/other.py"], [cid])
-
-        result = self._run_auth_commit()
-
-        self.assertIsNotNone(result)
-        self.assertIn(cid, result)
-        self.assertEqual(self._probes(), [])
-
-    def test_fingerprint_concern_ids_mismatch_emits_nudge_only(self):
-        cid = self._seed_auth_concern()
-        self._write_fingerprint_marker(["scripts/auth.py"], ["different_id"])
-
-        result = self._run_auth_commit()
-
-        self.assertIsNotNone(result)
-        self.assertIn(cid, result)
-        self.assertEqual(self._probes(), [])
-
-    def test_no_marker_emits_both_nudge_and_status_event(self):
-        cid = self._seed_auth_concern()
-
-        result = self._run_auth_commit()
-
-        self.assertIsNotNone(result)
-        self.assertIn(cid, result)
-        self.assertEqual(len(self._probes()), 1)
-
-    def test_marker_consumed_after_read(self):
-        cid = self._seed_auth_concern()
-        self._write_fingerprint_marker(["scripts/auth.py"], [cid])
-
         self._run_auth_commit()
-
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.REVIEW_FINGERPRINT, "main")
-        )
+        self.assertEqual(len(self._probes()), 1)
+        self.assertEqual(self._probes()[0]["metadata"]["probe_candidates"], [cid])
 
 
 class TestBashPostToolReviewCycle(_HookTestCase):
@@ -387,19 +339,6 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-    def _write_fingerprint_marker(
-        self, files: list[str], agent_id: str = "main"
-    ) -> None:
-        import resolves_probe
-
-        fp = resolves_probe.compute_fingerprint(files, [], cwd=str(self.smm_dir))
-        markers.marker_write(
-            self.smm_dir,
-            markers.REVIEW_FINGERPRINT,
-            {"fingerprint": fp, "candidate_ids": []},
-            agent_id,
-        )
-
     def test_qr_event_between_commits_no_warning(self):
         self._seed_commit_event()
         self._seed_qr_status()
@@ -417,13 +356,6 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
         result = self._run_commit()
         self.assertIsNotNone(result)
         self.assertIn("quality review", result.lower())
-
-    def test_marker_match_suppresses_warning(self):
-        self._seed_commit_event()
-        self._write_fingerprint_marker(["src/app.py"])
-        result = self._run_commit()
-        if result:
-            self.assertNotIn("quality review", result.lower())
 
     def test_back_to_back_commits_second_warns(self):
         self._seed_commit_event()

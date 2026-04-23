@@ -65,13 +65,8 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
-        # Nudge surfaces as additionalContext on stdout.
-        output = json.loads(result.stdout)
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("git commit --amend --trailer", ctx)
-        self.assertIn("abc123def456", ctx)
-
-        # Probe event emitted with the expected shape.
+        # Post-commit no longer emits nudge lines (moved to pre-commit).
+        # Probe event still emitted with the expected shape.
         events = self._read_events()
         probes = [
             e

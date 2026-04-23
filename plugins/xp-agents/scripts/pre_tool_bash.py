@@ -15,6 +15,7 @@ import commits
 import coordination
 import identity
 import markers
+import resolves_probe
 import security
 import worktree
 from event_schema import METADATA_KEY_RESOLVES
@@ -182,6 +183,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"{branch}. Sprint branches accept merges "
                     f"only. Use a story branch for your work."
                 )
+
+        staged = commits.get_staged_files(cwd)
+        if staged:
+            msg = branching.extract_commit_message(command)
+            already_resolved: list[str] = []
+            if msg:
+                already_resolved, _ = commits.extract_resolves_trailer(msg)
+            candidates = resolves_probe.find_probe_candidates(
+                smm_dir, staged, already_resolved, cwd
+            )
+            if candidates:
+                parts.extend(resolves_probe.build_nudge_lines(candidates))
 
     if (
         smm_dir is not None

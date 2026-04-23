@@ -151,16 +151,6 @@ class TestPendingRenderMarkers(_HookTestCase):
             )
         )
 
-    def test_review_fingerprint_is_agent_scoped_json(self):
-        self.assertTrue(markers.REVIEW_FINGERPRINT.agent_scoped)
-        self.assertEqual(markers.REVIEW_FINGERPRINT.content_type, "json")
-
-    def test_review_fingerprint_filename_format(self):
-        path = markers.marker_path(
-            self.smm_dir, markers.REVIEW_FINGERPRINT, "teammate-a"
-        )
-        self.assertEqual(path.name, ".review-fingerprint-teammate-a")
-
     def test_consume_only_removes_caller_marker(self):
         markers.marker_write(
             self.smm_dir, markers.PENDING_RENDER_RETRO, "# sig-a", "teammate-a"
@@ -247,21 +237,6 @@ class TestCleanupAgentMarkers(_HookTestCase):
 
     def test_no_error_when_markers_missing(self):
         markers.cleanup_agent_markers(self.smm_dir, "nonexistent")
-
-    def test_removes_review_fingerprint(self):
-        markers.marker_write(
-            self.smm_dir,
-            markers.REVIEW_FINGERPRINT,
-            {"fingerprint": "abc123"},
-            "task-1",
-        )
-        self.assertTrue(
-            markers.marker_exists(self.smm_dir, markers.REVIEW_FINGERPRINT, "task-1")
-        )
-        markers.cleanup_agent_markers(self.smm_dir, "task-1")
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.REVIEW_FINGERPRINT, "task-1")
-        )
 
 
 if __name__ == "__main__":

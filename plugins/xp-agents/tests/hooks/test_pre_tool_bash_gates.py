@@ -465,5 +465,61 @@ class TestPreToolBashWorktreeAgentId(_HookTestCase):
             self.assertIn("/xp-security-triage", str(ctx.exception))
 
 
+class TestResolvesTrailerNudge(_HookTestCase):
+    """Pre-commit nudge when staged files overlap open concerns."""
+
+    def _write_concern(self, content: str, files: list[str]) -> str:
+        event = make_event("concern", content=content, severity="medium", files=files)
+        self._write_events([event])
+        return event["id"]
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_nudge_when_staged_overlaps_concern(self, *_mocks):
+        self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        result = pre_tool_bash.run(
+            _make_bash_input(command=_COMMIT_CMD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Resolves-Event", result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/other.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_no_nudge_when_no_overlap(self, *_mocks):
+        self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        result = pre_tool_bash.run(
+            _make_bash_input(command=_COMMIT_CMD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_no_nudge_when_trailer_present(self, *_mocks):
+        cid = self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        cmd = f'git commit -m "fix auth\n\nResolves-Event: {cid}"'
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    def test_no_nudge_on_non_commit(self, *_mocks):
+        self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        result = pre_tool_bash.run(
+            _make_bash_input(command="ls -la"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

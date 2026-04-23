@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for bash_post_tool.py: commit events, test framework detection, and
-auto-link probe nudges.
+auto-link probe status events.
 
-Probe dedup, review cycle, green nudge, push warning, and QR linkage are in
+Review cycle, green nudge, push warning, and QR linkage are in
 test_bash_commit.py. Failure handling and compat tests are in test_bash_failure.py.
 """
 
@@ -346,13 +346,12 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             **kw,
         )
 
-    def test_commit_emits_concern_autolink_nudge_on_file_overlap(self):
-        """Commit touches a file in open concern's files -> additionalContext nudge."""
-        cid = self._seed_auth_concern()
+    def test_commit_no_nudge_on_file_overlap(self):
+        """Post-commit nudge removed — probe event still emitted."""
+        self._seed_auth_concern()
+        self._seed_qr_status()
         result = self._run_auth_fix(body="Fix auth\n\nNo trailer here.")
-        self.assertIsNotNone(result)
-        self.assertIn(cid, result)
-        self.assertIn("Resolves-Event", result)
+        self.assertIsNone(result)
 
     def _seed_qr_status(self) -> None:
         """Seed a quality-review status event to suppress QR-linkage warning."""
@@ -380,12 +379,12 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_nudge_includes_actionable_amend_trailer_command(self):
-        """Nudge must spell out the full `git commit --amend --trailer` command."""
-        cid = self._seed_auth_concern()
+    def test_post_commit_no_nudge_text(self):
+        """Post-commit no longer returns nudge text (moved to pre-commit)."""
+        self._seed_auth_concern()
+        self._seed_qr_status()
         result = self._run_auth_fix()
-        self.assertIsNotNone(result)
-        self.assertIn(f'git commit --amend --trailer "Resolves-Event: {cid}"', result)
+        self.assertIsNone(result)
 
     def test_probe_event_emitted_when_nudge_fires(self):
         """Nudge fires -> status event with probe_candidates + commit_hash."""
@@ -408,14 +407,9 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(self._probes(), [])
 
     def test_probe_caps_candidates_at_five(self):
-        """>5 matching concerns -> only 5 IDs in nudge AND probe metadata."""
+        """>5 matching concerns -> only 5 IDs in probe metadata."""
         cids = [self._seed_auth_concern(f"Concern number {i}") for i in range(7)]
-        result = self._run_auth_fix()
-        self.assertIsNotNone(result)
-        for included_id in cids[:5]:
-            self.assertIn(included_id, result)
-        for excluded_id in cids[5:]:
-            self.assertNotIn(excluded_id, result)
+        self._run_auth_fix()
 
         probe = self._probes()[0]
         self.assertEqual(probe["content"], "resolves_probe_shown: 5 candidates")
