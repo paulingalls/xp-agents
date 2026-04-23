@@ -176,6 +176,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"branch, or prefix with [release]/[chore] "
                     f"for legitimate main commits."
                 )
+            elif stage >= 2 and branching.is_sprint_branch(branch):
+                parts.append(
+                    f"You're committing directly to sprint branch "
+                    f"{branch}. Sprint branches accept merges "
+                    f"only. Use a story branch for your work."
+                )
 
     if (
         smm_dir is not None
