@@ -5,12 +5,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-
-from unittest.mock import patch
 
 import _common
 import markers
@@ -281,6 +280,29 @@ class TestTriageExemption(_HookTestCase):
         data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
         self.assertIn("ts", data)
         self.assertNotIn("exempt_reason", data)
+
+
+class TestResolvesTrailerReminder(_HookTestCase):
+    """Always remind about Resolves-Event trailer on commits."""
+
+    @patch("commits.get_staged_files", return_value=["src/app.py"])
+    def test_commit_without_trailer_gets_reminder(self, _mock):
+        security.write_security_triaged(self.smm_dir)
+        result = pre_tool_bash.run(
+            _make_bash_input(command="git commit -m 'fix bug'"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("Resolves-Event:", result)
+
+    @patch("commits.get_staged_files", return_value=["src/app.py"])
+    def test_commit_with_trailer_no_reminder(self, _mock):
+        security.write_security_triaged(self.smm_dir)
+        result = pre_tool_bash.run(
+            _make_bash_input(command="git commit -m 'fix bug\n\nResolves-Event: none'"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

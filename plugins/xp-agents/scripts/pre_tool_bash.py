@@ -188,14 +188,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if staged:
             msg = branching.extract_commit_message(command)
             already_resolved: list[str] = []
+            has_trailer = False
             if msg:
                 already_resolved, _ = commits.extract_resolves_trailer(msg)
+                has_trailer = "resolves-event:" in msg.lower()
             candidates = resolves_probe.find_probe_candidates(
                 smm_dir, staged, already_resolved, cwd
             )
             if candidates:
                 parts.extend(resolves_probe.build_nudge_lines(candidates))
                 resolves_probe.emit_probe_status(smm_dir, candidates, agent_id)
+            elif not has_trailer:
+                parts.append(
+                    "Add Resolves-Event: <id> or Resolves-Event: none"
+                    " to your commit message."
+                )
 
     if (
         smm_dir is not None

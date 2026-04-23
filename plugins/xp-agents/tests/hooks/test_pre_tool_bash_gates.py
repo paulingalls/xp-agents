@@ -491,13 +491,16 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("security.has_staged_code_files", return_value=False)
-    def test_no_nudge_when_no_overlap(self, *_mocks):
+    def test_no_concern_nudge_when_no_overlap(self, *_mocks):
+        """No concern-specific nudge, but trailer reminder still appears."""
         self._write_concern("auth bypass risk", ["scripts/auth.py"])
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertNotIn("auth bypass", result)
+        self.assertIn("Resolves-Event:", result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
     @patch("security.is_git_commit", return_value=True)
