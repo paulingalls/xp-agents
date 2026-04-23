@@ -105,6 +105,14 @@ def get_committed_files(cwd: str) -> list[str]:
     return [f.strip() for f in out.splitlines() if f.strip()]
 
 
+def get_staged_files(cwd: str) -> list[str]:
+    """Get list of staged file paths via git diff --cached --name-only."""
+    out = _run_git(["git", "diff", "--cached", "--name-only"], cwd)
+    if out is None:
+        return []
+    return sorted(f.strip() for f in out.splitlines() if f.strip())
+
+
 def open_issues_matching_commit(
     smm_dir: Path,
     commit_files: list[str],

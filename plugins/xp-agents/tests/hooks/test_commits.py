@@ -240,6 +240,37 @@ class TestGetCommittedFiles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# get_staged_files
+# ---------------------------------------------------------------------------
+
+
+class TestGetStagedFiles(unittest.TestCase):
+    """Test staged file list retrieval."""
+
+    @patch(_SUBPROCESS)
+    def test_returns_staged_files(self, mock_run):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "src/a.py\ntests/test_a.py\nREADME.md\n"
+        result = commits.get_staged_files("/tmp")
+        self.assertEqual(result, ["README.md", "src/a.py", "tests/test_a.py"])
+
+    @patch(_SUBPROCESS)
+    def test_failure_returns_empty(self, mock_run):
+        mock_run.return_value.returncode = 1
+        self.assertEqual(commits.get_staged_files("/tmp"), [])
+
+    @patch(_SUBPROCESS, side_effect=OSError("no git"))
+    def test_exception_returns_empty(self, _mock):
+        self.assertEqual(commits.get_staged_files("/tmp"), [])
+
+    @patch(_SUBPROCESS)
+    def test_empty_staging_returns_empty(self, mock_run):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        self.assertEqual(commits.get_staged_files("/tmp"), [])
+
+
+# ---------------------------------------------------------------------------
 # get_head_commit_hash
 # ---------------------------------------------------------------------------
 
