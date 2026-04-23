@@ -38,6 +38,10 @@ SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 python3 "${SKILL_DIR}/scripts/concern_triage.py" --smm-dir "${SMM_DIR}" --sprint-file "${SPRINT_FILE}" || true
 echo ""
 
+# Surface acceptance_execution type per in-progress story
+python3 "${SKILL_DIR}/scripts/acceptance_types.py" --sprint-file "${SPRINT_FILE}" || true
+echo ""
+
 # Detect teammate worktrees
 teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/teammate-" | sed 's|.*/||' || true)
 if [ -n "$teammate_wts" ]; then

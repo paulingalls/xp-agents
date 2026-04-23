@@ -78,5 +78,32 @@ class TestAcceptPreload(_IntegrationTestCase):
         )
 
 
+class TestAcceptPreloadTypes(_IntegrationTestCase):
+    """Preload surfaces acceptance_execution type per in-progress story."""
+
+    def _sprint_with_ae(self, ae_type: str) -> str:
+        from conftest import _s, _sprint_json
+
+        story = _s(
+            "story-001",
+            "Test story",
+            "in-progress",
+            acceptance_execution={"type": ae_type, "command": "test cmd"},
+        )
+        return _sprint_json([story])
+
+    def test_preload_shows_acceptance_type(self):
+        (self.smm_dir / "sprint.json").write_text(self._sprint_with_ae("pytest"))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("story-001: pytest", result.stdout)
+
+    def test_preload_defaults_to_manual(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("story-001: manual", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
