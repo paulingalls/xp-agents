@@ -119,10 +119,14 @@ def compute_story_analysis(smm_dir: Path, events: list[dict]) -> dict | None:
     velocity = sprint_store.compute_velocity(sprint)
     started = sprint.get("started", "")
 
+    target_sprint_id = sprint["sprint_id"]
     commit_events = [
         e
         for e in events
-        if e.get("type") == _common.COMMIT and e.get("ts", "")[:10] >= started
+        if e.get("type") == _common.COMMIT
+        and e.get("ts", "")[:10] >= started
+        and (e.get("metadata") or {}).get("sprint_id", target_sprint_id)
+        == target_sprint_id
     ]
 
     attribution = _attribute_commits(commit_events, sprint["stories"])

@@ -13,11 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-from event_schema import (
-    METADATA_KEY_PROBE_CANDIDATES,
-    METADATA_KEY_RESOLVES,
-    STATUS_CONTENT_RESOLVES_PROBE,
-)
+from event_schema import METADATA_KEY_RESOLVES
 from honesty_signals import build_honesty_signals
 
 # ---------------------------------------------------------------------------
@@ -246,59 +242,46 @@ def _compute_session_stats(events: list[dict]) -> dict:
 def _compute_resolves_link_rate(
     events: list[dict], sprint_start_ts: str | None
 ) -> dict:
-    """Compute resolves_link_rate from probe events vs. subsequent commit trailers."""
+    """Count code commits with Resolves-Event trailers vs total code commits."""
 
     def _in_window(event: dict) -> bool:
         if sprint_start_ts is None:
             return True
         return event.get("ts", "")[:10] >= sprint_start_ts
 
-    probes = [
+    code_commits = [
         e
         for e in events
-        if e.get("type") == _common.STATUS
-        and e.get("content", "").startswith(f"{STATUS_CONTENT_RESOLVES_PROBE}:")
+        if e.get("type") == _common.COMMIT
         and _in_window(e)
+        and (e.get("metadata") or {}).get("code_commit")
     ]
 
-    per_agent_probes: dict[str, list[dict]] = {}
-    for probe in probes:
-        agent_id = probe.get("agent_id", "")
-        per_agent_probes.setdefault(agent_id, []).append(probe)
+    total = len(code_commits)
+    with_trailers = [
+        e for e in code_commits if (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
+    ]
+    total_hits = len(with_trailers)
+
+    per_agent_commits: dict[str, list[dict]] = {}
+    for c in code_commits:
+        agent_id = c.get("agent_id", "main")
+        per_agent_commits.setdefault(agent_id, []).append(c)
 
     per_agent: dict[str, dict] = {}
-    total_hits = 0
-    for agent_id, agent_probes in per_agent_probes.items():
-        agent_hits = 0
-        for probe in agent_probes:
-            candidates = set(
-                (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
-            )
-            if not candidates:
-                continue
-            probe_ts = probe.get("ts", "")
-            for e in events:
-                if e.get("type") != _common.COMMIT:
-                    continue
-                if e.get("agent_id", "") != agent_id:
-                    continue
-                if e.get("ts", "") <= probe_ts:
-                    continue
-                resolves = set(
-                    (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
-                )
-                if resolves & candidates:
-                    agent_hits += 1
-                break
-        agent_total = len(agent_probes)
+    for agent_id, agent_commits in per_agent_commits.items():
+        agent_total = len(agent_commits)
+        agent_hits = sum(
+            1
+            for c in agent_commits
+            if (c.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
+        )
         per_agent[agent_id] = {
             "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,
             "resolves_probe_hits": agent_hits,
             "resolves_probe_total": agent_total,
         }
-        total_hits += agent_hits
 
-    total = len(probes)
     return {
         "resolves_link_rate": total_hits / total if total > 0 else 0.0,
         "resolves_probe_hits": total_hits,

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Tests for story_metrics.py — commit-to-story attribution."""
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -258,6 +260,82 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
         result = story_metrics._attribute_commits(commits, stories)
         self.assertEqual(result["story-001"]["commits"], 1)
         self.assertEqual(result["story-001"]["files_changed"], 1)
+
+
+class TestSprintScopedAttribution(unittest.TestCase):
+    """compute_story_analysis must scope commits by sprint_id."""
+
+    def _write_sprint(self, smm_dir: Path, sprint_id: str) -> None:
+        sprint = {
+            "sprint_id": sprint_id,
+            "goal": "test",
+            "started": "2026-04-22",
+            "milestone": "test",
+            "stories": [
+                _s(
+                    "story-001",
+                    "Auth",
+                    "done",
+                    file_domain=["scripts/auth.py — login"],
+                ),
+            ],
+        }
+        (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_excludes_commits_from_other_sprint(self):
+        """Commits with a different sprint_id are excluded even if story_id matches."""
+        import story_metrics
+
+        with tempfile.TemporaryDirectory() as td:
+            smm_dir = Path(td)
+            self._write_sprint(smm_dir, "sprint-002")
+
+            events = [
+                commit_event(
+                    ["scripts/auth.py"],
+                    ts="2026-04-22T10:00:00+00:00",
+                    story_id="story-001",
+                    sprint_id="sprint-001",
+                ),
+                commit_event(
+                    ["scripts/auth.py"],
+                    ts="2026-04-22T11:00:00+00:00",
+                    story_id="story-001",
+                    sprint_id="sprint-001",
+                ),
+                commit_event(
+                    ["scripts/auth.py"],
+                    ts="2026-04-22T12:00:00+00:00",
+                    story_id="story-001",
+                    sprint_id="sprint-002",
+                ),
+            ]
+
+            result = story_metrics.compute_story_analysis(smm_dir, events)
+            self.assertIsNotNone(result)
+            story = result["per_story"][0]
+            self.assertEqual(story["commits"], 1)
+
+    def test_includes_commits_without_sprint_id(self):
+        """Old commits without sprint_id are included (backward compat)."""
+        import story_metrics
+
+        with tempfile.TemporaryDirectory() as td:
+            smm_dir = Path(td)
+            self._write_sprint(smm_dir, "sprint-002")
+
+            events = [
+                commit_event(
+                    ["scripts/auth.py"],
+                    ts="2026-04-22T10:00:00+00:00",
+                    story_id="story-001",
+                ),
+            ]
+
+            result = story_metrics.compute_story_analysis(smm_dir, events)
+            self.assertIsNotNone(result)
+            story = result["per_story"][0]
+            self.assertEqual(story["commits"], 1)
 
 
 if __name__ == "__main__":

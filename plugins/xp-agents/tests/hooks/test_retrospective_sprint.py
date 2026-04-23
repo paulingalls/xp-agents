@@ -237,15 +237,15 @@ class TestResolvesLinkRate(_HookTestCase):
         self.assertEqual(sizing["resolves_probe_hits"], 2)
         self.assertAlmostEqual(sizing["resolves_link_rate"], 2 / 3, places=6)
 
-    def test_zero_probes_omits_fields(self):
-        """No probe events -> fields absent. Retro pipeline does not crash."""
+    def test_no_code_commits_omits_fields(self):
+        """No code commits in sprint window -> link_rate fields absent."""
         self._write_sprint_json()
         events = [
-            self._commit(["aaaaaaaaaaaa"], "2026-04-05T10:01:00+00:00", "h1"),
             make_event(content="filler 1"),
             make_event(content="filler 2"),
             make_event(content="filler 3"),
             make_event(content="filler 4"),
+            make_event(content="filler 5"),
             self._sprint_end(),
         ]
         data = self._run(events)
@@ -348,6 +348,73 @@ class TestResolvesLinkRatePerAgent(unittest.TestCase):
         self.assertEqual(pa["agent-2"]["resolves_probe_hits"], 0)
         self.assertEqual(pa["agent-2"]["resolves_probe_total"], 1)
         self.assertEqual(pa["agent-2"]["resolves_link_rate"], 0.0)
+
+
+class TestDirectTrailerCount(unittest.TestCase):
+    """New methodology: count code commits with metadata.resolves directly."""
+
+    def _code_commit(
+        self, resolves: list[str], ts: str, agent_id: str = "main"
+    ) -> dict:
+        return make_event(
+            "commit",
+            content="Work",
+            ts=ts,
+            files=["scripts/x.py"],
+            agent_id=agent_id,
+            metadata={
+                "code_commit": True,
+                "commit_hash": "abc",
+                "resolves": resolves,
+            },
+        )
+
+    def test_two_of_three_commits_have_trailers(self):
+        import retro_metrics
+
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit([], "2026-04-05T11:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00"),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_probe_total"], 3)
+        self.assertEqual(result["resolves_probe_hits"], 2)
+        self.assertAlmostEqual(result["resolves_link_rate"], 2 / 3, places=6)
+
+    def test_no_code_commits_returns_zero(self):
+        import retro_metrics
+
+        events = [make_event(content="status only")]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_probe_total"], 0)
+        self.assertEqual(result["resolves_link_rate"], 0.0)
+
+    def test_per_agent_trailer_counts(self):
+        import retro_metrics
+
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "agent-1"),
+            self._code_commit([], "2026-04-05T11:00:00+00:00", "agent-1"),
+            self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00", "agent-2"),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        pa = result["per_agent"]
+        self.assertEqual(pa["agent-1"]["resolves_probe_total"], 2)
+        self.assertEqual(pa["agent-1"]["resolves_probe_hits"], 1)
+        self.assertEqual(pa["agent-2"]["resolves_probe_total"], 1)
+        self.assertEqual(pa["agent-2"]["resolves_probe_hits"], 1)
+
+    def test_commits_before_sprint_start_excluded(self):
+        import retro_metrics
+
+        events = [
+            self._code_commit(["aaa"], "2026-03-15T10:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T10:00:00+00:00"),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_probe_total"], 1)
+        self.assertEqual(result["resolves_probe_hits"], 1)
 
 
 def _sprint_start(sprint_id: str) -> dict:

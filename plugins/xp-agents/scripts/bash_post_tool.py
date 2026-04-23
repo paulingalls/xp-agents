@@ -120,6 +120,7 @@ def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
     committed_files: list[str],
+    sprint: dict | None = None,
 ) -> str | None:
     """Resolve story_id for a commit using three-tier attribution.
 
@@ -142,7 +143,8 @@ def _resolve_story_id(
     except (FileNotFoundError, OSError):
         pass
 
-    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
         return None
 
@@ -240,9 +242,15 @@ def _handle_commit(
     if resolves:
         metadata[METADATA_KEY_RESOLVES] = resolves
 
-    story_id = _resolve_story_id(smm_dir, cwd, committed_files)
+    import sprint_store
+
+    sprint = sprint_store.load_sprint(smm_dir)
+
+    story_id = _resolve_story_id(smm_dir, cwd, committed_files, sprint=sprint)
     if story_id:
         metadata["story_id"] = story_id
+    if sprint is not None:
+        metadata["sprint_id"] = sprint["sprint_id"]
 
     pending: list[dict] = [
         _common.make_event(
