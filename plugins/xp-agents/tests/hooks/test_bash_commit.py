@@ -421,5 +421,17 @@ class TestResolutionComputationCount(_HookTestCase):
             self.assertEqual(mock_compute.call_count, 1)
 
 
+class TestCheckQRLinkagePhrasings(unittest.TestCase):
+    """_check_qr_linkage recognizes varied QR completion phrasings."""
+
+    def test_qr_abbreviation_satisfies_nudge(self):
+        events = [
+            make_event("commit", content="prior commit", agent_id="main"),
+            make_event("status", content="QR complete. Fixed: chrome.ts"),
+        ]
+        result = bash_post_tool._check_qr_linkage(events, "main")
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

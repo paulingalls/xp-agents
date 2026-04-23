@@ -158,5 +158,23 @@ class TestProbeAdoptionRate(unittest.TestCase):
         self.assertAlmostEqual(result["probe_adoption_rate"], 0.5)
 
 
+class TestClassifyStatusQR(unittest.TestCase):
+    """_classify_status_events counts quality reviews with varied phrasings."""
+
+    def test_standard_phrasing_counted(self):
+        import retro_metrics
+
+        events = [make_event("status", content="Quality review complete. Clean.")]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["quality_reviews"], 1)
+
+    def test_qr_abbreviation_counted(self):
+        import retro_metrics
+
+        events = [make_event("status", content="QR complete. Fixed: chrome.ts")]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["quality_reviews"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
