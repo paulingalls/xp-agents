@@ -63,43 +63,49 @@ class TestFindProbeCandidates(_HookTestCase):
 
 
 class TestBuildNudgeLines(unittest.TestCase):
-    """build_nudge_lines formats auto-link nudge text for each candidate."""
+    """build_nudge_lines formats grouped nudge with header and trailer."""
 
     def test_empty_candidates_returns_empty_list(self):
         self.assertEqual(resolves_probe.build_nudge_lines([]), [])
 
-    def test_nudge_includes_id_content_and_trailer(self):
+    def test_single_candidate_has_header_item_and_trailer(self):
         candidate = {"id": "abc123def456", "content": "Auth middleware leaks tokens"}
         lines = resolves_probe.build_nudge_lines([candidate])
         self.assertEqual(len(lines), 1)
-        self.assertIn("abc123def456", lines[0])
-        self.assertIn("Auth middleware leaks tokens", lines[0])
-        self.assertIn("Resolves-Event: abc123def456", lines[0])
+        block = lines[0]
+        self.assertIn("Overlapping open events", block)
+        self.assertIn("abc123def456", block)
+        self.assertIn("Auth middleware leaks tokens", block)
+        self.assertIn("Resolves-Event: abc123def456", block)
 
-    def test_nudge_truncates_long_content_to_80_chars(self):
+    def test_multiple_candidates_grouped_with_combined_trailer(self):
+        candidates = [
+            {"id": "abc123def456", "type": "concern", "content": "Auth leak"},
+            {"id": "def456abc123", "type": "debt", "content": "Refactor auth"},
+        ]
+        lines = resolves_probe.build_nudge_lines(candidates)
+        self.assertEqual(len(lines), 1)
+        block = lines[0]
+        self.assertIn("[concern]", block)
+        self.assertIn("[debt]", block)
+        self.assertIn("Resolves-Event: abc123def456, def456abc123", block)
+
+    def test_truncated_content_has_ellipsis(self):
         long_content = "x" * 200
         candidate = {"id": "abc", "content": long_content}
         lines = resolves_probe.build_nudge_lines([candidate])
-        # The content is sliced to 80 chars in the nudge text.
-        self.assertIn("x" * 80, lines[0])
-        self.assertNotIn("x" * 81, lines[0])
+        self.assertIn("x" * 80 + "...", lines[0])
 
-    def test_nudge_handles_missing_content(self):
+    def test_handles_missing_content(self):
         candidate = {"id": "abc", "content": None}
         lines = resolves_probe.build_nudge_lines([candidate])
         self.assertEqual(len(lines), 1)
         self.assertIn("abc", lines[0])
 
-    def test_nudge_shows_debt_type_for_debt_events(self):
+    def test_shows_event_type(self):
         candidate = {"id": "abc123def456", "type": "debt", "content": "Legacy code"}
         lines = resolves_probe.build_nudge_lines([candidate])
-        self.assertIn("debt abc123def456", lines[0])
-        self.assertNotIn("concern abc123def456", lines[0])
-
-    def test_nudge_shows_concern_type_for_concern_events(self):
-        candidate = {"id": "abc123def456", "type": "concern", "content": "Bug found"}
-        lines = resolves_probe.build_nudge_lines([candidate])
-        self.assertIn("concern abc123def456", lines[0])
+        self.assertIn("[debt]", lines[0])
 
 
 class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):

@@ -38,14 +38,22 @@ def find_probe_candidates(
 
 
 def build_nudge_lines(candidates: list[dict]) -> list[str]:
-    """Format auto-link nudge text for each candidate."""
-    return [
-        f"Open {c.get('type', 'concern')} {c['id']}"
-        f" overlaps staged files — {(c.get('content') or '')[:80]}. "
-        f"If this commit addresses it, add trailer: "
-        f"Resolves-Event: {c['id']}"
-        for c in candidates
-    ]
+    """Format grouped nudge block with header, items, and ready-to-copy trailer."""
+    if not candidates:
+        return []
+    items = []
+    for c in candidates:
+        raw = c.get("content") or ""
+        content = raw[:80] + ("..." if len(raw) > 80 else "")
+        items.append(f"- [{c.get('type', 'concern')}] {c['id']}: {content}")
+    ids = ", ".join(c["id"] for c in candidates)
+    block = (
+        "Overlapping open events — add Resolves-Event trailer "
+        "if this commit addresses them:\n"
+        + "\n".join(items)
+        + f"\nReady-to-use trailer: Resolves-Event: {ids}"
+    )
+    return [block]
 
 
 def emit_probe_status(smm_dir: "Path", candidates: list[dict], agent_id: str) -> None:
