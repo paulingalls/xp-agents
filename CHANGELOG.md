@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.26.3 — Probe metrics, nudge improvements, CI fix
+
+- **Add `code_free` flag to sizing analysis.** `per_story` output now distinguishes investigation-only stories (0 commits, 0 files) from attribution gaps. Helps retro avoid miscalibrating on stories that were intentionally code-free.
+
+- **Move probe status event from post-commit to pre-commit.** Probe status emission now happens alongside the resolves-trailer nudge in `pre_tool_bash.py`, removing the dead `find_probe_candidates()` call from post-commit.
+
+- **Improve nudge format.** Grouped header with ready-to-copy `Resolves-Event:` trailer so agents can paste it directly into commit messages.
+
+- **Add `probe_adoption_rate` metric to retro.** Tracks what fraction of commits carry `Resolves-Event:` trailers when open concerns overlap changed files. Surfaces adoption trends across sprints.
+
+- **Fix CI: branching lifecycle tests.** `_init_repo()` now sets repo-level git config (`user.name`, `user.email`) so `branching._git()` merge operations work in CI without global git config. Added `check=True` to all test setup subprocess calls.
+
 ## v2.26.2 — Pre-commit resolves-trailer nudge + staged file helper
 
 - **Move resolves-trailer nudge from post-commit to pre-commit.** Agents now see overlapping open concerns/debts *before* committing via `additionalContext`, so they can include `Resolves-Event:` trailers in the original commit message instead of needing `git commit --amend`. Advisory only, not a hard block. Removes the post-commit nudge, fingerprint dedup mechanism (`REVIEW_FINGERPRINT` marker, `compute_fingerprint()`), and 11 dead tests. Net -215 lines.
