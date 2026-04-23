@@ -52,7 +52,7 @@ class TestUserPromptLog(_HookTestCase):
 
     def test_xp_agent_skips(self):
         user_prompt_log.run(
-            {"session_id": "t", "prompt": "Hi", "agent_type": "xp-housekeeping"},
+            {"session_id": "t", "prompt": "Hi", "agent_type": "xp-housekeeper"},
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
@@ -134,7 +134,7 @@ class TestUserPromptLog(_HookTestCase):
 
         markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
         user_prompt_log.run(
-            {"session_id": "t", "prompt": "hi", "agent_type": "xp-housekeeping"},
+            {"session_id": "t", "prompt": "hi", "agent_type": "xp-housekeeper"},
             smm_dir=self.smm_dir,
         )
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
@@ -166,7 +166,7 @@ class TestSubagentStop(_HookTestCase):
             {
                 "session_id": "t",
                 "agent_id": "task-1",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-retrospective",
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,

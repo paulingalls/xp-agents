@@ -57,7 +57,7 @@ class TestCompactIntegration(_IntegrationTestCase):
         sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
         from materialize import write_curation_watermark
 
-        write_curation_watermark(self.smm_dir, original_count, "xp-housekeeping")
+        write_curation_watermark(self.smm_dir, original_count, "xp-housekeeper")
 
         result = subprocess.run(
             [

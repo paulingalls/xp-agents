@@ -109,7 +109,7 @@ class TestPreToolWriteIntegration(_IntegrationTestCase):
                 "tool_name": "Write",
                 "tool_input": {"file_path": "src/app.ts"},
                 "agent_id": "main",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-housekeeper",
                 "cwd": str(self.tmpdir),
             },
         )
@@ -176,7 +176,7 @@ class TestPostToolUseIntegration(_IntegrationTestCase):
                 "tool_response": {"success": True},
                 "cwd": str(self.tmpdir),
                 "agent_id": "main",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-housekeeper",
             },
         )
         self.assertEqual(result.returncode, 0)

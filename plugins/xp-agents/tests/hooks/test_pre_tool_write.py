@@ -260,7 +260,7 @@ class TestCheckTddOrder(_HookTestCase):
 class TestPreToolWriteRun(_HookTestCase):
     def test_xp_agent_skips(self):
         result = pre_tool_write.run(
-            _make_write_input(agent_type="xp-housekeeping"),
+            _make_write_input(agent_type="xp-housekeeper"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
@@ -392,7 +392,7 @@ class TestPreToolWritePerformance(_HookTestCase):
         """xp-agent bypass should be near-zero cost."""
         import time
 
-        input_data = _make_write_input(session_id="perf", agent_type="xp-housekeeping")
+        input_data = _make_write_input(session_id="perf", agent_type="xp-housekeeper")
 
         start = time.monotonic()
         for _ in range(1000):

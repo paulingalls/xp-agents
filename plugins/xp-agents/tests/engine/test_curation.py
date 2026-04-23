@@ -65,7 +65,7 @@ class TestPrepareCurationData(_SMMTestCase):
         ]
         self._write_events(old_events + new_events)
         materialize.write_curation_watermark(
-            self.smm_dir, len(old_events), "xp-housekeeping"
+            self.smm_dir, len(old_events), "xp-housekeeper"
         )
         result = materialize.prepare_curation_data(self.smm_dir)
         new = result["new_since_last_curation"]
@@ -194,7 +194,7 @@ class TestPrepareCurationData(_SMMTestCase):
             metadata={"resolves": [concern["id"]]},
         )
         self._write_events([concern, resolver])
-        materialize.write_curation_watermark(self.smm_dir, 1, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 1, "xp-housekeeper")
         result = materialize.prepare_curation_data(self.smm_dir)
         self.assertIn(concern["id"], result["new_since_last_curation"]["resolutions"])
 

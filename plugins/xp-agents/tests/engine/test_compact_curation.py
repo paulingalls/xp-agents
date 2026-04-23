@@ -42,7 +42,7 @@ class TestCompactAfterCuration(_SMMTestCase):
         return events
 
     def _set_curation_watermark(
-        self, event_count: int, agent_id: str = "xp-housekeeping"
+        self, event_count: int, agent_id: str = "xp-housekeeper"
     ):
         """Write a curation watermark at the given event count."""
         materialize.write_curation_watermark(self.smm_dir, event_count, agent_id)

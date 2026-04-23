@@ -247,17 +247,25 @@ def complete_curation(smm_dir: Path) -> None:
 
     Always advances the watermark to the current event count so the
     next compaction cycle considers all curated events as eligible.
+    Uses compact's retained count when available to avoid a second
+    events.jsonl read.
     """
     import contextlib
 
     import compact
     import materialize
 
+    result = None
     with contextlib.suppress(OSError, ValueError):
-        compact.compact_after_curation(smm_dir)
+        result = compact.compact_after_curation(smm_dir)
 
-    events, _ = materialize.parse_events(smm_dir)
-    materialize.write_curation_watermark(smm_dir, len(events), "xp-housekeeper")
+    if result and "retained" in result:
+        event_count = result["retained"]
+    else:
+        events, _ = materialize.parse_events(smm_dir)
+        event_count = len(events)
+
+    materialize.write_curation_watermark(smm_dir, event_count, "xp-housekeeper")
 
 
 def save(content: str, *, smm_dir: Path) -> None:

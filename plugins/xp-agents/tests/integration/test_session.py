@@ -53,7 +53,7 @@ class TestSessionStartIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "source": "startup",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-housekeeper",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -118,7 +118,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "reason": "logout",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-housekeeper",
             },
         )
         self.assertEqual(result.returncode, 0)
@@ -195,7 +195,7 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "agent_id": "hk-1",
-                "agent_type": "xp-housekeeping",
+                "agent_type": "xp-housekeeper",
             },
         )
         self.assertEqual(result.returncode, 0)

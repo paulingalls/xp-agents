@@ -87,8 +87,8 @@ class TestWatermark(_SMMTestCase):
         self.assertEqual(wm, 10)
 
     def test_accepts_hyphen(self):
-        read_delta.write_watermark(self.smm_dir, "xp-housekeeping", 5)
-        wm = read_delta.read_watermark(self.smm_dir, "xp-housekeeping")
+        read_delta.write_watermark(self.smm_dir, "xp-housekeeper", 5)
+        wm = read_delta.read_watermark(self.smm_dir, "xp-housekeeper")
         self.assertEqual(wm, 5)
 
     def test_watermark_file_permissions(self):
@@ -199,10 +199,10 @@ class TestCurationWatermark(_SMMTestCase):
 
     def test_write_and_read_roundtrip(self):
         """Write then read returns correct values."""
-        materialize.write_curation_watermark(self.smm_dir, 42, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 42, "xp-housekeeper")
         result = materialize.read_curation_watermark(self.smm_dir)
         self.assertEqual(result["event_count"], 42)
-        self.assertEqual(result["agent_id"], "xp-housekeeping")
+        self.assertEqual(result["agent_id"], "xp-housekeeper")
         # timestamp should be a non-empty ISO8601 string
         self.assertTrue(len(result["timestamp"]) > 0)
 

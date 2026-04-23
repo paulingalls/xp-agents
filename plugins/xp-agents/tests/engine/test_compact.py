@@ -61,7 +61,7 @@ class TestCompact(_SMMTestCase):
         )
         new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
         self._write_events([goal, filler, session_end, new_event])
-        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
 
         result = compact.compact(self.smm_dir)
         retained = self._read_events()
@@ -90,7 +90,7 @@ class TestCompact(_SMMTestCase):
             "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
         )
         self._write_events([q, filler, session_end])
-        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
 
         compact.compact(self.smm_dir)
         retained = self._read_events()
@@ -117,7 +117,7 @@ class TestCompact(_SMMTestCase):
             "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
         )
         self._write_events([q, a, session_end])
-        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
 
         compact.compact(self.smm_dir)
         retained = self._read_events()
@@ -135,7 +135,7 @@ class TestCompact(_SMMTestCase):
             "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
         )
         self._write_events([c, session_end])
-        materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeper")
 
         compact.compact(self.smm_dir)
         retained = self._read_events()
@@ -149,7 +149,7 @@ class TestCompact(_SMMTestCase):
         old = self._make_session(session_num=1)
         new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
         self._write_events([*old, new_event])
-        materialize.write_curation_watermark(self.smm_dir, len(old), "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, len(old), "xp-housekeeper")
 
         compact.compact(self.smm_dir)
         backups = self.smm_dir / "backups"
@@ -164,7 +164,7 @@ class TestCompact(_SMMTestCase):
         import compact
 
         self._write_events(self._make_session(session_num=1))
-        materialize.write_curation_watermark(self.smm_dir, 4, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 4, "xp-housekeeper")
         (self.smm_dir / ".watermark-main").write_text("5")
         (self.smm_dir / ".watermark-housekeeping").write_text("3")
         (self.smm_dir / ".watermark-prompt-nugget").write_text("10")
@@ -183,7 +183,7 @@ class TestCompact(_SMMTestCase):
         events = self._make_session(session_num=1)
         self._write_events(events)
         materialize.write_curation_watermark(
-            self.smm_dir, len(events), "xp-housekeeping"
+            self.smm_dir, len(events), "xp-housekeeper"
         )
         compact.compact(self.smm_dir)
         for line in (self.smm_dir / "events.jsonl").read_text().splitlines():
@@ -206,7 +206,7 @@ class TestCompact(_SMMTestCase):
         old = self._make_session(session_num=1)
         new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
         self._write_events([*old, new_event])
-        materialize.write_curation_watermark(self.smm_dir, len(old), "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, len(old), "xp-housekeeper")
 
         result = compact.compact(self.smm_dir)
         self.assertIn("archived", result)
@@ -229,7 +229,7 @@ class TestCompact(_SMMTestCase):
         )
         new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
         self._write_events([decision, session_end, new_event])
-        materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeping")
+        materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeper")
 
         compact.compact(self.smm_dir)
         retained = self._read_events()

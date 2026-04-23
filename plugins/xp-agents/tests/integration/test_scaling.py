@@ -358,7 +358,7 @@ class TestWatermarkIsolation(_IntegrationTestCase):
         sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
         from materialize import write_curation_watermark
 
-        write_curation_watermark(self.smm_dir, len(events), "xp-housekeeping")
+        write_curation_watermark(self.smm_dir, len(events), "xp-housekeeper")
 
         # Run compact via subprocess
         result = subprocess.run(

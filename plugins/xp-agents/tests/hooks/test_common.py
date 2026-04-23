@@ -103,7 +103,7 @@ class TestHookOutput(unittest.TestCase):
 
 class TestIsXpAgent(unittest.TestCase):
     def test_xp_housekeeping(self):
-        self.assertTrue(_common.is_xp_agent({"agent_type": "xp-housekeeping"}))
+        self.assertTrue(_common.is_xp_agent({"agent_type": "xp-housekeeper"}))
 
     def test_xp_reviewer(self):
         self.assertTrue(_common.is_xp_agent({"agent_type": "xp-reviewer"}))

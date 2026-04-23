@@ -216,7 +216,7 @@ class TestLintCheck(_HookTestCase):
 
     def test_xp_agent_skips(self):
         lint_check.run(
-            _make_write_input(agent_type="xp-housekeeping"),
+            _make_write_input(agent_type="xp-housekeeper"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)

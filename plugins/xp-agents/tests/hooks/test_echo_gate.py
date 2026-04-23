@@ -99,7 +99,7 @@ class TestEchoGateXpRecursion(_HookTestCase):
             self.smm_dir, markers.PENDING_RENDER_SMM, _SMM_SIG + "\n", "main"
         )
         result = pre_tool_echo_gate.run(
-            _make_write_input(agent_type="xp-housekeeping"),
+            _make_write_input(agent_type="xp-housekeeper"),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)

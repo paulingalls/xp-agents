@@ -116,7 +116,7 @@ class TestPreToolBashReviewCycle(_HookTestCase):
         """xp- agents bypass the review cycle gate."""
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             pre_tool_bash.run(
-                self._commit_input(agent_type="xp-housekeeping"),
+                self._commit_input(agent_type="xp-housekeeper"),
                 smm_dir=self.smm_dir,
             )
 
