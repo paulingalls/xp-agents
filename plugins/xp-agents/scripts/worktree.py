@@ -8,7 +8,10 @@ git root resolution to avoid redundant subprocess calls.
 
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 _git_root_cache: dict[str, str | None] = {}
 

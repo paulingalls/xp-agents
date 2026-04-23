@@ -222,6 +222,38 @@ class TestStoryAssignmentFile(_IntegrationTestCase):
         self.assertFalse(assignment.exists())
 
 
+class TestStoryAssignmentSubprocess(unittest.TestCase):
+    """write_story_assignment must work when only scripts/ is on sys.path."""
+
+    def test_write_story_assignment_isolated_import(self):
+        """Reproduce: spawn_teammate adds only scripts/ to sys.path.
+
+        worktree.write_story_assignment imports _append_impl from smm/.
+        Without smm/ on sys.path, this raises ModuleNotFoundError.
+        """
+        scripts_dir = str(Path(__file__).parent.parent.parent / "scripts")
+        r = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys, tempfile\n"
+                    f"sys.path.insert(0, {scripts_dir!r})\n"
+                    "import worktree\n"
+                    "from pathlib import Path\n"
+                    "td = tempfile.mkdtemp()\n"
+                    "worktree.write_story_assignment(Path(td), 'test', 'story-001')\n"
+                    "print((Path(td) / '.story-assignment-test').read_text())\n"
+                    "import shutil; shutil.rmtree(td)\n"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, f"Failed: {r.stderr}")
+        self.assertEqual(r.stdout.strip(), "story-001")
+
+
 class TestTeammateIdRemoved(unittest.TestCase):
     """TEAMMATE_ID env var should not be set."""
 
