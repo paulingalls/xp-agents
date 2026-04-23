@@ -159,7 +159,7 @@ class TestSprintSizingInRetro(_HookTestCase):
 
 
 class TestResolvesLinkRate(_HookTestCase):
-    """Probe-to-commit adoption rate appears under sizing_analysis."""
+    """Resolves-trailer rate appears under sizing_analysis via retro pipeline."""
 
     def setUp(self):
         super().setUp()
@@ -233,8 +233,8 @@ class TestResolvesLinkRate(_HookTestCase):
         ]
         data = self._run(events)
         sizing = data["sizing_analysis"]
-        self.assertEqual(sizing["resolves_probe_total"], 3)
-        self.assertEqual(sizing["resolves_probe_hits"], 2)
+        self.assertEqual(sizing["resolves_trailer_total"], 3)
+        self.assertEqual(sizing["resolves_trailer_hits"], 2)
         self.assertAlmostEqual(sizing["resolves_link_rate"], 2 / 3, places=6)
 
     def test_no_code_commits_omits_fields(self):
@@ -251,11 +251,11 @@ class TestResolvesLinkRate(_HookTestCase):
         data = self._run(events)
         sizing = data["sizing_analysis"]
         self.assertNotIn("resolves_link_rate", sizing)
-        self.assertNotIn("resolves_probe_hits", sizing)
-        self.assertNotIn("resolves_probe_total", sizing)
+        self.assertNotIn("resolves_trailer_hits", sizing)
+        self.assertNotIn("resolves_trailer_total", sizing)
 
     def test_probe_direct_hit(self):
-        """Probe candidates=[X] + commit resolves=[X] -> hit."""
+        """Commit with resolves=[X] -> hit."""
         self._write_sprint_json()
         events = [
             self._probe(["abc123def456"], "2026-04-05T10:00:00+00:00", "h1"),
@@ -264,12 +264,12 @@ class TestResolvesLinkRate(_HookTestCase):
         ]
         data = self._run(events)
         sizing = data["sizing_analysis"]
-        self.assertEqual(sizing["resolves_probe_total"], 1)
-        self.assertEqual(sizing["resolves_probe_hits"], 1)
+        self.assertEqual(sizing["resolves_trailer_total"], 1)
+        self.assertEqual(sizing["resolves_trailer_hits"], 1)
         self.assertEqual(sizing["resolves_link_rate"], 1.0)
 
     def test_probe_miss_empty_resolves(self):
-        """Probe + commit with empty resolves -> miss."""
+        """Commit with empty resolves -> miss."""
         self._write_sprint_json()
         events = [
             self._probe(["abc123def456"], "2026-04-05T10:00:00+00:00", "h1"),
@@ -278,12 +278,12 @@ class TestResolvesLinkRate(_HookTestCase):
         ]
         data = self._run(events)
         sizing = data["sizing_analysis"]
-        self.assertEqual(sizing["resolves_probe_total"], 1)
-        self.assertEqual(sizing["resolves_probe_hits"], 0)
+        self.assertEqual(sizing["resolves_trailer_total"], 1)
+        self.assertEqual(sizing["resolves_trailer_hits"], 0)
         self.assertEqual(sizing["resolves_link_rate"], 0.0)
 
     def test_probe_before_sprint_start_ignored(self):
-        """Probes from before the sprint's started date do not count."""
+        """Commits from before the sprint's started date do not count."""
         self._write_sprint_json()
         events = [
             self._probe(["aaaaaaaaaaaa"], "2026-03-15T10:00:00+00:00", "h0"),
@@ -294,12 +294,12 @@ class TestResolvesLinkRate(_HookTestCase):
         ]
         data = self._run(events)
         sizing = data["sizing_analysis"]
-        self.assertEqual(sizing["resolves_probe_total"], 1)
-        self.assertEqual(sizing["resolves_probe_hits"], 0)
+        self.assertEqual(sizing["resolves_trailer_total"], 1)
+        self.assertEqual(sizing["resolves_trailer_hits"], 0)
 
 
 class TestResolvesLinkRatePerAgent(unittest.TestCase):
-    """per_agent rates scoped to each agent's probe+commit pairs."""
+    """per_agent trailer rates scoped to each agent's code commits."""
 
     def _probe(self, candidate_ids, ts, commit_hash, agent_id="main"):
         return make_event(
@@ -342,11 +342,11 @@ class TestResolvesLinkRatePerAgent(unittest.TestCase):
         self.assertIn("per_agent", result)
         pa = result["per_agent"]
         self.assertEqual(len(pa), 2)
-        self.assertEqual(pa["agent-1"]["resolves_probe_hits"], 1)
-        self.assertEqual(pa["agent-1"]["resolves_probe_total"], 1)
+        self.assertEqual(pa["agent-1"]["resolves_trailer_hits"], 1)
+        self.assertEqual(pa["agent-1"]["resolves_trailer_total"], 1)
         self.assertEqual(pa["agent-1"]["resolves_link_rate"], 1.0)
-        self.assertEqual(pa["agent-2"]["resolves_probe_hits"], 0)
-        self.assertEqual(pa["agent-2"]["resolves_probe_total"], 1)
+        self.assertEqual(pa["agent-2"]["resolves_trailer_hits"], 0)
+        self.assertEqual(pa["agent-2"]["resolves_trailer_total"], 1)
         self.assertEqual(pa["agent-2"]["resolves_link_rate"], 0.0)
 
 
@@ -378,8 +378,8 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00"),
         ]
         result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
-        self.assertEqual(result["resolves_probe_total"], 3)
-        self.assertEqual(result["resolves_probe_hits"], 2)
+        self.assertEqual(result["resolves_trailer_total"], 3)
+        self.assertEqual(result["resolves_trailer_hits"], 2)
         self.assertAlmostEqual(result["resolves_link_rate"], 2 / 3, places=6)
 
     def test_no_code_commits_returns_zero(self):
@@ -387,7 +387,7 @@ class TestDirectTrailerCount(unittest.TestCase):
 
         events = [make_event(content="status only")]
         result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
-        self.assertEqual(result["resolves_probe_total"], 0)
+        self.assertEqual(result["resolves_trailer_total"], 0)
         self.assertEqual(result["resolves_link_rate"], 0.0)
 
     def test_per_agent_trailer_counts(self):
@@ -400,10 +400,10 @@ class TestDirectTrailerCount(unittest.TestCase):
         ]
         result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         pa = result["per_agent"]
-        self.assertEqual(pa["agent-1"]["resolves_probe_total"], 2)
-        self.assertEqual(pa["agent-1"]["resolves_probe_hits"], 1)
-        self.assertEqual(pa["agent-2"]["resolves_probe_total"], 1)
-        self.assertEqual(pa["agent-2"]["resolves_probe_hits"], 1)
+        self.assertEqual(pa["agent-1"]["resolves_trailer_total"], 2)
+        self.assertEqual(pa["agent-1"]["resolves_trailer_hits"], 1)
+        self.assertEqual(pa["agent-2"]["resolves_trailer_total"], 1)
+        self.assertEqual(pa["agent-2"]["resolves_trailer_hits"], 1)
 
     def test_commits_before_sprint_start_excluded(self):
         import retro_metrics
@@ -413,8 +413,8 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit(["bbb"], "2026-04-05T10:00:00+00:00"),
         ]
         result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
-        self.assertEqual(result["resolves_probe_total"], 1)
-        self.assertEqual(result["resolves_probe_hits"], 1)
+        self.assertEqual(result["resolves_trailer_total"], 1)
+        self.assertEqual(result["resolves_trailer_hits"], 1)
 
 
 def _sprint_start(sprint_id: str) -> dict:

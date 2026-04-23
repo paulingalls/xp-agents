@@ -252,7 +252,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         sizing = story_metrics.compute_story_analysis(smm_dir, events)
         if sizing is not None:
             link_stats = _compute_resolves_link_rate(events, sizing.get("started"))
-            if link_stats["resolves_probe_total"] > 0:
+            if link_stats["resolves_trailer_total"] > 0:
                 link_per_agent = link_stats.pop("per_agent", {})
                 sizing.update(link_stats)
                 for agent_id, link_rate in link_per_agent.items():

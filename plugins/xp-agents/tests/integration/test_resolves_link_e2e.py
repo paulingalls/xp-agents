@@ -4,8 +4,8 @@
 Covers the sprint-005 feature across all three story domains:
 - bash_post_tool emits the actionable nudge + resolves_probe_shown status
   event when a commit touches files in an open concern.
-- retrospective.py computes resolves_link_rate when probes and matching
-  commits coexist in a sprint window.
+- retrospective.py computes resolves_link_rate from code commits with
+  Resolves-Event trailers in a sprint window.
 
 The standard integration-test scaffolding (_IntegrationTestCase) gives us
 a real temp git repo and a real SMM dir, so commit events flow through
@@ -87,7 +87,7 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
         self.assertTrue(commit_hash, "commit_hash must be non-empty")
 
     def test_retro_reports_resolves_link_rate_for_sprint(self):
-        """E2E: sprint with probe + matching trailer → resolves_link_rate > 0."""
+        """E2E: sprint with code commit + resolves trailer → resolves_link_rate > 0."""
         (self.smm_dir / "sprint.json").write_text(
             _sprint_json(
                 [
@@ -152,8 +152,8 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
 
         retro_input = json.loads((self.smm_dir / ".retro-input.json").read_text())
         sizing = retro_input.get("sizing_analysis") or {}
-        self.assertEqual(sizing.get("resolves_probe_total"), 1)
-        self.assertEqual(sizing.get("resolves_probe_hits"), 1)
+        self.assertEqual(sizing.get("resolves_trailer_total"), 1)
+        self.assertEqual(sizing.get("resolves_trailer_hits"), 1)
         self.assertEqual(sizing.get("resolves_link_rate"), 1.0)
 
 

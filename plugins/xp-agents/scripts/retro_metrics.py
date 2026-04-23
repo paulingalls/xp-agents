@@ -278,13 +278,13 @@ def _compute_resolves_link_rate(
         )
         per_agent[agent_id] = {
             "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,
-            "resolves_probe_hits": agent_hits,
-            "resolves_probe_total": agent_total,
+            "resolves_trailer_hits": agent_hits,
+            "resolves_trailer_total": agent_total,
         }
 
     return {
         "resolves_link_rate": total_hits / total if total > 0 else 0.0,
-        "resolves_probe_hits": total_hits,
-        "resolves_probe_total": total,
+        "resolves_trailer_hits": total_hits,
+        "resolves_trailer_total": total,
         "per_agent": per_agent,
     }
