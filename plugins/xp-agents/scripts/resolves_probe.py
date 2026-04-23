@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Resolves-trailer probe: find open concerns/debts a commit should auto-link.
 
-Called by two paths:
+Called by:
 - pre_tool_bash.run (pre-commit nudge + status event)
-- xp-quality-review/scripts/probe_candidates.py (quality-review pre-commit probe)
+- pre_tool_skill.run (quality-review pre-skill probe)
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,19 @@ from event_schema import (
 )
 
 PROBE_CANDIDATE_LIMIT = 5
+
+
+def changed_files(cwd: str) -> list[str]:
+    """Return all changed files: staged, unstaged, and untracked new."""
+    files: set[str] = set()
+    for cmd in (
+        ["git", "diff", "HEAD", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    ):
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        if result.returncode == 0:
+            files.update(f.strip() for f in result.stdout.splitlines() if f.strip())
+    return sorted(files)
 
 
 def find_probe_candidates(
