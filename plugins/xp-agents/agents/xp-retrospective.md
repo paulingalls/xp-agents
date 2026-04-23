@@ -119,10 +119,10 @@ If none, omit this subsection.
 
 #### Resolution-Link Adoption
 
-When `sizing_analysis` contains `resolves_link_rate`, report a "Resolution-Link Adoption" subsection:
+When `sizing_analysis` contains `resolves_link_rate`, report a "Resolution-Link Adoption" subsection with two metrics:
 
-- Print the rate as a percentage with the hit/total pair, e.g. `67% (2/3)`.
-- If the rate is below 0.80, flag as a retro Fix under the Communication lens with a one-line rationale: agents are not adopting the `Resolves-Event:` trailer discipline — commits must carry the trailer when a probe surfaces a matching concern. Target: ≥ 0.80 for three consecutive sprints before the convention stops being flagged.
+- **Overall trailer rate** (`resolves_link_rate`): percentage of all code commits with a Resolves-Event trailer. Print as `X% (hits/total)`. If below 0.80, flag as Fix under Communication.
+- **Probe adoption rate** (`probe_adoption_rate`): when the pre-commit nudge showed overlapping concerns, how often did the agent add a trailer? Print as `X% (hits/total)`. This is the actionable metric — it measures nudge effectiveness. If below 0.50, flag as Fix under Feedback.
 
 If `resolves_link_rate` is absent (zero probes in the sprint, or non-sprint session), omit the subsection entirely.
 

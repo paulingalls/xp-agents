@@ -239,21 +239,26 @@ def _compute_session_stats(events: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _event_in_sprint_window(event: dict, sprint_start_ts: str | None) -> bool:
+    if sprint_start_ts is None:
+        return True
+    return event.get("ts", "")[:10] >= sprint_start_ts
+
+
 def _compute_resolves_link_rate(
     events: list[dict], sprint_start_ts: str | None
 ) -> dict:
-    """Count code commits with Resolves-Event trailers vs total code commits."""
+    """Count code commits with Resolves-Event trailers vs total code commits.
 
-    def _in_window(event: dict) -> bool:
-        if sprint_start_ts is None:
-            return True
-        return event.get("ts", "")[:10] >= sprint_start_ts
+    Also computes probe_adoption_rate: when a probe was shown, how often
+    did any code commit resolve one of the probe's candidate IDs?
+    """
 
     code_commits = [
         e
         for e in events
         if e.get("type") == _common.COMMIT
-        and _in_window(e)
+        and _event_in_sprint_window(e, sprint_start_ts)
         and (e.get("metadata") or {}).get("code_commit")
     ]
 
@@ -282,9 +287,58 @@ def _compute_resolves_link_rate(
             "resolves_trailer_total": agent_total,
         }
 
+    probe_adoption = _compute_probe_adoption(events, code_commits, sprint_start_ts)
+
     return {
         "resolves_link_rate": total_hits / total if total > 0 else 0.0,
         "resolves_trailer_hits": total_hits,
         "resolves_trailer_total": total,
         "per_agent": per_agent,
+        **probe_adoption,
+    }
+
+
+def _compute_probe_adoption(
+    events: list[dict],
+    code_commits: list[dict],
+    sprint_start_ts: str | None,
+) -> dict:
+    """Probe adoption: for each probe event, did any commit resolve a candidate?"""
+    from event_schema import (
+        METADATA_KEY_PROBE_CANDIDATES,
+        STATUS_CONTENT_RESOLVES_PROBE,
+    )
+
+    probes = [
+        e
+        for e in events
+        if e.get("type") == _common.STATUS
+        and _event_in_sprint_window(e, sprint_start_ts)
+        and (e.get("content") or "").startswith(STATUS_CONTENT_RESOLVES_PROBE)
+    ]
+
+    if not probes:
+        return {
+            "probe_adoption_rate": 0.0,
+            "probe_adoption_hits": 0,
+            "probe_adoption_total": 0,
+        }
+
+    commit_resolves = set()
+    for c in code_commits:
+        for rid in (c.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []:
+            commit_resolves.add(rid)
+
+    hits = 0
+    for p in probes:
+        meta = p.get("metadata") or {}
+        candidate_ids = meta.get(METADATA_KEY_PROBE_CANDIDATES) or []
+        if any(cid in commit_resolves for cid in candidate_ids):
+            hits += 1
+
+    probe_total = len(probes)
+    return {
+        "probe_adoption_rate": hits / probe_total if probe_total > 0 else 0.0,
+        "probe_adoption_hits": hits,
+        "probe_adoption_total": probe_total,
     }
