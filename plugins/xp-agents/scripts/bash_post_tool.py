@@ -18,7 +18,6 @@ import commits
 import concerns
 import identity
 import markers
-import resolves_probe
 import security
 import worktree
 from event_schema import (
@@ -258,15 +257,6 @@ def _handle_commit(
     ]
 
     events, resolutions = _common.load_events_with_resolutions(smm_dir)
-
-    candidates = resolves_probe.find_probe_candidates(
-        smm_dir, committed_files, resolves, cwd, events=events, resolutions=resolutions
-    )
-    status_event = resolves_probe.build_probe_status_event(
-        candidates, commit_hash, agent_id
-    )
-    if status_event:
-        pending.append(status_event)
 
     file_count = len(committed_files)
     if file_count >= COMMIT_SIZE_THRESHOLD:

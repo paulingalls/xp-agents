@@ -64,7 +64,10 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("abc123def456", result.stdout)
 
-    def test_probe_then_commit_emits_probe_event(self):
+    def test_probe_then_pre_commit_emits_probe_event(self):
+        """Quality-review probe + pre-commit both surface same concern."""
+        import json
+
         concern = make_event(
             "concern",
             id="deadbeefcafe",
@@ -73,6 +76,9 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
             severity="medium",
         )
         self._seed_events([concern])
+        (self.smm_dir / ".security-triaged-main").write_text(
+            json.dumps({"ts": "2026-04-22T00:00:00+00:00"})
+        )
 
         (self.tmpdir / "scripts").mkdir(exist_ok=True)
         (self.tmpdir / "scripts" / "auth.py").write_text("print('auth')\n")
@@ -86,27 +92,18 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
         probe_result = self._run_probe_script()
         self.assertEqual(probe_result.returncode, 0, msg=probe_result.stderr)
 
-        subprocess.run(
-            ["git", "commit", "-m", "Fix auth"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-
-        commit_result = self._run_script(
-            "bash_post_tool.py",
+        pre_commit_result = self._run_script(
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
                 "tool_input": {"command": "git commit -m 'Fix auth'"},
-                "tool_response": {"stdout": "[main abc1234] Fix auth\n 1 file changed"},
                 "cwd": str(self.tmpdir),
                 "agent_id": "main",
             },
         )
-        self.assertEqual(commit_result.returncode, 0, msg=commit_result.stderr)
+        self.assertEqual(pre_commit_result.returncode, 0, msg=pre_commit_result.stderr)
 
-        # Post-commit probe event emitted for metrics.
         events = self._read_events()
         probes = [
             e

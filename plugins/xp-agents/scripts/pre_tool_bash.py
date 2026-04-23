@@ -195,6 +195,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             )
             if candidates:
                 parts.extend(resolves_probe.build_nudge_lines(candidates))
+                resolves_probe.emit_probe_status(smm_dir, candidates, agent_id)
 
     if (
         smm_dir is not None

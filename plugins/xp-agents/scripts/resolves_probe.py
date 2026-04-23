@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Resolves-trailer probe: find open concerns/debts a commit should auto-link.
 
-Pure module called by three paths:
-- pre_tool_bash.run (pre-commit nudge via additionalContext)
-- bash_post_tool._handle_commit (post-commit status event for metrics)
+Called by two paths:
+- pre_tool_bash.run (pre-commit nudge + status event)
 - xp-quality-review/scripts/probe_candidates.py (quality-review pre-commit probe)
 """
 
@@ -16,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import commits
 from event_schema import (
-    METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_PROBE_CANDIDATES,
     STATUS_CONTENT_RESOLVES_PROBE,
 )
@@ -50,19 +48,17 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
     ]
 
 
-def build_probe_status_event(
-    candidates: list[dict], commit_hash: str | None, agent_id: str
-) -> dict | None:
-    """Probe status event dict (None when no candidates)."""
+def emit_probe_status(smm_dir: "Path", candidates: list[dict], agent_id: str) -> None:
+    """Write a probe status event to events.jsonl."""
     if not candidates:
-        return None
-    return _common.make_event(
+        return
+    event = _common.make_event(
         _common.STATUS,
         agent_id,
         f"{STATUS_CONTENT_RESOLVES_PROBE}: {len(candidates)} candidates",
         working_on=[],
         metadata={
             METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
-            METADATA_KEY_COMMIT_HASH: commit_hash,
         },
     )
+    _common.append_safe(smm_dir, event)

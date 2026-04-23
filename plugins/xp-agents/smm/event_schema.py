@@ -88,8 +88,8 @@ STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 #                                 concerns, and work_selection_decide;
 #                                 read by pre_tool_bash, retrospective,
 #                                 materialize, resolution.
-#   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit and
-#                                 probe events (bash_post_tool.py).
+#   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit events
+#                                 (bash_post_tool.py).
 #   METADATA_KEY_PROBE_CANDIDATES — ids surfaced by the resolves-trailer
 #                                 probe; paired with the status-content
 #                                 discriminator below.
@@ -98,11 +98,9 @@ METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 
 # Resolves-trailer probe status event contract.
-# Producer (bash_post_tool._handle_commit) emits content
-# f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates" with metadata
-# {METADATA_KEY_PROBE_CANDIDATES: [ids], METADATA_KEY_COMMIT_HASH: <hash>};
-# consumer (retro_metrics._compute_resolves_link_rate) matches the content
-# prefix and reads the candidate list.
+# Producer (resolves_probe.emit_probe_status, called from pre_tool_bash)
+# emits content f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates" with
+# metadata {METADATA_KEY_PROBE_CANDIDATES: [ids]}.
 STATUS_CONTENT_RESOLVES_PROBE = "resolves_probe_shown"
 
 # Retrospective event metadata.action discriminators — distinguish session

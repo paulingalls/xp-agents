@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for bash_post_tool.py: commit events, test framework detection, and
-auto-link probe status events.
+"""Tests for bash_post_tool.py: commit events and test framework detection.
 
+Probe status events are now emitted from pre_tool_bash (not post-commit).
 Review cycle, green nudge, push warning, and QR linkage are in
 test_bash_commit.py. Failure handling and compat tests are in test_bash_failure.py.
 """
@@ -347,7 +347,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         )
 
     def test_commit_no_nudge_on_file_overlap(self):
-        """Post-commit nudge removed — probe event still emitted."""
+        """Post-commit returns no nudge text on file overlap (moved to pre-commit)."""
         self._seed_auth_concern()
         self._seed_qr_status()
         result = self._run_auth_fix(body="Fix auth\n\nNo trailer here.")
@@ -386,41 +386,11 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         result = self._run_auth_fix()
         self.assertIsNone(result)
 
-    def test_probe_event_emitted_when_nudge_fires(self):
-        """Nudge fires -> status event with probe_candidates + commit_hash."""
-        cid = self._seed_auth_concern()
-        self._run_auth_fix()
-        probes = self._probes()
-        self.assertEqual(len(probes), 1)
-        probe = probes[0]
-        self.assertEqual(probe["content"], "resolves_probe_shown: 1 candidates")
-        self.assertEqual(probe["metadata"]["probe_candidates"], [cid])
-        self.assertEqual(probe["metadata"]["commit_hash"], "abc123")
-
-    def test_no_probe_event_when_no_candidates(self):
-        """No matching concerns -> no resolves_probe_shown status event."""
-        self._run_commit(
-            body="Update README\n\nNo trailer.",
-            committed_files=["README.md"],
-            commit_msg="Update README",
-        )
-        self.assertEqual(self._probes(), [])
-
-    def test_probe_caps_candidates_at_five(self):
-        """>5 matching concerns -> only 5 IDs in probe metadata."""
-        cids = [self._seed_auth_concern(f"Concern number {i}") for i in range(7)]
-        self._run_auth_fix()
-
-        probe = self._probes()[0]
-        self.assertEqual(probe["content"], "resolves_probe_shown: 5 candidates")
-        self.assertEqual(probe["metadata"]["probe_candidates"], cids[:5])
-
-    def test_probe_event_records_null_commit_hash_when_rev_parse_fails(self):
-        """commit_hash=None when git rev-parse fails; probe still emits."""
+    def test_post_commit_no_probe_event(self):
+        """Post-commit no longer emits probe events (moved to pre-commit)."""
         self._seed_auth_concern()
-        self._run_auth_fix(commit_hash=None)
-        probe = self._probes()[0]
-        self.assertIsNone(probe["metadata"]["commit_hash"])
+        self._run_auth_fix()
+        self.assertEqual(self._probes(), [])
 
 
 if __name__ == "__main__":

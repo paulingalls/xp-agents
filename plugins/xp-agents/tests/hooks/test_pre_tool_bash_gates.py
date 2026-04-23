@@ -22,6 +22,7 @@ import security
 from conftest import (
     _HookTestCase,
     _make_bash_input,
+    _ProbeTestHelpers,
     make_event,
 )
 
@@ -465,7 +466,7 @@ class TestPreToolBashWorktreeAgentId(_HookTestCase):
             self.assertIn("/xp-security-triage", str(ctx.exception))
 
 
-class TestResolvesTrailerNudge(_HookTestCase):
+class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
     """Pre-commit nudge when staged files overlap open concerns."""
 
     def _write_concern(self, content: str, files: list[str]) -> str:
@@ -519,6 +520,33 @@ class TestResolvesTrailerNudge(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_probe_status_event_emitted(self, *_mocks):
+        """Pre-commit emits probe status event when candidates found."""
+        cid = self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        pre_tool_bash.run(
+            _make_bash_input(command=_COMMIT_CMD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(len(self._probes()), 1)
+        self.assertEqual(self._probes()[0]["metadata"]["probe_candidates"], [cid])
+
+    @patch("commits.get_staged_files", return_value=["scripts/other.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_no_probe_status_event_when_no_overlap(self, *_mocks):
+        """No probe status event when staged files don't overlap concerns."""
+        self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        pre_tool_bash.run(
+            _make_bash_input(command=_COMMIT_CMD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(len(self._probes()), 0)
 
 
 if __name__ == "__main__":

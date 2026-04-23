@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """End-to-end tests for the resolves-trailer feedback loop.
 
-Covers the sprint-005 feature across all three story domains:
-- bash_post_tool emits the actionable nudge + resolves_probe_shown status
-  event when a commit touches files in an open concern.
+Covers two paths:
+- pre_tool_bash emits the resolves_probe_shown status event when a
+  commit's staged files overlap an open concern.
 - retrospective.py computes resolves_link_rate from code commits with
   Resolves-Event trailers in a sprint window.
 
@@ -20,12 +20,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import security
 from conftest import _IntegrationTestCase, _s, _sprint_json, make_event
 
 
 class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
-    def test_commit_matching_open_concern_emits_probe_and_nudge(self):
-        """E2E: commit touches concern files → amend nudge + probe event."""
+    def _seed_commit_gates(self) -> None:
+        """Seed markers to bypass commit gates (security triage)."""
+        security.write_security_triaged(self.smm_dir, agent_id="main")
+
+    def test_pre_commit_emits_probe_event_on_file_overlap(self):
+        """E2E: pre-commit with staged files overlapping concern → probe event."""
         concern = make_event(
             "concern",
             id="abc123def456",
@@ -34,6 +39,7 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
             severity="medium",
         )
         self._seed_events([concern])
+        self._seed_commit_gates()
 
         (self.tmpdir / "scripts").mkdir(exist_ok=True)
         (self.tmpdir / "scripts" / "foo.py").write_text("print('hi')\n")
@@ -43,30 +49,19 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
             capture_output=True,
             check=True,
         )
-        subprocess.run(
-            ["git", "commit", "-m", "Add foo module"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
 
         result = self._run_script(
-            "bash_post_tool.py",
+            "pre_tool_bash.py",
             {
                 "session_id": "int-test",
                 "tool_name": "Bash",
                 "tool_input": {"command": "git commit -m 'Add foo module'"},
-                "tool_response": {
-                    "stdout": "[main abc1234] Add foo module\n 1 file changed"
-                },
                 "cwd": str(self.tmpdir),
                 "agent_id": "main",
             },
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
-        # Post-commit no longer emits nudge lines (moved to pre-commit).
-        # Probe event still emitted with the expected shape.
         events = self._read_events()
         probes = [
             e
@@ -77,9 +72,6 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
         self.assertEqual(len(probes), 1)
         metadata = probes[0].get("metadata") or {}
         self.assertEqual(metadata.get("probe_candidates"), ["abc123def456"])
-        commit_hash = metadata.get("commit_hash")
-        self.assertIsInstance(commit_hash, str)
-        self.assertTrue(commit_hash, "commit_hash must be non-empty")
 
     def test_retro_reports_resolves_link_rate_for_sprint(self):
         """E2E: sprint with code commit + resolves trailer → resolves_link_rate > 0."""

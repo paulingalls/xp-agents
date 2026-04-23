@@ -12,9 +12,8 @@ import unittest
 
 import _common
 import resolves_probe
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, _ProbeTestHelpers, make_event
 from event_schema import (
-    METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_PROBE_CANDIDATES,
     STATUS_CONTENT_RESOLVES_PROBE,
 )
@@ -103,34 +102,27 @@ class TestBuildNudgeLines(unittest.TestCase):
         self.assertIn("concern abc123def456", lines[0])
 
 
-class TestBuildProbeStatusEvent(unittest.TestCase):
-    """build_probe_status_event returns the status event dict or None."""
+class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):
+    """emit_probe_status writes a probe status event to events.jsonl."""
 
-    def test_none_when_no_candidates(self):
-        self.assertIsNone(resolves_probe.build_probe_status_event([], "hash", "agent"))
+    def test_no_event_when_no_candidates(self):
+        resolves_probe.emit_probe_status(self.smm_dir, [], "agent")
+        self.assertEqual(self._probes(), [])
 
-    def test_event_shape_when_populated(self):
+    def test_event_written_when_candidates_exist(self):
         candidates = [
             {"id": "abc", "content": "first"},
             {"id": "def", "content": "second"},
         ]
-        event = resolves_probe.build_probe_status_event(candidates, "hash123", "main")
-        self.assertIsNotNone(event)
-        self.assertEqual(event["type"], _common.STATUS)
-        self.assertEqual(event["agent_id"], "main")
+        resolves_probe.emit_probe_status(self.smm_dir, candidates, "main")
+        probes = self._probes()
+        self.assertEqual(len(probes), 1)
         self.assertEqual(
-            event["content"], f"{STATUS_CONTENT_RESOLVES_PROBE}: 2 candidates"
+            probes[0]["content"], f"{STATUS_CONTENT_RESOLVES_PROBE}: 2 candidates"
         )
         self.assertEqual(
-            event["metadata"][METADATA_KEY_PROBE_CANDIDATES], ["abc", "def"]
+            probes[0]["metadata"][METADATA_KEY_PROBE_CANDIDATES], ["abc", "def"]
         )
-        self.assertEqual(event["metadata"][METADATA_KEY_COMMIT_HASH], "hash123")
-
-    def test_event_accepts_null_commit_hash(self):
-        candidates = [{"id": "abc", "content": "c"}]
-        event = resolves_probe.build_probe_status_event(candidates, None, "main")
-        self.assertIsNotNone(event)
-        self.assertIsNone(event["metadata"][METADATA_KEY_COMMIT_HASH])
 
 
 if __name__ == "__main__":

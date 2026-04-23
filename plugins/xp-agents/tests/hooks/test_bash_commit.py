@@ -21,8 +21,8 @@ import security
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 
 
-class TestPostCommitProbeEvent(_ProbeTestHelpers, _HookTestCase):
-    """Post-commit emits probe status event but no nudge text."""
+class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
+    """Post-commit no longer emits probe status events (moved to pre-commit)."""
 
     def _run_auth_commit(self):
         with (
@@ -48,11 +48,10 @@ class TestPostCommitProbeEvent(_ProbeTestHelpers, _HookTestCase):
         result = self._run_auth_commit()
         self.assertIsNone(result)
 
-    def test_probe_event_still_emitted(self):
-        cid = self._seed_auth_concern()
+    def test_no_probe_event_from_post_commit(self):
+        self._seed_auth_concern()
         self._run_auth_commit()
-        self.assertEqual(len(self._probes()), 1)
-        self.assertEqual(self._probes()[0]["metadata"]["probe_candidates"], [cid])
+        self.assertEqual(len(self._probes()), 0)
 
 
 class TestBashPostToolReviewCycle(_HookTestCase):
