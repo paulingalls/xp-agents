@@ -24,15 +24,27 @@ import branching
 
 _GIT_ENV = {
     **os.environ,
-    "GIT_AUTHOR_NAME": "t",
-    "GIT_AUTHOR_EMAIL": "t@t",
-    "GIT_COMMITTER_NAME": "t",
-    "GIT_COMMITTER_EMAIL": "t@t",
+    "GIT_AUTHOR_NAME": "Test User",
+    "GIT_AUTHOR_EMAIL": "test@test.com",
+    "GIT_COMMITTER_NAME": "Test User",
+    "GIT_COMMITTER_EMAIL": "test@test.com",
 }
 
 
 def _init_repo(td: str) -> None:
     subprocess.run(["git", "init", td], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
         cwd=td,
@@ -58,11 +70,12 @@ def _write_system_context(smm_dir: Path, stage: int) -> None:
 
 def _make_feature_commit(td: str, filename: str = "feature.txt") -> None:
     (Path(td) / filename).write_text(f"content of {filename}")
-    subprocess.run(["git", "add", "."], cwd=td, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=td, capture_output=True, check=True)
     subprocess.run(
         ["git", "commit", "-m", f"add {filename}"],
         cwd=td,
         capture_output=True,
+        check=True,
         env=_GIT_ENV,
     )
 
@@ -84,7 +97,9 @@ class TestBranchExists(unittest.TestCase):
     def test_existing_branch(self):
         with tempfile.TemporaryDirectory() as td:
             _init_repo(td)
-            subprocess.run(["git", "branch", "feature-x"], cwd=td, capture_output=True)
+            subprocess.run(
+                ["git", "branch", "feature-x"], cwd=td, capture_output=True, check=True
+            )
             self.assertTrue(branching.branch_exists(td, "feature-x"))
 
     def test_nonexistent_branch(self):
@@ -130,6 +145,7 @@ class TestCreateStoryBranch(unittest.TestCase):
                 ["git", "branch", "paul/story-001-resume"],
                 cwd=td,
                 capture_output=True,
+                check=True,
             )
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=1)
@@ -184,6 +200,7 @@ class TestMergeStoryBranch(unittest.TestCase):
                 ["git", "checkout", "-b", "paul/story-001-test"],
                 cwd=td,
                 capture_output=True,
+                check=True,
             )
             _make_feature_commit(td)
 
@@ -206,6 +223,7 @@ class TestMergeStoryBranch(unittest.TestCase):
                 ["git", "checkout", "-b", "paul/story-002-hist"],
                 cwd=td,
                 capture_output=True,
+                check=True,
             )
             for i in range(3):
                 _make_feature_commit(td, f"file{i}.txt")
@@ -232,16 +250,21 @@ class TestDeleteBranch(unittest.TestCase):
                 ["git", "checkout", "-b", "paul/story-001-del"],
                 cwd=td,
                 capture_output=True,
+                check=True,
             )
             _make_feature_commit(td, "f.txt")
 
             subprocess.run(
-                ["git", "checkout", main_branch], cwd=td, capture_output=True
+                ["git", "checkout", main_branch],
+                cwd=td,
+                capture_output=True,
+                check=True,
             )
             subprocess.run(
                 ["git", "merge", "--no-ff", "paul/story-001-del", "-m", "merge"],
                 cwd=td,
                 capture_output=True,
+                check=True,
                 env=_GIT_ENV,
             )
 
@@ -260,12 +283,6 @@ class TestCLI(unittest.TestCase):
 
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=1)
-
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.com"],
-                cwd=td,
-                capture_output=True,
-            )
 
             script = str(
                 Path(__file__).parent.parent.parent / "scripts" / "branching.py"
