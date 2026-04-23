@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.26.2 — Pre-commit resolves-trailer nudge + staged file helper
+
+- **Move resolves-trailer nudge from post-commit to pre-commit.** Agents now see overlapping open concerns/debts *before* committing via `additionalContext`, so they can include `Resolves-Event:` trailers in the original commit message instead of needing `git commit --amend`. Advisory only, not a hard block. Removes the post-commit nudge, fingerprint dedup mechanism (`REVIEW_FINGERPRINT` marker, `compute_fingerprint()`), and 11 dead tests. Net -215 lines.
+
+- **Add `get_staged_files()` to commits.py.** Returns unfiltered staged file paths via `git diff --cached --name-only` for the pre-commit probe's file overlap detection.
+
 ## v2.26.1 — Fix spawn_teammate --story-id import error
 
 - **Fix ModuleNotFoundError in worktree.py.** `write_story_assignment()` imports `write_text_atomic` from `_append_impl` (in `smm/`), but `worktree.py` never added `smm/` to `sys.path`. Fails when `spawn_teammate.py` runs with `--story-id` since it only adds `scripts/` to the path. Fixed by adding `smm/` path at module level, matching the pattern used by 20+ sibling scripts.
