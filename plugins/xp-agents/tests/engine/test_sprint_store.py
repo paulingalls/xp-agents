@@ -79,6 +79,57 @@ class TestValidateSprint(unittest.TestCase):
         errors = sprint_schema.validate_sprint(_make_sprint(stories="not list"))
         self.assertTrue(any("stories" in e for e in errors))
 
+    def test_acceptance_execution_valid(self):
+        import sprint_schema
+
+        ae = {"type": "pytest", "command": "pytest tests/acceptance/"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_acceptance_execution_with_all_fields(self):
+        import sprint_schema
+
+        ae = {
+            "type": "playwright",
+            "command": "npx playwright test",
+            "setup": "docker compose up -d",
+            "notes": "Requires backend on :3000",
+        }
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_acceptance_execution_absent_is_valid(self):
+        import sprint_schema
+
+        sprint = _make_sprint()
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_acceptance_execution_missing_type_fails(self):
+        import sprint_schema
+
+        ae = {"command": "pytest tests/"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("type" in e for e in errors))
+
+    def test_acceptance_execution_missing_command_fails(self):
+        import sprint_schema
+
+        ae = {"type": "pytest"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("command" in e for e in errors))
+
+    def test_acceptance_execution_not_dict_fails(self):
+        import sprint_schema
+
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution="bad")])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("acceptance_execution" in e for e in errors))
+
 
 class TestEmptySprint(unittest.TestCase):
     def test_empty_sprint_is_valid(self):
@@ -384,6 +435,40 @@ class TestRenderMarkdown(unittest.TestCase):
 
         md = sprint_store.render_markdown(_make_sprint())
         self.assertIn("sprint-001", md)
+
+    def test_render_acceptance_execution(self):
+        import sprint_store
+
+        ae = {
+            "type": "pytest",
+            "command": "pytest tests/acceptance/",
+            "setup": "docker compose up -d",
+            "notes": "Requires backend on :3000",
+        }
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        md = sprint_store.render_markdown(sprint)
+        self.assertIn("**Acceptance Execution:**", md)
+        self.assertIn("**Type:** pytest", md)
+        self.assertIn("`pytest tests/acceptance/`", md)
+        self.assertIn("`docker compose up -d`", md)
+        self.assertIn("Requires backend on :3000", md)
+
+    def test_render_acceptance_execution_minimal(self):
+        import sprint_store
+
+        ae = {"type": "bash", "command": "bash test.sh"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        md = sprint_store.render_markdown(sprint)
+        self.assertIn("**Type:** bash", md)
+        self.assertIn("`bash test.sh`", md)
+        self.assertNotIn("**Setup:**", md)
+        self.assertNotIn("**Notes:**", md)
+
+    def test_render_no_acceptance_execution(self):
+        import sprint_store
+
+        md = sprint_store.render_markdown(_make_sprint())
+        self.assertNotIn("Acceptance Execution", md)
 
 
 class TestRenderStorySections(unittest.TestCase):

@@ -103,6 +103,22 @@ def _validate_story(
                         f" exceeds budget ({actual} > {fd_max} chars)"
                     )
 
+    ae = story.get("acceptance_execution")
+    if ae is not None:
+        if not isinstance(ae, dict):
+            errors.append(f"stories[{idx}].acceptance_execution must be an object")
+        else:
+            if not isinstance(ae.get("type"), str):
+                errors.append(
+                    f"stories[{idx}].acceptance_execution.type is required"
+                    " and must be a string"
+                )
+            if not isinstance(ae.get("command"), str):
+                errors.append(
+                    f"stories[{idx}].acceptance_execution.command is required"
+                    " and must be a string"
+                )
+
     return errors
 
 

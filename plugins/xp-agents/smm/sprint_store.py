@@ -338,4 +338,15 @@ def _render_story(lines: list[str], s: dict[str, Any]) -> None:
         for ac in s["acceptance_criteria"]:
             lines.append(f"- {ac}")
 
+    ae = s.get("acceptance_execution")
+    if ae:
+        lines.append("")
+        lines.append("**Acceptance Execution:**")
+        lines.append(f"- **Type:** {ae['type']}")
+        lines.append(f"- **Command:** `{ae['command']}`")
+        if ae.get("setup"):
+            lines.append(f"- **Setup:** `{ae['setup']}`")
+        if ae.get("notes"):
+            lines.append(f"- **Notes:** {ae['notes']}")
+
     lines.append("")
