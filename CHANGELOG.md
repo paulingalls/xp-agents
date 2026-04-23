@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.26.1 — Fix spawn_teammate --story-id import error
+
+- **Fix ModuleNotFoundError in worktree.py.** `write_story_assignment()` imports `write_text_atomic` from `_append_impl` (in `smm/`), but `worktree.py` never added `smm/` to `sys.path`. Fails when `spawn_teammate.py` runs with `--story-id` since it only adds `scripts/` to the path. Fixed by adding `smm/` path at module level, matching the pattern used by 20+ sibling scripts.
+
 ## v2.26.0 — Branching Doctrine: progressive branching stages 1-2
 
 Sprints 024-027 deliver the complete Branching Doctrine execution plan (4 milestones). Projects can now declare a branching stage (0-3) and the plugin enforces stage-appropriate discipline.
