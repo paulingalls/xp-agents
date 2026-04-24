@@ -81,6 +81,22 @@ Then the enriched sections:
 
 Include deferred stories from the previous sprint, renumbered to fit.
 
+### Step 3b: Capstone Story Proposal
+
+When a milestone has **composition surface** — multiple stories that interact and whose seams could break without integration testing — propose a **capstone story** as the final story in the sprint.
+
+**When to propose:** The project's `system_context.json` has `acceptance_surfaces` with a harness, or the milestone has 3+ stories with interface contracts between them.
+
+**Capstone story structure:**
+- **Last story** in sprint ordering, depends on all other stories
+- **Deliverable** is the cross-cutting acceptance test file (e.g., `tests/acceptance/milestone-03.spec.ts`)
+- **Acceptance criteria** render the milestone's prose `done` field into Given/When/Then — making the milestone's done-state executable
+- **File domain** owns the cross-cutting test file exclusively
+- **Acceptance execution** points at that test file
+- If `system_context.json` has a matching `acceptance_surfaces` entry, the capstone story's `acceptance_execution` should use that surface's harness and conventions
+
+**The capstone is optional.** Present it in the confirmation table and let the customer decline for small milestones, refactors, or surfaces where feature-level testing is impractical.
+
 ### Step 4: Sprint Goal
 
 Write a one-sentence sprint goal. This becomes the sprint title.
