@@ -122,6 +122,54 @@ class TestIsProtectedBranch(unittest.TestCase):
         self.assertFalse(branching.is_protected_branch(1, ""))
 
 
+class TestGetPrimaryBranch(unittest.TestCase):
+    def _write_ctx(self, td: str, ctx: dict) -> Path:
+        p = Path(td)
+        (p / "system_context.json").write_text(json.dumps(ctx))
+        return p
+
+    def test_returns_main_at_stage_1(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = self._write_ctx(td, {"branching_strategy": {"stage": 1}})
+            self.assertEqual(branching.get_primary_branch(smm), "main")
+
+    def test_returns_main_at_stage_2(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = self._write_ctx(td, {"branching_strategy": {"stage": 2}})
+            self.assertEqual(branching.get_primary_branch(smm), "main")
+
+    def test_returns_integration_branch_at_stage_3(self):
+        with tempfile.TemporaryDirectory() as td:
+            ctx = {
+                "branching_strategy": {
+                    "stage": 3,
+                    "integration_branch": "develop",
+                }
+            }
+            smm = self._write_ctx(td, ctx)
+            self.assertEqual(branching.get_primary_branch(smm), "develop")
+
+    def test_falls_back_to_main_at_stage_3_when_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = self._write_ctx(td, {"branching_strategy": {"stage": 3}})
+            self.assertEqual(branching.get_primary_branch(smm), "main")
+
+    def test_falls_back_to_main_at_stage_3_when_null(self):
+        with tempfile.TemporaryDirectory() as td:
+            ctx = {
+                "branching_strategy": {
+                    "stage": 3,
+                    "integration_branch": None,
+                }
+            }
+            smm = self._write_ctx(td, ctx)
+            self.assertEqual(branching.get_primary_branch(smm), "main")
+
+    def test_returns_main_when_no_system_context(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(branching.get_primary_branch(Path(td)), "main")
+
+
 class TestExtractCommitMessage(unittest.TestCase):
     def test_double_quoted(self):
         self.assertEqual(

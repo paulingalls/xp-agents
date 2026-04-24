@@ -43,15 +43,36 @@ def is_sprint_branch(name: str) -> bool:
     return bool(_SPRINT_BRANCH_RE.match(name))
 
 
-def get_branching_stage(smm_dir: Path) -> int:
+_DEFAULT_PRIMARY = "main"
+
+
+def _load_branching_strategy(smm_dir: Path) -> dict:
+    """Read system_context.branching_strategy or {} on any failure."""
     path = smm_dir / "system_context.json"
     if not path.exists() or path.is_symlink():
-        return 0
+        return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("branching_strategy", {}).get("stage", 0)
+        ctx = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return 0
+        return {}
+    return ctx.get("branching_strategy") or {}
+
+
+def get_branching_stage(smm_dir: Path) -> int:
+    return _load_branching_strategy(smm_dir).get("stage", 0)
+
+
+def get_primary_branch(smm_dir: Path) -> str:
+    """Return the repo's primary integration branch.
+
+    Stage 0-2: always 'main'. Stage 3 reads system_context's
+    branching_strategy.integration_branch, defaulting to 'main' when
+    missing or null.
+    """
+    bs = _load_branching_strategy(smm_dir)
+    if bs.get("stage", 0) < 3:
+        return _DEFAULT_PRIMARY
+    return bs.get("integration_branch") or _DEFAULT_PRIMARY
 
 
 _PROTECTED_BRANCHES = {"main", "master"}
