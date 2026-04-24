@@ -280,39 +280,35 @@ broader workflow-setup story.
 
 ## Open Questions (Deferred)
 
-- **Remote push policy.** Auto-push sprint branches at sprint-start?
-  Auto-push story branches on accept-green? Leaning: auto-push at
-  Stage 2+ only, for PR-eligible branches. Stage 1 stays local-first
-  unless customer requests push.
-- **Force-push and rebase discipline.** Story branches may need rebases
-  after the base advances. Who initiates, and how are conflicts
-  gated? Leaning: auto-rebase on sprint-branch advance; customer
-  resolves conflicts manually; no automatic force-push.
-- **Release cut automation.** Stage 3 includes a release-cut step
-  (integration → main, tagged). Should a future `/xp-release-cut`
-  skill exist? Out of scope for this doctrine; defer.
-- **Escape-hatch interaction with acceptance testing.** A `[release]`
-  commit should not trigger a story acceptance run but should still
-  flow into sprint accounting. Needs concrete specification when
-  implementation lands.
-- **Branch cleanup policy.** Delete story branches on accept? Keep for
-  audit? Local vs remote cleanup. Leaning: delete local on accept;
-  delete remote after PR merge (Stage 2+).
-- **Handling pre-existing branches.** When the plugin adopts a repo
-  mid-flight, there may already be feature branches in progress.
-  Leaning: tolerate in place; raise a concern recommending rename into
-  the `<user>/` namespace.
+- **Remote push policy.** Partially addressed by BRANCH_LIFECYCLE
+  design (push at sprint-close for PR creation). Story branch push
+  remains deferred.
+- **Force-push and rebase discipline.** Deferred to team/Stage 3
+  scenarios. Single-contributor Stage 2 doesn't need it.
+- **Release cut automation.** Stage 3 only. Deferred.
+- **Escape-hatch interaction with acceptance testing.** Non-issue:
+  acceptance is story-level (`/xp-accept`), not commit-level.
+  `[release]` commits don't interact with story acceptance.
+- **Branch cleanup policy.** Story branches: delete local on accept
+  (implemented). Sprint/plan branch cleanup: see
+  `docs/ideas/BRANCH_LIFECYCLE.md`.
+- **Handling pre-existing branches.** Deferred. Tolerate in place;
+  raise a concern recommending rename into `<user>/` namespace.
 
 ---
 
 ## Status
 
-Draft. Not yet in any execution plan. This document is the design
-source for a forthcoming execution plan to be created **after** the
-current acceptance-testing plan ships. The acceptance-testing plan
-stays focused; branching gets the room it needs.
+Implemented. Core branching doctrine is integrated into:
 
-Parallels the Acceptance Testing Doctrine in structure — discrete
-stages, actionable concerns, analysis-vs-scaffolding separation — and
-deliberately shares that pattern so both doctrines can be reasoned
-about together once both execution plans are in motion.
+- `scripts/branching.py` — branch lifecycle operations
+- `scripts/pre_tool_bash.py` — main/sprint branch commit gates
+- `scripts/identity.py` — user namespace derivation
+- `smm/system_context_schema.py` — branching_strategy validation
+- `agents/xp-system-analyzer.md` — stage detection (Step 3.5)
+- `skills/xp-sprint-start/SKILL.md` — sprint/story branch creation
+- `skills/xp-accept/SKILL.md` — story branch merge/delete
+
+Remaining open questions are deferred enhancements, not blocking
+gaps. Post-sprint branch lifecycle is designed separately in
+`docs/ideas/BRANCH_LIFECYCLE.md`.
