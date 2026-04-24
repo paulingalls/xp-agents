@@ -58,18 +58,23 @@ class TestCountCommand(_SMMTestCase):
         m2["number"] = 2
         m2["status"] = "delivered"
         m2["delivered_sprint"] = "sprint-001"
+        m3 = _VALID_MILESTONE.copy()
+        m3["number"] = 3
+        m3["status"] = "deferred"
         (self.smm_dir / "execution_plan.json").write_text(
-            json.dumps(_make_plan(milestones=[_VALID_MILESTONE.copy(), m2]))
+            json.dumps(_make_plan(milestones=[_VALID_MILESTONE.copy(), m2, m3]))
         )
         result = run_cli(_CLI, ["count"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("planned=1", result.stdout)
         self.assertIn("delivered=1", result.stdout)
+        self.assertIn("deferred=1", result.stdout)
 
     def test_count_missing_plan(self):
         result = run_cli(_CLI, ["count"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("planned=0", result.stdout)
+        self.assertIn("deferred=0", result.stdout)
 
 
 class TestCreateCommand(_SMMTestCase):
@@ -174,6 +179,13 @@ class TestUpdateStatusCommand(_SMMTestCase):
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
         result = run_cli(_CLI, ["update-status", "99", "in-progress"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
+
+    def test_update_to_deferred(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["update-status", "1", "deferred"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["status"], "deferred")
 
 
 class TestRenderCommand(_SMMTestCase):

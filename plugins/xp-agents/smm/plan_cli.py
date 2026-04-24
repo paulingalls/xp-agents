@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import execution_plan_store as store
+from execution_plan_schema import VALID_MILESTONE_STATUSES
 
 
 def _cmd_exists(args: argparse.Namespace) -> int:
@@ -41,7 +42,8 @@ def _cmd_count(args: argparse.Namespace) -> int:
     print(
         f"planned={counts['planned']} "
         f"in-progress={counts['in-progress']} "
-        f"delivered={counts['delivered']}"
+        f"delivered={counts['delivered']} "
+        f"deferred={counts['deferred']}"
     )
     return 0
 
@@ -216,7 +218,7 @@ def main() -> None:
     update_p.add_argument("milestone_number", type=int, help="Milestone number")
     update_p.add_argument(
         "status",
-        choices=["planned", "in-progress", "delivered"],
+        choices=sorted(VALID_MILESTONE_STATUSES),
         help="New status",
     )
     update_p.add_argument(

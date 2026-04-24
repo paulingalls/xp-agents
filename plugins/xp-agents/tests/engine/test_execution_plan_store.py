@@ -161,6 +161,51 @@ class TestValidatePlan(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class TestDeferredMilestoneStatus(unittest.TestCase):
+    """`deferred` is a valid milestone status; no delivered_sprint required."""
+
+    def test_deferred_status_accepted(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(status="deferred", delivered_sprint=None)]
+        )
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_deferred_does_not_require_delivered_sprint(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(status="deferred", delivered_sprint=None)]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertFalse(any("delivered_sprint" in e for e in errors))
+
+    def test_deferred_in_valid_statuses_constant(self):
+        import execution_plan_schema as schema
+
+        self.assertIn("deferred", schema.VALID_MILESTONE_STATUSES)
+
+    def test_planned_with_no_delivered_sprint_still_valid(self):
+        """Regression: relaxing delivered_sprint check must not break planned."""
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(status="planned", delivered_sprint=None)]
+        )
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_delivered_still_requires_delivered_sprint(self):
+        """Regression: relaxing the check must not weaken the delivered case."""
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(status="delivered", delivered_sprint=None)]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("delivered_sprint" in e for e in errors))
+
+
 class TestPlanBranchField(unittest.TestCase):
     """Test that the optional `branch` field on the plan is validated."""
 
@@ -431,6 +476,29 @@ class TestHasRemainingWork(_SMMTestCase):
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         self.assertTrue(store.has_remaining_work(self.smm_dir))
 
+    def test_deferred_does_not_count_as_remaining(self):
+        """Deferred = consciously dropped, not pending. Same terminal class as
+        delivered for the purpose of `is the plan complete?`."""
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="deferred")])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self.assertFalse(store.has_remaining_work(self.smm_dir))
+
+    def test_all_delivered_or_deferred_no_remaining(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(
+                    number=1, status="delivered", delivered_sprint="sprint-001"
+                ),
+                _make_milestone(number=2, status="deferred"),
+            ]
+        )
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self.assertFalse(store.has_remaining_work(self.smm_dir))
+
 
 class TestCountMilestones(_SMMTestCase):
     def test_count_all_statuses(self):
@@ -461,6 +529,22 @@ class TestCountMilestones(_SMMTestCase):
         self.assertEqual(counts["planned"], 0)
         self.assertEqual(counts["in-progress"], 0)
         self.assertEqual(counts["delivered"], 0)
+        self.assertEqual(counts["deferred"], 0)
+
+    def test_count_includes_deferred(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(number=1, status="planned"),
+                _make_milestone(number=2, status="deferred"),
+                _make_milestone(number=3, status="deferred"),
+            ]
+        )
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        counts = store.count_milestones(self.smm_dir)
+        self.assertEqual(counts["planned"], 1)
+        self.assertEqual(counts["deferred"], 2)
 
 
 class TestArchive(_SMMTestCase):

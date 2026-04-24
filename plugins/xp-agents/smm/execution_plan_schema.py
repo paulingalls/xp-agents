@@ -14,7 +14,9 @@ from _acceptance_execution import validate_acceptance_execution
 
 PLAN_FILENAME = "execution_plan.json"
 
-VALID_MILESTONE_STATUSES = frozenset({"planned", "in-progress", "delivered"})
+VALID_MILESTONE_STATUSES = frozenset(
+    {"planned", "in-progress", "delivered", "deferred"}
+)
 VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 
 VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
