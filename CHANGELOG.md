@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.26.7 — Branch lifecycle design, sprint-review fix
+
+- **Design branch lifecycle for sprint-close and plan-close.** New `docs/ideas/BRANCH_LIFECYCLE.md` defines `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` skills, `xp-close-reviewer` agent, plan branch support, and free session branch management. Three review levels (commit, sprint, plan) with holistic code review at each integration point.
+
+- **Fix sprint-reviewer allowed-tools for PR creation.** Step 3b (Create Sprint PR) silently failed because the skill's `allowed-tools` didn't include `branching.py`, `plan_cli.py`, `which gh`, or `gh pr create`. Added all four — PR creation now works at Stage 2+.
+
+- **Add `acceptance_execution` producer to `/xp-plan`.** Plan skill now populates `acceptance_execution` on milestones when `system_context.json` has a matching covered acceptance surface. Activates the previously inert milestone acceptance gate in sprint-reviewer.
+
+- **Move acceptance testing doctrine to completed.** All 14 design claims verified against codebase — schema, CLI, skill workflows, and validation all implemented.
+
+- **Update branching doctrine status.** Core branching is implemented (stages, detection, gates, story/sprint branches, escape hatches, namespacing). Open questions updated with current state — team scenarios remain for future work.
+
 ## v2.26.6 — Acceptance testing doctrine, deterministic hooks
 
 - **Add `acceptance_execution` schema to sprint stories.** Optional field with `type` (runner name) and `command` (exact invocation), plus optional `setup` and `notes`. Schema validates structure when present; backward compatible when absent. Sprint store renders the field in markdown output.
