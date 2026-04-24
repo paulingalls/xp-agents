@@ -648,6 +648,23 @@ class TestRenderMarkdown(_SMMTestCase):
         md = store.render_markdown(plan)
         self.assertLess(md.index("**Branch:**"), md.index("## Sources"))
 
+    def test_render_deferred_milestone_shows_deferred_tag(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[_make_milestone(name="Skipped feature", status="deferred")]
+        )
+        md = store.render_markdown(plan)
+        self.assertIn("### Milestone 1: Skipped feature [deferred]", md)
+
+    def test_render_deferred_does_not_show_sprint(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="deferred")])
+        md = store.render_markdown(plan)
+        self.assertIn("[deferred]", md)
+        self.assertNotIn("[deferred:", md)
+
 
 class TestPlanExists(_SMMTestCase):
     def test_exists_when_file_present(self):
