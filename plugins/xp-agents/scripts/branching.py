@@ -137,6 +137,13 @@ def branch_exists(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
+def _checkout_or_exit(cwd: str, branch: str) -> None:
+    r = _git(["git", "checkout", branch], cwd)
+    if r.returncode != 0:
+        print(f"Failed to checkout {branch}: {r.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _create_branch(
     cwd: str, id_: str, slug: str, smm_dir: Path, min_stage: int
 ) -> str | None:
@@ -148,10 +155,7 @@ def _create_branch(
     name = branch_name(user_ns, id_, slug)
 
     if branch_exists(cwd, name):
-        r = _git(["git", "checkout", name], cwd)
-        if r.returncode != 0:
-            print(f"Failed to checkout {name}: {r.stderr}", file=sys.stderr)
-            sys.exit(1)
+        _checkout_or_exit(cwd, name)
         return name
 
     if not is_worktree_clean(cwd):
@@ -199,19 +203,27 @@ def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
     return "main"
 
 
-def merge_story_branch(cwd: str, story_branch: str, target: str = "main") -> None:
-    r = _git(["git", "checkout", target], cwd)
-    if r.returncode != 0:
-        print(f"Failed to checkout {target}: {r.stderr}", file=sys.stderr)
-        sys.exit(1)
-
+def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
+    _checkout_or_exit(cwd, target)
     r = _git(
-        ["git", "merge", "--no-ff", story_branch, "-m", f"Merge {story_branch}"],
+        ["git", "merge", "--no-ff", source_branch, "-m", f"Merge {source_branch}"],
         cwd,
     )
     if r.returncode != 0:
-        print(f"Merge failed: {r.stderr}", file=sys.stderr)
+        details = (r.stderr or "") + (r.stdout or "")
+        print(
+            f"Merge of {source_branch} into {target} failed: {details.strip()}",
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+
+def merge_story_branch(cwd: str, story_branch: str, target: str = "main") -> None:
+    _merge_into_target(cwd, story_branch, target)
+
+
+def merge_sprint_branch(cwd: str, sprint_branch: str, target: str = "main") -> None:
+    _merge_into_target(cwd, sprint_branch, target)
 
 
 def delete_branch(cwd: str, name: str) -> bool:

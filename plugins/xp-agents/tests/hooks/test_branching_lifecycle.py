@@ -240,6 +240,74 @@ class TestMergeStoryBranch(unittest.TestCase):
                 self.assertIn(f"file{i}.txt", log.stdout)
 
 
+class TestMergeSprintBranch(unittest.TestCase):
+    def test_merges_into_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            main_branch = _get_current_branch(td)
+
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-027-feat"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td)
+
+            branching.merge_sprint_branch(
+                td, "paul/sprint-027-feat", target=main_branch
+            )
+
+            merges = subprocess.run(
+                ["git", "log", "--merges", "--oneline"],
+                cwd=td,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("paul/sprint-027-feat", merges.stdout)
+            self.assertEqual(_get_current_branch(td), main_branch)
+
+    def test_exits_on_merge_conflict(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            main_branch = _get_current_branch(td)
+
+            (Path(td) / "shared.txt").write_text("from-main")
+            subprocess.run(
+                ["git", "add", "shared.txt"], cwd=td, capture_output=True, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "main side"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_GIT_ENV,
+            )
+
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-027-conflict", "HEAD~1"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            (Path(td) / "shared.txt").write_text("from-sprint")
+            subprocess.run(
+                ["git", "add", "shared.txt"], cwd=td, capture_output=True, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "sprint side"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_GIT_ENV,
+            )
+
+            with self.assertRaises(SystemExit):
+                branching.merge_sprint_branch(
+                    td, "paul/sprint-027-conflict", target=main_branch
+                )
+
+
 class TestDeleteBranch(unittest.TestCase):
     def test_deletes_merged_branch(self):
         with tempfile.TemporaryDirectory() as td:
