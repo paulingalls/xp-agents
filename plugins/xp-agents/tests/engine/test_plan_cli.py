@@ -264,6 +264,40 @@ class TestEditMilestoneCommand(_SMMTestCase):
         self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
 
 
+class TestSetBranchCommand(_SMMTestCase):
+    def test_set_branch_writes_field(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["set-branch", "paulingalls/plan-foo"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["branch"], "paulingalls/plan-foo")
+
+    def test_set_branch_empty_clears_field(self):
+        plan = _make_plan(branch="user/old-branch")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["set-branch", ""], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertIsNone(loaded["branch"])
+
+    def test_set_branch_overwrites_existing(self):
+        plan = _make_plan(branch="user/old")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["set-branch", "user/new"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["branch"], "user/new")
+
+    def test_set_branch_no_plan_fails(self):
+        result = run_cli(_CLI, ["set-branch", "user/foo"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_set_branch_invalid_name_fails(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["set-branch", "has space"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
 class TestMilestoneAcceptanceExecution(_SMMTestCase):
     """Milestone-level acceptance_execution validation and rendering."""
 

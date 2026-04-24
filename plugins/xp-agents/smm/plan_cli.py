@@ -16,6 +16,7 @@ Usage:
     plan_cli.py update-status N STATUS --smm-dir DIR
     plan_cli.py edit-milestone N --smm-dir DIR   < patch.json
     plan_cli.py archive --smm-dir DIR
+    plan_cli.py set-branch NAME --smm-dir DIR
 """
 
 import argparse
@@ -183,6 +184,21 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_set_branch(args: argparse.Namespace) -> int:
+    plan = store.load_plan(args.smm_dir)
+    if plan is None:
+        print("No execution plan found.", file=sys.stderr)
+        return 1
+    # Empty-string-clears is a CLI affordance; the store contract is null-or-valid-name.
+    plan["branch"] = args.name or None
+    try:
+        store.save_plan(args.smm_dir, plan)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Execution plan CLI",
@@ -233,6 +249,11 @@ def main() -> None:
 
     sub.add_parser("archive", help="Archive plan to plans/ folder")
 
+    set_branch_p = sub.add_parser(
+        "set-branch", help="Set the plan's branch (empty string clears)"
+    )
+    set_branch_p.add_argument("name", help="Branch name; empty string clears")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -247,6 +268,7 @@ def main() -> None:
         "update-status": _cmd_update_status,
         "edit-milestone": _cmd_edit_milestone,
         "archive": _cmd_archive,
+        "set-branch": _cmd_set_branch,
     }
 
     sys.exit(dispatch[args.command](args))
