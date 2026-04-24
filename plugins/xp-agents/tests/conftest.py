@@ -28,12 +28,17 @@ from pathlib import Path
 #   Known issue: pre-commit#3032, lefthook#1265.
 # - SMM_DIR: now honored by init.sh / _append_impl.resolve_smm_dir; a stray
 #   export from a dev shell would silently redirect every test's SMM writes.
+# - XP_TEAMMATE_NAME: read by identity.is_worktree_teammate as a fallback when
+#   cwd lacks a worktree marker; if a teammate shell exports it (every CLI
+#   teammate session does), it leaks into test subprocesses and makes every
+#   "non-teammate" path return True, breaking ~50 hook/integration tests.
 for _leaked_var in (
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_COMMON_DIR",
     "GIT_INDEX_FILE",
     "SMM_DIR",
+    "XP_TEAMMATE_NAME",
 ):
     os.environ.pop(_leaked_var, None)
 
