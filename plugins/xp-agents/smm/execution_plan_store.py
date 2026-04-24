@@ -14,6 +14,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from _acceptance_execution import render_acceptance_execution
 from _append_impl import write_text_atomic
 from execution_plan_schema import (
     PLAN_FILENAME,
@@ -206,6 +207,11 @@ def render_markdown(plan: dict) -> str:
             lines.append("**Constraints:**")
             for c in m["constraints"]:
                 lines.append(f"- {c}")
+            lines.append("")
+
+        ae = m.get("acceptance_execution")
+        if ae:
+            render_acceptance_execution(ae, lines)
             lines.append("")
 
     return "\n".join(lines)

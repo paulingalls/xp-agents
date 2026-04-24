@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from _acceptance_execution import render_acceptance_execution
 from _append_impl import write_text_atomic
 from sprint_schema import (
     SPRINT_FILENAME,
@@ -341,12 +342,6 @@ def _render_story(lines: list[str], s: dict[str, Any]) -> None:
     ae = s.get("acceptance_execution")
     if ae:
         lines.append("")
-        lines.append("**Acceptance Execution:**")
-        lines.append(f"- **Type:** {ae['type']}")
-        lines.append(f"- **Command:** `{ae['command']}`")
-        if ae.get("setup"):
-            lines.append(f"- **Setup:** `{ae['setup']}`")
-        if ae.get("notes"):
-            lines.append(f"- **Notes:** {ae['notes']}")
+        render_acceptance_execution(ae, lines)
 
     lines.append("")
