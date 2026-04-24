@@ -14,12 +14,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
+import execution_plan_store
 
 
 class TestBranchName(unittest.TestCase):
@@ -168,6 +170,65 @@ class TestGetPrimaryBranch(unittest.TestCase):
     def test_returns_main_when_no_system_context(self):
         with tempfile.TemporaryDirectory() as td:
             self.assertEqual(branching.get_primary_branch(Path(td)), "main")
+
+
+class TestGetMergeTarget(unittest.TestCase):
+    def _setup_smm(self, td: str, *, stage: int, plan_branch: str | None) -> Path:
+        smm = Path(td)
+        ctx = {"branching_strategy": {"stage": stage}}
+        (smm / "system_context.json").write_text(json.dumps(ctx))
+        plan = {
+            "title": "T",
+            "sources": [],
+            "overview": "o",
+            "milestones": [],
+        }
+        if plan_branch is not None:
+            plan["branch"] = plan_branch
+        execution_plan_store.save_plan(smm, plan, enforce_budget=False)
+        return smm
+
+    def test_returns_plan_branch_when_set_and_exists(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = self._setup_smm(td, stage=2, plan_branch="paul/plan-redesign")
+            with patch("branching.branch_exists", return_value=True):
+                result = branching.get_merge_target(smm, cwd=td)
+            self.assertEqual(result, "paul/plan-redesign")
+
+    def test_falls_back_when_plan_branch_missing_locally(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = self._setup_smm(td, stage=2, plan_branch="paul/plan-redesign")
+            with patch("branching.branch_exists", return_value=False):
+                result = branching.get_merge_target(smm, cwd=td)
+            self.assertEqual(result, "main")
+
+    def test_falls_back_when_plan_branch_unset(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = self._setup_smm(td, stage=2, plan_branch=None)
+            result = branching.get_merge_target(smm, cwd=td)
+            self.assertEqual(result, "main")
+
+    def test_falls_back_when_no_plan(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            (smm / "system_context.json").write_text(
+                json.dumps({"branching_strategy": {"stage": 2}})
+            )
+            result = branching.get_merge_target(smm, cwd=td)
+            self.assertEqual(result, "main")
+
+    def test_uses_get_primary_branch_for_fallback_at_stage_3(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            ctx = {
+                "branching_strategy": {
+                    "stage": 3,
+                    "integration_branch": "develop",
+                }
+            }
+            (smm / "system_context.json").write_text(json.dumps(ctx))
+            result = branching.get_merge_target(smm, cwd=td)
+            self.assertEqual(result, "develop")
 
 
 class TestExtractCommitMessage(unittest.TestCase):

@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import execution_plan_store
 import identity
 import sprint_store
 
@@ -60,6 +61,20 @@ def _load_branching_strategy(smm_dir: Path) -> dict:
 
 def get_branching_stage(smm_dir: Path) -> int:
     return _load_branching_strategy(smm_dir).get("stage", 0)
+
+
+def get_merge_target(smm_dir: Path, cwd: str) -> str:
+    """Return the branch to merge into.
+
+    Plan branch when execution_plan.branch is recorded AND the branch
+    exists locally; otherwise the primary integration branch.
+    """
+    plan = execution_plan_store.load_plan(smm_dir)
+    if plan is not None:
+        plan_branch = plan.get("branch")
+        if plan_branch and branch_exists(cwd, plan_branch):
+            return plan_branch
+    return get_primary_branch(smm_dir)
 
 
 def get_primary_branch(smm_dir: Path) -> str:
