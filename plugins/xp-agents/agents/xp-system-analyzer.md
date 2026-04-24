@@ -95,7 +95,7 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 | Browser | `next`, `react`, `vue`, `angular`, `svelte`, `solid` in package manifest; browser extension manifests | `playwright`, `cypress`, `puppeteer` configs or test directories |
 | CLI | `bin/` entries in package.json, `__main__.py`, `cli.py`, `[[bin]]` in Cargo.toml, Go `main` packages | `bats`, CLI test directories, subprocess-based test patterns |
 | SDK | Library package with public API exports, `lib/` or `src/` without entry points | `examples/` directory, integration test directories, consumer test projects |
-| Automation | `react-native`, `flutter`, `expo`, mobile platform configs | `detox`, `maestro`, `appium`, `xcuitest` configs |
+| Automation | `react-native`, `flutter`, `expo`, mobile platform configs; `selenium`, `webdriver`, `taiko` in dependencies | `detox`, `maestro`, `appium`, `xcuitest`, `selenium`, `webdriverio`, `taiko` configs |
 | Message/event | `kafka`, `rabbitmq`, `sqs`, `celery`, `bull`, `nats` in dependencies; queue consumer patterns | `testcontainers`, `localstack`, publish-and-observe test harnesses |
 
 **Detection steps:**

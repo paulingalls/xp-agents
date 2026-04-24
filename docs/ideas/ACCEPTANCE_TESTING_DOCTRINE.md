@@ -67,7 +67,7 @@ a concern.
 | Browser          | Real browser loads the real page, drive the UI, assert on DOM (includes extensions)     | Playwright, Cypress, Puppeteer, `playwright --load-extension` |
 | CLI              | Spawn the binary with args/stdin, assert on stdout / stderr / exit code                 | Bats, pytest + subprocess, expect                          |
 | SDK              | **Both** integration tests exercising the public API **and** an example consumer app that uses the SDK in its target environment | pytest `tests/integration/` + `examples/`; `cargo run --example`; `example/` consumer for JS/TS |
-| Automation       | Drive a real or emulated device, assert on what the user sees                           | Detox, Maestro, Appium, XCUITest                           |
+| Automation       | Drive a real or emulated device/browser via automation framework, assert on what the user sees | Detox, Maestro, Appium, XCUITest, Selenium, WebdriverIO, Taiko |
 | Message / event  | Publish input (queue message, file drop, cron tick), assert on side effect (DB row, outbound call, emitted file) | LocalStack, Testcontainers, harness that publishes + polls downstream |
 
 **SDK is intentionally AND, not OR.** Integration tests prove the public
