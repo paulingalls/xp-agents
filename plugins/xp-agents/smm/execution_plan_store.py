@@ -170,6 +170,10 @@ def render_markdown(plan: dict) -> str:
     lines.append(f"# Execution Plan: {plan['title']}")
     lines.append("")
 
+    if plan.get("branch"):
+        lines.append(f"**Branch:** {plan['branch']}")
+        lines.append("")
+
     # Sources table
     if plan["sources"]:
         lines.append("## Sources")

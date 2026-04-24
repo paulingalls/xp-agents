@@ -618,6 +618,36 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertIn("src/foo.py", md)
         self.assertIn("new module", md)
 
+    def test_render_includes_branch_when_set(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(branch="paulingalls/plan-foo")
+        md = store.render_markdown(plan)
+        self.assertIn("**Branch:** paulingalls/plan-foo", md)
+
+    def test_render_omits_branch_line_when_null(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(branch=None)
+        md = store.render_markdown(plan)
+        self.assertNotIn("**Branch:**", md)
+
+    def test_render_omits_branch_line_when_absent(self):
+        import execution_plan_store as store
+
+        plan = _make_plan()
+        self.assertNotIn("branch", plan)
+        md = store.render_markdown(plan)
+        self.assertNotIn("**Branch:**", md)
+
+    def test_render_branch_appears_before_sources_table(self):
+        """Branch lives directly under the title, above the Sources table."""
+        import execution_plan_store as store
+
+        plan = _make_plan(branch="user/plan-x")
+        md = store.render_markdown(plan)
+        self.assertLess(md.index("**Branch:**"), md.index("## Sources"))
+
 
 class TestPlanExists(_SMMTestCase):
     def test_exists_when_file_present(self):
