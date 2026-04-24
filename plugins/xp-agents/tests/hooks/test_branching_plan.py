@@ -251,5 +251,58 @@ class TestCreateFreeBranch(unittest.TestCase):
             self.assertEqual(result, "paul/free-2026-04-24-spike")
 
 
+class TestListFreeBranches(unittest.TestCase):
+    def _make_branches(self, td: str, names: list[str]) -> None:
+        for n in names:
+            subprocess.run(
+                ["git", "branch", n], cwd=td, capture_output=True, check=True
+            )
+
+    def test_returns_matching_branches(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            self._make_branches(
+                td,
+                [
+                    "paul/free-2026-04-24-spike",
+                    "paul/free-2026-04-22-other",
+                    "paul/story-001-foo",
+                    "alice/free-2026-04-24-mine",
+                ],
+            )
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.list_free_branches(td)
+            self.assertEqual(
+                sorted(result),
+                ["paul/free-2026-04-22-other", "paul/free-2026-04-24-spike"],
+            )
+
+    def test_excludes_current_branch(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/free-2026-04-24-current"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "branch", "paul/free-2026-04-23-other"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.list_free_branches(td)
+            self.assertEqual(result, ["paul/free-2026-04-23-other"])
+
+    def test_returns_empty_when_no_free_branches(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.list_free_branches(td)
+            self.assertEqual(result, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -224,6 +224,20 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     )
 
 
+def list_free_branches(cwd: str) -> list[str]:
+    """Return free branches owned by the current user, excluding HEAD."""
+    user_ns = identity.user_namespace(cwd)
+    pattern = f"refs/heads/{user_ns}/free-*"
+    r = _git(
+        ["git", "for-each-ref", "--format=%(refname:short)", pattern],
+        cwd,
+    )
+    if r.returncode != 0:
+        return []
+    current = identity.get_current_branch(cwd)
+    return [b for b in r.stdout.splitlines() if b and b != current]
+
+
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     """Create or resume <user>/plan-<slug> off the primary branch.
 
