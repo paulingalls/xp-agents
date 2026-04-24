@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
@@ -202,6 +203,25 @@ def create_sprint_branch(
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, sprint_id, slug)
     return _create_or_resume_branch(cwd, name, smm_dir, min_stage=2)
+
+
+def _utc_today_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
+    """Create or resume <user>/free-YYYY-MM-DD-<slug> off the primary branch.
+
+    Free branches are scratch work outside of plans/sprints. Date is UTC.
+    Returns None when branching stage < 1 (Stage 0 has no branch
+    discipline). Per BRANCH_LIFECYCLE design, free-branch protection
+    activates at Stage 1+ to keep exploratory work off protected branches.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
+    return _create_or_resume_branch(
+        cwd, name, smm_dir, min_stage=1, base=get_primary_branch(smm_dir)
+    )
 
 
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:

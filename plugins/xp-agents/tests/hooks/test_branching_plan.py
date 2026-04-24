@@ -165,5 +165,91 @@ class TestCreatePlanBranch(unittest.TestCase):
                 branching.create_plan_branch(td, "redesign", smm_dir)
 
 
+class TestCreateFreeBranch(unittest.TestCase):
+    def test_creates_with_date_pattern(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            primary = _get_current_branch(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branching.get_primary_branch", return_value=primary),
+                patch("branching._utc_today_iso", return_value="2026-04-24"),
+            ):
+                result = branching.create_free_branch(td, "spike-foo", smm_dir)
+
+            self.assertEqual(result, "paul/free-2026-04-24-spike-foo")
+            self.assertEqual(_get_current_branch(td), "paul/free-2026-04-24-spike-foo")
+
+    def test_creates_off_primary(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            primary = _get_current_branch(td)
+            primary_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branching.get_primary_branch", return_value=primary),
+                patch("branching._utc_today_iso", return_value="2026-04-24"),
+            ):
+                branching.create_free_branch(td, "spike", smm_dir)
+
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(sha, primary_sha)
+
+    def test_resume_existing_branch(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/free-2026-04-24-spike"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branching._utc_today_iso", return_value="2026-04-24"),
+            ):
+                result = branching.create_free_branch(td, "spike", smm_dir)
+
+            self.assertEqual(result, "paul/free-2026-04-24-spike")
+            self.assertEqual(_get_current_branch(td), "paul/free-2026-04-24-spike")
+
+    def test_skips_at_stage_0(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            _write_system_context(Path(smm), stage=0)
+
+            result = branching.create_free_branch(td, "spike", Path(smm))
+            self.assertIsNone(result)
+
+    def test_creates_at_stage_1(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            primary = _get_current_branch(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branching.get_primary_branch", return_value=primary),
+                patch("branching._utc_today_iso", return_value="2026-04-24"),
+            ):
+                result = branching.create_free_branch(td, "spike", smm_dir)
+
+            self.assertEqual(result, "paul/free-2026-04-24-spike")
+
+
 if __name__ == "__main__":
     unittest.main()
