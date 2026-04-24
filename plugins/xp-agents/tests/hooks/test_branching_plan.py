@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Tests for branching.py — plan/free-branch lifecycle.
+
+Covers: create_plan_branch (plan branches recorded into execution_plan.json),
+plus future create_free_branch / list_free_branches.
+
+Story branch lifecycle tests live in test_branching_lifecycle.py;
+sprint branch tests in test_branching_sprint.py;
+pure-helper unit tests in test_branching.py.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import branching
+import execution_plan_store
+
+_GIT_ENV = {
+    **os.environ,
+    "GIT_AUTHOR_NAME": "Test User",
+    "GIT_AUTHOR_EMAIL": "test@test.com",
+    "GIT_COMMITTER_NAME": "Test User",
+    "GIT_COMMITTER_EMAIL": "test@test.com",
+}
+
+
+def _init_repo(td: str) -> None:
+    subprocess.run(["git", "init", td], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=td,
+        capture_output=True,
+        check=True,
+        env=_GIT_ENV,
+    )
+
+
+def _get_current_branch(cwd: str) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _write_system_context(smm_dir: Path, stage: int) -> None:
+    ctx = {"project_name": "test", "branching_strategy": {"stage": stage}}
+    (smm_dir / "system_context.json").write_text(json.dumps(ctx))
+
+
+def _seed_plan(smm_dir: Path) -> None:
+    plan = {
+        "title": "Test Plan",
+        "sources": [],
+        "overview": "ov",
+        "milestones": [],
+    }
+    execution_plan_store.save_plan(smm_dir, plan, enforce_budget=False)
+
+
+class TestCreatePlanBranch(unittest.TestCase):
+    def test_creates_off_primary_at_stage_2(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            primary = _get_current_branch(td)
+            primary_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branching.get_primary_branch", return_value=primary),
+            ):
+                result = branching.create_plan_branch(td, "redesign", smm_dir)
+
+            self.assertEqual(result, "paul/plan-redesign")
+            self.assertEqual(_get_current_branch(td), "paul/plan-redesign")
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(sha, primary_sha)
+
+    def test_records_branch_in_plan(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_plan_branch(td, "redesign", smm_dir)
+
+            plan = execution_plan_store.load_plan(smm_dir)
+            self.assertEqual(plan["branch"], "paul/plan-redesign")
+
+    def test_resume_does_not_record(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/plan-redesign"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir)
+            plan = execution_plan_store.load_plan(smm_dir)
+            plan["branch"] = "preexisting/value"
+            execution_plan_store.save_plan(smm_dir, plan, enforce_budget=False)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_plan_branch(td, "redesign", smm_dir)
+
+            self.assertEqual(result, "paul/plan-redesign")
+            plan = execution_plan_store.load_plan(smm_dir)
+            self.assertEqual(plan["branch"], "preexisting/value")
+
+    def test_skips_at_stage_below_2(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            _write_system_context(Path(smm), stage=1)
+
+            result = branching.create_plan_branch(td, "redesign", Path(smm))
+            self.assertIsNone(result)
+
+    def test_dirty_tree_exits(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            (Path(td) / "dirty.txt").write_text("uncommitted")
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                self.assertRaises(SystemExit),
+            ):
+                branching.create_plan_branch(td, "redesign", smm_dir)
+
+
+if __name__ == "__main__":
+    unittest.main()

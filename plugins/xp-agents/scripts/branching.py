@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
@@ -144,15 +145,24 @@ def _checkout_or_exit(cwd: str, branch: str) -> None:
         sys.exit(1)
 
 
-def _create_branch(
-    cwd: str, id_: str, slug: str, smm_dir: Path, min_stage: int
+def _create_or_resume_branch(
+    cwd: str,
+    name: str,
+    smm_dir: Path,
+    min_stage: int,
+    *,
+    base: str | None = None,
+    on_create: Callable[[], None] | None = None,
 ) -> str | None:
-    stage = get_branching_stage(smm_dir)
-    if stage < min_stage:
-        return None
+    """Create `name` or resume it if it already exists locally.
 
-    user_ns = identity.user_namespace(cwd)
-    name = branch_name(user_ns, id_, slug)
+    Returns the branch name, or None when the configured branching
+    stage is below `min_stage`. The base argument forks the new branch
+    from a specific ref instead of HEAD; on_create runs after a fresh
+    branch is created (skipped on resume).
+    """
+    if get_branching_stage(smm_dir) < min_stage:
+        return None
 
     if branch_exists(cwd, name):
         _checkout_or_exit(cwd, name)
@@ -162,10 +172,16 @@ def _create_branch(
         print("Working tree is dirty — commit or stash changes first", file=sys.stderr)
         sys.exit(1)
 
-    r = _git(["git", "checkout", "-b", name], cwd)
+    cmd = ["git", "checkout", "-b", name]
+    if base is not None:
+        cmd.append(base)
+    r = _git(cmd, cwd)
     if r.returncode != 0:
-        print(f"Failed to create branch: {r.stderr}", file=sys.stderr)
+        print(f"Failed to create branch {name}: {r.stderr}", file=sys.stderr)
         sys.exit(1)
+
+    if on_create is not None:
+        on_create()
 
     return name
 
@@ -174,14 +190,44 @@ def create_story_branch(
     cwd: str, story_id: str, slug: str, smm_dir: Path
 ) -> str | None:
     """Returns branch name or None if Stage 0."""
-    return _create_branch(cwd, story_id, slug, smm_dir, min_stage=1)
+    user_ns = identity.user_namespace(cwd)
+    name = branch_name(user_ns, story_id, slug)
+    return _create_or_resume_branch(cwd, name, smm_dir, min_stage=1)
 
 
 def create_sprint_branch(
     cwd: str, sprint_id: str, slug: str, smm_dir: Path
 ) -> str | None:
     """Returns sprint branch name or None if stage < 2."""
-    return _create_branch(cwd, sprint_id, slug, smm_dir, min_stage=2)
+    user_ns = identity.user_namespace(cwd)
+    name = branch_name(user_ns, sprint_id, slug)
+    return _create_or_resume_branch(cwd, name, smm_dir, min_stage=2)
+
+
+def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
+    """Create or resume <user>/plan-<slug> off the primary branch.
+
+    Records the branch in execution_plan.json on first creation only;
+    resume preserves any existing recorded value.
+    Returns None when branching stage < 2.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = f"{user_ns}/plan-{_slugify(slug)}"
+
+    def _record_in_plan() -> None:
+        plan = execution_plan_store.load_plan(smm_dir)
+        if plan is not None:
+            plan["branch"] = name
+            execution_plan_store.save_plan(smm_dir, plan, enforce_budget=False)
+
+    return _create_or_resume_branch(
+        cwd,
+        name,
+        smm_dir,
+        min_stage=2,
+        base=get_primary_branch(smm_dir),
+        on_create=_record_in_plan,
+    )
 
 
 def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
