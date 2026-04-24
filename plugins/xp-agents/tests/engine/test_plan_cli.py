@@ -298,6 +298,32 @@ class TestSetBranchCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestGetBranchCommand(_SMMTestCase):
+    def test_get_branch_prints_value(self):
+        plan = _make_plan(branch="paulingalls/plan-foo")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "paulingalls/plan-foo")
+
+    def test_get_branch_empty_when_null(self):
+        plan = _make_plan(branch=None)
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_get_branch_empty_when_absent(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_get_branch_no_plan_fails(self):
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
 class TestMilestoneAcceptanceExecution(_SMMTestCase):
     """Milestone-level acceptance_execution validation and rendering."""
 

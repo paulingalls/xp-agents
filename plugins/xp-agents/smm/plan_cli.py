@@ -17,6 +17,7 @@ Usage:
     plan_cli.py edit-milestone N --smm-dir DIR   < patch.json
     plan_cli.py archive --smm-dir DIR
     plan_cli.py set-branch NAME --smm-dir DIR
+    plan_cli.py get-branch --smm-dir DIR
 """
 
 import argparse
@@ -199,6 +200,15 @@ def _cmd_set_branch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_get_branch(args: argparse.Namespace) -> int:
+    plan = store.load_plan(args.smm_dir)
+    if plan is None:
+        print("No execution plan found.", file=sys.stderr)
+        return 1
+    print(plan.get("branch") or "")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Execution plan CLI",
@@ -254,6 +264,8 @@ def main() -> None:
     )
     set_branch_p.add_argument("name", help="Branch name; empty string clears")
 
+    sub.add_parser("get-branch", help="Print the plan's branch (empty if null)")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -269,6 +281,7 @@ def main() -> None:
         "edit-milestone": _cmd_edit_milestone,
         "archive": _cmd_archive,
         "set-branch": _cmd_set_branch,
+        "get-branch": _cmd_get_branch,
     }
 
     sys.exit(dispatch[args.command](args))
