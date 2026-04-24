@@ -120,16 +120,24 @@ _TERMINAL_STATUSES = frozenset({"delivered", "deferred"})
 _ACTIVE_STATUSES = VALID_MILESTONE_STATUSES - _TERMINAL_STATUSES
 
 
-def has_remaining_work(smm_dir: Path) -> bool:
-    """True if the plan has planned or in-progress milestones.
+def plan_is_complete(plan: dict) -> bool:
+    """True when no milestone is still active (planned/in-progress).
 
+    Pure helper on a loaded plan dict — caller handles plan-not-found.
     Deferred milestones are terminal (consciously dropped) and do not
     count as remaining work — same class as delivered for completion.
     """
+    return not any(m["status"] in _ACTIVE_STATUSES for m in plan["milestones"])
+
+
+def has_remaining_work(smm_dir: Path) -> bool:
+    """True if the plan has planned or in-progress milestones.
+
+    Returns False when no plan exists (callers treat absence as "nothing
+    to do"). Distinct from is-plan-complete, which errors on no-plan.
+    """
     plan = load_plan(smm_dir)
-    if plan is None:
-        return False
-    return any(m["status"] in _ACTIVE_STATUSES for m in plan["milestones"])
+    return plan is not None and not plan_is_complete(plan)
 
 
 def count_milestones(smm_dir: Path) -> dict[str, int]:

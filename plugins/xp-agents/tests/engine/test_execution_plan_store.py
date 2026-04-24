@@ -273,6 +273,58 @@ class TestCountMilestones(_SMMTestCase):
         self.assertEqual(counts["deferred"], 2)
 
 
+class TestPlanIsComplete(unittest.TestCase):
+    """Pure helper: is every milestone in a terminal status?"""
+
+    def test_all_delivered_is_complete(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(status="delivered", delivered_sprint="sprint-001")
+            ]
+        )
+        self.assertTrue(store.plan_is_complete(plan))
+
+    def test_all_deferred_is_complete(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="deferred")])
+        self.assertTrue(store.plan_is_complete(plan))
+
+    def test_mix_delivered_and_deferred_is_complete(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(
+                    number=1, status="delivered", delivered_sprint="sprint-001"
+                ),
+                _make_milestone(number=2, status="deferred"),
+            ]
+        )
+        self.assertTrue(store.plan_is_complete(plan))
+
+    def test_planned_milestone_is_incomplete(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="planned")])
+        self.assertFalse(store.plan_is_complete(plan))
+
+    def test_in_progress_milestone_is_incomplete(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(status="in-progress")])
+        self.assertFalse(store.plan_is_complete(plan))
+
+    def test_empty_milestones_is_complete(self):
+        """No milestones means no remaining work — trivially complete."""
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[])
+        self.assertTrue(store.plan_is_complete(plan))
+
+
 class TestArchive(_SMMTestCase):
     def test_archive_moves_to_plans_dir(self):
         import execution_plan_store as store

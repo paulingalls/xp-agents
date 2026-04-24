@@ -324,6 +324,68 @@ class TestGetBranchCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestIsPlanCompleteCommand(_SMMTestCase):
+    def _write(self, milestones: list[dict]) -> None:
+        (self.smm_dir / "execution_plan.json").write_text(
+            json.dumps(_make_plan(milestones=milestones))
+        )
+
+    def test_all_delivered_exits_zero(self):
+        m = _VALID_MILESTONE.copy()
+        m["status"] = "delivered"
+        m["delivered_sprint"] = "sprint-001"
+        self._write([m])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+    def test_all_deferred_exits_zero(self):
+        m = _VALID_MILESTONE.copy()
+        m["status"] = "deferred"
+        self._write([m])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+    def test_mix_delivered_and_deferred_exits_zero(self):
+        m1 = _VALID_MILESTONE.copy()
+        m1["status"] = "delivered"
+        m1["delivered_sprint"] = "sprint-001"
+        m2 = _VALID_MILESTONE.copy()
+        m2["number"] = 2
+        m2["status"] = "deferred"
+        self._write([m1, m2])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+    def test_any_planned_exits_one(self):
+        m1 = _VALID_MILESTONE.copy()
+        m1["status"] = "delivered"
+        m1["delivered_sprint"] = "sprint-001"
+        m2 = _VALID_MILESTONE.copy()
+        m2["number"] = 2
+        m2["status"] = "planned"
+        self._write([m1, m2])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+
+    def test_any_in_progress_exits_one(self):
+        m = _VALID_MILESTONE.copy()
+        m["status"] = "in-progress"
+        self._write([m])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+
+    def test_no_plan_fails(self):
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No execution plan", result.stderr)
+
+    def test_empty_milestones_exits_zero(self):
+        """A plan with no milestones is trivially complete (no remaining work)."""
+        self._write([])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+
 class TestMilestoneAcceptanceExecution(_SMMTestCase):
     """Milestone-level acceptance_execution validation and rendering."""
 
