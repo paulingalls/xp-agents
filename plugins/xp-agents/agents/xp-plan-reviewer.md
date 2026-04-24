@@ -14,7 +14,7 @@ Highest-leverage review — catch strategic issues before implementation begins.
 
 ## Inputs
 
-Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constraints/Risks for conflict checking), `SPRINT_FILE` (stories/deps, if provided). Do NOT read `events.jsonl`. Only read source files to verify a specific decision conflict.
+Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constraints/Risks for conflict checking), `SPRINT_FILE` (stories/deps, if provided), `${SMM_DIR}/execution_plan.json` (milestone acceptance criteria, if it exists). Do NOT read `events.jsonl`. Only read source files to verify a specific decision conflict.
 
 ## Review Checklist
 
@@ -113,6 +113,20 @@ Assess how the plan should be executed based on its steps:
 - Is the work substantial enough to justify coordination overhead? (small steps = solo even if parallelizable)
 
 Include your recommendation in the output under an "Execution mode" heading.
+
+### 10. Acceptance Criteria Cross-Check
+
+If `${SMM_DIR}/execution_plan.json` exists:
+
+1. Read it and find the current milestone (matching the sprint's milestone field)
+2. Check the milestone's `done` field (definition of done) and `acceptance_execution` field (if present)
+3. Verify the plan's steps advance the milestone's acceptance criteria:
+   - Does the plan produce the outcomes described in `done`?
+   - If `acceptance_execution` exists, does the plan include work that would make the acceptance test pass?
+4. Flag if milestone acceptance criteria are vague or not observable ("it works" vs "users can log in with Google")
+5. Flag if milestone has `acceptance_execution` but no plan step references acceptance testing
+
+If no execution plan exists, skip this section.
 
 ## Output
 
