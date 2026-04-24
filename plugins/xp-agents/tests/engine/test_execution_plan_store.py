@@ -161,6 +161,70 @@ class TestValidatePlan(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class TestPlanBranchField(unittest.TestCase):
+    """Test that the optional `branch` field on the plan is validated."""
+
+    def test_branch_absent_is_valid(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan()
+        self.assertNotIn("branch", plan)
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_branch_null_is_valid(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(branch=None)
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_branch_valid_names_accepted(self):
+        import execution_plan_schema as schema
+
+        for name in (
+            "paulingalls/plan-foo",
+            "user/plan-branch-lifecycle",
+            "feature_x",
+            "v1.2.3",
+            "a/b/c",
+        ):
+            plan = _make_plan(branch=name)
+            self.assertEqual(
+                schema.validate_plan(plan), [], f"{name!r} should be valid"
+            )
+
+    def test_branch_invalid_names_rejected(self):
+        import execution_plan_schema as schema
+
+        for name in (
+            "has space",
+            "tab\there",
+            "ctrl\x01char",
+            "trailing/",
+            "/leading",
+            "double//slash",
+            "special?char",
+            "tilde~here",
+            "caret^here",
+            "colon:here",
+            "asterisk*here",
+            "open[bracket",
+            "back\\slash",
+        ):
+            plan = _make_plan(branch=name)
+            errors = schema.validate_plan(plan)
+            self.assertTrue(
+                any("branch" in e for e in errors),
+                f"{name!r} should be rejected, got errors: {errors}",
+            )
+
+    def test_branch_must_be_string(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(branch=123)
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("branch" in e for e in errors))
+
+
 class TestEmptyPlan(unittest.TestCase):
     def test_empty_plan_is_valid(self):
         import execution_plan_schema as schema
