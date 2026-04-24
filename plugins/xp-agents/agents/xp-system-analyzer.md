@@ -91,12 +91,12 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 
 | Surface | Detection signals | Acceptance harness signals |
 |---------|-------------------|---------------------------|
-| HTTP/WebSocket | `express`, `fastify`, `flask`, `django`, `actix-web`, `gin`, `koa`, `hono` in package manifest; `server.py`, `app.py`, `main.go` entry points | `supertest`, `httpx[test]`, `k6`, API test directories |
-| Browser | `next`, `react`, `vue`, `angular`, `svelte`, `solid` in package manifest; browser extension manifests | `playwright`, `cypress`, `puppeteer` configs or test directories |
-| CLI | `bin/` entries in package.json, `__main__.py`, `cli.py`, `[[bin]]` in Cargo.toml, Go `main` packages | `bats`, CLI test directories, subprocess-based test patterns |
-| SDK | Library package with public API exports, `lib/` or `src/` without entry points | `examples/` directory, integration test directories, consumer test projects |
-| Automation | `react-native`, `flutter`, `expo`, mobile platform configs; `selenium`, `webdriver`, `taiko` in dependencies | `detox`, `maestro`, `appium`, `xcuitest`, `selenium`, `webdriverio`, `taiko` configs |
-| Message/event | `kafka`, `rabbitmq`, `sqs`, `celery`, `bull`, `nats` in dependencies; queue consumer patterns | `testcontainers`, `localstack`, publish-and-observe test harnesses |
+| HTTP/WebSocket | `express`, `fastify`, `flask`, `django`, `actix-web`, `gin`, `koa`, `hono`, `graphql`, `grpc`, `tonic`, `connectrpc` in package manifest; `server.py`, `app.py`, `main.go` entry points | `supertest`, `httpx`, `k6`, `hurl`, `bruno`, `dredd`, `pact`, `grpcurl`, `postman`, `newman`, API test directories |
+| Browser | `next`, `react`, `vue`, `angular`, `svelte`, `solid`, `electron`, `tauri` in package manifest; browser extension manifests | `playwright`, `cypress`, `puppeteer`, `selenium`, `webdriverio`, `testcafe`, `nightwatch` configs or test directories |
+| CLI | `bin/` entries in package.json, `__main__.py`, `cli.py`, `[[bin]]` in Cargo.toml, Go `main` packages | `bats`, `aruba`, `cram`, `pytest-console-scripts`, CLI test directories, subprocess-based test patterns |
+| SDK | Library package with public API exports, `lib/` or `src/` without entry points | `examples/` directory, integration test directories, consumer test projects, `doctest`, property-based test patterns (`hypothesis`, `fast-check`) |
+| Automation | `react-native`, `flutter`, `expo`, mobile platform configs; `selenium`, `webdriver`, `taiko` in dependencies | `detox`, `maestro`, `appium`, `xcuitest`, `selenium`, `webdriverio`, `taiko`, `espresso`, `earl-grey`, `calabash` configs |
+| Message/event | `kafka`, `rabbitmq`, `sqs`, `celery`, `bull`, `nats`, `pulsar`, `redis` streams in dependencies; queue consumer patterns | `testcontainers`, `localstack`, `wiremock`, `mockserver`, `pact`, publish-and-observe test harnesses |
 
 **Detection steps:**
 
