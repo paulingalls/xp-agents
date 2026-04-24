@@ -21,6 +21,25 @@ Read `.sprint-review-input.json` from `REVIEW_INPUT`. Key fields: `sprint_id`, `
 
 Summarize: goal achieved? Stories delivered vs planned. Deferred stories with rationale. Velocity: `stories_delivered / stories_planned`.
 
+## Step 2b: Milestone Acceptance Gate
+
+If `execution_plan_md_path` and `milestone` are both non-empty, check whether the milestone has an `acceptance_execution` field:
+
+1. Read `execution_plan.json` from `execution_plan_md_path`
+2. Find the milestone matching the sprint's `milestone` field
+3. Check for `acceptance_execution` on that milestone
+
+**If `acceptance_execution` exists:**
+- Run `setup` command if present (via Bash)
+- Run `command` (via Bash)
+- **Exit 0 (green):** Gate passes — proceed to Step 3 which marks delivered
+- **Non-zero (red):** Milestone stays open. Report the failure output. Present options to the customer:
+  1. **Fix and re-run** — debug the failure, fix it, run again
+  2. **Override with concern** — mark delivered anyway; records a `concern` event describing the failure
+  3. **Defer** — milestone stays `in-progress` for next sprint
+
+**If no `acceptance_execution`:** Skip this step — current behavior preserved (all stories done = delivered).
+
 ## Step 3: Execution Plan Update
 
 If `execution_plan_md_path` and `milestone` are both non-empty:
