@@ -83,6 +83,67 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Repo signals suggest Stage N (reasons), but current branching is Stage M. Consider migrating: [specific next steps]. To dismiss, declare Stage M explicitly with rationale."
 ```
 
+### Step 3.6: Acceptance Surface Detection
+
+Scan the project to identify which acceptance surfaces it presents and whether acceptance testing coverage exists for each. This is **read-only analysis — never install tooling or scaffold tests.**
+
+**Six surfaces to detect:**
+
+| Surface | Detection signals | Acceptance harness signals |
+|---------|-------------------|---------------------------|
+| HTTP/WebSocket | `express`, `fastify`, `flask`, `django`, `actix-web`, `gin`, `koa`, `hono`, `graphql`, `grpc`, `tonic`, `connectrpc` in package manifest; `server.py`, `app.py`, `main.go` entry points | `supertest`, `httpx`, `k6`, `hurl`, `bruno`, `dredd`, `pact`, `grpcurl`, `postman`, `newman`, API test directories |
+| Browser | `next`, `react`, `vue`, `angular`, `svelte`, `solid`, `electron`, `tauri` in package manifest; browser extension manifests | `playwright`, `cypress`, `puppeteer`, `selenium`, `webdriverio`, `testcafe`, `nightwatch` configs or test directories |
+| CLI | `bin/` entries in package.json, `__main__.py`, `cli.py`, `[[bin]]` in Cargo.toml, Go `main` packages | `bats`, `aruba`, `cram`, `pytest-console-scripts`, CLI test directories, subprocess-based test patterns |
+| SDK | Library package with public API exports, `lib/` or `src/` without entry points | `examples/` directory, integration test directories, consumer test projects, `doctest`, property-based test patterns (`hypothesis`, `fast-check`) |
+| Automation | `react-native`, `flutter`, `expo`, mobile platform configs; `selenium`, `webdriver`, `taiko` in dependencies | `detox`, `maestro`, `appium`, `xcuitest`, `selenium`, `webdriverio`, `taiko`, `espresso`, `earl-grey`, `calabash` configs |
+| Message/event | `kafka`, `rabbitmq`, `sqs`, `celery`, `bull`, `nats`, `pulsar`, `redis` streams in dependencies; queue consumer patterns | `testcontainers`, `localstack`, `wiremock`, `mockserver`, `pact`, publish-and-observe test harnesses |
+
+**Detection steps:**
+
+1. Read package manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`).
+2. Scan for config files (`playwright.config.*`, `cypress.config.*`, `jest.config.*`, `.batsrc`).
+3. Check for entry points (`server.py`, `cli.py`, `bin/`, `__main__.py`).
+4. For each detected surface, check whether an acceptance harness exists.
+
+**Build the `acceptance_surfaces` list:**
+
+```json
+[
+  {
+    "name": "browser",
+    "signals": ["Next.js in package.json", "src/app/ directory"],
+    "harness": "playwright",
+    "status": "covered"
+  },
+  {
+    "name": "cli",
+    "signals": ["bin/ entry in package.json"],
+    "status": "gap"
+  }
+]
+```
+
+- `name`: surface type from the table above (lowercase)
+- `signals`: what you detected that indicates this surface exists
+- `harness`: acceptance tooling name (omit if none found)
+- `status`: `"covered"` if harness exists, `"gap"` if not
+
+Write via CLI:
+```bash
+echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-acceptance-surfaces
+```
+
+**Raise concerns for gaps.** For each surface with `status: "gap"`, raise an actionable concern:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-system-analyzer" --severity "medium" \
+  --content "<Surface> surface detected (<signals>), no acceptance harness found. Options: <specific install/setup commands>. If acceptance testing is not needed for this surface, dismiss this concern."
+```
+
+Concerns must be **actionable**: state what surface was detected, what is missing, what specific commands to run, and the consequence of inaction. Never scaffold — that is a separate skill.
+
+**Update mode:** If `acceptance_surfaces` already exists, compare detected surfaces against existing entries. Add new surfaces, update signals for existing ones, but do not remove surfaces the user may have manually added.
+
 ### Step 4: Build system_context JSON
 
 Build a JSON object matching this schema:
@@ -118,6 +179,7 @@ Build a JSON object matching this schema:
 - Include domain-specific concepts that developers need to understand.
 - `project_specific` is for anything that doesn't fit the generic fields.
 - `branching_strategy` is written separately via `edit-branching` in Step 3.5 — do not include it in the create JSON.
+- `acceptance_surfaces` is written separately via `edit-acceptance-surfaces` in Step 3.6 — do not include it in the create JSON.
 
 ### Step 5: Save the File
 

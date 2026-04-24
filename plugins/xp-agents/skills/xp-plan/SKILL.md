@@ -70,12 +70,14 @@ For each milestone:
 - **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
+- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when the project has an automated acceptance surface in `system_context.json`. Format: `{"type": "<harness>", "command": "<run command>"}`. Optional `setup` and `notes` fields.
 
 Guidelines:
 - Milestones are ordered — each builds on the previous.
 - Flag milestones with >8 change zone files as "consider splitting".
 - Every milestone gets `[planned]` status.
 - Keep design details specific enough that sprint planning can decompose into stories.
+- **Acceptance execution**: check `system_context.json` for `acceptance_surfaces` with `status: "covered"`. If a milestone's `done` condition is verifiable by a covered surface's harness, populate `acceptance_execution` with the type and command. Leave null when no harness matches or the milestone is purely structural (docs, config, refactor).
 
 ### Step 4: User Confirmation
 
@@ -112,7 +114,8 @@ cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_D
       "change_zones": [{"path": "path/to/file", "note": "<what changes>"}],
       "impact_zones": [{"path": "path/to/file", "note": "<why affected>"}],
       "design_details": "<decisions, patterns, implementation notes>",
-      "constraints": ["<limit or requirement>"]
+      "constraints": ["<limit or requirement>"],
+      "acceptance_execution": null
     }
   ]
 }

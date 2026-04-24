@@ -32,6 +32,9 @@ BRANCHING_STRATEGY_FIELD_MAXLENGTH: dict[str, int] = {
 
 _BRANCHING_STRATEGY_REQUIRED = frozenset({"stage"})
 
+_ACCEPTANCE_SURFACE_REQUIRED = frozenset({"name", "signals", "status"})
+_VALID_SURFACE_STATUSES = frozenset({"covered", "gap"})
+
 KEY_DECISION_FIELD_MAXLENGTH: dict[str, int] = {
     "decision": 200,
     "rationale": 200,
@@ -235,6 +238,45 @@ def _validate_branching_strategy(
     return errors
 
 
+def _validate_acceptance_surface_entry(entry: object, idx: int) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(entry, dict):
+        return [f"acceptance_surfaces[{idx}] must be an object"]
+
+    for field in _ACCEPTANCE_SURFACE_REQUIRED:
+        if field not in entry:
+            errors.append(f"acceptance_surfaces[{idx}] missing required field: {field}")
+
+    if errors:
+        return errors
+
+    if not isinstance(entry["name"], str):
+        errors.append(f"acceptance_surfaces[{idx}].name must be a string")
+
+    if not isinstance(entry["signals"], list):
+        errors.append(f"acceptance_surfaces[{idx}].signals must be a list")
+    else:
+        for si, sig in enumerate(entry["signals"]):
+            if not isinstance(sig, str):
+                errors.append(
+                    f"acceptance_surfaces[{idx}].signals[{si}] must be a string"
+                )
+
+    status = entry["status"]
+    if not isinstance(status, str):
+        errors.append(f"acceptance_surfaces[{idx}].status must be a string")
+    elif status not in _VALID_SURFACE_STATUSES:
+        errors.append(
+            f"acceptance_surfaces[{idx}].status must be one of"
+            f" {sorted(_VALID_SURFACE_STATUSES)} (got {status!r})"
+        )
+
+    if "harness" in entry and not isinstance(entry["harness"], str):
+        errors.append(f"acceptance_surfaces[{idx}].harness must be a string")
+
+    return errors
+
+
 def _validate_project_specific_entry(entry: object, idx: int) -> list[str]:
     errors: list[str] = []
     if not isinstance(entry, dict):
@@ -333,5 +375,22 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
                 data["branching_strategy"], enforce_budget=enforce_budget
             )
         )
+
+    if "acceptance_surfaces" in data:
+        surfaces = data["acceptance_surfaces"]
+        if not isinstance(surfaces, list):
+            errors.append("acceptance_surfaces must be a list")
+        else:
+            seen_surface_names: set[str] = set()
+            for idx, entry in enumerate(surfaces):
+                errors.extend(_validate_acceptance_surface_entry(entry, idx))
+                if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+                    if entry["name"] in seen_surface_names:
+                        errors.append(
+                            f"acceptance_surfaces[{idx}] duplicate name:"
+                            f" {entry['name']!r} — names must be unique"
+                        )
+                    else:
+                        seen_surface_names.add(entry["name"])
 
     return errors

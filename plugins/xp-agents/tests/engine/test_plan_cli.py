@@ -252,6 +252,90 @@ class TestEditMilestoneCommand(_SMMTestCase):
         self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
 
 
+class TestMilestoneAcceptanceExecution(_SMMTestCase):
+    """Milestone-level acceptance_execution validation and rendering."""
+
+    def _valid_ae(self):
+        return {"type": "pytest", "command": "pytest tests/acceptance/"}
+
+    def _plan_with_ae(self, ae):
+        m = _VALID_MILESTONE.copy()
+        m["acceptance_execution"] = ae
+        return _make_plan(milestones=[m])
+
+    def test_valid_acceptance_execution_passes(self):
+        plan = self._plan_with_ae(self._valid_ae())
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_acceptance_execution_passes(self):
+        plan = _make_plan()
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_acceptance_execution_missing_type_fails(self):
+        plan = self._plan_with_ae({"command": "pytest"})
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("type", result.stderr)
+
+    def test_acceptance_execution_missing_command_fails(self):
+        plan = self._plan_with_ae({"type": "pytest"})
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("command", result.stderr)
+
+    def test_acceptance_execution_with_optional_fields(self):
+        ae = {
+            "type": "playwright",
+            "command": "npx playwright test",
+            "setup": "docker compose up -d",
+            "notes": "Requires backend on :3000",
+        }
+        plan = self._plan_with_ae(ae)
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_render_includes_acceptance_execution(self):
+        plan = self._plan_with_ae(self._valid_ae())
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Acceptance Execution", result.stdout)
+        self.assertIn("pytest", result.stdout)
+
+    def test_render_omits_acceptance_execution_when_absent(self):
+        plan = _make_plan()
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("Acceptance Execution", result.stdout)
+
+    def test_acceptance_execution_non_string_setup_fails(self):
+        ae = {"type": "pytest", "command": "pytest", "setup": 42}
+        plan = self._plan_with_ae(ae)
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("setup", result.stderr)
+
+    def test_acceptance_execution_non_string_notes_fails(self):
+        ae = {"type": "pytest", "command": "pytest", "notes": True}
+        plan = self._plan_with_ae(ae)
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(plan))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("notes", result.stderr)
+
+    def test_edit_milestone_adds_acceptance_execution(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        patch = json.dumps({"acceptance_execution": self._valid_ae()})
+        result = run_cli(_CLI, ["edit-milestone", "1"], self.smm_dir, stdin_data=patch)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        ae = loaded["milestones"][0]["acceptance_execution"]
+        self.assertEqual(ae["type"], "pytest")
+        self.assertEqual(ae["command"], "pytest tests/acceptance/")
+
+
 class TestPlanCliHelp(_SMMTestCase):
     def test_help_contains_examples(self):
         result = run_cli(_CLI, ["--help"], self.smm_dir)

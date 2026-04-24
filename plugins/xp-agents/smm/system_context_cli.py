@@ -14,6 +14,8 @@ Usage:
     system_context_cli.py add-module --smm-dir DIR       < module.json
     system_context_cli.py add-decision --smm-dir DIR     < decision.json
     system_context_cli.py edit-branching --smm-dir DIR   < branching.json
+    system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
+    system_context_cli.py add-acceptance-surface --smm-dir DIR   < surface.json
 """
 
 import argparse
@@ -35,6 +37,7 @@ _SECTION_HEADINGS: dict[str, str] = {
     "key_decisions": "Key Decisions",
     "sources": "Sources",
     "branching_strategy": "Branching Strategy",
+    "acceptance_surfaces": "Acceptance Surfaces",
 }
 
 
@@ -66,6 +69,9 @@ def render_markdown(data: dict) -> str:
 
     if "branching_strategy" in data:
         _render_branching_strategy(lines, data["branching_strategy"])
+
+    if "acceptance_surfaces" in data:
+        _render_acceptance_surfaces(lines, data["acceptance_surfaces"])
 
     return "\n".join(lines)
 
@@ -145,6 +151,21 @@ def _render_branching_strategy(lines: list[str], bs: dict) -> None:
     lines.append("")
 
 
+def _render_acceptance_surfaces(lines: list[str], surfaces: list[dict]) -> None:
+    lines.append("## Acceptance Surfaces")
+    lines.append("")
+    if not surfaces:
+        lines.append("(none)")
+        lines.append("")
+        return
+    for s in surfaces:
+        harness = f" [{s['harness']}]" if s.get("harness") else ""
+        signals = ", ".join(s.get("signals", []))
+        signals_str = f" — {signals}" if signals else ""
+        lines.append(f"- **{s['name']}** ({s['status']}){harness}{signals_str}")
+    lines.append("")
+
+
 def _render_project_specific(entry: dict) -> list[str]:
     lines: list[str] = []
     lines.append(f"## {entry['name']}")
@@ -200,6 +221,9 @@ def _render_section(data: dict, name: str) -> str | None:
             case "branching_strategy":
                 if "branching_strategy" in data:
                     _render_branching_strategy(lines, data["branching_strategy"])
+            case "acceptance_surfaces":
+                if "acceptance_surfaces" in data:
+                    _render_acceptance_surfaces(lines, data["acceptance_surfaces"])
         return "\n".join(lines)
 
     for entry in data.get("project_specific", []):
@@ -266,7 +290,12 @@ def _cmd_section(args: argparse.Namespace) -> int:
     return 0
 
 
-_OPTIONAL_TOP_LEVEL_FIELDS = frozenset({"branching_strategy"})
+_OPTIONAL_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "branching_strategy",
+        "acceptance_surfaces",
+    }
+)
 
 
 def _cmd_edit_field(args: argparse.Namespace) -> int:
@@ -309,7 +338,9 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_append_to_list(args: argparse.Namespace, field: str) -> int:
+def _cmd_append_to_list(
+    args: argparse.Namespace, field: str, *, create_if_missing: bool = False
+) -> int:
     data = store.load_system_context(args.smm_dir)
     if data is None:
         print("No system context found.", file=sys.stderr)
@@ -320,7 +351,10 @@ def _cmd_append_to_list(args: argparse.Namespace, field: str) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
-    data[field].append(item)
+    if create_if_missing:
+        data.setdefault(field, []).append(item)
+    else:
+        data[field].append(item)
     try:
         store.save_system_context(args.smm_dir, data)
     except ValueError as exc:
@@ -340,6 +374,15 @@ def _cmd_add_module(args: argparse.Namespace) -> int:
 
 def _cmd_add_decision(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "key_decisions")
+
+
+def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
+    args.name = "acceptance_surfaces"
+    return _cmd_edit_field(args)
+
+
+def _cmd_add_acceptance_surface(args: argparse.Namespace) -> int:
+    return _cmd_append_to_list(args, "acceptance_surfaces", create_if_missing=True)
 
 
 # ── main ────────────────────────────────────────────────────────
@@ -366,6 +409,14 @@ def main() -> None:
     sub.add_parser("add-module", help="Add module from stdin JSON")
     sub.add_parser("add-decision", help="Add key decision from stdin JSON")
     sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
+    sub.add_parser(
+        "edit-acceptance-surfaces",
+        help="Set acceptance_surfaces from stdin JSON",
+    )
+    sub.add_parser(
+        "add-acceptance-surface",
+        help="Add one acceptance surface from stdin JSON",
+    )
 
     args = parser.parse_args()
 
@@ -378,6 +429,8 @@ def main() -> None:
         "edit-field": _cmd_edit_field,
         "add-module": _cmd_add_module,
         "add-decision": _cmd_add_decision,
+        "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
+        "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-branching": _cmd_edit_branching,
     }
 

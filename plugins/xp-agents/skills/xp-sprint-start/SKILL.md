@@ -70,7 +70,7 @@ For each story, produce the enhanced format:
 Then the enriched sections:
 
 - **Context**: 2+ sentences of what THIS story uniquely does — mechanical specifics, file-count scope, AC summary. **Story context must NOT copy text from milestone design_details or constraints — reference the milestone by number only.** The context field describes WHAT this story uniquely does, not WHY the milestone exists. Open with: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
-- **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain.
+- **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain. For investigation, verification, or research stories with no expected code changes, use an empty list `[]` — this marks the story as code-free and prevents false pipeline-gap noise in retro metrics.
 - **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
 - **Acceptance Criteria**: 3-5 testable conditions. At least one E2E prefixed with "E2E:".
 - **Acceptance Execution** (optional): How `/xp-accept` runs this story's acceptance test. Only include when the project has an automated acceptance surface (test runner, CLI, HTTP endpoint). Omit for stories without automated acceptance — `/xp-accept` defaults to manual walkthrough.
@@ -80,6 +80,22 @@ Then the enriched sections:
   - `notes` (optional): Anything the agent needs to know before running.
 
 Include deferred stories from the previous sprint, renumbered to fit.
+
+### Step 3b: Capstone Story Proposal
+
+When a milestone has **composition surface** — multiple stories that interact and whose seams could break without integration testing — propose a **capstone story** as the final story in the sprint.
+
+**When to propose:** The project's `system_context.json` has `acceptance_surfaces` with a harness, or the milestone has 3+ stories with interface contracts between them.
+
+**Capstone story structure:**
+- **Last story** in sprint ordering, depends on all other stories
+- **Deliverable** is the cross-cutting acceptance test file (e.g., `tests/acceptance/milestone-03.spec.ts`)
+- **Acceptance criteria** render the milestone's prose `done` field into Given/When/Then — making the milestone's done-state executable
+- **File domain** owns the cross-cutting test file exclusively
+- **Acceptance execution** points at that test file
+- If `system_context.json` has a matching `acceptance_surfaces` entry, the capstone story's `acceptance_execution` should use that surface's harness and conventions
+
+**The capstone is optional.** Present it in the confirmation table and let the customer decline for small milestones, refactors, or surfaces where feature-level testing is impractical.
 
 ### Step 4: Sprint Goal
 

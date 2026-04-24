@@ -8,6 +8,8 @@ Follows the same pattern as smm_schema.py: hand-rolled validator,
 no external jsonschema dependency, stdlib-only.
 """
 
+from _acceptance_execution import validate_acceptance_execution
+
 PLAN_FILENAME = "execution_plan.json"
 
 VALID_MILESTONE_STATUSES = frozenset({"planned", "in-progress", "delivered"})
@@ -184,6 +186,12 @@ def _validate_milestone(
                         f"milestones[{idx}].constraints[{c_idx}]"
                         f" exceeds budget ({actual} > {c_max} chars)"
                     )
+
+    ae = milestone.get("acceptance_execution")
+    if ae is not None:
+        errors.extend(
+            validate_acceptance_execution(ae, f"milestones[{idx}].acceptance_execution")
+        )
 
     return errors
 
