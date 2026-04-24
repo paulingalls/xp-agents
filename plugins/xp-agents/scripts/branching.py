@@ -65,18 +65,24 @@ def get_branching_stage(smm_dir: Path) -> int:
     return _load_branching_strategy(smm_dir).get("stage", 0)
 
 
+def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:
+    """Return execution_plan.branch when set AND it exists locally."""
+    plan = execution_plan_store.load_plan(smm_dir)
+    if plan is None:
+        return None
+    plan_branch = plan.get("branch")
+    if plan_branch and branch_exists(cwd, plan_branch):
+        return plan_branch
+    return None
+
+
 def get_merge_target(smm_dir: Path, cwd: str) -> str:
     """Return the branch to merge into.
 
     Plan branch when execution_plan.branch is recorded AND the branch
     exists locally; otherwise the primary integration branch.
     """
-    plan = execution_plan_store.load_plan(smm_dir)
-    if plan is not None:
-        plan_branch = plan.get("branch")
-        if plan_branch and branch_exists(cwd, plan_branch):
-            return plan_branch
-    return get_primary_branch(smm_dir)
+    return _recorded_plan_branch(cwd, smm_dir) or get_primary_branch(smm_dir)
 
 
 def get_primary_branch(smm_dir: Path) -> str:
@@ -201,6 +207,9 @@ def create_sprint_branch(
 ) -> str | None:
     """Returns sprint branch name or None if stage < 2.
 
+    Forks off the recorded plan branch when execution_plan.branch is
+    set and the branch exists locally; otherwise off current HEAD.
+
     Records the actual branch name into sprint.json on both create and
     resume paths so get_story_base_branch can look it up directly
     instead of reconstructing via slugify(goal). The re-record on
@@ -208,7 +217,8 @@ def create_sprint_branch(
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, sprint_id, slug)
-    result = _create_or_resume_branch(cwd, name, smm_dir, min_stage=2)
+    base = _recorded_plan_branch(cwd, smm_dir)
+    result = _create_or_resume_branch(cwd, name, smm_dir, min_stage=2, base=base)
     if result is not None and sprint_store.sprint_exists(smm_dir):
         sprint_store.set_branch(smm_dir, result)
     return result
@@ -274,7 +284,12 @@ def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
 
 
 def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
-    """Return the base branch for stories: sprint branch at stage 2+, else main."""
+    """Return the base branch for stories: sprint branch at stage 2+, else main.
+
+    Prefers sprint['branch_name'] (recorded atomically at create time) and
+    falls back to slugify(goal) reconstruction so older sprints written
+    before atomic recording still resolve.
+    """
     stage = get_branching_stage(smm_dir)
     if stage < 2:
         return "main"
@@ -282,6 +297,10 @@ def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
     sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
         return "main"
+
+    stored = sprint.get("branch_name")
+    if stored and branch_exists(cwd, stored):
+        return stored
 
     user_ns = identity.user_namespace(cwd)
     name = sprint_branch_name(user_ns, sprint["sprint_id"], sprint["goal"])
