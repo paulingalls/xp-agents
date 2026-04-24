@@ -289,6 +289,31 @@ class TestUpdateStoryStatus(_SMMTestCase):
             sprint_store.update_story_status(self.smm_dir, "story-001", "done")
 
 
+class TestSetBranch(_SMMTestCase):
+    def test_writes_branch_name(self):
+        import sprint_store
+
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        sprint_store.set_branch(self.smm_dir, "paul/sprint-031-test")
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["branch_name"], "paul/sprint-031-test")
+
+    def test_overwrites_existing(self):
+        import sprint_store
+
+        sprint = _make_sprint(branch_name="old/name")
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        sprint_store.set_branch(self.smm_dir, "new/name")
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["branch_name"], "new/name")
+
+    def test_no_sprint_raises(self):
+        import sprint_store
+
+        with self.assertRaises(ValueError):
+            sprint_store.set_branch(self.smm_dir, "paul/sprint-031-test")
+
+
 # ===========================================================================
 # Status check functions
 # ===========================================================================

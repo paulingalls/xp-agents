@@ -82,11 +82,17 @@ def save_sprint(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> No
         (smm_dir / _MARKER_NAME).unlink(missing_ok=True)
 
 
-def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
-    """Load sprint and find story by ID. Returns (sprint, story) refs."""
+def _load_required(smm_dir: Path) -> dict:
+    """Load the sprint or raise ValueError if missing."""
     sprint = load_sprint(smm_dir)
     if sprint is None:
         raise ValueError("No sprint found")
+    return sprint
+
+
+def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
+    """Load sprint and find story by ID. Returns (sprint, story) refs."""
+    sprint = _load_required(smm_dir)
     matches = [s for s in sprint["stories"] if s["id"] == story_id]
     if not matches:
         raise ValueError(f"No story with id {story_id!r}")
@@ -101,6 +107,13 @@ def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
 
     sprint, story = _load_story(smm_dir, story_id)
     story["status"] = status
+    save_sprint(smm_dir, sprint, enforce_budget=False)
+
+
+def set_branch(smm_dir: Path, branch_name: str) -> None:
+    """Record the sprint's git branch name."""
+    sprint = _load_required(smm_dir)
+    sprint["branch_name"] = branch_name
     save_sprint(smm_dir, sprint, enforce_budget=False)
 
 
