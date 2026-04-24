@@ -11,6 +11,10 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
+  - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */smm/plan_cli.py *)
+  - Bash(which gh)
+  - Bash(gh pr create *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
