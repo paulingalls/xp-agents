@@ -131,6 +131,37 @@ class TestValidateSprint(unittest.TestCase):
         self.assertTrue(any("acceptance_execution" in e for e in errors))
 
 
+class TestBranchNameField(unittest.TestCase):
+    def test_branch_name_string_valid(self):
+        import sprint_schema
+
+        sprint = _make_sprint(branch_name="paul/sprint-031-test")
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_branch_name_null_valid(self):
+        import sprint_schema
+
+        sprint = _make_sprint(branch_name=None)
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_branch_name_missing_valid(self):
+        import sprint_schema
+
+        sprint = _make_sprint()
+        sprint.pop("branch_name", None)
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_branch_name_non_string_invalid(self):
+        import sprint_schema
+
+        sprint = _make_sprint(branch_name=42)
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("branch_name" in e for e in errors))
+
+
 class TestEmptySprint(unittest.TestCase):
     def test_empty_sprint_is_valid(self):
         import sprint_schema

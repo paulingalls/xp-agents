@@ -48,6 +48,7 @@ def empty_sprint() -> dict:
         "goal": "",
         "started": "",
         "milestone": "",
+        "branch_name": None,
         "stories": [],
     }
 
@@ -138,6 +139,10 @@ def validate_sprint(data: object, *, enforce_budget: bool = True) -> list[str]:
 
     if not isinstance(data["goal"], str):
         errors.append("goal must be a string")
+
+    bn = data.get("branch_name")
+    if bn is not None and not isinstance(bn, str):
+        errors.append("branch_name must be a string or null")
 
     if not isinstance(data["stories"], list):
         errors.append("stories must be a list")
