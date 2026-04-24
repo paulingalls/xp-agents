@@ -63,7 +63,7 @@ See PROCESS_GUIDE.md for event types, required fields, and common patterns.
 
 ## Testing
 
-All tests run on every commit via lefthook. Git env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`) stripped via `env -u` in lefthook.yml and at import time in `conftest.py`.
+All tests run on every commit via lefthook. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`) stripped via `env -u` in lefthook.yml and at import time in `conftest.py`. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's pre-commit fails.
 
 ```bash
 # Run everything:

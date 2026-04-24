@@ -58,18 +58,23 @@ class TestCountCommand(_SMMTestCase):
         m2["number"] = 2
         m2["status"] = "delivered"
         m2["delivered_sprint"] = "sprint-001"
+        m3 = _VALID_MILESTONE.copy()
+        m3["number"] = 3
+        m3["status"] = "deferred"
         (self.smm_dir / "execution_plan.json").write_text(
-            json.dumps(_make_plan(milestones=[_VALID_MILESTONE.copy(), m2]))
+            json.dumps(_make_plan(milestones=[_VALID_MILESTONE.copy(), m2, m3]))
         )
         result = run_cli(_CLI, ["count"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("planned=1", result.stdout)
         self.assertIn("delivered=1", result.stdout)
+        self.assertIn("deferred=1", result.stdout)
 
     def test_count_missing_plan(self):
         result = run_cli(_CLI, ["count"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("planned=0", result.stdout)
+        self.assertIn("deferred=0", result.stdout)
 
 
 class TestCreateCommand(_SMMTestCase):
@@ -175,6 +180,13 @@ class TestUpdateStatusCommand(_SMMTestCase):
         result = run_cli(_CLI, ["update-status", "99", "in-progress"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_update_to_deferred(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["update-status", "1", "deferred"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["status"], "deferred")
+
 
 class TestRenderCommand(_SMMTestCase):
     def test_render_output(self):
@@ -250,6 +262,128 @@ class TestEditMilestoneCommand(_SMMTestCase):
         loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
         # Original goal preserved
         self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
+
+
+class TestSetBranchCommand(_SMMTestCase):
+    def test_set_branch_writes_field(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["set-branch", "paulingalls/plan-foo"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["branch"], "paulingalls/plan-foo")
+
+    def test_set_branch_empty_clears_field(self):
+        plan = _make_plan(branch="user/old-branch")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["set-branch", ""], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertIsNone(loaded["branch"])
+
+    def test_set_branch_overwrites_existing(self):
+        plan = _make_plan(branch="user/old")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["set-branch", "user/new"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["branch"], "user/new")
+
+    def test_set_branch_no_plan_fails(self):
+        result = run_cli(_CLI, ["set-branch", "user/foo"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_set_branch_invalid_name_fails(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["set-branch", "has space"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
+class TestGetBranchCommand(_SMMTestCase):
+    def test_get_branch_prints_value(self):
+        plan = _make_plan(branch="paulingalls/plan-foo")
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "paulingalls/plan-foo")
+
+    def test_get_branch_empty_when_null(self):
+        plan = _make_plan(branch=None)
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_get_branch_empty_when_absent(self):
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_get_branch_no_plan_fails(self):
+        result = run_cli(_CLI, ["get-branch"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
+class TestIsPlanCompleteCommand(_SMMTestCase):
+    def _write(self, milestones: list[dict]) -> None:
+        (self.smm_dir / "execution_plan.json").write_text(
+            json.dumps(_make_plan(milestones=milestones))
+        )
+
+    def test_all_delivered_exits_zero(self):
+        m = _VALID_MILESTONE.copy()
+        m["status"] = "delivered"
+        m["delivered_sprint"] = "sprint-001"
+        self._write([m])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+    def test_all_deferred_exits_zero(self):
+        m = _VALID_MILESTONE.copy()
+        m["status"] = "deferred"
+        self._write([m])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+    def test_mix_delivered_and_deferred_exits_zero(self):
+        m1 = _VALID_MILESTONE.copy()
+        m1["status"] = "delivered"
+        m1["delivered_sprint"] = "sprint-001"
+        m2 = _VALID_MILESTONE.copy()
+        m2["number"] = 2
+        m2["status"] = "deferred"
+        self._write([m1, m2])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+
+    def test_any_planned_exits_one(self):
+        m1 = _VALID_MILESTONE.copy()
+        m1["status"] = "delivered"
+        m1["delivered_sprint"] = "sprint-001"
+        m2 = _VALID_MILESTONE.copy()
+        m2["number"] = 2
+        m2["status"] = "planned"
+        self._write([m1, m2])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+
+    def test_any_in_progress_exits_one(self):
+        m = _VALID_MILESTONE.copy()
+        m["status"] = "in-progress"
+        self._write([m])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+
+    def test_no_plan_fails(self):
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No execution plan", result.stderr)
+
+    def test_empty_milestones_exits_zero(self):
+        """A plan with no milestones is trivially complete (no remaining work)."""
+        self._write([])
+        result = run_cli(_CLI, ["is-plan-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
 
 
 class TestMilestoneAcceptanceExecution(_SMMTestCase):

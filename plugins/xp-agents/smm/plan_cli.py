@@ -16,6 +16,9 @@ Usage:
     plan_cli.py update-status N STATUS --smm-dir DIR
     plan_cli.py edit-milestone N --smm-dir DIR   < patch.json
     plan_cli.py archive --smm-dir DIR
+    plan_cli.py set-branch NAME --smm-dir DIR
+    plan_cli.py get-branch --smm-dir DIR
+    plan_cli.py is-plan-complete --smm-dir DIR
 """
 
 import argparse
@@ -26,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import execution_plan_store as store
+from execution_plan_schema import VALID_MILESTONE_STATUSES
 
 
 def _cmd_exists(args: argparse.Namespace) -> int:
@@ -41,7 +45,8 @@ def _cmd_count(args: argparse.Namespace) -> int:
     print(
         f"planned={counts['planned']} "
         f"in-progress={counts['in-progress']} "
-        f"delivered={counts['delivered']}"
+        f"delivered={counts['delivered']} "
+        f"deferred={counts['deferred']}"
     )
     return 0
 
@@ -181,6 +186,39 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_set_branch(args: argparse.Namespace) -> int:
+    plan = store.load_plan(args.smm_dir)
+    if plan is None:
+        print("No execution plan found.", file=sys.stderr)
+        return 1
+    # Empty-string-clears is a CLI affordance; the store contract is null-or-valid-name.
+    plan["branch"] = args.name or None
+    try:
+        store.save_plan(args.smm_dir, plan)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_get_branch(args: argparse.Namespace) -> int:
+    plan = store.load_plan(args.smm_dir)
+    if plan is None:
+        print("No execution plan found.", file=sys.stderr)
+        return 1
+    print(plan.get("branch") or "")
+    return 0
+
+
+def _cmd_is_plan_complete(args: argparse.Namespace) -> int:
+    """Exit codes: 0 = complete, 1 = incomplete, 1 + stderr = no plan."""
+    plan = store.load_plan(args.smm_dir)
+    if plan is None:
+        print("No execution plan found.", file=sys.stderr)
+        return 1
+    return 0 if store.plan_is_complete(plan) else 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Execution plan CLI",
@@ -216,7 +254,7 @@ def main() -> None:
     update_p.add_argument("milestone_number", type=int, help="Milestone number")
     update_p.add_argument(
         "status",
-        choices=["planned", "in-progress", "delivered"],
+        choices=sorted(VALID_MILESTONE_STATUSES),
         help="New status",
     )
     update_p.add_argument(
@@ -230,6 +268,17 @@ def main() -> None:
     edit_p.add_argument("milestone_number", type=int, help="Milestone number")
 
     sub.add_parser("archive", help="Archive plan to plans/ folder")
+
+    set_branch_p = sub.add_parser(
+        "set-branch", help="Set the plan's branch (empty string clears)"
+    )
+    set_branch_p.add_argument("name", help="Branch name; empty string clears")
+
+    sub.add_parser("get-branch", help="Print the plan's branch (empty if null)")
+    sub.add_parser(
+        "is-plan-complete",
+        help="Exit 0 when all milestones delivered/deferred, 1 otherwise",
+    )
 
     args = parser.parse_args()
 
@@ -245,6 +294,9 @@ def main() -> None:
         "update-status": _cmd_update_status,
         "edit-milestone": _cmd_edit_milestone,
         "archive": _cmd_archive,
+        "set-branch": _cmd_set_branch,
+        "get-branch": _cmd_get_branch,
+        "is-plan-complete": _cmd_is_plan_complete,
     }
 
     sys.exit(dispatch[args.command](args))

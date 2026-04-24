@@ -28,12 +28,17 @@ from pathlib import Path
 #   Known issue: pre-commit#3032, lefthook#1265.
 # - SMM_DIR: now honored by init.sh / _append_impl.resolve_smm_dir; a stray
 #   export from a dev shell would silently redirect every test's SMM writes.
+# - XP_TEAMMATE_NAME: set by the CLI teammate launcher; the SessionStart hook
+#   uses it to choose the teammate guide. Inheriting it into integration tests
+#   makes them assert against the wrong guide and breaks every teammate's
+#   pre-commit hook downstream.
 for _leaked_var in (
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_COMMON_DIR",
     "GIT_INDEX_FILE",
     "SMM_DIR",
+    "XP_TEAMMATE_NAME",
 ):
     os.environ.pop(_leaked_var, None)
 
