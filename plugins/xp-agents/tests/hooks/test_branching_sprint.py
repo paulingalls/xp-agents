@@ -148,6 +148,59 @@ class TestCreateSprintBranch(unittest.TestCase):
                 branching.create_sprint_branch(td, "sprint-027", "dirty", smm_dir)
 
 
+class TestCreateSprintBranchRecordsBranchName(unittest.TestCase):
+    def test_records_after_create(self):
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _write_sprint_json(smm_dir, "sprint-031", "branch lifecycle")
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "lifecycle", smm_dir)
+
+            sprint = sprint_store.load_sprint(smm_dir)
+            self.assertEqual(sprint["branch_name"], "paul/sprint-031-lifecycle")
+
+    def test_resume_re_records_fixing_drift(self):
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/sprint-031-actual-name"],
+                cwd=td,
+                capture_output=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _write_sprint_json(smm_dir, "sprint-031", "ignored goal")
+            sprint = sprint_store.load_sprint(smm_dir)
+            sprint["branch_name"] = "paul/sprint-031-stale"
+            sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "actual-name", smm_dir)
+
+            sprint = sprint_store.load_sprint(smm_dir)
+            self.assertEqual(sprint["branch_name"], "paul/sprint-031-actual-name")
+
+    def test_no_sprint_no_record_no_error(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_sprint_branch(
+                    td, "sprint-031", "no-sprint-yet", smm_dir
+                )
+
+            self.assertEqual(result, "paul/sprint-031-no-sprint-yet")
+
+
 class TestGetStoryBaseBranch(unittest.TestCase):
     def test_returns_sprint_branch_at_stage_2(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:

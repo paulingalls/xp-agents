@@ -199,10 +199,19 @@ def create_story_branch(
 def create_sprint_branch(
     cwd: str, sprint_id: str, slug: str, smm_dir: Path
 ) -> str | None:
-    """Returns sprint branch name or None if stage < 2."""
+    """Returns sprint branch name or None if stage < 2.
+
+    Records the actual branch name into sprint.json on both create and
+    resume paths so get_story_base_branch can look it up directly
+    instead of reconstructing via slugify(goal). The re-record on
+    resume is intentionally idempotent — it fixes any prior slug drift.
+    """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, sprint_id, slug)
-    return _create_or_resume_branch(cwd, name, smm_dir, min_stage=2)
+    result = _create_or_resume_branch(cwd, name, smm_dir, min_stage=2)
+    if result is not None and sprint_store.sprint_exists(smm_dir):
+        sprint_store.set_branch(smm_dir, result)
+    return result
 
 
 def _utc_today_iso() -> str:
