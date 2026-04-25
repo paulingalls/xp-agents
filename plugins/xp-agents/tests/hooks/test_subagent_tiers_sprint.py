@@ -97,7 +97,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                 self.assertIsNotNone(result)
                 self.assertIn(f"SMM_DIR={self.smm_dir}", result)
                 self.assertIn(
-                    f"REVIEW_INPUT={self.smm_dir}/close_review_input.json",
+                    f"REVIEW_INPUT={self.smm_dir}/.close-review-input.json",
                     result,
                 )
                 self.assertIn("XP Values", result)

@@ -77,7 +77,7 @@ RETRO_INPUT_FILENAME = ".retro-input.json"
 # Shared data-file name used across the close-review subsystem:
 # written by /xp-{sprint,plan,free}-close skills before forking
 # the xp-close-reviewer agent.
-REVIEW_INPUT_FILENAME = "close_review_input.json"
+REVIEW_INPUT_FILENAME = ".close-review-input.json"
 
 
 def current_session_start_index(events: list[dict]) -> int:

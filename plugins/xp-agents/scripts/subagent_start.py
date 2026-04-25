@@ -51,7 +51,7 @@ def _inject_close_review(smm: dict, smm_dir: Path, input_data: dict) -> list[str
     """xp-close-reviewer: inject SMM_DIR + REVIEW_INPUT path.
 
     The forking close skill (sprint/plan/free) writes
-    <smm_dir>/close_review_input.json before invoking the agent.
+    <smm_dir>/.close-review-input.json before invoking the agent.
     This handler only advertises the paths the agent prompt expects.
     """
     return [

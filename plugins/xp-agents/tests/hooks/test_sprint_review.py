@@ -333,28 +333,30 @@ class TestPRCreationRemoved(unittest.TestCase):
     broader gh allow-listing in the skill.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        cls.agent_text = _SPRINT_REVIEWER_AGENT.read_text()
+        cls.skill_text = _SPRINT_REVIEW_SKILL.read_text()
+
     def test_agent_no_pr_keywords(self):
         # Catches "Create Sprint PR", "Open Sprint PR", "Sprint PR", etc.
-        text = _SPRINT_REVIEWER_AGENT.read_text().lower()
+        text = self.agent_text.lower()
         self.assertNotIn("pull request", text)
         self.assertNotIn(" pr ", text)
         self.assertNotIn("sprint pr", text)
 
     def test_agent_no_gh_invocation(self):
         # Catches `gh pr create`, `gh pr ...`, `which gh`, etc.
-        text = _SPRINT_REVIEWER_AGENT.read_text()
-        self.assertNotIn("gh pr", text)
-        self.assertNotIn("which gh", text)
+        self.assertNotIn("gh pr", self.agent_text)
+        self.assertNotIn("which gh", self.agent_text)
 
     def test_agent_no_branching_invocation(self):
         # Catches a Python-helper substitution for `gh pr create`.
-        text = _SPRINT_REVIEWER_AGENT.read_text()
-        self.assertNotIn("branching.py", text)
+        self.assertNotIn("branching.py", self.agent_text)
 
     def test_skill_allowed_tools_no_gh_or_branching(self):
-        text = _SPRINT_REVIEW_SKILL.read_text()
         # No `gh` in any Bash() allow-list entry.
-        for line in text.splitlines():
+        for line in self.skill_text.splitlines():
             stripped = line.strip()
             if stripped.startswith("- Bash("):
                 self.assertNotIn("gh", stripped)
