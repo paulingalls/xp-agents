@@ -13,20 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
+    _extract_preload_var,
     _IntegrationTestCase,
     _s,
     _sprint_json,
     write_smm_fixture,
 )
-
-
-def _extract_preload_var(stdout: str, name: str) -> str | None:
-    """Extract a VAR=value from preload stdout. Returns value or None."""
-    prefix = f"{name}="
-    for line in stdout.splitlines():
-        if line.startswith(prefix):
-            return line.split("=", 1)[1]
-    return None
 
 
 def _multi_story_sprint_worktree() -> str:

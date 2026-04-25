@@ -19,3 +19,5 @@ allowed-tools:
 This skill should run as a forked subagent (xp-sprint-reviewer). Your agent definition contains all instructions — follow them, record the result, and then report back your full findings to the main agent.
 
 If you are the main agent and see this: do not do this work yourself. This skill must run as the xp-sprint-reviewer subagent. The subagent result is returned as a tool result which is NOT visible to the user — you must output the key findings as text in your response.
+
+After you have surfaced the reviewer's findings to the user, invoke `/xp-sprint-close` to push the sprint branch, fork the xp-close-reviewer for cross-cutting review, and merge into the target with cleanup.

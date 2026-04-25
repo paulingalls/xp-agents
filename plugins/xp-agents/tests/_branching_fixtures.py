@@ -62,6 +62,46 @@ def get_current_branch(cwd: str) -> str:
     ).stdout.strip()
 
 
+def get_head_sha(cwd: str) -> str:
+    """Return the current HEAD commit SHA."""
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def make_commit(
+    cwd: str,
+    branch: str,
+    filename: str,
+    content: str,
+    message: str,
+) -> str:
+    """Checkout `branch` (creating it), write filename+content, commit, return SHA.
+
+    Used by integration tests that need to fabricate branch state for
+    merge/cleanup verification.
+    """
+    subprocess.run(
+        ["git", "checkout", "-b", branch],
+        cwd=cwd,
+        capture_output=True,
+        check=True,
+    )
+    (Path(cwd) / filename).write_text(content)
+    subprocess.run(["git", "add", filename], cwd=cwd, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=cwd,
+        capture_output=True,
+        check=True,
+        env=GIT_ENV,
+    )
+    return get_head_sha(cwd)
+
+
 def write_system_context(smm_dir: Path, stage: int) -> None:
     """Write a minimal system_context.json with the given branching stage."""
     ctx = {"project_name": "test", "branching_strategy": {"stage": stage}}
