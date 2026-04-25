@@ -116,23 +116,48 @@ def update_milestone_status(
     raise ValueError(f"No milestone with number {milestone_num}")
 
 
-_ACTIVE_STATUSES = VALID_MILESTONE_STATUSES - {"delivered"}
+def set_branch(smm_dir: Path, branch: str | None) -> None:
+    """Set the plan's `branch` field (None clears it).
+
+    Raises:
+        ValueError: No plan exists, or the new state fails schema
+            validation (invalid branch name).
+        OSError: Plan path is a symlink.
+    """
+    plan = load_plan(smm_dir)
+    if plan is None:
+        raise ValueError("No execution plan found")
+    plan["branch"] = branch
+    save_plan(smm_dir, plan, enforce_budget=False)
+
+
+_TERMINAL_STATUSES = frozenset({"delivered", "deferred"})
+_ACTIVE_STATUSES = VALID_MILESTONE_STATUSES - _TERMINAL_STATUSES
+
+
+def plan_is_complete(plan: dict) -> bool:
+    """True when no milestone is still active (planned/in-progress).
+
+    Pure helper on a loaded plan dict — caller handles plan-not-found.
+    Deferred milestones are terminal (consciously dropped) and do not
+    count as remaining work — same class as delivered for completion.
+    """
+    return not any(m["status"] in _ACTIVE_STATUSES for m in plan["milestones"])
 
 
 def has_remaining_work(smm_dir: Path) -> bool:
-    """True if the plan has planned or in-progress milestones."""
+    """True if the plan has planned or in-progress milestones.
+
+    Returns False when no plan exists (callers treat absence as "nothing
+    to do"). Distinct from is-plan-complete, which errors on no-plan.
+    """
     plan = load_plan(smm_dir)
-    if plan is None:
-        return False
-    return any(m["status"] in _ACTIVE_STATUSES for m in plan["milestones"])
+    return plan is not None and not plan_is_complete(plan)
 
 
 def count_milestones(smm_dir: Path) -> dict[str, int]:
-    """Count milestones by status.
-
-    Returns dict with keys: planned, in-progress, delivered.
-    """
-    counts = {"planned": 0, "in-progress": 0, "delivered": 0}
+    """Count milestones by status. Returns one entry per VALID_MILESTONE_STATUSES."""
+    counts = {status: 0 for status in VALID_MILESTONE_STATUSES}
     plan = load_plan(smm_dir)
     if plan is None:
         return counts
@@ -167,6 +192,10 @@ def render_markdown(plan: dict) -> str:
 
     lines.append(f"# Execution Plan: {plan['title']}")
     lines.append("")
+
+    if plan.get("branch"):
+        lines.append(f"**Branch:** {plan['branch']}")
+        lines.append("")
 
     # Sources table
     if plan["sources"]:
