@@ -16,7 +16,7 @@ allowed-tools:
 
 # Accept Verification
 
-The preload above shows sprint state: in-progress count + `SPRINT_FILE=<path>`, or ERROR/NO_IN_PROGRESS.
+The preload above shows sprint state: in-progress count + `SPRINT_FILE=<path>`, or ERROR/NO_IN_PROGRESS. The preload also auto-consumes the `.accept` marker (the ACCEPT gate that blocks `update-story done` between sessions) — you do not need to clear it manually; the gate is already open by the time you read this.
 
 **If ERROR or NO_IN_PROGRESS**, explain and stop.
 
