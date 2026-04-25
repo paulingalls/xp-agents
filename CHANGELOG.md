@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.27.0 — /xp-sprint-close skill + xp-close-reviewer agent (M-2)
+
+Sprint-032 implements Milestone 2 of the branch-lifecycle plan: the post-review merge pipeline. After `/xp-sprint-review` surfaces findings, the main agent now invokes `/xp-sprint-close` to push, fork a holistic close-reviewer, ask for confirmation, merge the sprint branch into its target, and clean up. 5/5 stories delivered.
+
+- **Add `xp-close-reviewer` read-only agent.** New mode-aware reviewer (sprint / plan / free) that the three close skills fork before merging. Sprint mode focuses on cross-cutting changes, duplication across stories, and API coherence between commits. Frontmatter restricts tools to `Read, Grep, Glob, Bash` — never mutates the repo. SubagentStart auto-injects `SMM_DIR` and `REVIEW_INPUT` (`<smm_dir>/.close-review-input.json`) so the agent always has the diff command + branch context the close skill wrote.
+
+- **Add `/xp-sprint-close` inline skill.** Eight-step orchestration: pre-flight (refuse on dirty tree or when current branch IS the target), push, gh-aware PR creation, write the close-review input, fork `xp-close-reviewer`, present findings, `AskUserQuestion` to confirm, then `branching.py merge-sprint --target` followed by `delete --branch` only when the merge succeeds. Degrades gracefully when `gh` is missing — no PR, no push beyond local, reviewer diffs locally via `git diff <target>...HEAD`.
+
+- **Strip PR creation from `xp-sprint-reviewer`.** Step 3b moved to `/xp-sprint-close`; the reviewer agent + skill are now review-only, with `gh` and `branching.py` removed from `allowed-tools`. Sprint-review SKILL.md now chains into `/xp-sprint-close` after surfacing findings.
+
+- **Branching primitives: explicit merge target, slug-drift fallback, idempotent re-record.** `merge_story_branch` and `merge_sprint_branch` drop their `target="main"` defaults — Stage-3 plan branches must merge to integration_branch, not main. `_cmd_merge` and `_cmd_merge_sprint` route through `get_merge_target` when `--target` is omitted. `_recorded_plan_branch` falls back to a `<branch>-*` prefix scan when the recorded plan branch isn't found locally and emits a stderr note so drift discovery is visible. `create_plan_branch` resume now re-records the branch into `execution_plan.json` (mirroring `create_sprint_branch`) so a regenerated plan with a still-existing branch keeps the linkage. `_BRANCH_MIN_STAGE` registry prevents the inner `_create_or_resume_branch` enforcement and the outer `_print_or_skip` skip message from drifting on stage-threshold changes.
+
+- **Shell helper extractions in `_preload_base.sh`.** New `worktree_clean` and `gh_available` helpers (POSIX `command -v` over `which`) so the three close skills (sprint, plan, free) all share one implementation. `_extract_preload_var` promoted to `tests/conftest.py` (was duplicated in `test_assign_preload.py`). `_branching_fixtures.py` gains `get_head_sha` + `make_commit` helpers used by the capstone E2E and ready to replace inline rev-parse calls in sibling tests.
+
+- **Capstone integration test pins the chain.** `test_sprint_close_chain.py` exercises chain integrity (close skill + preload + read-only close-reviewer agent all wired) and a real-git merge+cleanup E2E (sprint branch one commit ahead → `merge_sprint_branch(target=...)` then `delete_branch` → target HEAD is a `--no-ff` merge whose 2nd parent is the sprint tip and the sprint branch is gone). Per-step contracts live in `test_sprint_close.py` and `test_subagent_tiers_sprint.py`.
+
 ## v2.26.7 — Branch lifecycle design, sprint-review fix
 
 - **Design branch lifecycle for sprint-close and plan-close.** New `docs/ideas/BRANCH_LIFECYCLE.md` defines `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` skills, `xp-close-reviewer` agent, plan branch support, and free session branch management. Three review levels (commit, sprint, plan) with holistic code review at each integration point.
