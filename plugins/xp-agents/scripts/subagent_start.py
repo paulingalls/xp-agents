@@ -5,6 +5,7 @@ Tiered injection via dispatch table (measured sizes):
 - Explore: Intent + Constraints + XP values (~5 KB)
 - xp-code-reviewer / Default: Full SMM + XP values (~10 KB)
 - xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values (~1.6 KB)
+- xp-close-reviewer: SMM_DIR + REVIEW_INPUT paths + XP values (~1.6 KB)
 - xp-housekeeper: curation input path + work selection + XP values (~1.5-3 KB)
 - xp-* forked agents: XP values only (~1.4 KB)
 """
@@ -44,6 +45,18 @@ def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[st
     so the handler only advertises the paths the agent prompt expects.
     """
     return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
+
+
+def _inject_close_review(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """xp-close-reviewer: inject SMM_DIR + REVIEW_INPUT path.
+
+    The forking close skill (sprint/plan/free) writes
+    <smm_dir>/close_review_input.json before invoking the agent.
+    This handler only advertises the paths the agent prompt expects.
+    """
+    return [
+        f"SMM_DIR={smm_dir}\nREVIEW_INPUT={smm_dir / _common.REVIEW_INPUT_FILENAME}"
+    ]
 
 
 _CURATION_INPUT_FILENAME = ".curation-input.json"
@@ -131,6 +144,8 @@ _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "xp-agents:xp-code-reviewer": _inject_full,
     "xp-retrospective": _inject_retrospective,
     "xp-agents:xp-retrospective": _inject_retrospective,
+    "xp-close-reviewer": _inject_close_review,
+    "xp-agents:xp-close-reviewer": _inject_close_review,
     "xp-housekeeper": _inject_housekeeper,
     "xp-agents:xp-housekeeper": _inject_housekeeper,
 }
