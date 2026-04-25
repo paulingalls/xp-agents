@@ -116,6 +116,21 @@ def update_milestone_status(
     raise ValueError(f"No milestone with number {milestone_num}")
 
 
+def set_branch(smm_dir: Path, branch: str | None) -> None:
+    """Set the plan's `branch` field (None clears it).
+
+    Raises:
+        ValueError: No plan exists, or the new state fails schema
+            validation (invalid branch name).
+        OSError: Plan path is a symlink.
+    """
+    plan = load_plan(smm_dir)
+    if plan is None:
+        raise ValueError("No execution plan found")
+    plan["branch"] = branch
+    save_plan(smm_dir, plan, enforce_budget=False)
+
+
 _TERMINAL_STATUSES = frozenset({"delivered", "deferred"})
 _ACTIVE_STATUSES = VALID_MILESTONE_STATUSES - _TERMINAL_STATUSES
 
