@@ -16,6 +16,7 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(*/smm/plan_cli.py *)
+  - Bash(python3 */scripts/branching.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -126,6 +127,39 @@ After writing, render the plan as markdown and **output it as text** so the user
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
 ```
+
+### Step 5b: Plan Branch Recommendation
+
+After the plan file exists, decide whether to recommend a plan branch. A plan branch is a long-lived feature branch that accumulates milestones until the plan is complete — sprint branches merge into it instead of directly into the primary branch.
+
+**When to recommend** (offer the branch via AskUserQuestion):
+- The plan has more than one milestone, AND
+- At least one intermediate milestone is not independently shippable (i.e., the milestones build on each other and can't safely land on the primary branch one-by-one).
+
+**When to skip** (do not ask, leave branch null):
+- Single-milestone plans.
+- Plans where every milestone is independently valuable on the primary branch.
+- Stage 0 (no branching at all).
+
+Check the branching stage first:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
+```
+
+**Stage 0:** Skip Step 5b entirely.
+
+**Stage 1+:** When the recommendation criteria are met, ask the user via `AskUserQuestion`: *"Create a plan branch (`<user>/plan-<slug>`) so intermediate milestones don't land on `<primary>` until the plan completes?"* Options: **Yes / No**.
+
+- **Yes:** Create the branch (it atomically records `branch` into the plan):
+  ```bash
+  python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+    create-plan --cwd . --slug <plan-title-slug>
+  ```
+  The slug should be a short kebab-case derivation of the plan title (e.g., `branch-lifecycle`, `acceptance-testing`). The CLI prints the created branch name and writes it into `execution_plan.json`'s `branch` field via `execution_plan_store.set_branch`.
+
+- **No:** Do nothing. The plan's `branch` field stays null; sprints will base off the primary branch directly.
+
+If you skipped this step (single-milestone plan, all-independently-shippable, Stage 0), proceed straight to Step 6 without asking.
 
 ### Step 6: Record Event
 
