@@ -12,7 +12,7 @@ Pins the sprint-close chain end-to-end. Two scenarios:
    compose, not the per-step contracts.
 
 2. **Merge + cleanup sequencing** — given a sprint branch one commit
-   ahead of the target, calling `merge_sprint_branch(target)` followed
+   ahead of the target, calling `merge_branch(target)` followed
    by `delete_branch` end-to-end leaves the target on a merge commit
    whose second parent is the sprint branch tip, and the sprint branch
    no longer exists locally. Proves the merge+delete primitives the
@@ -88,7 +88,7 @@ class TestMergeAndCleanupEndToEnd(unittest.TestCase):
     """Capstone scenario 2: real merge + delete on a real git tree.
 
     Boots a temp repo, makes a sprint branch one commit ahead of the
-    target, calls merge_sprint_branch + delete_branch (the merge+delete
+    target, calls merge_branch + delete_branch (the merge+delete
     primitives the close skill orchestrates), and verifies the
     resulting tree state.
     """
@@ -99,7 +99,7 @@ class TestMergeAndCleanupEndToEnd(unittest.TestCase):
             target_branch = get_current_branch(td)
             target_sha_before = get_head_sha(td)
 
-            # merge_sprint_branch / delete_branch are stage-agnostic
+            # merge_branch / delete_branch are stage-agnostic
             # primitives (they take target as an explicit arg and never
             # consult system_context.json) — no smm setup required.
 
@@ -111,7 +111,7 @@ class TestMergeAndCleanupEndToEnd(unittest.TestCase):
 
             # ACT: merge then delete (the primitives the close skill
             # orchestrates after the user confirms).
-            branching.merge_sprint_branch(td, sprint_branch, target=target_branch)
+            branching.merge_branch(td, sprint_branch, target=target_branch)
             self.assertTrue(
                 branching.delete_branch(td, sprint_branch),
                 "delete_branch should report success",

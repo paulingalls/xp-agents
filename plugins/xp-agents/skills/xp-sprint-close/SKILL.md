@@ -121,10 +121,10 @@ Always pass `--target` explicitly — branching.py requires it:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  merge-sprint --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH>
+  merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-The merge-sprint subcommand exits non-zero on conflict or error. Check
+The merge-branch subcommand exits non-zero on conflict or error. Check
 `$?` before invoking delete — only run cleanup when the merge actually
 succeeded:
 

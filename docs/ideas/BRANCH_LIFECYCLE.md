@@ -503,8 +503,8 @@ Add functions:
 - `get_primary_branch(smm_dir)` — returns `main` at Stages 1-2,
   `integration_branch` at Stage 3. Central function — all merge
   target logic flows through this.
-- `merge_sprint_branch(cwd, sprint_branch, target)` — merge with
-  `--no-ff`, analogous to `merge_story_branch()`.
+- `merge_branch(cwd, branch, target)` — merge any source branch into
+  `target` with `--no-ff`. Used by sprint-close and plan-close.
 - `get_merge_target(smm_dir, cwd)` — returns the appropriate merge
   target for the current sprint branch (plan branch >
   primary branch).

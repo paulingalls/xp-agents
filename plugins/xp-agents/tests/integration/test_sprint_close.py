@@ -184,25 +184,25 @@ class TestSprintCloseSkillText(unittest.TestCase):
         self.assertIn("xp-agents:xp-close-reviewer", self.text)
         self.assertIn("subagent_type", self.text)
 
-    def test_merge_sprint_called_with_explicit_target(self):
-        # The body must invoke `branching.py merge-sprint` with an
+    def test_merge_branch_called_with_explicit_target(self):
+        # The body must invoke `branching.py merge-branch` with an
         # explicit --target — branching.py requires it and implicit
         # defaults caused drift in earlier iterations.
-        self.assertIn("merge-sprint", self.text)
+        self.assertIn("merge-branch", self.text)
         self.assertIn("--target", self.text)
         self.assertIn("--branch", self.text)
 
     def test_delete_branch_only_after_merge(self):
         # The body must invoke `branching.py delete ... --branch` AND that
-        # call must appear AFTER the merge-sprint call so cleanup never
+        # call must appear AFTER the merge-branch call so cleanup never
         # runs on a failed merge. The CLI requires --cwd between them.
         delete_match = re.search(r"\bdelete\b.*--branch", self.text)
         assert delete_match is not None, "branching.py delete --branch not found"
-        merge_idx = self.text.index("merge-sprint")
+        merge_idx = self.text.index("merge-branch")
         self.assertLess(
             merge_idx,
             delete_match.start(),
-            "delete --branch must appear AFTER merge-sprint",
+            "delete --branch must appear AFTER merge-branch",
         )
 
     def test_asks_user_before_merging(self):
