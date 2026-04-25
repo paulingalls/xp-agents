@@ -280,42 +280,5 @@ class TestMarkerNameConstants(unittest.TestCase):
         self.assertEqual(marker_names.NEEDS_SYSTEM_CONTEXT, ".needs-system-context")
 
 
-class TestCloseReviewInputMarker(_HookTestCase):
-    """Agent-scoped JSON marker for the close-skill → close-reviewer handoff."""
-
-    def test_constant_is_json_and_agent_scoped(self):
-        m = markers.CLOSE_REVIEW_INPUT
-        self.assertEqual(m.content_type, "json")
-        self.assertTrue(m.agent_scoped)
-
-    def test_filename_substitutes_agent_id(self):
-        self.assertEqual(
-            markers.CLOSE_REVIEW_INPUT.filename("main"),
-            ".close-review-input-main.json",
-        )
-
-    def test_write_and_read_roundtrip(self):
-        payload = {
-            "mode": "plan",
-            "source_branch": "paul/plan-foo",
-            "target_branch": "main",
-            "diff_command": "gh pr diff 123",
-        }
-        markers.marker_write(self.smm_dir, markers.CLOSE_REVIEW_INPUT, payload, "main")
-        self.assertEqual(
-            markers.marker_read(self.smm_dir, markers.CLOSE_REVIEW_INPUT, "main"),
-            payload,
-        )
-
-    def test_cleanup_removes_close_review_input(self):
-        markers.marker_write(
-            self.smm_dir, markers.CLOSE_REVIEW_INPUT, {"mode": "sprint"}, "main"
-        )
-        markers.cleanup_agent_markers(self.smm_dir, "main")
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.CLOSE_REVIEW_INPUT, "main")
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

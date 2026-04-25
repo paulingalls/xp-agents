@@ -11,7 +11,7 @@ model: inherit
 
 # Close-Branch Reviewer
 
-A close skill is about to merge a branch. Review the cumulative diff and report concerns before the merge happens. The preloaded data above includes `SMM_DIR=<path>` and `REVIEW_INPUT=<path>`.
+A close skill is about to merge a branch. Review the cumulative diff and report concerns before the merge happens. The Agent prompt that invoked you carries `SMM_DIR=<path>` and `REVIEW_INPUT=<path>` (a per-invocation tempfile written by the close skill).
 
 ## Step 1: Read Review Input
 

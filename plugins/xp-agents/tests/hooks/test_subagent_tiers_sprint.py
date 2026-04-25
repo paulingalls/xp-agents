@@ -79,8 +79,10 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                 self.assertIn("XP Values", result)
                 self.assertNotIn("Ship v1", result)
 
-    def test_close_reviewer_handler_injects_paths(self):
-        """xp-close-reviewer injects SMM_DIR + REVIEW_INPUT path."""
+    def test_close_reviewer_has_no_dedicated_handler(self):
+        """xp-close-reviewer reads REVIEW_INPUT from the Agent prompt, not
+        from SubagentStart injection — the close skill computes a per-
+        invocation tempfile path and embeds it in the prompt itself."""
         for agent_type in (
             "xp-close-reviewer",
             "xp-agents:xp-close-reviewer",
@@ -94,14 +96,10 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                     },
                     smm_dir=self.smm_dir,
                 )
-                self.assertIsNotNone(result)
-                self.assertIn(f"SMM_DIR={self.smm_dir}", result)
-                self.assertIn(
-                    f"REVIEW_INPUT={self.smm_dir}/.close-review-input.json",
-                    result,
-                )
-                self.assertIn("XP Values", result)
-                self.assertNotIn("Ship v1", result)
+                # No special injection — falls through to the default path
+                # (XP values only, no REVIEW_INPUT line).
+                if result is not None:
+                    self.assertNotIn("REVIEW_INPUT=", result)
 
     def test_sprint_reviewer_gets_values_only(self):
         """xp-sprint-reviewer gets XP values only."""

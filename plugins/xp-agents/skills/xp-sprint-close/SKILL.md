@@ -62,9 +62,9 @@ locally instead.
 
 ## Step 4: Write the close-review input
 
-Write a JSON file at `<REVIEW_INPUT>` (the path the preload echoed —
-`<SMM_DIR>/.close-review-input.json`) with the four fields the close-
-reviewer agent reads. The shape depends on `GH_AVAILABLE`:
+Write a JSON file at `<REVIEW_INPUT>` (the per-invocation tempfile path
+the preload echoed) with the four fields the close-reviewer agent
+reads. The shape depends on `GH_AVAILABLE`:
 
 When `GH_AVAILABLE=true`:
 
@@ -90,14 +90,14 @@ When `GH_AVAILABLE=false` (PR was skipped):
 
 ## Step 5: Fork the close-reviewer
 
-Invoke the forked review agent. The SubagentStart hook auto-injects
-`SMM_DIR` and `REVIEW_INPUT` from the dispatch table; the agent reads
-the JSON you just wrote and runs its mode-aware analysis.
+Invoke the forked review agent. Pass `SMM_DIR` and the per-invocation
+`REVIEW_INPUT` path (from the preload) explicitly in the prompt — the
+agent reads them from there. There is no SubagentStart injection.
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "## Mode\nsprint\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRead REVIEW_INPUT, run diff_command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\nREVIEW_INPUT=<REVIEW_INPUT>\n\n## Mode\nsprint\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRead REVIEW_INPUT, run diff_command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
 )
 ```
 
