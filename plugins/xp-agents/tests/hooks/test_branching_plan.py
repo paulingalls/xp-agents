@@ -388,7 +388,7 @@ class TestPlanFreeCLI(unittest.TestCase):
             self.assertIn("test/free-2026-04-22-foo", lines)
             self.assertIn("test/free-2026-04-23-bar", lines)
 
-    def test_merge_sprint_cli(self):
+    def test_merge_branch_cli(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             main_branch = _get_current_branch(td)
@@ -410,7 +410,7 @@ class TestPlanFreeCLI(unittest.TestCase):
             smm_dir = Path(smm)
             r = _run(
                 [
-                    "merge-sprint",
+                    "merge-branch",
                     "--cwd",
                     td,
                     "--branch",

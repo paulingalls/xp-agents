@@ -12,6 +12,7 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */smm/plan_cli.py *)
   - Bash(git push *)
   - Bash(gh pr *)
 ---
@@ -62,9 +63,9 @@ locally instead.
 
 ## Step 4: Write the close-review input
 
-Write a JSON file at `<REVIEW_INPUT>` (the path the preload echoed —
-`<SMM_DIR>/.close-review-input.json`) with the four fields the close-
-reviewer agent reads. The shape depends on `GH_AVAILABLE`:
+Write a JSON file at `<REVIEW_INPUT>` (the per-invocation tempfile path
+the preload echoed) with the four fields the close-reviewer agent
+reads. The shape depends on `GH_AVAILABLE`:
 
 When `GH_AVAILABLE=true`:
 
@@ -90,14 +91,14 @@ When `GH_AVAILABLE=false` (PR was skipped):
 
 ## Step 5: Fork the close-reviewer
 
-Invoke the forked review agent. The SubagentStart hook auto-injects
-`SMM_DIR` and `REVIEW_INPUT` from the dispatch table; the agent reads
-the JSON you just wrote and runs its mode-aware analysis.
+Invoke the forked review agent. Pass `SMM_DIR` and the per-invocation
+`REVIEW_INPUT` path (from the preload) explicitly in the prompt — the
+agent reads them from there. There is no SubagentStart injection.
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "## Mode\nsprint\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRead REVIEW_INPUT, run diff_command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\nREVIEW_INPUT=<REVIEW_INPUT>\n\n## Mode\nsprint\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRead REVIEW_INPUT, run diff_command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
 )
 ```
 
@@ -116,19 +117,13 @@ intact for follow-up work.
 
 ## Step 8: Merge and clean up
 
-On confirmation, merge with --no-ff and delete the sprint branch.
-Always pass `--target` explicitly — branching.py requires it:
+On confirmation, merge with --no-ff and chain delete behind the merge's
+success. Always pass `--target` explicitly — branching.py requires it.
+The `&&` chain guarantees delete only runs after a clean merge:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  merge-sprint --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH>
-```
-
-The merge-sprint subcommand exits non-zero on conflict or error. Check
-`$?` before invoking delete — only run cleanup when the merge actually
-succeeded:
-
-```bash
+  merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH> && \
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <CURRENT_BRANCH>
 ```
@@ -137,6 +132,32 @@ If the merge fails, surface the failure (stderr + stdout from the merge
 call already include the source/target branch names and the conflict
 marker) and **do not** delete the branch — the user needs to resolve the
 conflict on the still-existing branch. Conflicts are never auto-resolved.
+
+## Step 9: Plan-close chain (if applicable)
+
+After the merge cleanup completes, check whether the sprint just shipped
+the last milestone of a plan-branch plan. The gate fires only when both
+checks succeed — `get-branch` prints non-empty AND `is-plan-complete`
+exits 0:
+
+```bash
+PLAN_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> get-branch) \
+  && [ -n "$PLAN_BRANCH" ] \
+  && python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> is-plan-complete
+```
+
+- `get-branch` prints the recorded plan branch (empty when the plan
+  is not on a plan branch).
+- `is-plan-complete` exits 0 when every milestone is delivered or
+  deferred, non-zero otherwise.
+
+If the gate above exits 0, invoke `/xp-plan-close` to push the plan
+branch, fork the close-reviewer in plan mode, present findings, merge
+plan → primary, archive the plan, and clean up. The chain runs in the
+same main agent context — the user confirms each merge inside.
+
+If the gate exits non-zero, skip the chain and report sprint-close
+complete (the section below).
 
 ## Reporting Back
 

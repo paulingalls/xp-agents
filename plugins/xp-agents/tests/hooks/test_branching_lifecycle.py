@@ -2,7 +2,7 @@
 """Tests for branching.py — git-operation lifecycle tests.
 
 Covers: is_worktree_clean, branch_exists, create_story_branch,
-merge_story_branch, delete_branch, CLI (E2E).
+merge_branch, delete_branch, CLI (E2E).
 
 Split from test_branching.py — pure-function unit tests remain there.
 """
@@ -149,7 +149,7 @@ class TestCreateStoryBranch(unittest.TestCase):
                 branching.create_story_branch(td, "story-001", "conflict", smm_dir)
 
 
-class TestMergeStoryBranch(unittest.TestCase):
+class TestMergeBranchStoryScenarios(unittest.TestCase):
     def test_merge_commit_created(self):
         with tempfile.TemporaryDirectory() as td:
             _init_repo(td)
@@ -163,7 +163,7 @@ class TestMergeStoryBranch(unittest.TestCase):
             )
             _make_feature_commit(td)
 
-            branching.merge_story_branch(td, "paul/story-001-test", target=main_branch)
+            branching.merge_branch(td, "paul/story-001-test", target=main_branch)
 
             merges = subprocess.run(
                 ["git", "log", "--merges", "--oneline"],
@@ -187,7 +187,7 @@ class TestMergeStoryBranch(unittest.TestCase):
             for i in range(3):
                 _make_feature_commit(td, f"file{i}.txt")
 
-            branching.merge_story_branch(td, "paul/story-002-hist", target=main_branch)
+            branching.merge_branch(td, "paul/story-002-hist", target=main_branch)
 
             log = subprocess.run(
                 ["git", "log", "--oneline"],
@@ -199,7 +199,7 @@ class TestMergeStoryBranch(unittest.TestCase):
                 self.assertIn(f"file{i}.txt", log.stdout)
 
 
-class TestMergeSprintBranch(unittest.TestCase):
+class TestMergeBranch(unittest.TestCase):
     def test_merges_into_target(self):
         with tempfile.TemporaryDirectory() as td:
             _init_repo(td)
@@ -213,9 +213,7 @@ class TestMergeSprintBranch(unittest.TestCase):
             )
             _make_feature_commit(td)
 
-            branching.merge_sprint_branch(
-                td, "paul/sprint-027-feat", target=main_branch
-            )
+            branching.merge_branch(td, "paul/sprint-027-feat", target=main_branch)
 
             merges = subprocess.run(
                 ["git", "log", "--merges", "--oneline"],
@@ -262,7 +260,7 @@ class TestMergeSprintBranch(unittest.TestCase):
             )
 
             with self.assertRaises(SystemExit):
-                branching.merge_sprint_branch(
+                branching.merge_branch(
                     td, "paul/sprint-027-conflict", target=main_branch
                 )
 
@@ -345,7 +343,7 @@ class TestCLI(unittest.TestCase):
                     script,
                     "--smm-dir",
                     str(smm_dir),
-                    "merge",
+                    "merge-branch",
                     "--cwd",
                     td,
                     "--branch",
@@ -415,28 +413,18 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
     Force callers to be explicit.
     """
 
-    def test_merge_story_branch_signature_has_no_target_default(self):
+    def test_merge_branch_signature_has_no_target_default(self):
         import inspect
 
-        sig = inspect.signature(branching.merge_story_branch)
+        sig = inspect.signature(branching.merge_branch)
         self.assertIs(
             sig.parameters["target"].default,
             inspect.Parameter.empty,
-            "merge_story_branch must NOT default target to 'main'",
-        )
-
-    def test_merge_sprint_branch_signature_has_no_target_default(self):
-        import inspect
-
-        sig = inspect.signature(branching.merge_sprint_branch)
-        self.assertIs(
-            sig.parameters["target"].default,
-            inspect.Parameter.empty,
-            "merge_sprint_branch must NOT default target to 'main'",
+            "merge_branch must NOT default target to 'main'",
         )
 
     def test_cli_argparse_target_default_is_none(self):
-        """Argparse --target on merge / merge-sprint defaults to None.
+        """Argparse --target on merge / merge-branch defaults to None.
 
         Guards the CLI surface against re-introduction of `default="main"`
         which would bypass get_merge_target and silently misroute Stage-3
@@ -448,28 +436,24 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
             captured.setdefault("ns", args)
             return 0
 
-        for cmd in ("merge", "merge-sprint"):
-            with self.subTest(cmd=cmd):
-                captured.clear()
-                attr = "_cmd_merge" if cmd == "merge" else "_cmd_merge_sprint"
-                argv = [
-                    "branching.py",
-                    "--smm-dir",
-                    "/tmp",
-                    cmd,
-                    "--cwd",
-                    ".",
-                    "--branch",
-                    "x",
-                ]
-                with (
-                    patch.object(branching, attr, _capture),
-                    patch.object(sys, "argv", argv),
-                ):
-                    branching.main()
-                self.assertIsNone(captured["ns"].target)
+        argv = [
+            "branching.py",
+            "--smm-dir",
+            "/tmp",
+            "merge-branch",
+            "--cwd",
+            ".",
+            "--branch",
+            "x",
+        ]
+        with (
+            patch.object(branching, "_cmd_merge_branch", _capture),
+            patch.object(sys, "argv", argv),
+        ):
+            branching.main()
+        self.assertIsNone(captured["ns"].target)
 
-    def test_cli_merge_sprint_routes_through_get_merge_target_when_omitted(self):
+    def test_cli_merge_branch_routes_through_get_merge_target_when_omitted(self):
         """CLI without --target uses get_merge_target (not literal 'main')."""
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
@@ -498,7 +482,7 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
             script = str(
                 Path(__file__).parent.parent.parent / "scripts" / "branching.py"
             )
-            # Invoke merge-sprint WITHOUT --target. Must route through
+            # Invoke merge-branch WITHOUT --target. Must route through
             # get_merge_target which returns the recorded plan branch.
             r = subprocess.run(
                 [
@@ -506,7 +490,7 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
                     script,
                     "--smm-dir",
                     str(smm_dir),
-                    "merge-sprint",
+                    "merge-branch",
                     "--cwd",
                     td,
                     "--branch",
@@ -656,7 +640,7 @@ class TestMergeFailureMessage(unittest.TestCase):
             )
 
             with patch("sys.stderr") as fake_err, self.assertRaises(SystemExit):
-                branching.merge_sprint_branch(
+                branching.merge_branch(
                     td, "paul/sprint-099-conflict", target=main_branch
                 )
 

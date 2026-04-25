@@ -90,10 +90,23 @@ class TestSprintClosePreload(_IntegrationTestCase):
         self.assertEqual(_extract_preload_var(result.stdout, "WORKTREE_CLEAN"), "false")
 
     def test_emits_review_input_path(self):
+        # REVIEW_INPUT is a per-invocation tempfile under SMM_DIR — concurrent
+        # close skills in different worktrees must not race on a shared path.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         review_input = _extract_preload_var(result.stdout, "REVIEW_INPUT")
-        self.assertEqual(review_input, str(self.smm_dir / ".close-review-input.json"))
+        self.assertIsNotNone(review_input)
+        review_path = Path(review_input)
+        self.assertEqual(review_path.parent, self.smm_dir)
+        self.assertTrue(review_path.name.startswith(".close-review-input."))
+        self.assertTrue(review_path.exists(), "mktemp should create the file")
+
+    def test_review_input_path_is_unique_per_call(self):
+        # Two preload calls must produce distinct REVIEW_INPUT paths so that
+        # concurrent close skills do not write to the same file.
+        first = _extract_preload_var(self._preload().stdout, "REVIEW_INPUT")
+        second = _extract_preload_var(self._preload().stdout, "REVIEW_INPUT")
+        self.assertNotEqual(first, second)
 
     def test_exits_zero_with_unwritable_smm(self):
         # Override CLAUDE_PLUGIN_DATA to a fresh empty dir so init.sh
@@ -170,12 +183,19 @@ class TestSprintCloseSkillText(unittest.TestCase):
         )
 
     def test_writes_close_review_input_with_required_fields(self):
-        # The body must instruct writing .close-review-input.json with
-        # the four keys the close-reviewer agent reads (mode, source_branch,
-        # target_branch, diff_command).
-        self.assertIn(".close-review-input.json", self.text)
+        # The body must instruct writing the close-review-input file with
+        # the four keys the close-reviewer agent reads.
+        self.assertIn("REVIEW_INPUT", self.text)
         for key in ("mode", "source_branch", "target_branch", "diff_command"):
             self.assertIn(key, self.text, f"Missing review-input key: {key}")
+
+    def test_agent_prompt_carries_smm_dir_and_review_input(self):
+        # The Agent prompt must literally embed SMM_DIR= and REVIEW_INPUT=
+        # lines — the close-reviewer reads them from the prompt now that
+        # SubagentStart no longer injects them. A heredoc reformat must
+        # not silently drop these without breaking this guard.
+        self.assertIn("SMM_DIR=", self.text)
+        self.assertIn("REVIEW_INPUT=", self.text)
         # Mode must be 'sprint' for this skill.
         self.assertIn('"sprint"', self.text)
 
@@ -184,31 +204,49 @@ class TestSprintCloseSkillText(unittest.TestCase):
         self.assertIn("xp-agents:xp-close-reviewer", self.text)
         self.assertIn("subagent_type", self.text)
 
-    def test_merge_sprint_called_with_explicit_target(self):
-        # The body must invoke `branching.py merge-sprint` with an
+    def test_merge_branch_called_with_explicit_target(self):
+        # The body must invoke `branching.py merge-branch` with an
         # explicit --target — branching.py requires it and implicit
         # defaults caused drift in earlier iterations.
-        self.assertIn("merge-sprint", self.text)
+        self.assertIn("merge-branch", self.text)
         self.assertIn("--target", self.text)
         self.assertIn("--branch", self.text)
 
     def test_delete_branch_only_after_merge(self):
         # The body must invoke `branching.py delete ... --branch` AND that
-        # call must appear AFTER the merge-sprint call so cleanup never
+        # call must appear AFTER the merge-branch call so cleanup never
         # runs on a failed merge. The CLI requires --cwd between them.
         delete_match = re.search(r"\bdelete\b.*--branch", self.text)
         assert delete_match is not None, "branching.py delete --branch not found"
-        merge_idx = self.text.index("merge-sprint")
+        merge_idx = self.text.index("merge-branch")
         self.assertLess(
             merge_idx,
             delete_match.start(),
-            "delete --branch must appear AFTER merge-sprint",
+            "delete --branch must appear AFTER merge-branch",
         )
 
     def test_asks_user_before_merging(self):
         # Per design, the close skill must ask the user to confirm the
         # merge after presenting the reviewer's findings.
         self.assertIn("AskUserQuestion", self.text)
+
+    def test_invokes_plan_close_when_plan_complete(self):
+        # After a successful merge, the skill must check whether the
+        # current plan is complete (all milestones delivered/deferred)
+        # and a plan branch is recorded — if so, chain into /xp-plan-close.
+        self.assertIn("plan_cli.py", self.text)
+        self.assertIn("get-branch", self.text)
+        self.assertIn("is-plan-complete", self.text)
+        self.assertIn("/xp-plan-close", self.text)
+        # The chain step must appear AFTER the merge — not before — so a
+        # failed merge does not trigger plan-close.
+        merge_idx = self.text.index("merge-branch")
+        chain_idx = self.text.index("/xp-plan-close")
+        self.assertLess(
+            merge_idx,
+            chain_idx,
+            "/xp-plan-close invocation must appear AFTER merge-branch",
+        )
 
 
 _SPRINT_REVIEW_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-review" / "SKILL.md"
