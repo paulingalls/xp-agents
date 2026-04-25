@@ -180,7 +180,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create-sprint --cwd . --sprint <sprint_id> --slug <goal-slug>
 ```
 
-`create-sprint` automatically forks the new branch off the **plan branch** when `execution_plan.json` has `branch` set and that branch exists locally; otherwise it forks off the primary branch (main at Stages 1-2, the configured integration branch at Stage 3). It also records the actual created branch name into `sprint.json` so downstream lookups never depend on slug-from-goal reconstruction. No code change is needed in this skill — `create-sprint` handles the base detection and recording transparently.
+`create-sprint` forks off the plan branch when `execution_plan.json` has `branch` set, otherwise off the primary branch. It records the created branch name into `sprint.json`'s `branch_name` field, which downstream lookups read directly.
 
 **Stage 0-1:** Skip sprint branch creation.
 
