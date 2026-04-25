@@ -12,6 +12,8 @@ from _acceptance_execution import validate_acceptance_execution
 SPRINT_FILENAME = "sprint.json"
 
 VALID_STORY_STATUSES = frozenset({"ready", "in-progress", "done", "deferred"})
+TERMINAL_STORY_STATUSES = frozenset({"done", "deferred"})
+ACTIVE_STORY_STATUSES = VALID_STORY_STATUSES - TERMINAL_STORY_STATUSES
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,
@@ -20,8 +22,6 @@ STORY_FIELD_MAXLENGTH: dict[str, int] = {
 STORY_ITEM_MAXLENGTH: dict[str, int] = {
     "file_domain": 200,
 }
-
-_ACTIVE_STATUSES = frozenset({"ready", "in-progress"})
 
 _SPRINT_REQUIRED = frozenset({"sprint_id", "goal", "started", "stories"})
 
@@ -48,6 +48,7 @@ def empty_sprint() -> dict:
         "goal": "",
         "started": "",
         "milestone": "",
+        "branch_name": None,
         "stories": [],
     }
 
@@ -138,6 +139,10 @@ def validate_sprint(data: object, *, enforce_budget: bool = True) -> list[str]:
 
     if not isinstance(data["goal"], str):
         errors.append("goal must be a string")
+
+    bn = data.get("branch_name")
+    if bn is not None and not isinstance(bn, str):
+        errors.append("branch_name must be a string or null")
 
     if not isinstance(data["stories"], list):
         errors.append("stories must be a list")

@@ -16,13 +16,13 @@ from typing import Any
 from _acceptance_execution import render_acceptance_execution
 from _append_impl import write_text_atomic
 from sprint_schema import (
+    ACTIVE_STORY_STATUSES,
     SPRINT_FILENAME,
     VALID_STORY_STATUSES,
     validate_sprint,
 )
 
 _MARKER_NAME = ".needs-sprint"
-_ACTIVE_STATUSES = frozenset({"ready", "in-progress"})
 
 
 def sprint_exists(smm_dir: Path) -> bool:
@@ -82,11 +82,17 @@ def save_sprint(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> No
         (smm_dir / _MARKER_NAME).unlink(missing_ok=True)
 
 
-def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
-    """Load sprint and find story by ID. Returns (sprint, story) refs."""
+def _load_required(smm_dir: Path) -> dict:
+    """Load the sprint or raise ValueError if missing."""
     sprint = load_sprint(smm_dir)
     if sprint is None:
         raise ValueError("No sprint found")
+    return sprint
+
+
+def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
+    """Load sprint and find story by ID. Returns (sprint, story) refs."""
+    sprint = _load_required(smm_dir)
     matches = [s for s in sprint["stories"] if s["id"] == story_id]
     if not matches:
         raise ValueError(f"No story with id {story_id!r}")
@@ -101,6 +107,13 @@ def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
 
     sprint, story = _load_story(smm_dir, story_id)
     story["status"] = status
+    save_sprint(smm_dir, sprint, enforce_budget=False)
+
+
+def set_branch(smm_dir: Path, branch_name: str) -> None:
+    """Record the sprint's git branch name."""
+    sprint = _load_required(smm_dir)
+    sprint["branch_name"] = branch_name
     save_sprint(smm_dir, sprint, enforce_budget=False)
 
 
@@ -135,7 +148,7 @@ def has_active_stories(smm_dir: Path) -> bool:
 
 def has_active_stories_data(data: dict) -> bool:
     """True if sprint dict has ready or in-progress stories."""
-    return any(s["status"] in _ACTIVE_STATUSES for s in data["stories"])
+    return any(s["status"] in ACTIVE_STORY_STATUSES for s in data["stories"])
 
 
 def has_in_progress_stories(smm_dir: Path) -> bool:
