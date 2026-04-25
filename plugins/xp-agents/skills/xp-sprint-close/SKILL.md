@@ -116,19 +116,13 @@ intact for follow-up work.
 
 ## Step 8: Merge and clean up
 
-On confirmation, merge with --no-ff and delete the sprint branch.
-Always pass `--target` explicitly — branching.py requires it:
+On confirmation, merge with --no-ff and chain delete behind the merge's
+success. Always pass `--target` explicitly — branching.py requires it.
+The `&&` chain guarantees delete only runs after a clean merge:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH>
-```
-
-The merge-branch subcommand exits non-zero on conflict or error. Check
-`$?` before invoking delete — only run cleanup when the merge actually
-succeeded:
-
-```bash
+  merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH> && \
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <CURRENT_BRANCH>
 ```
