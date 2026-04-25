@@ -115,14 +115,21 @@ def _session_end_checklist(smm_dir: Path) -> str | None:
     return "Session-end checklist: " + " ".join(parts)
 
 
+_STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
+
+
 def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
     committed_files: list[str],
     sprint: dict | None = None,
+    message: str | None = None,
 ) -> str | None:
-    """Resolve story_id for a commit using three-tier attribution.
+    """Resolve story_id for a commit using four-tier attribution.
 
+    Tier 0: `[story-NNN]` prefix in commit message — authoritative when
+            the named story is currently in-progress. Falls through when
+            the prefix is absent or names a non-in-progress story.
     Tier 1: Teammate with .story-assignment-{name} file.
     Tier 2: Solo sprint — single in-progress story, or the unique
             highest-overlap in-progress story by file domain. Ties
@@ -151,6 +158,13 @@ def _resolve_story_id(
     in_progress = sprint_store.list_stories(sprint, status="in-progress")
     if not in_progress:
         return None
+
+    if message:
+        m = _STORY_PREFIX_RE.match(message)
+        if m:
+            tagged = m.group(1)
+            if any(s["id"] == tagged for s in in_progress):
+                return tagged
 
     if len(in_progress) == 1:
         return in_progress[0]["id"]
@@ -241,7 +255,9 @@ def _handle_commit(
 
     sprint = sprint_store.load_sprint(smm_dir)
 
-    story_id = _resolve_story_id(smm_dir, cwd, committed_files, sprint=sprint)
+    story_id = _resolve_story_id(
+        smm_dir, cwd, committed_files, sprint=sprint, message=body
+    )
     if story_id:
         metadata["story_id"] = story_id
     if sprint is not None:

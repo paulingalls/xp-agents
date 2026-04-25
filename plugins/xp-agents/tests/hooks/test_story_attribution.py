@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for _resolve_story_id — three-tier commit-to-story attribution.
+"""Tests for _resolve_story_id — four-tier commit-to-story attribution.
 
 Split from test_bash.py to keep files under 500 lines.
 """
@@ -19,7 +19,7 @@ from conftest import _HookTestCase, _make_bash_input, _s, _sprint_json
 
 
 class TestResolveStoryId(_HookTestCase):
-    """Tests for _resolve_story_id: three-tier commit-to-story attribution."""
+    """Tests for _resolve_story_id: four-tier commit-to-story attribution."""
 
     def test_tier1_teammate_reads_assignment_file(self):
         """Teammate with .story-assignment file returns its story_id."""
@@ -258,6 +258,96 @@ class TestResolveStoryId(_HookTestCase):
         )
         result = bash_post_tool._resolve_story_id(
             self.smm_dir, "/proj", ["scripts/auth.py"]
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_tier0_commit_message_prefix_overrides_file_overlap(self):
+        """[story-NNN] prefix in commit message wins over file-domain overlap.
+
+        Real bug from sprint-033: solo agent with multiple in-progress
+        stories had story-001 commits attributed to story-002 because the
+        commit's files overlapped story-002's declared domain (the rename
+        commit touched xp-sprint-close/SKILL.md which was in story-002's
+        domain). Commit message prefix is the ground truth — every commit
+        was authored as `[story-001] Rename merge-sprint...` — so the
+        prefix overrides file-overlap when both are present.
+        """
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Marker",
+                        "in-progress",
+                        file_domain=["scripts/markers.py — new entry"],
+                    ),
+                    _s(
+                        "story-002",
+                        "Sprint-close edit",
+                        "in-progress",
+                        file_domain=["skills/xp-sprint-close/SKILL.md — append"],
+                    ),
+                ]
+            )
+        )
+        # Files overlap story-002's domain only — but the message says story-001.
+        result = bash_post_tool._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["skills/xp-sprint-close/SKILL.md"],
+            message="[story-001] Rename merge-sprint to merge-branch",
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_tier0_prefix_must_match_in_progress_story(self):
+        """[story-NNN] prefix only matches when that story is in-progress."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Marker",
+                        "done",  # NOT in-progress
+                        file_domain=["scripts/markers.py — new entry"],
+                    ),
+                    _s(
+                        "story-002",
+                        "Sprint-close edit",
+                        "in-progress",
+                        file_domain=["skills/xp-sprint-close/SKILL.md — append"],
+                    ),
+                ]
+            )
+        )
+        # Message claims story-001 but story-001 isn't in-progress; fall
+        # through to file-overlap (which picks story-002).
+        result = bash_post_tool._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["skills/xp-sprint-close/SKILL.md"],
+            message="[story-001] Stale tag",
+        )
+        self.assertEqual(result, "story-002")
+
+    def test_tier0_no_prefix_falls_through_to_file_overlap(self):
+        """Commit messages without [story-NNN] prefix fall through to Tier 2."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Auth",
+                        "in-progress",
+                        file_domain=["scripts/auth.py — login"],
+                    ),
+                ]
+            )
+        )
+        result = bash_post_tool._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["scripts/auth.py"],
+            message="Refactor login flow",
         )
         self.assertEqual(result, "story-001")
 
