@@ -211,5 +211,36 @@ class TestSprintCloseSkillText(unittest.TestCase):
         self.assertIn("AskUserQuestion", self.text)
 
 
+_SPRINT_REVIEW_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-review" / "SKILL.md"
+
+
+class TestSprintReviewChainsToClose(unittest.TestCase):
+    """story-004: xp-sprint-review SKILL.md tells main agent to invoke close.
+
+    The chain is fragile if it lives only in the agent's head — pin it
+    to the SKILL.md text so a future skill edit can't silently drop it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SPRINT_REVIEW_SKILL.read_text()
+
+    def test_references_xp_sprint_close(self):
+        # The skill body must mention /xp-sprint-close so the main agent
+        # knows to invoke it after surfacing findings.
+        self.assertIn("/xp-sprint-close", self.text)
+
+    def test_chain_instruction_appears_after_main_agent_block(self):
+        # The chain instruction should follow the existing
+        # "If you are the main agent" block (the natural insertion point).
+        main_agent_idx = self.text.index("If you are the main agent")
+        close_idx = self.text.index("/xp-sprint-close")
+        self.assertLess(
+            main_agent_idx,
+            close_idx,
+            "/xp-sprint-close instruction should follow the main-agent block",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
