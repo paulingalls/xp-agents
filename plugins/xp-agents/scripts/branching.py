@@ -224,13 +224,27 @@ def _create_or_resume_branch(
     return name
 
 
+# Single source of truth: each create_*_branch enforces a min stage,
+# and _print_or_skip renders the same threshold in its skip message.
+# Sharing the values here prevents the inner enforcement and the outer
+# message from drifting if a stage threshold ever moves.
+_BRANCH_MIN_STAGE: dict[str, int] = {
+    "story": 1,
+    "sprint": 2,
+    "plan": 2,
+    "free": 1,
+}
+
+
 def create_story_branch(
     cwd: str, story_id: str, slug: str, smm_dir: Path
 ) -> str | None:
-    """Returns branch name or None if Stage 0."""
+    """Returns branch name or None if below story min stage."""
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
-    return _create_or_resume_branch(cwd, name, smm_dir, min_stage=1)
+    return _create_or_resume_branch(
+        cwd, name, smm_dir, min_stage=_BRANCH_MIN_STAGE["story"]
+    )
 
 
 def create_sprint_branch(
@@ -249,7 +263,9 @@ def create_sprint_branch(
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, sprint_id, slug)
     base = _recorded_plan_branch(cwd, smm_dir)
-    result = _create_or_resume_branch(cwd, name, smm_dir, min_stage=2, base=base)
+    result = _create_or_resume_branch(
+        cwd, name, smm_dir, min_stage=_BRANCH_MIN_STAGE["sprint"], base=base
+    )
     if result is not None and sprint_store.sprint_exists(smm_dir):
         sprint_store.set_branch(smm_dir, result)
     return result
@@ -270,7 +286,11 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     user_ns = identity.user_namespace(cwd)
     name = f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
     return _create_or_resume_branch(
-        cwd, name, smm_dir, min_stage=1, base=get_primary_branch(smm_dir)
+        cwd,
+        name,
+        smm_dir,
+        min_stage=_BRANCH_MIN_STAGE["free"],
+        base=get_primary_branch(smm_dir),
     )
 
 
@@ -299,7 +319,7 @@ def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
         cwd,
         name,
         smm_dir,
-        min_stage=2,
+        min_stage=_BRANCH_MIN_STAGE["plan"],
         base=get_primary_branch(smm_dir),
         on_create=_record_in_plan,
     )
@@ -370,7 +390,7 @@ def _print_or_skip(result: str | None, min_stage: int) -> int:
 def _cmd_create(args: argparse.Namespace) -> int:
     return _print_or_skip(
         create_story_branch(args.cwd, args.story, args.slug, Path(args.smm_dir)),
-        min_stage=1,
+        _BRANCH_MIN_STAGE["story"],
     )
 
 
@@ -392,7 +412,7 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
     return _print_or_skip(
         create_sprint_branch(args.cwd, args.sprint, args.slug, Path(args.smm_dir)),
-        min_stage=2,
+        _BRANCH_MIN_STAGE["sprint"],
     )
 
 
@@ -426,14 +446,14 @@ def _cmd_merge_sprint(args: argparse.Namespace) -> int:
 def _cmd_create_plan(args: argparse.Namespace) -> int:
     return _print_or_skip(
         create_plan_branch(args.cwd, args.slug, Path(args.smm_dir)),
-        min_stage=2,
+        _BRANCH_MIN_STAGE["plan"],
     )
 
 
 def _cmd_create_free(args: argparse.Namespace) -> int:
     return _print_or_skip(
         create_free_branch(args.cwd, args.slug, Path(args.smm_dir)),
-        min_stage=1,
+        _BRANCH_MIN_STAGE["free"],
     )
 
 
