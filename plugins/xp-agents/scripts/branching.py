@@ -182,6 +182,34 @@ def _checkout_or_exit(cwd: str, branch: str) -> None:
         sys.exit(1)
 
 
+def _fast_forward_if_safe(cwd: str, branch: str, base: str) -> None:
+    """Fast-forward `branch` to `base` when `branch` is an ancestor of `base`.
+
+    No-op when `branch` has unique commits or has diverged — silent
+    rebase could lose work. The branch must already be checked out.
+    Logs a stderr note on a successful fast-forward so the user knows
+    the ref moved under them.
+    """
+    r = _git(["git", "merge-base", "--is-ancestor", branch, base], cwd)
+    if r.returncode != 0:
+        return
+    old_sha = _git(["git", "rev-parse", branch], cwd).stdout.strip()
+    new_sha = _git(["git", "rev-parse", base], cwd).stdout.strip()
+    if old_sha == new_sha:
+        return
+    ff = _git(["git", "merge", "--ff-only", base], cwd)
+    if ff.returncode != 0:
+        print(
+            f"note: fast-forward of {branch} to {base} failed: {ff.stderr.strip()}",
+            file=sys.stderr,
+        )
+        return
+    print(
+        f"note: fast-forwarded {branch} to {base} ({old_sha[:7]}..{new_sha[:7]})",
+        file=sys.stderr,
+    )
+
+
 def _create_or_resume_branch(
     cwd: str,
     name: str,
@@ -194,13 +222,18 @@ def _create_or_resume_branch(
 
     Returns the branch name, or None when the configured branching
     stage is below `min_stage`. The base argument forks the new branch
-    from a specific ref instead of HEAD.
+    from a specific ref instead of HEAD; on resume, the existing branch
+    fast-forwards to `base` when its tip is an ancestor of `base` so
+    sprint-start scaffolds don't snap to a stale base mid-sprint.
+    Branches with unique commits ahead of base are left alone.
     """
     if get_branching_stage(smm_dir) < min_stage:
         return None
 
     if branch_exists(cwd, name):
         _checkout_or_exit(cwd, name)
+        if base is not None:
+            _fast_forward_if_safe(cwd, name, base)
         return name
 
     if not is_worktree_clean(cwd):
@@ -233,11 +266,17 @@ _BRANCH_MIN_STAGE: dict[str, int] = {
 def create_story_branch(
     cwd: str, story_id: str, slug: str, smm_dir: Path
 ) -> str | None:
-    """Returns branch name or None if below story min stage."""
+    """Returns branch name or None if below story min stage.
+
+    Passes the resolved story base (sprint branch at stage 2+, otherwise
+    primary) so resume can fast-forward a stale scaffold to the current
+    base when safe — see _fast_forward_if_safe.
+    """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
+    base = get_story_base_branch(smm_dir, cwd)
     return _create_or_resume_branch(
-        cwd, name, smm_dir, min_stage=_BRANCH_MIN_STAGE["story"]
+        cwd, name, smm_dir, min_stage=_BRANCH_MIN_STAGE["story"], base=base
     )
 
 
