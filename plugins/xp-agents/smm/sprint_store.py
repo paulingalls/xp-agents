@@ -120,8 +120,13 @@ def set_branch(smm_dir: Path, branch_name: str) -> None:
 _IMMUTABLE_STORY_FIELDS = frozenset({"id"})
 
 
-def edit_story(smm_dir: Path, story_id: str, updates: dict) -> None:
-    """Shallow-merge updates into a story's fields."""
+def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
+    """Shallow-merge updates into a story's fields.
+
+    `updates` is typed as `object` (not `dict`) because the CLI caller
+    forwards raw `json.loads` output, which can legally be a list,
+    scalar, or null. The isinstance check is a real boundary guard.
+    """
     if not isinstance(updates, dict):
         raise ValueError("updates must be a JSON object")
     protected = _IMMUTABLE_STORY_FIELDS & updates.keys()
