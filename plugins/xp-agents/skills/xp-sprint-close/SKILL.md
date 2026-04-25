@@ -12,6 +12,7 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */smm/plan_cli.py *)
   - Bash(git push *)
   - Bash(gh pr *)
 ---
@@ -131,6 +132,32 @@ If the merge fails, surface the failure (stderr + stdout from the merge
 call already include the source/target branch names and the conflict
 marker) and **do not** delete the branch — the user needs to resolve the
 conflict on the still-existing branch. Conflicts are never auto-resolved.
+
+## Step 9: Plan-close chain (if applicable)
+
+After the merge cleanup completes, check whether the sprint just shipped
+the last milestone of a plan-branch plan. The gate fires only when both
+checks succeed — `get-branch` prints non-empty AND `is-plan-complete`
+exits 0:
+
+```bash
+PLAN_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> get-branch) \
+  && [ -n "$PLAN_BRANCH" ] \
+  && python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> is-plan-complete
+```
+
+- `get-branch` prints the recorded plan branch (empty when the plan
+  is not on a plan branch).
+- `is-plan-complete` exits 0 when every milestone is delivered or
+  deferred, non-zero otherwise.
+
+If the gate above exits 0, invoke `/xp-plan-close` to push the plan
+branch, fork the close-reviewer in plan mode, present findings, merge
+plan → primary, archive the plan, and clean up. The chain runs in the
+same main agent context — the user confirms each merge inside.
+
+If the gate exits non-zero, skip the chain and report sprint-close
+complete (the section below).
 
 ## Reporting Back
 
