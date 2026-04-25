@@ -230,6 +230,24 @@ class TestSprintCloseSkillText(unittest.TestCase):
         # merge after presenting the reviewer's findings.
         self.assertIn("AskUserQuestion", self.text)
 
+    def test_invokes_plan_close_when_plan_complete(self):
+        # After a successful merge, the skill must check whether the
+        # current plan is complete (all milestones delivered/deferred)
+        # and a plan branch is recorded — if so, chain into /xp-plan-close.
+        self.assertIn("plan_cli.py", self.text)
+        self.assertIn("get-branch", self.text)
+        self.assertIn("is-plan-complete", self.text)
+        self.assertIn("/xp-plan-close", self.text)
+        # The chain step must appear AFTER the merge — not before — so a
+        # failed merge does not trigger plan-close.
+        merge_idx = self.text.index("merge-branch")
+        chain_idx = self.text.index("/xp-plan-close")
+        self.assertLess(
+            merge_idx,
+            chain_idx,
+            "/xp-plan-close invocation must appear AFTER merge-branch",
+        )
+
 
 _SPRINT_REVIEW_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-review" / "SKILL.md"
 
