@@ -65,22 +65,53 @@ def get_branching_stage(smm_dir: Path) -> int:
     return _load_branching_strategy(smm_dir).get("stage", 0)
 
 
+def _match_local_branches(cwd: str, pattern: str) -> list[str]:
+    """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
+    r = _git(
+        ["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{pattern}"],
+        cwd,
+    )
+    if r.returncode != 0:
+        return []
+    return [b for b in r.stdout.splitlines() if b]
+
+
 def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:
-    """Return execution_plan.branch when set AND it exists locally."""
+    """Return execution_plan.branch when set AND a matching local branch exists.
+
+    Prefers exact match. Falls back to a `<branch>-*` suffix-prefix scan
+    (anchored on a separator so `plan-feat-*` doesn't match
+    `plan-featured`) and prints a stderr note when the fallback fires —
+    drift discovery should be visible. Note: get_story_base_branch
+    handles sprint slug drift by reconstructing via slugify(goal); plan
+    branches glob-scan because the recorded value IS the branch name.
+    """
     plan = execution_plan_store.load_plan(smm_dir)
     if plan is None:
         return None
     plan_branch = plan.get("branch")
-    if plan_branch and branch_exists(cwd, plan_branch):
+    if not plan_branch:
+        return None
+    if branch_exists(cwd, plan_branch):
         return plan_branch
-    return None
+    matches = sorted(_match_local_branches(cwd, f"{plan_branch}-*"))
+    if not matches:
+        return None
+    drifted = matches[0]
+    print(
+        f"note: recorded plan branch '{plan_branch}' not found locally;"
+        f" using prefix match '{drifted}'",
+        file=sys.stderr,
+    )
+    return drifted
 
 
 def get_merge_target(smm_dir: Path, cwd: str) -> str:
     """Return the branch to merge into.
 
-    Plan branch when execution_plan.branch is recorded AND the branch
-    exists locally; otherwise the primary integration branch.
+    Plan branch when execution_plan.branch resolves locally (exact match
+    preferred, `<branch>-*` prefix-fallback for slug drift); otherwise
+    the primary integration branch.
     """
     return _recorded_plan_branch(cwd, smm_dir) or get_primary_branch(smm_dir)
 
@@ -246,15 +277,8 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
 def list_free_branches(cwd: str) -> list[str]:
     """Return free branches owned by the current user, excluding HEAD."""
     user_ns = identity.user_namespace(cwd)
-    pattern = f"refs/heads/{user_ns}/free-*"
-    r = _git(
-        ["git", "for-each-ref", "--format=%(refname:short)", pattern],
-        cwd,
-    )
-    if r.returncode != 0:
-        return []
     current = identity.get_current_branch(cwd)
-    return [b for b in r.stdout.splitlines() if b and b != current]
+    return [b for b in _match_local_branches(cwd, f"{user_ns}/free-*") if b != current]
 
 
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
