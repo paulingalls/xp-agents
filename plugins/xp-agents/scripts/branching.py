@@ -325,11 +325,11 @@ def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
         sys.exit(1)
 
 
-def merge_story_branch(cwd: str, story_branch: str, target: str = "main") -> None:
+def merge_story_branch(cwd: str, story_branch: str, target: str) -> None:
     _merge_into_target(cwd, story_branch, target)
 
 
-def merge_sprint_branch(cwd: str, sprint_branch: str, target: str = "main") -> None:
+def merge_sprint_branch(cwd: str, sprint_branch: str, target: str) -> None:
     _merge_into_target(cwd, sprint_branch, target)
 
 
@@ -350,8 +350,13 @@ def _cmd_create(args: argparse.Namespace) -> int:
     )
 
 
+def _resolve_target(args: argparse.Namespace) -> str:
+    """Use --target when provided; else compute via get_merge_target."""
+    return args.target or get_merge_target(Path(args.smm_dir), args.cwd)
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
-    merge_story_branch(args.cwd, args.branch, args.target)
+    merge_story_branch(args.cwd, args.branch, _resolve_target(args))
     return 0
 
 
@@ -390,7 +395,7 @@ def _cmd_get_target(args: argparse.Namespace) -> int:
 
 
 def _cmd_merge_sprint(args: argparse.Namespace) -> int:
-    merge_sprint_branch(args.cwd, args.branch, args.target)
+    merge_sprint_branch(args.cwd, args.branch, _resolve_target(args))
     return 0
 
 
@@ -428,7 +433,7 @@ def main() -> int:
     p_merge = sub.add_parser("merge", help="Merge a story branch")
     p_merge.add_argument("--cwd", required=True)
     p_merge.add_argument("--branch", required=True)
-    p_merge.add_argument("--target", default="main")
+    p_merge.add_argument("--target", default=None)
     p_merge.set_defaults(func=_cmd_merge)
 
     p_delete = sub.add_parser("delete", help="Delete a branch")
@@ -461,7 +466,7 @@ def main() -> int:
     p_merge_sprint = sub.add_parser("merge-sprint", help="Merge a sprint branch")
     p_merge_sprint.add_argument("--cwd", required=True)
     p_merge_sprint.add_argument("--branch", required=True)
-    p_merge_sprint.add_argument("--target", default="main")
+    p_merge_sprint.add_argument("--target", default=None)
     p_merge_sprint.set_defaults(func=_cmd_merge_sprint)
 
     p_create_plan = sub.add_parser("create-plan", help="Create or resume a plan branch")

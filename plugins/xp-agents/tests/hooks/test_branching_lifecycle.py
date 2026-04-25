@@ -407,5 +407,119 @@ class TestCLI(unittest.TestCase):
             self.assertIn("2", r.stdout)
 
 
+class TestRequireExplicitMergeTarget(unittest.TestCase):
+    """sprint-032 C1a: drop default target='main' from merge_*_branch.
+
+    Stage-3 plan branches merge to integration_branch (per Constraints
+    pillar). A 'main' default makes Stage-3 callers silently misroute.
+    Force callers to be explicit.
+    """
+
+    def test_merge_story_branch_signature_has_no_target_default(self):
+        import inspect
+
+        sig = inspect.signature(branching.merge_story_branch)
+        self.assertIs(
+            sig.parameters["target"].default,
+            inspect.Parameter.empty,
+            "merge_story_branch must NOT default target to 'main'",
+        )
+
+    def test_merge_sprint_branch_signature_has_no_target_default(self):
+        import inspect
+
+        sig = inspect.signature(branching.merge_sprint_branch)
+        self.assertIs(
+            sig.parameters["target"].default,
+            inspect.Parameter.empty,
+            "merge_sprint_branch must NOT default target to 'main'",
+        )
+
+    def test_cli_argparse_target_default_is_none(self):
+        """Argparse --target on merge / merge-sprint defaults to None.
+
+        Guards the CLI surface against re-introduction of `default="main"`
+        which would bypass get_merge_target and silently misroute Stage-3
+        merges. Captures the parsed Namespace via a stub-out.
+        """
+        captured: dict[str, object] = {}
+
+        def _capture(args):
+            captured.setdefault("ns", args)
+            return 0
+
+        for cmd in ("merge", "merge-sprint"):
+            with self.subTest(cmd=cmd):
+                captured.clear()
+                attr = "_cmd_merge" if cmd == "merge" else "_cmd_merge_sprint"
+                argv = [
+                    "branching.py",
+                    "--smm-dir",
+                    "/tmp",
+                    cmd,
+                    "--cwd",
+                    ".",
+                    "--branch",
+                    "x",
+                ]
+                with (
+                    patch.object(branching, attr, _capture),
+                    patch.object(sys, "argv", argv),
+                ):
+                    branching.main()
+                self.assertIsNone(captured["ns"].target)
+
+    def test_cli_merge_sprint_routes_through_get_merge_target_when_omitted(self):
+        """CLI without --target uses get_merge_target (not literal 'main')."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            primary = _get_current_branch(td)
+
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _bf.seed_plan(smm_dir, branch="paul/plan-feat")
+
+            # Create plan branch and a sprint-feature branch off it.
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/plan-feat"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td, "plan-base.txt")
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-099-x"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td, "sprint-feat.txt")
+
+            script = str(
+                Path(__file__).parent.parent.parent / "scripts" / "branching.py"
+            )
+            # Invoke merge-sprint WITHOUT --target. Must route through
+            # get_merge_target which returns the recorded plan branch.
+            r = subprocess.run(
+                [
+                    sys.executable,
+                    script,
+                    "--smm-dir",
+                    str(smm_dir),
+                    "merge-sprint",
+                    "--cwd",
+                    td,
+                    "--branch",
+                    "paul/sprint-099-x",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            # HEAD should now be on the plan branch, not on primary.
+            self.assertEqual(_get_current_branch(td), "paul/plan-feat")
+            self.assertNotEqual(_get_current_branch(td), primary)
+
+
 if __name__ == "__main__":
     unittest.main()
