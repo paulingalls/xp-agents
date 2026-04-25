@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — Sprint-033 (M-3 in-progress)
+
+- **Close-review-input handoff: agent-scoping reverted in favor of per-invocation tempfile.** v2.27.0 shipped sprint-close with a fixed `<smm_dir>/.close-review-input.json` path injected by SubagentStart, which raced when concurrent close skills ran in different worktrees against the shared SMM_DIR. The handoff now uses `mktemp "${SMM_DIR}/.close-review-input.XXXXXX"` (joining the `.smm-rendered.XXXXXX` / `.sprint-rendered.XXXXXX` tempfile family swept on every preload by `_preload_base.sh`) and the close skill embeds the path plus `SMM_DIR` directly in the Agent prompt — the SubagentStart `xp-close-reviewer` injection is removed entirely. Resolves the multi-worktree race flagged in sprint-032 review.
+- **Branching primitive rename + collapse: `merge-sprint`/`merge_sprint_branch` → `merge-branch`/`merge_branch`.** Generic primitive accepts any source branch + target. `merge_story_branch` and the legacy `merge` CLI subcommand collapsed into `merge_branch` / `merge-branch` — they were 1-line aliases of the same `_merge_into_target` call. `xp-accept` SKILL.md updated to use `merge-branch` for story merges. Net -29 LOC.
+
 ## v2.27.0 — /xp-sprint-close skill + xp-close-reviewer agent (M-2)
 
 Sprint-032 implements Milestone 2 of the branch-lifecycle plan: the post-review merge pipeline. After `/xp-sprint-review` surfaces findings, the main agent now invokes `/xp-sprint-close` to push, fork a holistic close-reviewer, ask for confirmation, merge the sprint branch into its target, and clean up. 5/5 stories delivered.

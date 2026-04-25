@@ -107,7 +107,7 @@ Merge each story marked **done** into the base branch. Branch names follow `<use
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  merge --cwd . --branch <story-branch-name> --target <base-branch>
+  merge-branch --cwd . --branch <story-branch-name> --target <base-branch>
 
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <story-branch-name>
