@@ -7,8 +7,6 @@ Story branch lifecycle tests are in test_branching_lifecycle.py.
 Pure-function unit tests are in test_branching.py.
 """
 
-import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -20,40 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _branching_fixtures as _bf
 import branching
 
-_GIT_ENV = {
-    **os.environ,
-    "GIT_AUTHOR_NAME": "t",
-    "GIT_AUTHOR_EMAIL": "t@t",
-    "GIT_COMMITTER_NAME": "t",
-    "GIT_COMMITTER_EMAIL": "t@t",
-}
-
-
-def _init_repo(td: str) -> None:
-    subprocess.run(["git", "init", td], capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "init"],
-        cwd=td,
-        capture_output=True,
-        check=True,
-        env=_GIT_ENV,
-    )
-
-
-def _get_current_branch(cwd: str) -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
-def _write_system_context(smm_dir: Path, stage: int) -> None:
-    ctx = {"project_name": "test", "branching_strategy": {"stage": stage}}
-    (smm_dir / "system_context.json").write_text(json.dumps(ctx))
+_GIT_ENV = _bf.GIT_ENV
+_init_repo = _bf.init_repo
+_get_current_branch = _bf.get_current_branch
+_write_system_context = _bf.write_system_context
 
 
 def _write_sprint_json(
@@ -148,6 +119,140 @@ class TestCreateSprintBranch(unittest.TestCase):
                 branching.create_sprint_branch(td, "sprint-027", "dirty", smm_dir)
 
 
+class TestCreateSprintBranchRecordsBranchName(unittest.TestCase):
+    def test_records_after_create(self):
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _write_sprint_json(smm_dir, "sprint-031", "branch lifecycle")
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "lifecycle", smm_dir)
+
+            sprint = sprint_store.load_sprint(smm_dir)
+            self.assertEqual(sprint["branch_name"], "paul/sprint-031-lifecycle")
+
+    def test_resume_re_records_fixing_drift(self):
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/sprint-031-actual-name"],
+                cwd=td,
+                capture_output=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _write_sprint_json(smm_dir, "sprint-031", "ignored goal")
+            sprint = sprint_store.load_sprint(smm_dir)
+            sprint["branch_name"] = "paul/sprint-031-stale"
+            sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "actual-name", smm_dir)
+
+            sprint = sprint_store.load_sprint(smm_dir)
+            self.assertEqual(sprint["branch_name"], "paul/sprint-031-actual-name")
+
+    def test_no_sprint_no_record_no_error(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_sprint_branch(
+                    td, "sprint-031", "no-sprint-yet", smm_dir
+                )
+
+            self.assertEqual(result, "paul/sprint-031-no-sprint-yet")
+
+
+_seed_plan = _bf.seed_plan
+
+
+def _commit_on_branch(td: str, branch: str, filename: str) -> str:
+    """Add a commit on `branch`, return its SHA."""
+    subprocess.run(["git", "checkout", branch], cwd=td, capture_output=True, check=True)
+    (Path(td) / filename).write_text(filename)
+    subprocess.run(["git", "add", filename], cwd=td, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", f"add {filename}"],
+        cwd=td,
+        capture_output=True,
+        check=True,
+        env=_GIT_ENV,
+    )
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+    ).stdout.strip()
+
+
+class TestCreateSprintBranchPlanBase(unittest.TestCase):
+    def test_forks_off_plan_branch_when_set_and_exists(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/plan-redesign"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            plan_sha = _commit_on_branch(td, "paul/plan-redesign", "plan-only.txt")
+            subprocess.run(["git", "checkout", "main"], cwd=td, capture_output=True)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir, branch="paul/plan-redesign")
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "feat", smm_dir)
+
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(head, plan_sha)
+
+    def test_forks_off_head_when_no_plan_branch(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "feat", smm_dir)
+
+            new_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(new_sha, head_sha)
+
+    def test_forks_off_head_when_plan_branch_missing_locally(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir, branch="paul/plan-nonexistent")
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_sprint_branch(td, "sprint-031", "feat", smm_dir)
+
+            new_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(new_sha, head_sha)
+
+
 class TestGetStoryBaseBranch(unittest.TestCase):
     def test_returns_sprint_branch_at_stage_2(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
@@ -210,6 +315,55 @@ class TestGetStoryBaseBranch(unittest.TestCase):
                 result = branching.get_story_base_branch(smm_dir, td)
 
             self.assertEqual(result, "main")
+
+    def test_prefers_stored_branch_name_over_slugify(self):
+        """Stored branch_name wins even when goal-slug would produce a
+        different name. Defends against slug drift between create time and
+        lookup time (e.g. goal text edited after the branch was created)."""
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/sprint-027-actual-name"],
+                cwd=td,
+                capture_output=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _write_sprint_json(smm_dir, "sprint-027", "edited goal text")
+            sprint = sprint_store.load_sprint(smm_dir)
+            sprint["branch_name"] = "paul/sprint-027-actual-name"
+            sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.get_story_base_branch(smm_dir, td)
+
+            self.assertEqual(result, "paul/sprint-027-actual-name")
+
+    def test_falls_back_to_slugify_when_stored_branch_missing_locally(self):
+        """Legacy sprints without branch_name (or stale recorded names that
+        no longer exist) still resolve via the goal-slug reconstruction."""
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/sprint-027-legacy"],
+                cwd=td,
+                capture_output=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _write_sprint_json(smm_dir, "sprint-027", "legacy")
+            sprint = sprint_store.load_sprint(smm_dir)
+            sprint["branch_name"] = "paul/sprint-027-deleted"
+            sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.get_story_base_branch(smm_dir, td)
+
+            self.assertEqual(result, "paul/sprint-027-legacy")
 
 
 class TestSprintCLI(unittest.TestCase):
