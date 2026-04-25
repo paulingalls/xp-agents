@@ -10,7 +10,6 @@ import json
 import re
 import subprocess
 import sys
-from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -190,14 +189,12 @@ def _create_or_resume_branch(
     min_stage: int,
     *,
     base: str | None = None,
-    on_create: Callable[[], None] | None = None,
 ) -> str | None:
     """Create `name` or resume it if it already exists locally.
 
     Returns the branch name, or None when the configured branching
     stage is below `min_stage`. The base argument forks the new branch
-    from a specific ref instead of HEAD; on_create runs after a fresh
-    branch is created (skipped on resume).
+    from a specific ref instead of HEAD.
     """
     if get_branching_stage(smm_dir) < min_stage:
         return None
@@ -217,9 +214,6 @@ def _create_or_resume_branch(
     if r.returncode != 0:
         print(f"Failed to create branch {name}: {r.stderr}", file=sys.stderr)
         sys.exit(1)
-
-    if on_create is not None:
-        on_create()
 
     return name
 
@@ -304,25 +298,23 @@ def list_free_branches(cwd: str) -> list[str]:
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     """Create or resume <user>/plan-<slug> off the primary branch.
 
-    Records the branch in execution_plan.json on first creation only;
-    resume preserves any existing recorded value.
-    Returns None when branching stage < 2.
+    Records the branch into execution_plan.json on BOTH create and
+    resume paths so a regenerated plan still links to its branch and
+    any prior slug drift is fixed idempotently. Mirrors the sprint
+    primitive's atomic re-record. Returns None when stage < plan.
     """
     user_ns = identity.user_namespace(cwd)
     name = f"{user_ns}/plan-{_slugify(slug)}"
-
-    def _record_in_plan() -> None:
-        if execution_plan_store.plan_exists(smm_dir):
-            execution_plan_store.set_branch(smm_dir, name)
-
-    return _create_or_resume_branch(
+    result = _create_or_resume_branch(
         cwd,
         name,
         smm_dir,
         min_stage=_BRANCH_MIN_STAGE["plan"],
         base=get_primary_branch(smm_dir),
-        on_create=_record_in_plan,
     )
+    if result is not None and execution_plan_store.plan_exists(smm_dir):
+        execution_plan_store.set_branch(smm_dir, result)
+    return result
 
 
 def get_story_base_branch(smm_dir: Path, cwd: str) -> str:

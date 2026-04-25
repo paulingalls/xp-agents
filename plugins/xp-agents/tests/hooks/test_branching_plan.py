@@ -70,7 +70,14 @@ class TestCreatePlanBranch(unittest.TestCase):
             plan = execution_plan_store.load_plan(smm_dir)
             self.assertEqual(plan["branch"], "paul/plan-redesign")
 
-    def test_resume_does_not_record(self):
+    def test_resume_re_records_branch_into_plan(self):
+        """Resume path mirrors create_sprint_branch: idempotently re-records.
+
+        Debt 94522af75c37 — the prior on_create-only callback meant a plan
+        regenerated post-creation would have plan.branch=null while the
+        actual branch still existed. Re-recording on resume fixes any
+        slug drift, matching the sprint primitive's behavior.
+        """
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             subprocess.run(
@@ -91,7 +98,27 @@ class TestCreatePlanBranch(unittest.TestCase):
 
             self.assertEqual(result, "paul/plan-redesign")
             plan = execution_plan_store.load_plan(smm_dir)
-            self.assertEqual(plan["branch"], "preexisting/value")
+            self.assertEqual(plan["branch"], "paul/plan-redesign")
+
+    def test_resume_records_branch_when_plan_branch_was_null(self):
+        """Plan regenerated post-creation: resume rescues the linkage."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "branch", "paul/plan-redesign"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir)  # plan.branch is unset/null
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                branching.create_plan_branch(td, "redesign", smm_dir)
+
+            plan = execution_plan_store.load_plan(smm_dir)
+            self.assertEqual(plan["branch"], "paul/plan-redesign")
 
     def test_skips_at_stage_below_2(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
