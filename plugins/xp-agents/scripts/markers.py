@@ -67,6 +67,9 @@ PENDING_RENDER_SMM = MarkerDef(
     marker_names.PENDING_RENDER_SMM, "text", agent_scoped=True
 )
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
+CLOSE_REVIEW_INPUT = MarkerDef(
+    marker_names.CLOSE_REVIEW_INPUT, "json", agent_scoped=True
+)
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +205,7 @@ _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
     PENDING_RENDER_RETRO,
     PENDING_RENDER_SMM,
     QUESTION_NUDGED,
+    CLOSE_REVIEW_INPUT,
 )
 
 
