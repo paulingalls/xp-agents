@@ -55,40 +55,6 @@ If `execution_plan_md_path` and `milestone` are both non-empty:
 
 Skip if either field is empty.
 
-## Step 3b: Create Sprint PR (Stage 2+)
-
-Read the branching stage:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
-```
-
-If stage >= 2:
-
-1. Get the sprint branch name:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  get-base --cwd .
-```
-If the result is "main", there is no sprint branch — skip PR creation.
-
-2. Check if `gh` CLI is available:
-```bash
-which gh
-```
-If not available, note in the summary that a PR should be created manually and skip.
-
-3. Create the PR:
-```bash
-gh pr create --base main --head <sprint-branch> \
-  --title "<sprint goal>" \
-  --body "Sprint <sprint_id>: <delivered>/<planned> stories delivered.
-
-## Stories
-<list of done stories with titles>"
-```
-
-**Stage 0-1:** Skip PR creation entirely.
-
 ## Step 4: Record Sprint End Event
 
 ```bash

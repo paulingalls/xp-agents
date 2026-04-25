@@ -79,6 +79,30 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                 self.assertIn("XP Values", result)
                 self.assertNotIn("Ship v1", result)
 
+    def test_close_reviewer_handler_injects_paths(self):
+        """xp-close-reviewer injects SMM_DIR + REVIEW_INPUT path."""
+        for agent_type in (
+            "xp-close-reviewer",
+            "xp-agents:xp-close-reviewer",
+        ):
+            with self.subTest(agent_type=agent_type):
+                result = self.subagent_start.run(
+                    {
+                        "session_id": "t",
+                        "agent_id": "close-rev-1",
+                        "agent_type": agent_type,
+                    },
+                    smm_dir=self.smm_dir,
+                )
+                self.assertIsNotNone(result)
+                self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+                self.assertIn(
+                    f"REVIEW_INPUT={self.smm_dir}/.close-review-input.json",
+                    result,
+                )
+                self.assertIn("XP Values", result)
+                self.assertNotIn("Ship v1", result)
+
     def test_sprint_reviewer_gets_values_only(self):
         """xp-sprint-reviewer gets XP values only."""
         result = self.subagent_start.run(

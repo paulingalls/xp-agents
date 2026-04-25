@@ -21,6 +21,7 @@ sys.path.insert(
 )
 
 from conftest import (
+    _PLUGIN_ROOT,
     _HookTestCase,
     _IntegrationTestCase,
     _s,
@@ -313,6 +314,53 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.smm_dir / ".sprint-review-input.json").exists())
+
+
+# ===========================================================================
+# PR-creation removal (sprint-032 story-002)
+# ===========================================================================
+
+
+_SPRINT_REVIEWER_AGENT = _PLUGIN_ROOT / "agents" / "xp-sprint-reviewer.md"
+_SPRINT_REVIEW_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-review" / "SKILL.md"
+
+
+class TestPRCreationRemoved(unittest.TestCase):
+    """story-002: PR creation moves to /xp-sprint-close; reviewer is review-only.
+
+    Guards against re-introduction by name-change ("Open Sprint PR"),
+    by helper-script substitution (branching.py create-pr), or by
+    broader gh allow-listing in the skill.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.agent_text = _SPRINT_REVIEWER_AGENT.read_text()
+        cls.skill_text = _SPRINT_REVIEW_SKILL.read_text()
+
+    def test_agent_no_pr_keywords(self):
+        # Catches "Create Sprint PR", "Open Sprint PR", "Sprint PR", etc.
+        text = self.agent_text.lower()
+        self.assertNotIn("pull request", text)
+        self.assertNotIn(" pr ", text)
+        self.assertNotIn("sprint pr", text)
+
+    def test_agent_no_gh_invocation(self):
+        # Catches `gh pr create`, `gh pr ...`, `which gh`, etc.
+        self.assertNotIn("gh pr", self.agent_text)
+        self.assertNotIn("which gh", self.agent_text)
+
+    def test_agent_no_branching_invocation(self):
+        # Catches a Python-helper substitution for `gh pr create`.
+        self.assertNotIn("branching.py", self.agent_text)
+
+    def test_skill_allowed_tools_no_gh_or_branching(self):
+        # No `gh` in any Bash() allow-list entry.
+        for line in self.skill_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- Bash("):
+                self.assertNotIn("gh", stripped)
+                self.assertNotIn("branching.py", stripped)
 
 
 if __name__ == "__main__":

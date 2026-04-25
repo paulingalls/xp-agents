@@ -10,10 +10,12 @@ import json
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import execution_plan_store
 import identity
 import sprint_store
 
@@ -43,15 +45,87 @@ def is_sprint_branch(name: str) -> bool:
     return bool(_SPRINT_BRANCH_RE.match(name))
 
 
-def get_branching_stage(smm_dir: Path) -> int:
+_DEFAULT_PRIMARY = "main"
+
+
+def _load_branching_strategy(smm_dir: Path) -> dict:
+    """Read system_context.branching_strategy or {} on any failure."""
     path = smm_dir / "system_context.json"
     if not path.exists() or path.is_symlink():
-        return 0
+        return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("branching_strategy", {}).get("stage", 0)
+        ctx = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return 0
+        return {}
+    return ctx.get("branching_strategy") or {}
+
+
+def get_branching_stage(smm_dir: Path) -> int:
+    return _load_branching_strategy(smm_dir).get("stage", 0)
+
+
+def _match_local_branches(cwd: str, pattern: str) -> list[str]:
+    """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
+    r = _git(
+        ["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{pattern}"],
+        cwd,
+    )
+    if r.returncode != 0:
+        return []
+    return [b for b in r.stdout.splitlines() if b]
+
+
+def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:
+    """Return execution_plan.branch when set AND a matching local branch exists.
+
+    Prefers exact match. Falls back to a `<branch>-*` suffix-prefix scan
+    (anchored on a separator so `plan-feat-*` doesn't match
+    `plan-featured`) and prints a stderr note when the fallback fires —
+    drift discovery should be visible. Note: get_story_base_branch
+    handles sprint slug drift by reconstructing via slugify(goal); plan
+    branches glob-scan because the recorded value IS the branch name.
+    """
+    plan = execution_plan_store.load_plan(smm_dir)
+    if plan is None:
+        return None
+    plan_branch = plan.get("branch")
+    if not plan_branch:
+        return None
+    if branch_exists(cwd, plan_branch):
+        return plan_branch
+    matches = sorted(_match_local_branches(cwd, f"{plan_branch}-*"))
+    if not matches:
+        return None
+    drifted = matches[0]
+    print(
+        f"note: recorded plan branch '{plan_branch}' not found locally;"
+        f" using prefix match '{drifted}'",
+        file=sys.stderr,
+    )
+    return drifted
+
+
+def get_merge_target(smm_dir: Path, cwd: str) -> str:
+    """Return the branch to merge into.
+
+    Plan branch when execution_plan.branch resolves locally (exact match
+    preferred, `<branch>-*` prefix-fallback for slug drift); otherwise
+    the primary integration branch.
+    """
+    return _recorded_plan_branch(cwd, smm_dir) or get_primary_branch(smm_dir)
+
+
+def get_primary_branch(smm_dir: Path) -> str:
+    """Return the repo's primary integration branch.
+
+    Stage 0-2: always 'main'. Stage 3 reads system_context's
+    branching_strategy.integration_branch, defaulting to 'main' when
+    missing or null.
+    """
+    bs = _load_branching_strategy(smm_dir)
+    if bs.get("stage", 0) < 3:
+        return _DEFAULT_PRIMARY
+    return bs.get("integration_branch") or _DEFAULT_PRIMARY
 
 
 _PROTECTED_BRANCHES = {"main", "master"}
@@ -101,58 +175,167 @@ def branch_exists(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
-def _create_branch(
-    cwd: str, id_: str, slug: str, smm_dir: Path, min_stage: int
+def _checkout_or_exit(cwd: str, branch: str) -> None:
+    r = _git(["git", "checkout", branch], cwd)
+    if r.returncode != 0:
+        print(f"Failed to checkout {branch}: {r.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _create_or_resume_branch(
+    cwd: str,
+    name: str,
+    smm_dir: Path,
+    min_stage: int,
+    *,
+    base: str | None = None,
 ) -> str | None:
-    stage = get_branching_stage(smm_dir)
-    if stage < min_stage:
+    """Create `name` or resume it if it already exists locally.
+
+    Returns the branch name, or None when the configured branching
+    stage is below `min_stage`. The base argument forks the new branch
+    from a specific ref instead of HEAD.
+    """
+    if get_branching_stage(smm_dir) < min_stage:
         return None
 
-    user_ns = identity.user_namespace(cwd)
-    name = branch_name(user_ns, id_, slug)
-
     if branch_exists(cwd, name):
-        r = _git(["git", "checkout", name], cwd)
-        if r.returncode != 0:
-            print(f"Failed to checkout {name}: {r.stderr}", file=sys.stderr)
-            sys.exit(1)
+        _checkout_or_exit(cwd, name)
         return name
 
     if not is_worktree_clean(cwd):
         print("Working tree is dirty — commit or stash changes first", file=sys.stderr)
         sys.exit(1)
 
-    r = _git(["git", "checkout", "-b", name], cwd)
+    cmd = ["git", "checkout", "-b", name]
+    if base is not None:
+        cmd.append(base)
+    r = _git(cmd, cwd)
     if r.returncode != 0:
-        print(f"Failed to create branch: {r.stderr}", file=sys.stderr)
+        print(f"Failed to create branch {name}: {r.stderr}", file=sys.stderr)
         sys.exit(1)
 
     return name
 
 
+# Single source of truth: each create_*_branch enforces a min stage,
+# and _print_or_skip renders the same threshold in its skip message.
+# Sharing the values here prevents the inner enforcement and the outer
+# message from drifting if a stage threshold ever moves.
+_BRANCH_MIN_STAGE: dict[str, int] = {
+    "story": 1,
+    "sprint": 2,
+    "plan": 2,
+    "free": 1,
+}
+
+
 def create_story_branch(
     cwd: str, story_id: str, slug: str, smm_dir: Path
 ) -> str | None:
-    """Returns branch name or None if Stage 0."""
-    return _create_branch(cwd, story_id, slug, smm_dir, min_stage=1)
+    """Returns branch name or None if below story min stage."""
+    user_ns = identity.user_namespace(cwd)
+    name = branch_name(user_ns, story_id, slug)
+    return _create_or_resume_branch(
+        cwd, name, smm_dir, min_stage=_BRANCH_MIN_STAGE["story"]
+    )
 
 
 def create_sprint_branch(
     cwd: str, sprint_id: str, slug: str, smm_dir: Path
 ) -> str | None:
-    """Returns sprint branch name or None if stage < 2."""
-    return _create_branch(cwd, sprint_id, slug, smm_dir, min_stage=2)
+    """Returns sprint branch name or None if stage < 2.
+
+    Forks off the recorded plan branch when execution_plan.branch is
+    set and the branch exists locally; otherwise off current HEAD.
+
+    Records the actual branch name into sprint.json on both create and
+    resume paths so get_story_base_branch can look it up directly
+    instead of reconstructing via slugify(goal). The re-record on
+    resume is intentionally idempotent — it fixes any prior slug drift.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = branch_name(user_ns, sprint_id, slug)
+    base = _recorded_plan_branch(cwd, smm_dir)
+    result = _create_or_resume_branch(
+        cwd, name, smm_dir, min_stage=_BRANCH_MIN_STAGE["sprint"], base=base
+    )
+    if result is not None and sprint_store.sprint_exists(smm_dir):
+        sprint_store.set_branch(smm_dir, result)
+    return result
+
+
+def _utc_today_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
+    """Create or resume <user>/free-YYYY-MM-DD-<slug> off the primary branch.
+
+    Free branches are scratch work outside of plans/sprints. Date is UTC.
+    Returns None when branching stage < 1 (Stage 0 has no branch
+    discipline). Per BRANCH_LIFECYCLE design, free-branch protection
+    activates at Stage 1+ to keep exploratory work off protected branches.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
+    return _create_or_resume_branch(
+        cwd,
+        name,
+        smm_dir,
+        min_stage=_BRANCH_MIN_STAGE["free"],
+        base=get_primary_branch(smm_dir),
+    )
+
+
+def list_free_branches(cwd: str) -> list[str]:
+    """Return free branches owned by the current user, excluding HEAD."""
+    user_ns = identity.user_namespace(cwd)
+    current = identity.get_current_branch(cwd)
+    return [b for b in _match_local_branches(cwd, f"{user_ns}/free-*") if b != current]
+
+
+def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
+    """Create or resume <user>/plan-<slug> off the primary branch.
+
+    Records the branch into execution_plan.json on BOTH create and
+    resume paths so a regenerated plan still links to its branch and
+    any prior slug drift is fixed idempotently. Mirrors the sprint
+    primitive's atomic re-record. Returns None when stage < plan.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = f"{user_ns}/plan-{_slugify(slug)}"
+    result = _create_or_resume_branch(
+        cwd,
+        name,
+        smm_dir,
+        min_stage=_BRANCH_MIN_STAGE["plan"],
+        base=get_primary_branch(smm_dir),
+    )
+    if result is not None and execution_plan_store.plan_exists(smm_dir):
+        execution_plan_store.set_branch(smm_dir, result)
+    return result
 
 
 def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
-    """Return the base branch for stories: sprint branch at stage 2+, else main."""
+    """Return the base branch for stories: sprint branch at stage 2+, else primary.
+
+    Prefers sprint['branch_name'] (recorded atomically at create time) and
+    falls back to slugify(goal) reconstruction so older sprints written
+    before atomic recording still resolve.
+    """
+    primary = get_primary_branch(smm_dir)
     stage = get_branching_stage(smm_dir)
     if stage < 2:
-        return "main"
+        return primary
 
     sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
-        return "main"
+        return primary
+
+    stored = sprint.get("branch_name")
+    if stored and branch_exists(cwd, stored):
+        return stored
 
     user_ns = identity.user_namespace(cwd)
     name = sprint_branch_name(user_ns, sprint["sprint_id"], sprint["goal"])
@@ -160,22 +343,30 @@ def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
     if branch_exists(cwd, name):
         return name
 
-    return "main"
+    return primary
 
 
-def merge_story_branch(cwd: str, story_branch: str, target: str = "main") -> None:
-    r = _git(["git", "checkout", target], cwd)
-    if r.returncode != 0:
-        print(f"Failed to checkout {target}: {r.stderr}", file=sys.stderr)
-        sys.exit(1)
-
+def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
+    _checkout_or_exit(cwd, target)
     r = _git(
-        ["git", "merge", "--no-ff", story_branch, "-m", f"Merge {story_branch}"],
+        ["git", "merge", "--no-ff", source_branch, "-m", f"Merge {source_branch}"],
         cwd,
     )
     if r.returncode != 0:
-        print(f"Merge failed: {r.stderr}", file=sys.stderr)
+        details = (r.stderr or "") + (r.stdout or "")
+        print(
+            f"Merge of {source_branch} into {target} failed: {details.strip()}",
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+
+def merge_story_branch(cwd: str, story_branch: str, target: str) -> None:
+    _merge_into_target(cwd, story_branch, target)
+
+
+def merge_sprint_branch(cwd: str, sprint_branch: str, target: str) -> None:
+    _merge_into_target(cwd, sprint_branch, target)
 
 
 def delete_branch(cwd: str, name: str) -> bool:
@@ -183,17 +374,25 @@ def delete_branch(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
-def _cmd_create(args: argparse.Namespace) -> int:
-    result = create_story_branch(args.cwd, args.story, args.slug, Path(args.smm_dir))
-    if result is None:
-        print("Skipped (stage < 1)")
-    else:
-        print(result)
+def _print_or_skip(result: str | None, min_stage: int) -> int:
+    print(result if result else f"Skipped (stage < {min_stage})")
     return 0
 
 
+def _cmd_create(args: argparse.Namespace) -> int:
+    return _print_or_skip(
+        create_story_branch(args.cwd, args.story, args.slug, Path(args.smm_dir)),
+        _BRANCH_MIN_STAGE["story"],
+    )
+
+
+def _resolve_target(args: argparse.Namespace) -> str:
+    """Use --target when provided; else compute via get_merge_target."""
+    return args.target or get_merge_target(Path(args.smm_dir), args.cwd)
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
-    merge_story_branch(args.cwd, args.branch, args.target)
+    merge_story_branch(args.cwd, args.branch, _resolve_target(args))
     return 0
 
 
@@ -203,12 +402,10 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
-    result = create_sprint_branch(args.cwd, args.sprint, args.slug, Path(args.smm_dir))
-    if result is None:
-        print("Skipped (stage < 2)")
-    else:
-        print(result)
-    return 0
+    return _print_or_skip(
+        create_sprint_branch(args.cwd, args.sprint, args.slug, Path(args.smm_dir)),
+        _BRANCH_MIN_STAGE["sprint"],
+    )
 
 
 def _cmd_get_base(args: argparse.Namespace) -> int:
@@ -220,6 +417,41 @@ def _cmd_get_base(args: argparse.Namespace) -> int:
 def _cmd_stage(args: argparse.Namespace) -> int:
     stage = get_branching_stage(Path(args.smm_dir))
     print(stage)
+    return 0
+
+
+def _cmd_get_primary(args: argparse.Namespace) -> int:
+    print(get_primary_branch(Path(args.smm_dir)))
+    return 0
+
+
+def _cmd_get_target(args: argparse.Namespace) -> int:
+    print(get_merge_target(Path(args.smm_dir), args.cwd))
+    return 0
+
+
+def _cmd_merge_sprint(args: argparse.Namespace) -> int:
+    merge_sprint_branch(args.cwd, args.branch, _resolve_target(args))
+    return 0
+
+
+def _cmd_create_plan(args: argparse.Namespace) -> int:
+    return _print_or_skip(
+        create_plan_branch(args.cwd, args.slug, Path(args.smm_dir)),
+        _BRANCH_MIN_STAGE["plan"],
+    )
+
+
+def _cmd_create_free(args: argparse.Namespace) -> int:
+    return _print_or_skip(
+        create_free_branch(args.cwd, args.slug, Path(args.smm_dir)),
+        _BRANCH_MIN_STAGE["free"],
+    )
+
+
+def _cmd_list_free(args: argparse.Namespace) -> int:
+    for b in list_free_branches(args.cwd):
+        print(b)
     return 0
 
 
@@ -237,7 +469,7 @@ def main() -> int:
     p_merge = sub.add_parser("merge", help="Merge a story branch")
     p_merge.add_argument("--cwd", required=True)
     p_merge.add_argument("--branch", required=True)
-    p_merge.add_argument("--target", default="main")
+    p_merge.add_argument("--target", default=None)
     p_merge.set_defaults(func=_cmd_merge)
 
     p_delete = sub.add_parser("delete", help="Delete a branch")
@@ -257,6 +489,35 @@ def main() -> int:
 
     p_stage = sub.add_parser("stage", help="Print branching stage")
     p_stage.set_defaults(func=_cmd_stage)
+
+    p_get_primary = sub.add_parser(
+        "get-primary", help="Print primary integration branch"
+    )
+    p_get_primary.set_defaults(func=_cmd_get_primary)
+
+    p_get_target = sub.add_parser("get-target", help="Print merge target")
+    p_get_target.add_argument("--cwd", required=True)
+    p_get_target.set_defaults(func=_cmd_get_target)
+
+    p_merge_sprint = sub.add_parser("merge-sprint", help="Merge a sprint branch")
+    p_merge_sprint.add_argument("--cwd", required=True)
+    p_merge_sprint.add_argument("--branch", required=True)
+    p_merge_sprint.add_argument("--target", default=None)
+    p_merge_sprint.set_defaults(func=_cmd_merge_sprint)
+
+    p_create_plan = sub.add_parser("create-plan", help="Create or resume a plan branch")
+    p_create_plan.add_argument("--cwd", required=True)
+    p_create_plan.add_argument("--slug", required=True)
+    p_create_plan.set_defaults(func=_cmd_create_plan)
+
+    p_create_free = sub.add_parser("create-free", help="Create or resume a free branch")
+    p_create_free.add_argument("--cwd", required=True)
+    p_create_free.add_argument("--slug", required=True)
+    p_create_free.set_defaults(func=_cmd_create_free)
+
+    p_list_free = sub.add_parser("list-free", help="List the user's free branches")
+    p_list_free.add_argument("--cwd", required=True)
+    p_list_free.set_defaults(func=_cmd_list_free)
 
     args = parser.parse_args()
     return args.func(args)

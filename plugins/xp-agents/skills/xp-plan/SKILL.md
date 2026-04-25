@@ -16,6 +16,7 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(*/smm/plan_cli.py *)
+  - Bash(python3 */scripts/branching.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -126,6 +127,25 @@ After writing, render the plan as markdown and **output it as text** so the user
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
 ```
+
+### Step 5b: Plan Branch Recommendation
+
+A plan branch accumulates multiple sprints before merging to the primary branch — useful when intermediate milestones can't safely land on the primary one-by-one.
+
+Skip this step when any of:
+- Stage 0 (run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage` first).
+- Single-milestone plan.
+- Every milestone is independently shippable to the primary branch.
+
+Otherwise, ask via `AskUserQuestion`: *"Create a plan branch so intermediate milestones don't land on the primary branch until the plan completes?"* — Yes / No.
+
+On **Yes**, create the branch (the CLI records it into the plan):
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  create-plan --cwd . --slug <plan-title-slug>
+```
+
+On **No**, do nothing — sprints will base off the primary branch.
 
 ### Step 6: Record Event
 

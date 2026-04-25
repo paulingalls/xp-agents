@@ -7,8 +7,6 @@ merge_story_branch, delete_branch, CLI (E2E).
 Split from test_branching.py — pure-function unit tests remain there.
 """
 
-import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -20,52 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _branching_fixtures as _bf
 import branching
 
-_GIT_ENV = {
-    **os.environ,
-    "GIT_AUTHOR_NAME": "Test User",
-    "GIT_AUTHOR_EMAIL": "test@test.com",
-    "GIT_COMMITTER_NAME": "Test User",
-    "GIT_COMMITTER_EMAIL": "test@test.com",
-}
-
-
-def _init_repo(td: str) -> None:
-    subprocess.run(["git", "init", td], capture_output=True, check=True)
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=td,
-        capture_output=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
-        cwd=td,
-        capture_output=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "init"],
-        cwd=td,
-        capture_output=True,
-        check=True,
-        env=_GIT_ENV,
-    )
-
-
-def _get_current_branch(cwd: str) -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
-def _write_system_context(smm_dir: Path, stage: int) -> None:
-    ctx = {"project_name": "test", "branching_strategy": {"stage": stage}}
-    (smm_dir / "system_context.json").write_text(json.dumps(ctx))
+_GIT_ENV = _bf.GIT_ENV
+_init_repo = _bf.init_repo
+_get_current_branch = _bf.get_current_branch
+_write_system_context = _bf.write_system_context
 
 
 def _make_feature_commit(td: str, filename: str = "feature.txt") -> None:
@@ -240,6 +199,74 @@ class TestMergeStoryBranch(unittest.TestCase):
                 self.assertIn(f"file{i}.txt", log.stdout)
 
 
+class TestMergeSprintBranch(unittest.TestCase):
+    def test_merges_into_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            main_branch = _get_current_branch(td)
+
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-027-feat"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td)
+
+            branching.merge_sprint_branch(
+                td, "paul/sprint-027-feat", target=main_branch
+            )
+
+            merges = subprocess.run(
+                ["git", "log", "--merges", "--oneline"],
+                cwd=td,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("paul/sprint-027-feat", merges.stdout)
+            self.assertEqual(_get_current_branch(td), main_branch)
+
+    def test_exits_on_merge_conflict(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            main_branch = _get_current_branch(td)
+
+            (Path(td) / "shared.txt").write_text("from-main")
+            subprocess.run(
+                ["git", "add", "shared.txt"], cwd=td, capture_output=True, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "main side"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_GIT_ENV,
+            )
+
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-027-conflict", "HEAD~1"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            (Path(td) / "shared.txt").write_text("from-sprint")
+            subprocess.run(
+                ["git", "add", "shared.txt"], cwd=td, capture_output=True, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "sprint side"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_GIT_ENV,
+            )
+
+            with self.assertRaises(SystemExit):
+                branching.merge_sprint_branch(
+                    td, "paul/sprint-027-conflict", target=main_branch
+                )
+
+
 class TestDeleteBranch(unittest.TestCase):
     def test_deletes_merged_branch(self):
         with tempfile.TemporaryDirectory() as td:
@@ -378,6 +405,269 @@ class TestCLI(unittest.TestCase):
             )
             self.assertEqual(r.returncode, 0)
             self.assertIn("2", r.stdout)
+
+
+class TestRequireExplicitMergeTarget(unittest.TestCase):
+    """sprint-032 C1a: drop default target='main' from merge_*_branch.
+
+    Stage-3 plan branches merge to integration_branch (per Constraints
+    pillar). A 'main' default makes Stage-3 callers silently misroute.
+    Force callers to be explicit.
+    """
+
+    def test_merge_story_branch_signature_has_no_target_default(self):
+        import inspect
+
+        sig = inspect.signature(branching.merge_story_branch)
+        self.assertIs(
+            sig.parameters["target"].default,
+            inspect.Parameter.empty,
+            "merge_story_branch must NOT default target to 'main'",
+        )
+
+    def test_merge_sprint_branch_signature_has_no_target_default(self):
+        import inspect
+
+        sig = inspect.signature(branching.merge_sprint_branch)
+        self.assertIs(
+            sig.parameters["target"].default,
+            inspect.Parameter.empty,
+            "merge_sprint_branch must NOT default target to 'main'",
+        )
+
+    def test_cli_argparse_target_default_is_none(self):
+        """Argparse --target on merge / merge-sprint defaults to None.
+
+        Guards the CLI surface against re-introduction of `default="main"`
+        which would bypass get_merge_target and silently misroute Stage-3
+        merges. Captures the parsed Namespace via a stub-out.
+        """
+        captured: dict[str, object] = {}
+
+        def _capture(args):
+            captured.setdefault("ns", args)
+            return 0
+
+        for cmd in ("merge", "merge-sprint"):
+            with self.subTest(cmd=cmd):
+                captured.clear()
+                attr = "_cmd_merge" if cmd == "merge" else "_cmd_merge_sprint"
+                argv = [
+                    "branching.py",
+                    "--smm-dir",
+                    "/tmp",
+                    cmd,
+                    "--cwd",
+                    ".",
+                    "--branch",
+                    "x",
+                ]
+                with (
+                    patch.object(branching, attr, _capture),
+                    patch.object(sys, "argv", argv),
+                ):
+                    branching.main()
+                self.assertIsNone(captured["ns"].target)
+
+    def test_cli_merge_sprint_routes_through_get_merge_target_when_omitted(self):
+        """CLI without --target uses get_merge_target (not literal 'main')."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            primary = _get_current_branch(td)
+
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _bf.seed_plan(smm_dir, branch="paul/plan-feat")
+
+            # Create plan branch and a sprint-feature branch off it.
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/plan-feat"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td, "plan-base.txt")
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-099-x"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td, "sprint-feat.txt")
+
+            script = str(
+                Path(__file__).parent.parent.parent / "scripts" / "branching.py"
+            )
+            # Invoke merge-sprint WITHOUT --target. Must route through
+            # get_merge_target which returns the recorded plan branch.
+            r = subprocess.run(
+                [
+                    sys.executable,
+                    script,
+                    "--smm-dir",
+                    str(smm_dir),
+                    "merge-sprint",
+                    "--cwd",
+                    td,
+                    "--branch",
+                    "paul/sprint-099-x",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            # HEAD should now be on the plan branch, not on primary.
+            self.assertEqual(_get_current_branch(td), "paul/plan-feat")
+            self.assertNotEqual(_get_current_branch(td), primary)
+
+
+class TestRecordedPlanBranchPrefixFallback(unittest.TestCase):
+    """sprint-032 C1b: _recorded_plan_branch falls back via prefix match.
+
+    Constraints pillar: 'lookups use stored name with prefix-fallback to
+    handle slug drift'. If the plan branch was renamed locally (e.g. user
+    appended a -v2 suffix or shortened the slug), exact branch_exists
+    misses and get_merge_target silently routes to primary. Mirror the
+    pattern get_story_base_branch already uses for sprint branches.
+    """
+
+    def test_falls_back_to_prefix_match_when_exact_missing(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _bf.seed_plan(smm_dir, branch="paul/plan-feat")
+            # Create a branch with a drifted slug (no exact match).
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/plan-feat-v2"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            with patch("sys.stderr") as fake_err:
+                result = branching._recorded_plan_branch(td, smm_dir)
+            self.assertEqual(result, "paul/plan-feat-v2")
+            # Communication: the drift fallback must be visible.
+            printed = "".join(
+                str(call.args[0]) for call in fake_err.write.call_args_list if call.args
+            )
+            self.assertIn("paul/plan-feat", printed)
+            self.assertIn("paul/plan-feat-v2", printed)
+
+    def test_anchored_glob_excludes_substring_extensions(self):
+        """`<branch>-*` must not match `<branch>extra` (e.g. featured)."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _bf.seed_plan(smm_dir, branch="paul/plan-feat")
+            # Substring-extension branch: 'feat' is a prefix but no -separator.
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/plan-featured"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            result = branching._recorded_plan_branch(td, smm_dir)
+            self.assertIsNone(result)
+
+    def test_returns_none_when_no_prefix_match(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _bf.seed_plan(smm_dir, branch="paul/plan-missing")
+            # Different prefix entirely — no match.
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/other-branch"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            result = branching._recorded_plan_branch(td, smm_dir)
+            self.assertIsNone(result)
+
+    def test_exact_match_preferred_over_prefix(self):
+        """When the recorded branch exists exactly, return it (no scan)."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _bf.seed_plan(smm_dir, branch="paul/plan-feat")
+            # Create both an exact match AND a longer-prefix sibling.
+            subprocess.run(
+                ["git", "branch", "paul/plan-feat"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "branch", "paul/plan-feat-v2"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            result = branching._recorded_plan_branch(td, smm_dir)
+            self.assertEqual(result, "paul/plan-feat")
+
+
+class TestMergeFailureMessage(unittest.TestCase):
+    """sprint-032 C1c: _merge_into_target failure print includes context.
+
+    Honesty: git merge writes conflict details to stdout (not stderr).
+    The previous error print swallowed stdout AND omitted the source/
+    target branch names, leaving operators with a blank 'Merge failed:'
+    line and no clue which merge went wrong.
+    """
+
+    def test_failure_message_includes_stdout_and_branch_names(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            main_branch = _get_current_branch(td)
+            (Path(td) / "shared.txt").write_text("from-main")
+            subprocess.run(
+                ["git", "add", "shared.txt"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "main side"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_GIT_ENV,
+            )
+            subprocess.run(
+                ["git", "checkout", "-b", "paul/sprint-099-conflict", "HEAD~1"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            (Path(td) / "shared.txt").write_text("from-sprint")
+            subprocess.run(
+                ["git", "add", "shared.txt"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "sprint side"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_GIT_ENV,
+            )
+
+            with patch("sys.stderr") as fake_err, self.assertRaises(SystemExit):
+                branching.merge_sprint_branch(
+                    td, "paul/sprint-099-conflict", target=main_branch
+                )
+
+            printed = "".join(
+                str(call.args[0]) for call in fake_err.write.call_args_list if call.args
+            )
+            # Source and target branch names
+            self.assertIn("paul/sprint-099-conflict", printed)
+            self.assertIn(main_branch, printed)
+            # git's actual conflict marker (stdout) — proves stdout is included
+            self.assertIn("CONFLICT", printed)
 
 
 if __name__ == "__main__":

@@ -8,12 +8,18 @@ Follows the same pattern as smm_schema.py: hand-rolled validator,
 no external jsonschema dependency, stdlib-only.
 """
 
+import re
+
 from _acceptance_execution import validate_acceptance_execution
 
 PLAN_FILENAME = "execution_plan.json"
 
-VALID_MILESTONE_STATUSES = frozenset({"planned", "in-progress", "delivered"})
+VALID_MILESTONE_STATUSES = frozenset(
+    {"planned", "in-progress", "delivered", "deferred"}
+)
 VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
+
+VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 
 MILESTONE_FIELD_MAXLENGTH: dict[str, int] = {
     "goal": 200,
@@ -220,6 +226,13 @@ def validate_plan(data: object, *, enforce_budget: bool = True) -> list[str]:
 
     if not isinstance(data["overview"], str):
         errors.append("overview must be a string")
+
+    branch = data.get("branch")
+    if branch is not None:
+        if not isinstance(branch, str):
+            errors.append("branch must be a string")
+        elif not VALID_BRANCH_NAME_RE.match(branch):
+            errors.append(f"branch is not a valid git branch name: {branch!r}")
 
     if not isinstance(data["sources"], list):
         errors.append("sources must be a list")
