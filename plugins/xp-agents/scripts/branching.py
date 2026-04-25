@@ -339,13 +339,16 @@ def delete_branch(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
-def _cmd_create(args: argparse.Namespace) -> int:
-    result = create_story_branch(args.cwd, args.story, args.slug, Path(args.smm_dir))
-    if result is None:
-        print("Skipped (stage < 1)")
-    else:
-        print(result)
+def _print_or_skip(result: str | None, min_stage: int) -> int:
+    print(result if result else f"Skipped (stage < {min_stage})")
     return 0
+
+
+def _cmd_create(args: argparse.Namespace) -> int:
+    return _print_or_skip(
+        create_story_branch(args.cwd, args.story, args.slug, Path(args.smm_dir)),
+        min_stage=1,
+    )
 
 
 def _cmd_merge(args: argparse.Namespace) -> int:
@@ -359,12 +362,10 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
-    result = create_sprint_branch(args.cwd, args.sprint, args.slug, Path(args.smm_dir))
-    if result is None:
-        print("Skipped (stage < 2)")
-    else:
-        print(result)
-    return 0
+    return _print_or_skip(
+        create_sprint_branch(args.cwd, args.sprint, args.slug, Path(args.smm_dir)),
+        min_stage=2,
+    )
 
 
 def _cmd_get_base(args: argparse.Namespace) -> int:
@@ -376,6 +377,41 @@ def _cmd_get_base(args: argparse.Namespace) -> int:
 def _cmd_stage(args: argparse.Namespace) -> int:
     stage = get_branching_stage(Path(args.smm_dir))
     print(stage)
+    return 0
+
+
+def _cmd_get_primary(args: argparse.Namespace) -> int:
+    print(get_primary_branch(Path(args.smm_dir)))
+    return 0
+
+
+def _cmd_get_target(args: argparse.Namespace) -> int:
+    print(get_merge_target(Path(args.smm_dir), args.cwd))
+    return 0
+
+
+def _cmd_merge_sprint(args: argparse.Namespace) -> int:
+    merge_sprint_branch(args.cwd, args.branch, args.target)
+    return 0
+
+
+def _cmd_create_plan(args: argparse.Namespace) -> int:
+    return _print_or_skip(
+        create_plan_branch(args.cwd, args.slug, Path(args.smm_dir)),
+        min_stage=2,
+    )
+
+
+def _cmd_create_free(args: argparse.Namespace) -> int:
+    return _print_or_skip(
+        create_free_branch(args.cwd, args.slug, Path(args.smm_dir)),
+        min_stage=1,
+    )
+
+
+def _cmd_list_free(args: argparse.Namespace) -> int:
+    for b in list_free_branches(args.cwd):
+        print(b)
     return 0
 
 
@@ -413,6 +449,35 @@ def main() -> int:
 
     p_stage = sub.add_parser("stage", help="Print branching stage")
     p_stage.set_defaults(func=_cmd_stage)
+
+    p_get_primary = sub.add_parser(
+        "get-primary", help="Print primary integration branch"
+    )
+    p_get_primary.set_defaults(func=_cmd_get_primary)
+
+    p_get_target = sub.add_parser("get-target", help="Print merge target")
+    p_get_target.add_argument("--cwd", required=True)
+    p_get_target.set_defaults(func=_cmd_get_target)
+
+    p_merge_sprint = sub.add_parser("merge-sprint", help="Merge a sprint branch")
+    p_merge_sprint.add_argument("--cwd", required=True)
+    p_merge_sprint.add_argument("--branch", required=True)
+    p_merge_sprint.add_argument("--target", default="main")
+    p_merge_sprint.set_defaults(func=_cmd_merge_sprint)
+
+    p_create_plan = sub.add_parser("create-plan", help="Create or resume a plan branch")
+    p_create_plan.add_argument("--cwd", required=True)
+    p_create_plan.add_argument("--slug", required=True)
+    p_create_plan.set_defaults(func=_cmd_create_plan)
+
+    p_create_free = sub.add_parser("create-free", help="Create or resume a free branch")
+    p_create_free.add_argument("--cwd", required=True)
+    p_create_free.add_argument("--slug", required=True)
+    p_create_free.set_defaults(func=_cmd_create_free)
+
+    p_list_free = sub.add_parser("list-free", help="List the user's free branches")
+    p_list_free.add_argument("--cwd", required=True)
+    p_list_free.set_defaults(func=_cmd_list_free)
 
     args = parser.parse_args()
     return args.func(args)
