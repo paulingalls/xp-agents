@@ -105,6 +105,20 @@ _STORY_BASE = {
 }
 
 
+def _extract_preload_var(stdout: str, name: str) -> str | None:
+    """Extract a VAR=value from preload stdout. Returns value or None.
+
+    Shared by integration tests that drive a preload.sh subprocess and
+    parse its KEY=value output (xp-assign, xp-sprint-close, future
+    close skills).
+    """
+    prefix = f"{name}="
+    for line in stdout.splitlines():
+        if line.startswith(prefix):
+            return line.split("=", 1)[1]
+    return None
+
+
 def _s(id: str, title: str, status: str, **kw) -> dict:
     deps = kw.pop("dependencies", [])
     return {

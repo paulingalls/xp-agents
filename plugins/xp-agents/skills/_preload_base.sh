@@ -59,6 +59,27 @@ dump_values() {
     fi
 }
 
+# Echo "true" if the working tree has no staged/unstaged changes, else "false".
+# Usage: worktree_clean
+worktree_clean() {
+    if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+# Echo "true" if the gh CLI is on PATH, else "false". Uses the POSIX
+# command -v builtin instead of `which` (no extra subprocess).
+# Usage: gh_available
+gh_available() {
+    if command -v gh >/dev/null 2>&1; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
 # List all changed files (staged + unstaged + untracked), one per line.
 # Usage: get_changed_files
 get_changed_files() {
