@@ -179,7 +179,7 @@ class TestUserNamespace(unittest.TestCase):
 
     def test_real_git_repo(self):
         with tempfile.TemporaryDirectory() as td:
-            subprocess.run(["git", "init", td], capture_output=True)
+            subprocess.run(["git", "init", "-b", "main", td], capture_output=True)
             subprocess.run(
                 ["git", "config", "user.email", "test@example.com"],
                 cwd=td,
@@ -194,7 +194,7 @@ class TestGetCurrentBranch(unittest.TestCase):
 
     def test_returns_branch_in_git_repo(self):
         with tempfile.TemporaryDirectory() as td:
-            subprocess.run(["git", "init", td], capture_output=True)
+            subprocess.run(["git", "init", "-b", "main", td], capture_output=True)
             subprocess.run(
                 ["git", "commit", "--allow-empty", "-m", "init"],
                 cwd=td,

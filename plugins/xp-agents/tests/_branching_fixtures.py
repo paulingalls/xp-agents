@@ -29,8 +29,16 @@ GIT_ENV = {
 
 
 def init_repo(td: str) -> None:
-    """Create a fresh git repo with one empty initial commit."""
-    subprocess.run(["git", "init", td], capture_output=True, check=True)
+    """Create a fresh git repo with one empty initial commit on `main`.
+
+    Pin the initial branch to `main` so tests are hermetic across runners
+    that ship different `init.defaultBranch` configs (CI runners often
+    default to `master`). branching.get_primary_branch returns `main` at
+    Stages 0-2; the fixture must match.
+
+    Requires git >= 2.28 for the `-b` flag (released July 2020).
+    """
+    subprocess.run(["git", "init", "-b", "main", td], capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.name", "Test User"],
         cwd=td,

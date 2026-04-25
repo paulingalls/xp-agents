@@ -30,7 +30,9 @@ class TestResolveGitRoot(unittest.TestCase):
     def test_returns_root_for_git_repo(self):
         """resolve_git_root returns the repo root when cwd is inside a git repo."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             result = worktree.resolve_git_root(tmpdir)
             self.assertEqual(os.path.realpath(result), os.path.realpath(tmpdir))
 
@@ -63,7 +65,9 @@ class TestWorktreePath(unittest.TestCase):
     def test_returns_path_under_claude_worktrees(self):
         """worktree_path returns {git_root}/.claude/worktrees/{name}."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             result = worktree.worktree_path("teammate-story-001", tmpdir)
             real = os.path.realpath(tmpdir)
             expected = Path(real) / ".claude" / "worktrees" / "teammate-story-001"
@@ -111,7 +115,9 @@ class TestNormalizePath(unittest.TestCase):
     def test_returns_relative_inside_git_repo(self):
         """Inside a git repo, normalize_path strips the repo root."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             src_dir = Path(tmpdir) / "src"
             src_dir.mkdir()
             (src_dir / "app.ts").touch()
@@ -121,7 +127,9 @@ class TestNormalizePath(unittest.TestCase):
     def test_absolute_input_inside_repo_returns_relative(self):
         """Absolute path input inside a repo is stripped to relative."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             src_dir = Path(tmpdir) / "src"
             src_dir.mkdir()
             (src_dir / "app.ts").touch()
@@ -132,7 +140,9 @@ class TestNormalizePath(unittest.TestCase):
     def test_old_absolute_events_normalize_to_relative(self):
         """Old absolute paths from events converge to same relative form."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             src_dir = Path(tmpdir) / "src"
             src_dir.mkdir()
             (src_dir / "app.ts").touch()
@@ -144,21 +154,27 @@ class TestNormalizePath(unittest.TestCase):
     def test_nonexistent_file_in_repo_returns_relative(self):
         """Non-existent file in a git repo still normalizes to repo-relative."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             result = worktree.normalize_path("src/app.py", tmpdir)
             self.assertEqual(result, "src/app.py")
 
     def test_nonexistent_nested_file_in_repo_returns_relative(self):
         """Deeply nested non-existent file normalizes to repo-relative."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             result = worktree.normalize_path("a/b/c/deep.py", tmpdir)
             self.assertEqual(result, "a/b/c/deep.py")
 
     def test_normalization_consistent_for_existing_and_nonexistent(self):
         """Existing and non-existent files in same dir normalize consistently."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "init", tmpdir], capture_output=True, check=True)
+            subprocess.run(
+                ["git", "init", "-b", "main", tmpdir], capture_output=True, check=True
+            )
             src_dir = Path(tmpdir) / "src"
             src_dir.mkdir()
             (src_dir / "exists.py").touch()

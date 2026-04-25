@@ -177,7 +177,9 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
         self.tmpdir = Path(tempfile.mkdtemp())
         # Create a git repo with an initial commit (required for worktree)
         subprocess.run(
-            ["git", "init", str(self.tmpdir)], capture_output=True, check=True
+            ["git", "init", "-b", "main", str(self.tmpdir)],
+            capture_output=True,
+            check=True,
         )
         subprocess.run(
             ["git", "-C", str(self.tmpdir), "config", "user.email", "test@test.com"],

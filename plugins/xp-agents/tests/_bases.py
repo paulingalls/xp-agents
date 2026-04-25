@@ -89,7 +89,14 @@ class _IntegrationTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = Path(tempfile.mkdtemp())
-        subprocess.run(["git", "init"], cwd=cls.tmpdir, capture_output=True, check=True)
+        # Pin initial branch to `main` so tests are hermetic across runners
+        # whose `init.defaultBranch` may default to `master`.
+        subprocess.run(
+            ["git", "init", "-b", "main"],
+            cwd=cls.tmpdir,
+            capture_output=True,
+            check=True,
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=cls.tmpdir,
@@ -267,7 +274,7 @@ class _TempRepoTestCase(unittest.TestCase):
         cls._test_env = os.environ.copy()
         cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
         subprocess.run(
-            ["git", "init"],
+            ["git", "init", "-b", "main"],
             cwd=cls.tmpdir,
             capture_output=True,
             check=True,
