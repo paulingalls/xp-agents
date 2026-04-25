@@ -433,13 +433,25 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("security.has_staged_code_files", return_value=False)
-    def test_no_escape_hatch_on_sprint_branch(self, *_mocks):
-        result = pre_tool_bash.run(
-            _make_bash_input(command='git commit -m "[release] bump version"'),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("sprint branch", result)
+    def test_escape_hatch_bypasses_sprint_branch_gate(self, *_mocks):
+        """[chore] / [release] prefix bypasses the sprint-branch nudge.
+
+        Closes concern ef916d0f3c65: legitimate post-merge cleanup work
+        (xp-accept Step 0 cross-teammate review fixups) is inherently
+        sprint-scope — needs an explicit escape hatch. Same convention
+        as the protected-branch gate.
+        """
+        for prefix in ("[chore]", "[release]"):
+            with self.subTest(prefix=prefix):
+                result = pre_tool_bash.run(
+                    _make_bash_input(
+                        command=f'git commit -m "{prefix} post-merge cleanup"'
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+                # Mirrors test_escape_hatch_release: with no code files and
+                # no other nudges fired, a successful bypass returns None.
+                self.assertIsNone(result)
 
 
 if __name__ == "__main__":

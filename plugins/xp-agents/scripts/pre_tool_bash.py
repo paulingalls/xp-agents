@@ -168,20 +168,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         stage = branching.get_branching_stage(smm_dir)
         if stage >= 1:
             branch = identity.get_current_branch(cwd)
-            if branching.is_protected_branch(
-                stage, branch
-            ) and not branching.is_escape_hatch_commit(command):
+            is_escape = branching.is_escape_hatch_commit(command)
+            if branching.is_protected_branch(stage, branch) and not is_escape:
                 parts.append(
                     f"You're committing directly to {branch} "
                     f"(branching stage {stage}). Use a story "
                     f"branch, or prefix with [release]/[chore] "
                     f"for legitimate main commits."
                 )
-            elif stage >= 2 and branching.is_sprint_branch(branch):
+            elif stage >= 2 and branching.is_sprint_branch(branch) and not is_escape:
                 parts.append(
                     f"You're committing directly to sprint branch "
                     f"{branch}. Sprint branches accept merges "
-                    f"only. Use a story branch for your work."
+                    f"only. Use a story branch, or prefix with "
+                    f"[release]/[chore] for legitimate post-merge work."
                 )
 
         staged = commits.get_staged_files(cwd)
