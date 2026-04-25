@@ -196,8 +196,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 smm_dir, staged, already_resolved, cwd
             )
             if candidates:
-                parts.extend(resolves_probe.build_nudge_lines(candidates))
                 resolves_probe.emit_probe_status(smm_dir, candidates, agent_id)
+                # Concern a47dda9f00bd: advisory nudge → block when no
+                # trailer present. `Resolves-Event: none` is the universal
+                # escape. Any trailer (even mismatched IDs) is treated as
+                # good-faith discharge — we don't compare trailer IDs to
+                # candidate IDs because the agent's intent is opaque.
+                if not has_trailer:
+                    nudge = resolves_probe.build_nudge_lines(candidates)[0]
+                    raise _common.BlockedError(
+                        nudge + "\n\nAdd Resolves-Event: <id> or"
+                        " Resolves-Event: none to your commit message"
+                        " before re-trying.",
+                        "Resolves-Event trailer required:"
+                        " open candidates overlap your staged files.",
+                    )
             elif not has_trailer:
                 parts.append(
                     "Add Resolves-Event: <id> or Resolves-Event: none"

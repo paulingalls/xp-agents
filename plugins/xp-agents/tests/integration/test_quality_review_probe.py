@@ -89,7 +89,10 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
                 "agent_id": "main",
             },
         )
-        self.assertEqual(pre_commit_result.returncode, 0, msg=pre_commit_result.stderr)
+        # Block: candidates exist + no trailer. Probe event still writes
+        # before the block, so both probe-fires (quality-review + pre-commit)
+        # land in events.jsonl.
+        self.assertEqual(pre_commit_result.returncode, 2, msg=pre_commit_result.stderr)
 
         events = self._read_events()
         probes = [

@@ -60,7 +60,9 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
                 "agent_id": "main",
             },
         )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        # Block: candidates exist + commit lacks any Resolves-Event trailer.
+        # The probe event is still written to events.jsonl (audit trail).
+        self.assertEqual(result.returncode, 2, msg=result.stderr)
 
         events = self._read_events()
         probes = [

@@ -63,14 +63,54 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("security.has_staged_code_files", return_value=False)
-    def test_nudge_when_staged_overlaps_concern(self, *_mocks):
+    def test_blocks_when_overlap_concern_and_no_trailer(self, *_mocks):
+        """Staged files overlap an open concern AND the commit message lacks
+        any Resolves-Event trailer → block. The advisory nudge arrived too
+        late to influence the same commit (concern a47dda9f00bd: 4th
+        attempt at making the trailer convention stick — escalating from
+        nudge to block when the LLM has the candidate IDs in hand)."""
         self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                _make_bash_input(command=_COMMIT_CMD),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("Resolves-Event", str(ctx.exception))
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_explicit_none_trailer_bypasses_block(self, *_mocks):
+        """`Resolves-Event: none` is the universal escape — the agent has
+        considered the candidates and consciously declines to claim any."""
+        self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        cmd = 'git commit -m "fix unrelated\n\nResolves-Event: none"'
         result = pre_tool_bash.run(
-            _make_bash_input(command=_COMMIT_CMD),
+            _make_bash_input(command=cmd),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("Resolves-Event", result)
+        self.assertIsNone(result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_mismatched_trailer_id_bypasses_block(self, *_mocks):
+        """Any trailer presence (even with IDs that don't match the
+        candidates) is treated as good-faith discharge. Pinning this
+        choice deliberately: the gate cares whether the agent
+        considered trailers, not whether the IDs are correct — the
+        agent's intent is opaque and policing IDs would breed false
+        positives."""
+        self._write_concern("auth bypass risk", ["scripts/auth.py"])
+        cmd = 'git commit -m "fix auth\n\nResolves-Event: deadbeef0000"'
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+        # has_trailer=True with non-matching ID: gate bypassed, no nudge.
+        self.assertIsNone(result)
 
     @patch("commits.get_staged_files", return_value=["scripts/other.py"])
     @patch("security.is_git_commit", return_value=True)
@@ -113,13 +153,16 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("security.has_staged_code_files", return_value=False)
-    def test_probe_status_event_emitted(self, *_mocks):
-        """Pre-commit emits probe status event when candidates found."""
+    def test_probe_status_event_emitted_before_block(self, *_mocks):
+        """The probe status event is still written even when the commit
+        is blocked for missing trailer — the audit trail records that
+        the candidates were surfaced to the agent."""
         cid = self._write_concern("auth bypass risk", ["scripts/auth.py"])
-        pre_tool_bash.run(
-            _make_bash_input(command=_COMMIT_CMD),
-            smm_dir=self.smm_dir,
-        )
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(command=_COMMIT_CMD),
+                smm_dir=self.smm_dir,
+            )
         self.assertEqual(len(self._probes()), 1)
         self.assertEqual(self._probes()[0]["metadata"]["probe_candidates"], [cid])
 
