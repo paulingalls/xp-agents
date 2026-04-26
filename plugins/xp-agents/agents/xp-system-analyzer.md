@@ -69,12 +69,13 @@ Build a `branching_strategy` object:
 }
 ```
 
-Write via CLI:
+**Create mode:** Include the `branching_strategy` object in the Step 4 JSON — do not call `edit-branching` separately (create overwrites the file).
+
+**Update mode:** Use `edit-branching` to patch the existing file:
 ```bash
 echo '<json>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-branching
 ```
-
-**Update mode:** If `branching_strategy` already exists and was explicitly declared (rationale mentions "declared" or "explicit"), respect the existing stage — do not override explicit declarations with signal-based inference. Only raise a migration concern if signals suggest a higher stage.
+If `branching_strategy` already exists and was explicitly declared (rationale mentions "declared" or "explicit"), respect the existing stage — do not override explicit declarations with signal-based inference. Only raise a migration concern if signals suggest a higher stage.
 
 **Migration concern:** If signals suggest a higher stage than the current declaration, raise a concern via append.sh:
 ```bash
@@ -128,7 +129,9 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
 
-Write via CLI:
+**Create mode:** Include the `acceptance_surfaces` array in the Step 4 JSON.
+
+**Update mode:** Use `edit-acceptance-surfaces` to patch:
 ```bash
 echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-acceptance-surfaces
 ```
@@ -178,8 +181,7 @@ Build a JSON object matching this schema:
 - Reference CLAUDE.md for development practices rather than duplicating them.
 - Include domain-specific concepts that developers need to understand.
 - `project_specific` is for anything that doesn't fit the generic fields.
-- `branching_strategy` is written separately via `edit-branching` in Step 3.5 — do not include it in the create JSON.
-- `acceptance_surfaces` is written separately via `edit-acceptance-surfaces` in Step 3.6 — do not include it in the create JSON.
+- Include `branching_strategy` from Step 3.5 and `acceptance_surfaces` from Step 3.6 directly in the create JSON — the schema validates them as optional fields. Do NOT write them separately via `edit-branching` or `edit-acceptance-surfaces` in create mode; those commands exist for update-mode patches only.
 
 ### Step 5: Save the File
 
