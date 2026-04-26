@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.29.1 — Backfill story_id reconciler (post-M-4)
+
+Closes the deferred sprint-034 retro Try #1: a one-shot reconciler for historical commit events whose `metadata.story_id` was either missing (file-overlap fallback returned ties → `None`) or wrong (file-overlap attributed to a different story than the commit message named). The Tier-0 `[story-NNN]` prefix parser shipped in v2.28.1 fixed forward; this script corrects the historical record so retros that look back across multiple sprints get accurate per-story metrics.
+
+- **Add `scripts/backfill_story_id.py`.** Walks `events.jsonl`, finds `commit` events whose content starts with `[story-NNN]`, and writes the prefix value into `metadata.story_id` when it differs (or is missing). Default is dry-run; `--apply` rewrites atomically via `_append_impl.write_text_atomic`. `--smm-dir` is optional and falls back to `resolve_smm_dir()` — matches the operator-script convention shared by `smm/repair.py` and `smm/compact.py`. Returns a `Report` dataclass with `commits` / `with_prefix` / `changed` counters. Idempotent: a second run reports zero changes. 8 unit tests under `tests/smm/` covering dry-run vs apply, missing/wrong/matching `story_id`, no-prefix commits, non-commit events, counter semantics, and metadata-preservation.
+
 ## v2.29.0 — Free-session branch lifecycle (M-4) + Pre-M-4 burn-down
 
 Sprint-034 implements Milestone 4 of the branch-lifecycle plan: free sessions never commit to protected branches, orphans surface at every kickoff, and `/xp-free-close` closes a free branch with PR + review + merge. 3/4 stories delivered (story-003 deliberately dropped after platform analysis). Sprint also paid down a six-item retro burn-down before M-4 work started, and consolidated the third copy of close-skill SKILL.md guard tests into a shared mixin.
