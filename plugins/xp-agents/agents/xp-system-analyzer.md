@@ -124,7 +124,10 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 ]
 ```
 
-- `name`: surface type from the table above (lowercase)
+- `name`: surface type — use exactly one of these canonical identifiers:
+  `http_websocket`, `browser`, `cli`, `sdk`, `automation`, `message_event`.
+  Downstream tooling (e.g. `/xp-scaffold-acceptance`) keys off these strings;
+  any other spelling silently disables tool lookup.
 - `signals`: what you detected that indicates this surface exists
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
@@ -140,7 +143,7 @@ echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-system-analyzer" --severity "medium" \
-  --content "<Surface> surface detected (<signals>), no acceptance harness found. Options: <specific install/setup commands>. If acceptance testing is not needed for this surface, dismiss this concern."
+  --content "<Surface> surface detected (<signals>), no acceptance harness found. Run /xp-scaffold-acceptance to begin acceptance setup. If acceptance testing is not needed for this surface, dismiss this concern."
 ```
 
 Concerns must be **actionable**: state what surface was detected, what is missing, what specific commands to run, and the consequence of inaction. Never scaffold — that is a separate skill.
