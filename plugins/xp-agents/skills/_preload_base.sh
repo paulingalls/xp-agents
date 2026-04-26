@@ -165,7 +165,10 @@ for i, item in enumerate(items):
     if i < len(statuses) and statuses[i].get('resolved_this_session'):
         continue
     c = item.get('content', item) if isinstance(item, dict) else item
-    refs = item.get('event_refs', []) if isinstance(item, dict) else []
+    refs = list(item.get('event_refs', [])) if isinstance(item, dict) else []
+    own_id = item.get('id', '') if isinstance(item, dict) else ''
+    if own_id:
+        refs.insert(0, own_id)
     if refs:
         print(f'- {c} [refs: {\", \".join(refs)}]')
     else:

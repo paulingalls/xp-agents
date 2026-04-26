@@ -15,6 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import secrets
+
 import _append_impl
 import _common
 import retro_schema
@@ -82,6 +84,10 @@ def run(
     event = _common.make_event(
         "retrospective", agent_id, content, metadata={"action": action}
     )
+    for item in kft_data.get("try", []):
+        if isinstance(item, dict) and "id" not in item:
+            item["id"] = secrets.token_hex(6)
+
     if kft_data.get("keep"):
         event["keep"] = kft_data["keep"]
     if kft_data.get("fix"):

@@ -87,7 +87,10 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
     for item in latest.get("try", []):
         content = item.get("content", "") if isinstance(item, dict) else item
         refs = item.get("event_refs", []) if isinstance(item, dict) else []
+        own_id = item.get("id", "") if isinstance(item, dict) else ""
         tokens = set(_HEX_ID_RE.findall(content)) | set(refs)
+        if own_id:
+            tokens.add(own_id)
         hit = None
         for token in tokens:
             hit = resolutions_map.get(token)

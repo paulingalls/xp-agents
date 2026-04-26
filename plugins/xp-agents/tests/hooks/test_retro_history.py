@@ -368,5 +368,99 @@ class TestGatherRetroHistoryAnalysisNotes(_HookTestCase):
         self.assertEqual(len(result), 1)
 
 
+class TestTryItemIdResolution(unittest.TestCase):
+    """Try items with their own id field should be resolvable by that id."""
+
+    def _make_resolutions_map(self, target_id, resolver_id):
+        return {
+            target_id: {
+                "type": "decision",
+                "resolver_id": resolver_id,
+                "resolver_content": "Adopted",
+            }
+        }
+
+    def test_try_item_resolved_by_own_id(self):
+        """A Try item with an id field is resolved when that id
+        appears in the resolutions_map — even without event_refs
+        or hex tokens in content."""
+        try_id = "aabb11223344"
+        retros = [
+            {
+                "try": [
+                    {
+                        "id": try_id,
+                        "content": "Improve process with no event refs",
+                        "event_refs": [],
+                    }
+                ],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        rmap = self._make_resolutions_map(try_id, "resolver999999")
+        retro_history.annotate_try_status(retros, rmap)
+        status = retros[0]["try_status"][0]
+        self.assertTrue(status["resolved_this_session"])
+
+    def test_try_item_without_id_still_unresolved(self):
+        retros = [
+            {
+                "try": [{"content": "Process improvement no refs", "event_refs": []}],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        retro_history.annotate_try_status(retros, {})
+        status = retros[0]["try_status"][0]
+        self.assertFalse(status["resolved_this_session"])
+
+
+class TestSaveRetroStampsTryIds(unittest.TestCase):
+    """save_retrospective.run() stamps each Try item with a unique id."""
+
+    def test_try_items_get_ids(self):
+        import tempfile
+
+        import save_retrospective
+
+        kft = {
+            "keep": [{"content": "Keep doing X"}],
+            "fix": [{"content": "Fix Y"}],
+            "try": [{"content": "Try A"}, {"content": "Try B"}],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            smm_dir = Path(td)
+            (smm_dir / "events.jsonl").write_text("")
+            (smm_dir / "retrospectives").mkdir()
+            result = save_retrospective.run(kft, smm_dir=smm_dir)
+            self.assertIsNotNone(result)
+
+            retro = json.loads(Path(result["retro_file"]).read_text())
+            for item in retro["try"]:
+                self.assertIn("id", item, f"Try item missing id: {item}")
+                self.assertEqual(len(item["id"]), 12)
+
+    def test_existing_ids_preserved(self):
+        import tempfile
+
+        import save_retrospective
+
+        kft = {
+            "keep": [],
+            "fix": [],
+            "try": [{"content": "Try A", "id": "existing00001"}],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            smm_dir = Path(td)
+            (smm_dir / "events.jsonl").write_text("")
+            (smm_dir / "retrospectives").mkdir()
+            result = save_retrospective.run(kft, smm_dir=smm_dir)
+            self.assertIsNotNone(result)
+
+            retro = json.loads(Path(result["retro_file"]).read_text())
+            self.assertEqual(retro["try"][0]["id"], "existing00001")
+
+
 if __name__ == "__main__":
     unittest.main()
