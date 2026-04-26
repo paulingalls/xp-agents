@@ -242,7 +242,7 @@ def _handle_commit(
     has_code = code_file_count > 0
 
     raw_body = commits.get_commit_message_body(cwd) or msg
-    resolves, body = commits.extract_resolves_trailer(raw_body)
+    resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
     metadata: dict = {"code_commit": has_code, "code_file_count": code_file_count}
@@ -250,6 +250,8 @@ def _handle_commit(
         metadata[METADATA_KEY_COMMIT_HASH] = commit_hash
     if resolves:
         metadata[METADATA_KEY_RESOLVES] = resolves
+    if has_trailer:
+        metadata["has_resolves_trailer"] = True
 
     import sprint_store
 

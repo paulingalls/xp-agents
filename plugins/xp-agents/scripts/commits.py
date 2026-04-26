@@ -59,8 +59,8 @@ def extract_implicit_event_ids(body: str | None, known_ids: set[str]) -> list[st
     return ids
 
 
-def extract_resolves_trailer(body: str | None) -> tuple[list[str], str]:
-    """Parse Resolves-Event: trailers and return (event_ids, body_without_trailers).
+def extract_resolves_trailer(body: str | None) -> tuple[list[str], str, bool]:
+    """Parse Resolves-Event: trailers from a commit body.
 
     Trailer format (case-insensitive key, line-anchored):
         Resolves-Event: <12-hex-id>[, <id>...]
@@ -69,19 +69,26 @@ def extract_resolves_trailer(body: str | None) -> tuple[list[str], str]:
     order. IDs that aren't exactly 12 lowercase-hex chars are rejected. The
     returned body has all matched trailer lines removed (including the newline)
     so callers can use it directly as the stored commit event content.
+
+    has_trailer is True when any Resolves-Event: line was found, even if
+    the value was "none" or otherwise not a valid hex ID. This distinguishes
+    "developer followed the discipline but nothing to resolve" from
+    "developer forgot the trailer entirely".
     """
     if not body:
-        return [], body or ""
+        return [], body or "", False
     ids: list[str] = []
     seen: set[str] = set()
+    has_trailer = False
     for match in _RESOLVES_TRAILER_RE.finditer(body):
+        has_trailer = True
         for raw in match.group(1).split(","):
             event_id = raw.strip().lower()
             if EVENT_ID_RE.match(event_id) and event_id not in seen:
                 ids.append(event_id)
                 seen.add(event_id)
     cleaned = _RESOLVES_TRAILER_RE.sub("", body)
-    return ids, cleaned
+    return ids, cleaned, has_trailer
 
 
 def _run_git(args: list[str], cwd: str) -> str | None:

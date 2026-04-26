@@ -190,8 +190,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             already_resolved: list[str] = []
             has_trailer = False
             if msg:
-                already_resolved, _ = commits.extract_resolves_trailer(msg)
-                has_trailer = "resolves-event:" in msg.lower()
+                already_resolved, _, has_trailer = commits.extract_resolves_trailer(msg)
             candidates = resolves_probe.find_probe_candidates(
                 smm_dir, staged, already_resolved, cwd
             )

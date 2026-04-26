@@ -264,7 +264,10 @@ def _compute_resolves_link_rate(
 
     total = len(code_commits)
     with_trailers = [
-        e for e in code_commits if (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
+        e
+        for e in code_commits
+        if (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
+        or (e.get("metadata") or {}).get("has_resolves_trailer")
     ]
     total_hits = len(with_trailers)
 
@@ -280,6 +283,7 @@ def _compute_resolves_link_rate(
             1
             for c in agent_commits
             if (c.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
+            or (c.get("metadata") or {}).get("has_resolves_trailer")
         )
         per_agent[agent_id] = {
             "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,

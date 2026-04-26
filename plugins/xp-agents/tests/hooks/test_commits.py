@@ -48,13 +48,13 @@ class TestExtractResolvesTrailer(unittest.TestCase):
 
     def test_single_id(self):
         body = "Fix the bug\n\nRationale.\n\nResolves-Event: 4eb35ddcd24e"
-        ids, cleaned = commits.extract_resolves_trailer(body)
+        ids, cleaned, _ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, ["4eb35ddcd24e"])
         self.assertNotIn("Resolves-Event", cleaned)
 
     def test_comma_separated_ids(self):
         body = "Title\n\nResolves-Event: 4eb35ddcd24e, a55290ae79b9"
-        ids, cleaned = commits.extract_resolves_trailer(body)
+        ids, cleaned, _ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, ["4eb35ddcd24e", "a55290ae79b9"])
         self.assertNotIn("Resolves-Event", cleaned)
 
@@ -64,13 +64,13 @@ class TestExtractResolvesTrailer(unittest.TestCase):
             "Resolves-Event: 4eb35ddcd24e\n"
             "Resolves-Event: a55290ae79b9"
         )
-        ids, cleaned = commits.extract_resolves_trailer(body)
+        ids, cleaned, _ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, ["4eb35ddcd24e", "a55290ae79b9"])
         self.assertNotIn("Resolves-Event", cleaned)
 
     def test_case_insensitive_key(self):
         body = "Title\n\nresolves-event: 4eb35ddcd24e"
-        ids, cleaned = commits.extract_resolves_trailer(body)
+        ids, cleaned, _ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, ["4eb35ddcd24e"])
         self.assertNotIn("resolves-event", cleaned.lower())
 
@@ -80,41 +80,59 @@ class TestExtractResolvesTrailer(unittest.TestCase):
             "Resolves-Event: abc123abc123\n"
             "Resolves-Event: def456def456, abc123abc123"
         )
-        ids, _ = commits.extract_resolves_trailer(body)
+        ids, *_ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, ["abc123abc123", "def456def456"])
 
     def test_ignores_inline_mentions(self):
         """Trailer must start at line beginning, not in prose."""
         body = "Fix the thing that Resolves-Event: 4eb35ddcd24e in passing"
-        ids, cleaned = commits.extract_resolves_trailer(body)
+        ids, cleaned, _ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, [])
         self.assertEqual(cleaned, body)
 
     def test_rejects_non_hex_ids(self):
         body = "Title\n\nResolves-Event: not-a-hex-id"
-        ids, _ = commits.extract_resolves_trailer(body)
+        ids, *_ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, [])
 
     def test_rejects_wrong_length_ids(self):
         body = "Title\n\nResolves-Event: abc123, 1234567890123456"
-        ids, _ = commits.extract_resolves_trailer(body)
+        ids, *_ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, [])
 
     def test_no_trailer(self):
         body = "Fix the bug\n\nSome rationale."
-        ids, cleaned = commits.extract_resolves_trailer(body)
+        ids, cleaned, _ = commits.extract_resolves_trailer(body)
         self.assertEqual(ids, [])
         self.assertEqual(cleaned, body)
 
     def test_empty_body(self):
-        ids, cleaned = commits.extract_resolves_trailer("")
+        ids, cleaned, _ = commits.extract_resolves_trailer("")
         self.assertEqual(ids, [])
         self.assertEqual(cleaned, "")
 
     def test_none_body(self):
-        ids, cleaned = commits.extract_resolves_trailer(None)
+        ids, cleaned, has = commits.extract_resolves_trailer(None)
         self.assertEqual(ids, [])
         self.assertEqual(cleaned, "")
+        self.assertFalse(has)
+
+    def test_has_trailer_true_with_valid_id(self):
+        body = "Fix bug\n\nResolves-Event: 4eb35ddcd24e"
+        _, _, has = commits.extract_resolves_trailer(body)
+        self.assertTrue(has)
+
+    def test_has_trailer_true_with_none(self):
+        """Resolves-Event: none is valid discipline — trailer is present."""
+        body = "Fix bug\n\nResolves-Event: none"
+        ids, _, has = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, [])
+        self.assertTrue(has)
+
+    def test_has_trailer_false_when_absent(self):
+        body = "Fix bug\n\nSome rationale."
+        _, _, has = commits.extract_resolves_trailer(body)
+        self.assertFalse(has)
 
 
 # ---------------------------------------------------------------------------
