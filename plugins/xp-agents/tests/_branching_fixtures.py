@@ -109,6 +109,23 @@ def make_commit(
     return get_head_sha(cwd)
 
 
+def append_commit(cwd: str, filename: str = "feature.txt") -> None:
+    """Write filename and commit on the current branch (no checkout).
+
+    Counterpart to ``make_commit`` for tests that need to advance HEAD on
+    whatever branch is currently checked out.
+    """
+    (Path(cwd) / filename).write_text(f"content of {filename}")
+    subprocess.run(["git", "add", "."], cwd=cwd, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", f"add {filename}"],
+        cwd=cwd,
+        capture_output=True,
+        check=True,
+        env=GIT_ENV,
+    )
+
+
 def write_system_context(smm_dir: Path, stage: int) -> None:
     """Write a minimal system_context.json with the given branching stage."""
     ctx = {"project_name": "test", "branching_strategy": {"stage": stage}}
