@@ -56,6 +56,17 @@ if sprint_has_active; then
     fi
 fi
 
+# 6. Orphan free branches — surface unfinished free work for the user
+# to merge/keep/delete at every kickoff (regardless of session mode).
+ORPHAN_FREE=$(branching_list_free)
+if [ -n "$ORPHAN_FREE" ]; then
+    echo "### ORPHAN_FREE_BRANCHES"
+    echo "Unfinished free branches detected. Per branch, ask merge/keep/delete."
+    echo ""
+    echo "$ORPHAN_FREE"
+    echo ""
+fi
+
 # .needs-kickoff is cleared by kickoff_gate.py (UserPromptSubmit hook)
 # which runs before this preload. The .needs-housekeeping marker is
 # written later by the xp-work-selection preload (step 5) so the stop

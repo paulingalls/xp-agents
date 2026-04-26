@@ -233,6 +233,14 @@ plan_count() {
     python3 "${PLUGIN_ROOT}/smm/plan_cli.py" --smm-dir "$SMM_DIR" count 2>/dev/null
 }
 
+# Branching CLI helpers (thin wrappers over scripts/branching.py).
+# List the user's free branches, excluding HEAD. One branch per line.
+# Usage: branching_list_free
+branching_list_free() {
+    python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "$SMM_DIR" list-free --cwd . 2>/dev/null
+}
+
 # Marker helpers (thin wrappers over markers.py).
 # Usage: consume_marker ACCEPT
 #        write_marker NEEDS_HOUSEKEEPING "kickoff"

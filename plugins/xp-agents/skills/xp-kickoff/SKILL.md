@@ -49,6 +49,35 @@ If the user chooses **free session**: skip steps 3 and 4, jump directly to step 
 
 If the user chooses **sprint session**: proceed to step 3.
 
+## Step 2.5: Auto-create free branch on protected (free sessions only)
+
+If the user chose **free session** AND the branching stage is `>= 1` AND the current branch is a protected branch (`main` or `master`), create and check out a fresh free branch so the session never commits directly to a protected branch.
+
+Read the stage:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
+```
+
+If the stage is `0`, **skip this step** — Stage 0 has no branch discipline and free sessions are allowed on the protected branch. If the current branch is already a non-protected branch (e.g., the user is resuming a free branch), **skip this step** — do not nest branches.
+
+Otherwise, create the free branch with a slug derived from the user's session goal (first 3-4 words, slugified):
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  create-free --cwd . --slug "<session-goal-slug>"
+```
+
+`branching.py create-free` returns `<user>/free-YYYY-MM-DD-<slug>` and checks it out. Tell the user which branch was created so they can connect later commits to the free session.
+
+## Step 2.6: Orphan free-branch triage (ALWAYS, every kickoff)
+
+If the preload shows **ORPHAN_FREE_BRANCHES**, the user has unfinished free branches from prior sessions. For each branch listed, ask via `AskUserQuestion`: **merge / keep / delete?**
+
+- **merge** — invoke `/xp-free-close` against that branch (check it out first if needed). The skill will run the close-reviewer, ask for merge confirmation, and merge into primary.
+- **keep** — leave the branch alone; it will reappear at the next kickoff.
+- **delete** — drop the branch unconditionally. Use `branching.py delete --branch <name>` only when the user explicitly confirms; do not auto-delete branches with commits ahead of primary.
+
+This step runs at every kickoff regardless of the session mode chosen in Step 2 — orphan detection is a safety net for free sessions ended without `/xp-free-close`.
+
 ## Step 3: System Context and Execution Plan (if NEEDS_SYSTEM_CONTEXT or NEEDS_EXECUTION_PLAN)
 
 If the preload shows "NEEDS_SYSTEM_CONTEXT" and this is a sprint session, invoke `/xp-system-context`. Wait for it to complete before proceeding.
