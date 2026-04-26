@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.30.3 — Trailer rate metric fix
+
+Fixes the 3-retro declining trailer rate (73%→62%→60%). Root cause: `Resolves-Event: none` (valid discipline — developer explicitly declares nothing to resolve) was counted as "no trailer" because "none" isn't a valid hex ID. Fix: `extract_resolves_trailer` now returns a `has_trailer` boolean; `bash_post_tool` records `metadata.has_resolves_trailer`; `retro_metrics` counts both `metadata.resolves` and `has_resolves_trailer` for the discipline rate.
+
 ## v2.30.2 — System-analyzer branching_strategy fix
 
 Fixes the root cause of branching stage reading as 0 instead of 2: the system-analyzer agent's `create` command does a full file replace, wiping `branching_strategy` that was written by the earlier `edit-branching` step. Fix: agent prompt now instructs including `branching_strategy` and `acceptance_surfaces` directly in the create JSON. `edit-branching` and `edit-acceptance-surfaces` are reserved for update-mode patches only.
