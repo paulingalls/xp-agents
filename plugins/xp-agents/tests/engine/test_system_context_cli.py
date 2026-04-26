@@ -95,6 +95,81 @@ class TestCreateCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Validation error", result.stderr)
 
+    def test_create_preserves_branching_strategy_when_omitted(self) -> None:
+        existing = _valid_doc()
+        existing["branching_strategy"] = {
+            "stage": 2,
+            "user_namespace": "paul",
+            "protected_branches": ["main"],
+        }
+        _write_doc(self.smm_dir, existing)
+
+        incoming = _valid_doc()
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertIn("branching_strategy", data)
+        self.assertEqual(data["branching_strategy"]["stage"], 2)
+        self.assertEqual(data["branching_strategy"]["user_namespace"], "paul")
+
+    def test_create_preserves_acceptance_surfaces_when_omitted(self) -> None:
+        existing = _valid_doc()
+        existing["acceptance_surfaces"] = [
+            {"name": "tests", "signals": ["pytest"], "status": "covered"}
+        ]
+        _write_doc(self.smm_dir, existing)
+
+        incoming = _valid_doc()
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertIn("acceptance_surfaces", data)
+        self.assertEqual(data["acceptance_surfaces"][0]["name"], "tests")
+
+    def test_create_explicit_null_wipes_branching_strategy(self) -> None:
+        existing = _valid_doc()
+        existing["branching_strategy"] = {"stage": 2}
+        _write_doc(self.smm_dir, existing)
+
+        incoming = _valid_doc()
+        incoming["branching_strategy"] = None
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("branching_strategy", data)
+
+    def test_create_explicit_null_wipes_acceptance_surfaces(self) -> None:
+        existing = _valid_doc()
+        existing["acceptance_surfaces"] = [
+            {"name": "tests", "signals": ["pytest"], "status": "covered"}
+        ]
+        _write_doc(self.smm_dir, existing)
+
+        incoming = _valid_doc()
+        incoming["acceptance_surfaces"] = None
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("acceptance_surfaces", data)
+
+    def test_create_fresh_without_optional_fields(self) -> None:
+        incoming = _valid_doc()
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("branching_strategy", data)
+        self.assertNotIn("acceptance_surfaces", data)
+
 
 # ── render ──────────────────────────────────────────────────────
 
@@ -352,9 +427,6 @@ class TestAddDecisionCommand(_SMMTestCase):
             stdin_data=json.dumps({"topic": "x", "decision": "y"}),
         )
         self.assertEqual(result.returncode, 1)
-
-
-# ── E2E ─────────────────────────────────────────────────────────
 
 
 # ── edit-branching ─────────────────────────────────────────────
