@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Shared test fixtures for branching.py tests.
+"""Shared test fixtures for git+SMM tests.
 
-Consumed by tests/hooks/test_branching_lifecycle.py,
-test_branching_sprint.py, and test_branching_plan.py — three sibling
-files that previously each defined identical _GIT_ENV / _init_repo /
-_get_current_branch / _write_system_context (and a near-identical
-_seed_plan). One change to the shared invariant (e.g. git default
-branch defense, system_context shape) now touches one file, not three.
+Canonical home for hermetic repo setup. ``init_repo`` pins ``-b main``
+so tests pass on CI runners whose ``init.defaultBranch`` defaults to
+``master``, configures a deterministic git identity, and creates one
+empty initial commit. Any test that needs a temporary git repo should
+import from here rather than reproduce the boilerplate inline.
 """
 
 import json

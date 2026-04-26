@@ -2,6 +2,7 @@
 """Tests for coordination file helpers and working-on overlap detection."""
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import coordination
 import pre_tool_write
 import worktree
+from _branching_fixtures import init_repo
 from conftest import _HookTestCase
 
 
@@ -170,32 +172,12 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
     """M4e: Cross-worktree coordination conflict detection."""
 
     def setUp(self):
-        import subprocess
         import tempfile
 
         worktree._clear_git_root_cache()
         self.tmpdir = Path(tempfile.mkdtemp())
-        # Create a git repo with an initial commit (required for worktree)
-        subprocess.run(
-            ["git", "init", "-b", "main", str(self.tmpdir)],
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(self.tmpdir), "config", "user.email", "test@test.com"],
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(self.tmpdir), "config", "user.name", "Test"],
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(self.tmpdir), "commit", "--allow-empty", "-m", "init"],
-            capture_output=True,
-            check=True,
-        )
+        # init_repo creates the initial commit worktree-add requires.
+        init_repo(str(self.tmpdir))
         # Create worktree
         self.wt_dir = Path(tempfile.mkdtemp())
         import shutil
@@ -217,7 +199,6 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
 
     def tearDown(self):
         import shutil
-        import subprocess
 
         worktree._clear_git_root_cache()
         if self.tmpdir.exists():

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import identity
+from _branching_fixtures import init_repo
 
 
 class TestResolveAgentId(unittest.TestCase):
@@ -179,12 +180,7 @@ class TestUserNamespace(unittest.TestCase):
 
     def test_real_git_repo(self):
         with tempfile.TemporaryDirectory() as td:
-            subprocess.run(["git", "init", "-b", "main", td], capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.com"],
-                cwd=td,
-                capture_output=True,
-            )
+            init_repo(td)
             result = identity.user_namespace(td)
             self.assertEqual(result, "test")
 
@@ -194,19 +190,7 @@ class TestGetCurrentBranch(unittest.TestCase):
 
     def test_returns_branch_in_git_repo(self):
         with tempfile.TemporaryDirectory() as td:
-            subprocess.run(["git", "init", "-b", "main", td], capture_output=True)
-            subprocess.run(
-                ["git", "commit", "--allow-empty", "-m", "init"],
-                cwd=td,
-                capture_output=True,
-                env={
-                    **os.environ,
-                    "GIT_AUTHOR_NAME": "t",
-                    "GIT_AUTHOR_EMAIL": "t@t",
-                    "GIT_COMMITTER_NAME": "t",
-                    "GIT_COMMITTER_EMAIL": "t@t",
-                },
-            )
+            init_repo(td)
             result = identity.get_current_branch(td)
             self.assertIsInstance(result, str)
             self.assertTrue(len(result) > 0)
