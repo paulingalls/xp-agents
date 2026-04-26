@@ -6,7 +6,6 @@ text assertions for the dirty-tree refusal, with-gh / without-gh paths,
 and merge+cleanup sequencing.
 """
 
-import re
 import subprocess
 import sys
 import unittest
@@ -17,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _branching_fixtures import seed_plan, write_system_context
-from _close_fixtures import _ClosePreloadCommonTests
+from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
 from conftest import _extract_preload_var, _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -48,99 +47,17 @@ class TestSprintClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
 
 
-class TestSprintCloseSkillText(unittest.TestCase):
-    """Slice B: SKILL.md body locks the orchestration contract.
+class TestSprintCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
+    """Sprint-close SKILL.md guard tests.
 
-    These tests are guard-tests over markdown text — the practical
-    ceiling for an LLM-read inline skill (no harness exercises the
-    actual agent behavior). They pin the surfaces a future edit could
-    silently break: dirty-tree refusal, with-gh + without-gh paths,
-    review-input write, close-reviewer fork, merge+delete sequencing.
+    Inherits the nine shared close-skill guards from
+    _CloseSkillTextCommonTests (refusal prose, gh-conditional, REVIEW_INPUT
+    keys, agent prompt literals, merge+delete ordering, AskUserQuestion).
+    Adds the sprint-specific plan-close chain test.
     """
 
-    @classmethod
-    def setUpClass(cls):
-        cls.text = _SKILL_MD.read_text()
-
-    def test_refuses_when_worktree_clean_false(self):
-        # The body must describe the refusal path when WORKTREE_CLEAN=false.
-        self.assertIn("WORKTREE_CLEAN", self.text)
-        lower = self.text.lower()
-        self.assertTrue(
-            "refuse" in lower or "abort" in lower or "stop" in lower,
-            "SKILL.md must describe refusing/aborting on dirty worktree",
-        )
-
-    def test_gh_pr_create_only_inside_gh_available_branch(self):
-        # `gh pr create` must appear inside a GH_AVAILABLE=true conditional
-        # branch — not just somewhere in the file. Look for an explicit
-        # `GH_AVAILABLE=true` near (within 200 chars before) the gh call.
-        self.assertIn("gh pr create", self.text)
-        gh_idx = self.text.index("gh pr create")
-        prelude = self.text[max(0, gh_idx - 200) : gh_idx]
-        self.assertRegex(
-            prelude,
-            r"GH_AVAILABLE\s*=\s*true",
-            "gh pr create must be guarded by an explicit "
-            "`GH_AVAILABLE=true` conditional within 200 chars before it",
-        )
-
-    def test_documents_no_gh_skip_path(self):
-        # When GH_AVAILABLE=false the skill must describe what is skipped
-        # so the operator knows the PR step was intentionally bypassed.
-        lower = self.text.lower()
-        self.assertTrue(
-            "skip" in lower and ("gh" in lower or "pr" in lower),
-            "SKILL.md must describe the gh-not-available skip path",
-        )
-
-    def test_writes_close_review_input_with_required_fields(self):
-        # The body must instruct writing the close-review-input file with
-        # the four keys the close-reviewer agent reads.
-        self.assertIn("REVIEW_INPUT", self.text)
-        for key in ("mode", "source_branch", "target_branch", "diff_command"):
-            self.assertIn(key, self.text, f"Missing review-input key: {key}")
-
-    def test_agent_prompt_carries_smm_dir_and_review_input(self):
-        # The Agent prompt must literally embed SMM_DIR= and REVIEW_INPUT=
-        # lines — the close-reviewer reads them from the prompt now that
-        # SubagentStart no longer injects them. A heredoc reformat must
-        # not silently drop these without breaking this guard.
-        self.assertIn("SMM_DIR=", self.text)
-        self.assertIn("REVIEW_INPUT=", self.text)
-        # Mode must be 'sprint' for this skill.
-        self.assertIn('"sprint"', self.text)
-
-    def test_invokes_close_reviewer_via_agent_tool(self):
-        # The body must instruct forking xp-close-reviewer via the Agent tool.
-        self.assertIn("xp-agents:xp-close-reviewer", self.text)
-        self.assertIn("subagent_type", self.text)
-
-    def test_merge_branch_called_with_explicit_target(self):
-        # The body must invoke `branching.py merge-branch` with an
-        # explicit --target — branching.py requires it and implicit
-        # defaults caused drift in earlier iterations.
-        self.assertIn("merge-branch", self.text)
-        self.assertIn("--target", self.text)
-        self.assertIn("--branch", self.text)
-
-    def test_delete_branch_only_after_merge(self):
-        # The body must invoke `branching.py delete ... --branch` AND that
-        # call must appear AFTER the merge-branch call so cleanup never
-        # runs on a failed merge. The CLI requires --cwd between them.
-        delete_match = re.search(r"\bdelete\b.*--branch", self.text)
-        assert delete_match is not None, "branching.py delete --branch not found"
-        merge_idx = self.text.index("merge-branch")
-        self.assertLess(
-            merge_idx,
-            delete_match.start(),
-            "delete --branch must appear AFTER merge-branch",
-        )
-
-    def test_asks_user_before_merging(self):
-        # Per design, the close skill must ask the user to confirm the
-        # merge after presenting the reviewer's findings.
-        self.assertIn("AskUserQuestion", self.text)
+    _SKILL_MD = _SKILL_MD
+    _MODE = "sprint"
 
     def test_invokes_plan_close_when_plan_complete(self):
         # After a successful merge, the skill must check whether the

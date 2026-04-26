@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _branching_fixtures import write_system_context
-from _close_fixtures import _ClosePreloadCommonTests
+from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
 from conftest import _extract_preload_var, _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -56,68 +56,21 @@ class TestPlanClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-plan-close" / "SKILL.md"
 
 
-class TestPlanCloseSkillText(unittest.TestCase):
-    """SKILL.md body locks the plan-close orchestration contract.
+class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
+    """Plan-close SKILL.md guard tests.
 
-    Mirrors TestSprintCloseSkillText guard-tests — text-presence is the
-    practical ceiling for an LLM-read inline skill.
+    Inherits the nine shared close-skill guards from
+    _CloseSkillTextCommonTests. Adds plan-specific tests: current==target
+    refusal and the plan_cli archive-after-merge ordering.
     """
 
-    @classmethod
-    def setUpClass(cls):
-        cls.text = _SKILL_MD.read_text()
-
-    def test_refuses_when_worktree_clean_false(self):
-        self.assertIn("WORKTREE_CLEAN", self.text)
-        lower = self.text.lower()
-        self.assertTrue(
-            "refuse" in lower or "abort" in lower or "stop" in lower,
-            "SKILL.md must describe refusing/aborting on dirty worktree",
-        )
+    _SKILL_MD = _SKILL_MD
+    _MODE = "plan"
 
     def test_refuses_when_current_equals_target(self):
         # Plan-close from the primary branch is nonsensical — refuse.
         self.assertIn("CURRENT_BRANCH", self.text)
         self.assertIn("TARGET_BRANCH", self.text)
-
-    def test_gh_pr_create_only_inside_gh_available_branch(self):
-        self.assertIn("gh pr create", self.text)
-        gh_idx = self.text.index("gh pr create")
-        prelude = self.text[max(0, gh_idx - 200) : gh_idx]
-        self.assertRegex(
-            prelude,
-            r"GH_AVAILABLE\s*=\s*true",
-            "gh pr create must be guarded by an explicit "
-            "`GH_AVAILABLE=true` conditional within 200 chars before it",
-        )
-
-    def test_documents_no_gh_skip_path(self):
-        lower = self.text.lower()
-        self.assertTrue(
-            "skip" in lower and ("gh" in lower or "pr" in lower),
-            "SKILL.md must describe the gh-not-available skip path",
-        )
-
-    def test_writes_close_review_input_with_required_fields(self):
-        self.assertIn("REVIEW_INPUT", self.text)
-        for key in ("mode", "source_branch", "target_branch", "diff_command"):
-            self.assertIn(key, self.text, f"Missing review-input key: {key}")
-
-    def test_agent_prompt_carries_smm_dir_and_review_input(self):
-        # The Agent prompt must literally embed SMM_DIR= and REVIEW_INPUT=.
-        self.assertIn("SMM_DIR=", self.text)
-        self.assertIn("REVIEW_INPUT=", self.text)
-        # Mode must be 'plan' for this skill.
-        self.assertIn('"plan"', self.text)
-
-    def test_invokes_close_reviewer_via_agent_tool(self):
-        self.assertIn("xp-agents:xp-close-reviewer", self.text)
-        self.assertIn("subagent_type", self.text)
-
-    def test_merge_branch_called_with_explicit_target(self):
-        self.assertIn("merge-branch", self.text)
-        self.assertIn("--target", self.text)
-        self.assertIn("--branch", self.text)
 
     def test_archives_plan_only_after_merge(self):
         # plan_cli.py archive must appear AFTER the merge-branch call so
@@ -132,19 +85,6 @@ class TestPlanCloseSkillText(unittest.TestCase):
             archive_match.start(),
             "plan_cli.py archive must appear AFTER merge-branch",
         )
-
-    def test_delete_branch_only_after_merge(self):
-        delete_match = re.search(r"\bdelete\b.*--branch", self.text)
-        assert delete_match is not None, "branching.py delete --branch not found"
-        merge_idx = self.text.index("merge-branch")
-        self.assertLess(
-            merge_idx,
-            delete_match.start(),
-            "delete --branch must appear AFTER merge-branch",
-        )
-
-    def test_asks_user_before_merging(self):
-        self.assertIn("AskUserQuestion", self.text)
 
 
 _SPRINT_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
