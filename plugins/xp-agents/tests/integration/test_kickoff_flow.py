@@ -202,9 +202,13 @@ class TestKickoffFlowE2E(_IntegrationTestCase):
                 _assistant_entry(["Done, moving on."]),
             ],
         )
-        with self.assertRaises(_common.BlockedError) as exc:
-            self._gate(transcript)
-        self.assertIn("Unechoed render", str(exc.exception))
+        result = pre_tool_echo_gate.run(
+            _make_write_input(agent_id=self.AGENT_ID, transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, str)
+        assert result is not None
+        self.assertIn("Unechoed render", result)
         self.assertTrue(
             markers.marker_exists(
                 self.smm_dir, markers.PENDING_RENDER_SMM, self.AGENT_ID

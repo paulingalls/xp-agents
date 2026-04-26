@@ -10,14 +10,18 @@ Contract:
   are NOT required — the gate is a "did you forget?" reminder, not a
   format enforcer.
 - When a marker exists but at least one required phrase is absent from
-  assistant text, the hook raises BlockedError.
+  assistant text, the hook returns an advisory string describing the
+  missing render. The marker is NOT consumed so the nudge re-fires on
+  the next tool call. The advisory is delivered to the agent via
+  hookSpecificOutput.additionalContext (per constraint 2e84b909ee0d) —
+  it does NOT block the next tool call.
 - Only role=='assistant' text blocks are scanned. tool_use and tool_result
   blocks are NOT scanned — tool output containing the required phrases
   does not clear the marker.
 - Recursion: when input_data.agent_type starts with 'xp-', the hook returns
   None immediately (our own agent hooks never trigger the gate).
 - Per-agent isolation: each agent sees only its own .pending-render-*-{agent_id}
-  marker. Another agent's marker does not block the current agent.
+  marker. Another agent's marker does not produce an advisory for another agent.
 - Fail-open: missing transcript_path OR unreadable transcript file → None.
 """
 
@@ -30,7 +34,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
 import marker_names
 import markers
 import pre_tool_echo_gate
@@ -157,9 +160,9 @@ class TestEchoGateSignaturePresent(_HookTestCase):
 
 
 class TestEchoGateSignatureMissing(_HookTestCase):
-    """Signature absent from assistant text blocks the tool call."""
+    """Signature absent from assistant text returns an advisory, not a block."""
 
-    def test_signature_missing_raises_blocked_error(self):
+    def test_signature_missing_returns_advisory(self):
         markers.marker_write(
             self.smm_dir, markers.PENDING_RENDER_SMM, _SMM_SIG + "\n", "main"
         )
@@ -171,13 +174,14 @@ class TestEchoGateSignatureMissing(_HookTestCase):
                 _assistant_entry(["OK I'll get on that."]),
             ],
         )
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_echo_gate.run(
-                _make_write_input(transcript_path=str(transcript)),
-                smm_dir=self.smm_dir,
-            )
-        self.assertIn("Unechoed render", str(ctx.exception))
-        # Marker must remain so the next tool call can still clear it.
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, str)
+        assert result is not None
+        self.assertIn("Unechoed render", result)
+        # Marker must remain so the next tool call still produces the advisory.
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
         )
@@ -243,7 +247,7 @@ class TestEchoGatePlainTextPhrases(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_RETRO, "main")
         )
 
-    def test_smm_only_one_phrase_still_blocks(self):
+    def test_smm_only_one_phrase_still_advises(self):
         """Drive-by mention of just 'Shared Mental Model' doesn't clear."""
         markers.marker_write(
             self.smm_dir, markers.PENDING_RENDER_SMM, _SMM_SIG + "\n", "main"
@@ -257,11 +261,11 @@ class TestEchoGatePlainTextPhrases(_HookTestCase):
                 ),
             ],
         )
-        with self.assertRaises(_common.BlockedError):
-            pre_tool_echo_gate.run(
-                _make_write_input(transcript_path=str(transcript)),
-                smm_dir=self.smm_dir,
-            )
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, str)
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
         )
@@ -285,12 +289,13 @@ class TestEchoGateToolResultIgnored(_HookTestCase):
                 _assistant_entry(["Done, nothing more to do."]),
             ],
         )
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_echo_gate.run(
-                _make_write_input(transcript_path=str(transcript)),
-                smm_dir=self.smm_dir,
-            )
-        self.assertIn("Unechoed render", str(ctx.exception))
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, str)
+        assert result is not None
+        self.assertIn("Unechoed render", result)
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
         )
@@ -397,7 +402,7 @@ class TestEchoGateDualPending(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
         )
 
-    def test_only_retro_echoed_consumes_retro_blocks_on_smm(self):
+    def test_only_retro_echoed_consumes_retro_advises_smm(self):
         self._seed_both_markers()
         transcript = self.smm_dir / "transcript.jsonl"
         _write_transcript(
@@ -406,12 +411,13 @@ class TestEchoGateDualPending(_HookTestCase):
                 _assistant_entry([f"Retro:\n{_RETRO_SIG}\n## Keep\n- pair\n"]),
             ],
         )
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_echo_gate.run(
-                _make_write_input(transcript_path=str(transcript)),
-                smm_dir=self.smm_dir,
-            )
-        self.assertIn("SMM", str(ctx.exception))
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, str)
+        assert result is not None
+        self.assertIn("SMM", result)
         # Retro marker consumed (echo verified); SMM marker remains so the
         # next attempt can clear it once the SMM signature is echoed too.
         self.assertFalse(
@@ -421,7 +427,7 @@ class TestEchoGateDualPending(_HookTestCase):
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_SMM, "main")
         )
 
-    def test_neither_echoed_blocks_on_first_no_consume(self):
+    def test_neither_echoed_advises_first_no_consume(self):
         self._seed_both_markers()
         transcript = self.smm_dir / "transcript.jsonl"
         _write_transcript(
@@ -430,14 +436,15 @@ class TestEchoGateDualPending(_HookTestCase):
                 _assistant_entry(["OK, I'll get to it."]),
             ],
         )
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_echo_gate.run(
-                _make_write_input(transcript_path=str(transcript)),
-                smm_dir=self.smm_dir,
-            )
-        # Retro is iterated first, so it is the one cited in the block reason.
-        self.assertIn("retrospective", str(ctx.exception))
-        # Neither marker should be consumed — block fires before either echo.
+        result = pre_tool_echo_gate.run(
+            _make_write_input(transcript_path=str(transcript)),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsInstance(result, str)
+        assert result is not None
+        # Retro is iterated first, so it is the one cited in the advisory.
+        self.assertIn("retrospective", result)
+        # Neither marker should be consumed — advisory fires before either echo.
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.PENDING_RENDER_RETRO, "main")
         )

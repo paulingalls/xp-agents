@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: echo-enforcement for rendered content.
+"""PreToolUse hook: echo-advisory for rendered content.
 
 When kickoff asks the housekeeper/retrospective agents to render the curated
 SMM and the latest retrospective, the render CLIs drop
 `.pending-render-{smm,retro}-{agent_id}` markers at SMM_DIR. Subagent
-tool-results are not visible to the user, so without enforcement the main
+tool-results are not visible to the user, so without a nudge the main
 agent could silently skip the echo step.
 
 This hook runs before the next agent tool invocation (Agent, Write, Edit,
 MultiEdit, Bash, Skill). When a pending render marker exists for the
 calling agent, it scans the assistant-authored text of the transcript for
 a small tuple of required phrases (plain text, no markdown) and either
-consumes the marker (all phrases present → verified echo) or blocks the
-tool call (exit 2 with `Unechoed render` reason on stderr). The check is
-deliberately loose: markdown prefix and em-dash are not required. Purpose
-is to remind the agent if it forgot, not to police formatting.
+consumes the marker (all phrases present → verified echo) or returns an
+advisory string. The advisory is delivered to the agent via
+``hookSpecificOutput.additionalContext`` (per constraint 2e84b909ee0d) —
+it does NOT block the next tool call. The marker is left in place so the
+nudge re-fires until the render is echoed. The check is deliberately
+loose: markdown prefix and em-dash are not required. Purpose is to remind
+the agent if it forgot, not to police formatting.
 
 The gate is NOT registered on UserPromptSubmit — a user submitting a
-prompt is not an agent action, and blocking their input penalizes the
-wrong actor. The PreToolUse enforcement is sufficient: the moment the
-agent tries to act on the prompt without echoing, it is blocked.
+prompt is not an agent action, and the PreToolUse advisory is sufficient
+to remind the agent the moment it tries to act without echoing.
 
 Fail-open conditions: missing transcript_path, unreadable transcript file,
 missing/invalid SMM directory, xp-* agent invocations (recursion).
@@ -98,21 +100,23 @@ def _assistant_text(transcript_path: Path) -> str | None:
     return "\n".join(parts)
 
 
-def _block_reason(kind: str, phrases: tuple[str, ...]) -> str:
+def _advisory(kind: str, phrases: tuple[str, ...]) -> str:
     quoted = ", ".join(f"'{p}'" for p in phrases)
     return (
         f"Unechoed render: {kind}. Show the {kind} block to the user before "
         f"the next tool call — the content you were asked to render, not a "
-        f"one-line summary. The gate clears once the assistant text contains "
+        f"one-line summary. The advisory clears once the assistant text contains "
         f"all of these phrases: {quoted}. Markdown formatting is optional."
     )
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> None:
-    """Core logic. Returns None on allow. Raises BlockedError on block.
+def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+    """Core logic. Returns the advisory string when at least one pending
+    render is missing its echo, otherwise None.
 
-    Follows the established convention in pre_tool_write.py / pre_tool_bash.py
-    so main() can share a single exit path.
+    The hook is advisory: it never raises BlockedError or signals a block.
+    The marker is consumed only when phrases are present; otherwise the
+    marker is left in place so the next tool call re-fires the nudge.
     """
     if _common.is_xp_agent(input_data):
         return None
@@ -140,17 +144,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         if all(p in assistant_text for p in phrases):
             markers.marker_consume(smm_dir, marker, agent_id)
         else:
-            raise _common.BlockedError(_block_reason(kind, phrases))
+            return _advisory(kind, phrases)
     return None
 
 
 def main() -> None:
     input_data = _common.read_hook_input()
-    try:
-        run(input_data)
-    except _common.BlockedError as exc:
-        print(str(exc), file=sys.stderr)
-        sys.exit(2)
+    advisory = run(input_data)
+    if advisory is not None:
+        _common.hook_output("PreToolUse", advisory)
     sys.exit(0)
 
 
