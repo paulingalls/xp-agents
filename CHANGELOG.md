@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.30.2 — System-analyzer branching_strategy fix
+
+Fixes the root cause of branching stage reading as 0 instead of 2: the system-analyzer agent's `create` command does a full file replace, wiping `branching_strategy` that was written by the earlier `edit-branching` step. Fix: agent prompt now instructs including `branching_strategy` and `acceptance_surfaces` directly in the create JSON. `edit-branching` and `edit-acceptance-surfaces` are reserved for update-mode patches only.
+
 ## v2.30.1 — Try item ID stamping (try_status fix)
 
 Fixes a 3-retro-old gap where `try_status[*].resolved_this_session` always showed `false` for Try items without `event_refs` (process improvements like "wire metadata.resolves"). Root cause: `annotate_try_status` only matched by hex IDs in content/refs — Try items with no referenced events had nothing to match against.
