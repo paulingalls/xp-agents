@@ -111,7 +111,11 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
         )
         _common.append_safe(smm_dir, event)
 
-    (smm_dir / ".sprint-review-input.json").unlink(missing_ok=True)
+    # Sweep both the per-invocation tempfile pattern
+    # (.sprint-review-input.XXXXXX) and any legacy .sprint-review-input.json
+    # from before the migration — the glob covers both.
+    for stale in smm_dir.glob(".sprint-review-input.*"):
+        stale.unlink(missing_ok=True)
 
     return None
 

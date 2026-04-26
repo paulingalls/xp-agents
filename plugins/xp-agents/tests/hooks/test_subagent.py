@@ -479,11 +479,16 @@ class TestSprintReviewerDone(_HookTestCase):
         self.assertEqual(meta["stories_carried"], 1)
 
     def test_cleans_up_input_file(self):
-        """Removes .sprint-review-input.json after handling."""
+        """Removes both legacy and per-invocation review input files."""
         self._seed_sprint()
-        (self.smm_dir / ".sprint-review-input.json").write_text("{}")
+        # Seed both shapes: legacy fixed name and a per-invocation tempfile.
+        legacy = self.smm_dir / ".sprint-review-input.json"
+        tempfile_path = self.smm_dir / ".sprint-review-input.abc123"
+        legacy.write_text("{}")
+        tempfile_path.write_text("{}")
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        self.assertFalse((self.smm_dir / ".sprint-review-input.json").exists())
+        self.assertFalse(legacy.exists())
+        self.assertFalse(tempfile_path.exists())
 
     def test_no_sprint_graceful(self):
         """M6: No sprint.json → still returns None (no nudge), no crash."""

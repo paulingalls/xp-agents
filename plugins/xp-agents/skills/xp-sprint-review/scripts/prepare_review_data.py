@@ -2,8 +2,10 @@
 """Prepare sprint review data for the subagent.
 
 Reads sprint.json and execution_plan.json, computes velocity stats,
-and writes .sprint-review-input.json for the xp-sprint-reviewer
-subagent to consume.
+and writes the review input JSON to a per-invocation target path so
+concurrent close skills in different worktrees never race on a shared
+file. Mirrors the close-skill preload pattern (xp-sprint-close /
+xp-plan-close), where preload.sh mktemps the path and passes it in.
 """
 
 import sys
@@ -18,8 +20,8 @@ import _common  # noqa: E402
 import sprint_store  # noqa: E402
 
 
-def run(smm_dir: Path) -> dict | None:
-    """Prepare sprint review input data.
+def run(smm_dir: Path, target_path: Path) -> dict | None:
+    """Prepare sprint review input data and write it to ``target_path``.
 
     Returns the review data dict on success, None if sprint.json
     is missing or malformed.
@@ -51,7 +53,7 @@ def run(smm_dir: Path) -> dict | None:
         "execution_plan_md_path": plan_str,
     }
 
-    _common.write_json_atomic(smm_dir / ".sprint-review-input.json", review_input)
+    _common.write_json_atomic(target_path, review_input)
     return review_input
 
 
@@ -61,14 +63,20 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Prepare sprint review data")
     parser.add_argument("--smm-dir", type=Path, required=True, help="SMM directory")
+    parser.add_argument(
+        "--target",
+        type=Path,
+        required=True,
+        help="Per-invocation tempfile path to write review input to",
+    )
     args = parser.parse_args()
 
-    result = run(args.smm_dir)
+    result = run(args.smm_dir, args.target)
     if result is None:
         print("No sprint data available", file=sys.stderr)
         sys.exit(0)  # Graceful degradation in preload
 
-    print(f"REVIEW_INPUT={args.smm_dir / '.sprint-review-input.json'}")
+    print(f"REVIEW_INPUT={args.target}")
 
 
 if __name__ == "__main__":
