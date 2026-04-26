@@ -111,7 +111,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 
 ### Plugin Subagents (agents/ directory)
 
-Seven subagents with full tool access. Each wrapped by a forked skill with `!` preloads for deterministic SMM state injection, or spawned directly by an inline skill.
+Plugin subagents with full tool access. Each wrapped by a forked skill with `!` preloads for deterministic SMM state injection, or spawned directly by an inline skill.
 
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
@@ -121,11 +121,12 @@ Seven subagents with full tool access. Each wrapped by a forked skill with `!` p
 | `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
 | `xp-housekeeper` | `/xp-housekeeping` skill | Fork | Four-pillar SMM curation with LLM judgment |
 | `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
+| `xp-close-reviewer` | `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` | Fork | Holistic close-review at sprint/plan/free integration points (mode-aware) |
 | `xp-system-context` | `/xp-system-context` skill | Fork | Autonomous codebase analysis — product, architecture, constraints |
 
-### Skills (14 total: 8 inline + 6 forked)
+### Skills
 
-Forked skills (`xp-run-retrospective`, `xp-review-plan`, `xp-security-triage`, `xp-housekeeping`, `xp-sprint-review`, `xp-system-context`) delegate to a subagent above. Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent):
+Forked skills delegate to a subagent above. Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent):
 - `/xp-kickoff` — orchestrator, sequences retro → work selection → housekeeping at session start
 - `/xp-work-selection` — sprint setup, work selection, retro Try items
 - `/xp-quality-review` — orchestrator: spawns `xp-code-reviewer` subagent for independent review (simplify accountability, drift, debt, XP-lens), resolves plan concerns inline
@@ -133,6 +134,9 @@ Forked skills (`xp-run-retrospective`, `xp-review-plan`, `xp-security-triage`, `
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred
 - `/xp-assign` — analyze plan steps, decide execution mode (solo vs CLI teammates), spawn teammates via `spawn_teammate.py` for parallel execution. Auto-runs after planning completes
+- `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
+- `/xp-plan-close` — push plan branch, fork close-reviewer, merge into primary, archive plan
+- `/xp-free-close` — push free branch, fork close-reviewer, merge into primary, cleanup
 
 XP values are covered by the process guide (injected at SubagentStart).
 
@@ -249,14 +253,12 @@ plugins/xp-agents/
 ├── PROCESS_GUIDE.md                 ← process rules for lead/solo agents (skills, commit gates, sprint flow)
 ├── TEAMMATE_GUIDE.md                ← DO/DON'T/SKIP/KEEP rules for CLI teammates
 ├── hooks/hooks.json                 ← all hook registrations (command hooks only)
-├── agents/                          ← 7 plugin subagents (full tool access)
-├── skills/                          ← 14 skills (8 inline + 6 forked), each with SKILL.md + scripts/
+├── agents/                          ← plugin subagents (full tool access)
+├── skills/                          ← skills (inline + forked), each with SKILL.md + scripts/
 │   └── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
-├── scripts/                         ← ~48 command hooks + shared modules (Python 3.10+, stdlib only)
-└── smm/                             ← ~20 SMM engine modules (append, compact, materialize, schema, CLI tools)
+├── scripts/                         ← command hooks + shared modules (Python 3.10+, stdlib only)
+└── smm/                             ← SMM engine modules (append, compact, materialize, schema, CLI tools)
 ```
-
-**Component inventory:** ~48 scripts, 7 agents, 14 skills, ~2049 tests.
 
 ## Platform Constraints
 

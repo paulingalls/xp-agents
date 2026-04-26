@@ -198,6 +198,9 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-security-triage` | Security review of pending changes | Before commits |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
+| `/xp-sprint-close` | Push sprint branch, fork close-reviewer, merge into target, cleanup | After sprint review |
+| `/xp-plan-close` | Push plan branch, fork close-reviewer, merge into primary, archive | After last milestone's sprint-close |
+| `/xp-free-close` | Push free branch, fork close-reviewer, merge into primary, cleanup | End of free session |
 
 ### The Shared Mental Model
 
@@ -407,10 +410,9 @@ Only events before the curation watermark are eligible for compaction.
 
 ## Project Status
 
-2049 tests. All passing.
-
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical specifications.
 See [SMM_DESIGN.md](docs/SMM_DESIGN.md) for the four-pillar Shared Mental Model design.
+See [BRANCHING_DOCTRINE.md](docs/BRANCHING_DOCTRINE.md) for the branching stage model and team scenarios.
 See [RESEARCH.md](docs/RESEARCH.md) for competitive landscape and lessons learned.
 
 ## License
