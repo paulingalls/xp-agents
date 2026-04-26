@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import coordination
+import marker_names
 import markers
 import sprint_state
 from event_schema import (
@@ -111,10 +112,7 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
         )
         _common.append_safe(smm_dir, event)
 
-    # Sweep both the per-invocation tempfile pattern
-    # (.sprint-review-input.XXXXXX) and any legacy .sprint-review-input.json
-    # from before the migration — the glob covers both.
-    for stale in smm_dir.glob(".sprint-review-input.*"):
+    for stale in smm_dir.glob(f"{marker_names.SPRINT_REVIEW_INPUT_PREFIX}*"):
         stale.unlink(missing_ok=True)
 
     return None

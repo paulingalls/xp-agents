@@ -20,6 +20,7 @@ sys.path.insert(
     ),
 )
 
+import marker_names
 from conftest import (
     _PLUGIN_ROOT,
     _HookTestCase,
@@ -27,6 +28,8 @@ from conftest import (
     _s,
     _sprint_json,
 )
+
+_SRI = marker_names.SPRINT_REVIEW_INPUT_PREFIX
 
 # ---------------------------------------------------------------------------
 # Sprint fixtures
@@ -107,9 +110,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 4)
@@ -121,9 +122,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         expected = (
             "sprint_id",
@@ -143,9 +142,7 @@ class TestPrepareReviewData(_HookTestCase):
         """No sprint.json -> None."""
         import prepare_review_data
 
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNone(result)
 
     def test_all_done_velocity(self):
@@ -153,9 +150,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 3)
@@ -167,9 +162,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DEFERRED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 2)
@@ -181,7 +174,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        target = self.smm_dir / ".sprint-review-input.test-XYZ123"
+        target = self.smm_dir / f"{_SRI}test-XYZ123"
         prepare_review_data.run(self.smm_dir, target)
         self.assertTrue(target.exists())
 
@@ -190,9 +183,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_NO_ID)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNone(result)
 
     def test_sprint_id_in_output(self):
@@ -200,9 +191,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertEqual(result["sprint_id"], "sprint-001")
 
     def test_goal_in_output(self):
@@ -210,9 +199,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertEqual(result["goal"], "Build auth system")
 
     def test_execution_plan_path_set(self):
@@ -221,9 +208,7 @@ class TestPrepareReviewData(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         (self.smm_dir / "execution_plan.json").write_text("{}")
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         path = result["execution_plan_md_path"]
         self.assertTrue(path)
@@ -234,9 +219,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         self.assertEqual(result["execution_plan_md_path"], "")
 
@@ -248,9 +231,7 @@ class TestPrepareReviewData(_HookTestCase):
         target = self.smm_dir / "_fake_target.json"
         target.write_text("{}")
         (self.smm_dir / "execution_plan.json").symlink_to(target)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         self.assertEqual(result["execution_plan_md_path"], "")
 
@@ -259,9 +240,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_MILESTONE)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         self.assertEqual(result["milestone"], "Milestone 1: Auth Foundation")
 
@@ -270,9 +249,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         self.assertEqual(result["milestone"], "")
 
@@ -281,9 +258,7 @@ class TestPrepareReviewData(_HookTestCase):
         import prepare_review_data
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(
-            self.smm_dir, self.smm_dir / ".sprint-review-input.json"
-        )
+        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
         self.assertIsNotNone(result)
         self.assertIn("execution_plan_md_path", result)
 
@@ -342,9 +317,9 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        candidates = list(self.smm_dir.glob(".sprint-review-input.*"))
+        candidates = list(self.smm_dir.glob(f"{_SRI}*"))
         self.assertEqual(len(candidates), 1, candidates)
-        self.assertNotEqual(candidates[0].name, ".sprint-review-input.json")
+        self.assertNotEqual(candidates[0].name, f"{_SRI}json")
 
     def test_preload_review_input_path_is_unique_per_call(self):
         """Two preload calls produce distinct REVIEW_INPUT paths."""
@@ -360,7 +335,7 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         """When prep returns no data, the mktemp file is removed."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(list(self.smm_dir.glob(".sprint-review-input.*")), [])
+        self.assertEqual(list(self.smm_dir.glob(f"{_SRI}*")), [])
 
 
 # ===========================================================================

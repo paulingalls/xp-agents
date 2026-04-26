@@ -26,6 +26,9 @@ PENDING_RENDER_RETRO = ".pending-render-retro-{agent_id}"
 PENDING_RENDER_SMM = ".pending-render-smm-{agent_id}"
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
 
+CLOSE_REVIEW_INPUT_PREFIX = ".close-review-input."
+SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."
+
 RENDER_RETRO_SIGNATURE = "# XP Retrospective \u2014 Keep / Fix / Try"
 RENDER_SMM_SIGNATURE = "# Shared Mental Model \u2014 Curated View"
 

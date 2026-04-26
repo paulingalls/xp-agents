@@ -13,12 +13,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import marker_names
 import subagent_stop
 from conftest import (
     _HookTestCase,
     _s,
     _sprint_json,
 )
+
+_SRI = marker_names.SPRINT_REVIEW_INPUT_PREFIX
 
 _SPRINT_REVIEW_MIXED = _sprint_json(
     [
@@ -94,8 +97,8 @@ class TestSprintReviewerDone(_HookTestCase):
     def test_cleans_up_input_file(self):
         """Removes both legacy and per-invocation review input files."""
         self._seed_sprint()
-        legacy = self.smm_dir / ".sprint-review-input.json"
-        tempfile_path = self.smm_dir / ".sprint-review-input.abc123"
+        legacy = self.smm_dir / f"{_SRI}json"
+        tempfile_path = self.smm_dir / f"{_SRI}abc123"
         legacy.write_text("{}")
         tempfile_path.write_text("{}")
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)

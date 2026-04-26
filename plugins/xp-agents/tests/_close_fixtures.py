@@ -23,6 +23,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import marker_names
 from conftest import _extract_preload_var
 
 
@@ -92,7 +93,9 @@ class _ClosePreloadCommonTests:
         self.assertIsNotNone(review_input)
         review_path = Path(review_input)
         self.assertEqual(review_path.parent, self.smm_dir)
-        self.assertTrue(review_path.name.startswith(".close-review-input."))
+        self.assertTrue(
+            review_path.name.startswith(marker_names.CLOSE_REVIEW_INPUT_PREFIX)
+        )
         self.assertTrue(review_path.exists(), "mktemp should create the file")
 
     def test_review_input_path_is_unique_per_call(self):
