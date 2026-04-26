@@ -356,6 +356,81 @@ class TestCommitGateIntegration(_IntegrationTestCase):
         marker = self.smm_dir / ".security-triaged-main"
         self.assertTrue(marker.exists(), "Marker should exist after /security-review")
 
+    def test_release_prefix_does_not_bypass_triage_for_code(self):
+        """[release] commits with code files still route through security triage.
+
+        The escape-hatch prefix only bypasses the protected-branch warning,
+        NOT the security-triage gate. Pin the contract so a future refactor
+        cannot silently route release commits around triage (this has been
+        flagged on consecutive retros).
+        """
+        self._stage_code_file()
+        result = self._run_script(
+            "pre_tool_bash.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m '[release] v9.9.9'"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 2, f"stderr: {result.stderr}")
+        self.assertIn("/xp-security-triage", result.stderr)
+
+    def test_chore_prefix_does_not_bypass_triage_for_code(self):
+        """[chore] commits with code files still route through security triage."""
+        self._stage_code_file()
+        result = self._run_script(
+            "pre_tool_bash.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m '[chore] tidy'"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 2, f"stderr: {result.stderr}")
+        self.assertIn("/xp-security-triage", result.stderr)
+
+    def test_release_prefix_no_code_files_auto_exempted(self):
+        """[release] commits touching only docs auto-exempt without triage.
+
+        v2.28.1 only changed CHANGELOG.md + plugin.json — no code files.
+        has_staged_code_files returns False, so the triage gate writes the
+        exempt marker and the commit proceeds. Pin that exemption: a flagged
+        commit_without_security_check is not a defect when there are no
+        code files to triage.
+        """
+        # _IntegrationTestCase.setUp deletes files but does NOT reset the
+        # git index, so a sibling test's staged code file bleeds into
+        # has_staged_code_files here. Reset the index so this test sees
+        # only the docs-only diff it stages below.
+        subprocess.run(
+            ["git", "reset", "HEAD", "--", "."],
+            cwd=self.tmpdir,
+            capture_output=True,
+        )
+        doc_file = self.tmpdir / "CHANGELOG.md"
+        doc_file.write_text("## v9.9.9\n- bump\n")
+        subprocess.run(
+            ["git", "add", "CHANGELOG.md"],
+            cwd=self.tmpdir,
+            capture_output=True,
+        )
+        result = self._run_script(
+            "pre_tool_bash.py",
+            {
+                "session_id": "int-test",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m '[release] v9.9.9'"},
+                "agent_id": "main",
+                "cwd": str(self.tmpdir),
+            },
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+
     def test_full_flow(self):
         """Full flow: commit blocked → triage → commit passes → marker consumed."""
         self._stage_code_file()
