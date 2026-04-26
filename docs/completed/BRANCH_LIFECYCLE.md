@@ -646,7 +646,14 @@ User works (commits go to free branch)
 
 ## Status
 
-Design draft. Intended as the source for an execution plan that
-implements sprint-close, plan-close, and free-session branch
-lifecycle skills. Addresses the gap discovered in sprint-030 where
-no post-sprint branch management existed.
+**Complete.** All 5 milestones delivered across sprints 031–035:
+
+- M-1: Plan branches (sprint-031, v2.26.0)
+- M-2: Sprint-close + xp-close-reviewer (sprint-032, v2.27.0)
+- M-3: Plan-close (sprint-033, v2.28.0)
+- M-4: Free-session branch lifecycle (sprint-034, v2.29.0)
+- M-5: Team-scenario branching doctrine (sprint-035, v2.30.0)
+
+Open questions resolved in `docs/ideas/BRANCHING_DOCTRINE.md` §Team
+Scenarios: no auto-rebase (suggest merge), push at close only,
+pre-existing branch detection, divergence handling.
