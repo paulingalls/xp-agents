@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for branching.py — git-operation lifecycle tests.
+"""Tests for branching.py and branching_cli.py — git-operation lifecycle tests.
 
 Covers: is_worktree_clean, branch_exists, create_story_branch,
-merge_branch, delete_branch, CLI (E2E).
+merge_branch, delete_branch, CLI dispatch (E2E).
 
 Split from test_branching.py — pure-function unit tests remain there.
 """
@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _branching_fixtures as _bf
 import branching
+import branching_cli
 
 _GIT_ENV = _bf.GIT_ENV
 _init_repo = _bf.init_repo
@@ -553,10 +554,10 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
             "x",
         ]
         with (
-            patch.object(branching, "_cmd_merge_branch", _capture),
+            patch.object(branching_cli, "_cmd_merge_branch", _capture),
             patch.object(sys, "argv", argv),
         ):
-            branching.main()
+            branching_cli.main()
         self.assertIsNone(captured["ns"].target)
 
     def test_cli_merge_branch_routes_through_get_merge_target_when_omitted(self):
