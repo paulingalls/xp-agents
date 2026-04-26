@@ -41,6 +41,10 @@ def plan_branch_name(user_ns: str, slug: str) -> str:
     return f"{user_ns}/plan-{_slugify(slug)}"
 
 
+def free_branch_name(user_ns: str, slug: str) -> str:
+    return f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
+
+
 _SPRINT_BRANCH_RE = re.compile(r"^[^/]+/sprint-\d{3}-[a-z0-9-]+$")
 
 
@@ -320,7 +324,7 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     activates at Stage 1+ to keep exploratory work off protected branches.
     """
     user_ns = identity.user_namespace(cwd)
-    name = f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
+    name = free_branch_name(user_ns, slug)
     return _create_or_resume_branch(
         cwd,
         name,
