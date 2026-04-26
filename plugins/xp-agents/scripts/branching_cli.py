@@ -24,12 +24,13 @@ def _print_or_skip(result: str | None, min_stage: int, *, resumed: bool = False)
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
-    return _print_or_skip(
-        branching.create_story_branch(
-            args.cwd, args.story, args.slug, Path(args.smm_dir)
-        ),
-        branching.BRANCH_MIN_STAGE["story"],
+    user_ns = branching.identity.user_namespace(args.cwd)
+    name = branching.branch_name(user_ns, args.story, args.slug)
+    existed = branching.branch_exists(args.cwd, name)
+    result = branching.create_story_branch(
+        args.cwd, args.story, args.slug, Path(args.smm_dir)
     )
+    return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
 
 def _resolve_target(args: argparse.Namespace) -> str:
@@ -87,10 +88,11 @@ def _cmd_create_plan(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_free(args: argparse.Namespace) -> int:
-    return _print_or_skip(
-        branching.create_free_branch(args.cwd, args.slug, Path(args.smm_dir)),
-        branching.BRANCH_MIN_STAGE["free"],
-    )
+    user_ns = branching.identity.user_namespace(args.cwd)
+    name = branching.free_branch_name(user_ns, args.slug)
+    existed = branching.branch_exists(args.cwd, name)
+    result = branching.create_free_branch(args.cwd, args.slug, Path(args.smm_dir))
+    return _print_or_skip(result, branching.BRANCH_MIN_STAGE["free"], resumed=existed)
 
 
 def _cmd_list_free(args: argparse.Namespace) -> int:
