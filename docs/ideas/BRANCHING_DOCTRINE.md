@@ -278,13 +278,78 @@ broader workflow-setup story.
 
 ---
 
+## Team Scenarios
+
+These behaviors address multi-contributor and long-lived branch
+workflows. Implemented in M-5 of the branch-lifecycle plan.
+
+### Pre-Existing Branch Detection
+
+When `create-sprint` or `create-plan` finds a branch that already
+exists locally (from a prior session, a failed attempt, or another
+contributor), the CLI reports `resumed: <branch>` instead of
+`created: <branch>`. The calling skill detects the prefix and
+prompts the user interactively:
+
+- **Sprint branch:** "Adopt this branch for the new sprint, or
+  delete and recreate?"
+- **Plan branch:** "Adopt this branch for the new plan, or choose
+  a different slug?"
+
+The CLI never silently overwrites or resumes without signaling. The
+user always knows whether they're on a fresh branch or an existing
+one.
+
+### Divergence Handling
+
+When a plan branch falls behind the primary branch (because primary
+advanced while the plan is in flight), `check-divergence` counts
+the gap. At 10+ commits behind (configurable), it raises a concern
+with a suggested action:
+
+```
+git merge main
+```
+
+The suggestion is always **merge, not rebase**. Rebase rewrites
+shared history — unsafe when multiple contributors share a plan
+branch. Merge preserves all commits and surfaces conflicts at merge
+time rather than silently rewriting.
+
+The divergence check runs automatically at sprint-start (after
+creating the sprint branch off the plan branch). The threshold is
+configurable via `--threshold N`.
+
+### Rebase Discipline
+
+No automatic rebase anywhere in the branch lifecycle. The plugin
+uses `--no-ff` merges at every integration point (story → sprint,
+sprint → plan, plan → primary). This preserves the full commit
+history and makes merge boundaries visible in `git log --graph`.
+
+When conflicts arise during a merge (sprint-close, plan-close),
+the plugin surfaces them to the user — it never auto-resolves.
+Conflict resolution is a human decision.
+
+### Remote Push Timing
+
+All branches stay local until close time:
+
+| Branch type | When pushed |
+|-------------|-------------|
+| Story | Never pushed — merged locally into sprint/main |
+| Sprint | Pushed by `/xp-sprint-close` (for PR creation) |
+| Plan | Pushed by `/xp-plan-close` (for PR creation) |
+| Free | Pushed by `/xp-free-close` (for PR creation) |
+
+Pushing at close (not at creation) keeps the remote clean. Only
+branches ready for review and merge appear on the remote. Without
+`gh`, the push is skipped and the merge happens locally.
+
+---
+
 ## Open Questions (Deferred)
 
-- **Remote push policy.** Partially addressed by BRANCH_LIFECYCLE
-  design (push at sprint-close for PR creation). Story branch push
-  remains deferred.
-- **Force-push and rebase discipline.** Deferred to team/Stage 3
-  scenarios. Single-contributor Stage 2 doesn't need it.
 - **Release cut automation.** Stage 3 only. Deferred.
 - **Escape-hatch interaction with acceptance testing.** Non-issue:
   acceptance is story-level (`/xp-accept`), not commit-level.
@@ -292,8 +357,11 @@ broader workflow-setup story.
 - **Branch cleanup policy.** Story branches: delete local on accept
   (implemented). Sprint/plan branch cleanup: see
   `docs/ideas/BRANCH_LIFECYCLE.md`.
-- **Handling pre-existing branches.** Deferred. Tolerate in place;
-  raise a concern recommending rename into `<user>/` namespace.
+
+Resolved in Team Scenarios (M-5):
+- ~~Remote push policy~~ → see §Remote Push Timing
+- ~~Force-push and rebase discipline~~ → see §Rebase Discipline
+- ~~Handling pre-existing branches~~ → see §Pre-Existing Branch Detection
 
 ---
 
@@ -301,14 +369,15 @@ broader workflow-setup story.
 
 Implemented. Core branching doctrine is integrated into:
 
-- `scripts/branching.py` — branch lifecycle operations
+- `scripts/branching.py` — branch lifecycle operations + divergence check
+- `scripts/branching_cli.py` — CLI dispatch (created/resumed output)
 - `scripts/pre_tool_bash.py` — main/sprint branch commit gates
 - `scripts/identity.py` — user namespace derivation
 - `smm/system_context_schema.py` — branching_strategy validation
 - `agents/xp-system-analyzer.md` — stage detection (Step 3.5)
-- `skills/xp-sprint-start/SKILL.md` — sprint/story branch creation
+- `skills/xp-sprint-start/SKILL.md` — sprint/story branch creation + divergence check
+- `skills/xp-plan/SKILL.md` — plan branch creation + pre-existing detection
 - `skills/xp-accept/SKILL.md` — story branch merge/delete
 
-Remaining open questions are deferred enhancements, not blocking
-gaps. Post-sprint branch lifecycle is designed separately in
+Post-sprint branch lifecycle is designed separately in
 `docs/ideas/BRANCH_LIFECYCLE.md`.
