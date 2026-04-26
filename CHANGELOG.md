@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.30.0 — Team-scenario branching doctrine (M-5) + burn-down
+
+Sprint-035 delivers Milestone 5 of the branch-lifecycle plan: branching doctrine now covers team scenarios. All 5 milestones of the Branch Lifecycle execution plan are complete. Session also paid down retro Tries (test file splits, review-input constant consolidation) and the plan's refactor debt.
+
+- **Pre-existing branch detection on `create-sprint` and `create-plan`.** CLI now outputs `created: <branch>` or `resumed: <branch>` so skills can detect pre-existing branches and prompt the user interactively. Added public `plan_branch_name()` function (mirrors `sprint_branch_name()`). Updated `xp-sprint-start` and `xp-plan` SKILL.md with resumed-branch handling instructions.
+- **Plan-branch divergence detection.** New `check_plan_divergence(cwd, smm_dir, threshold=10)` counts how far a plan branch has fallen behind primary. At >= threshold commits behind, outputs a warning with suggested `git merge` action (not rebase -- safer for shared branches). New `check-divergence` CLI subcommand. Wired into `xp-sprint-start` step 8 to record a concern event when divergence exceeds threshold.
+- **Team Scenarios section in BRANCHING_DOCTRINE.md.** Documents four team-scenario decisions: pre-existing branch detection (detect + interactive prompt), divergence handling (concern + suggest merge), rebase discipline (no auto-rebase, `--no-ff` everywhere), remote push timing (push at close only). Three open questions marked resolved with cross-references.
+- **Capstone integration tests.** 8 E2E tests in `test_branching_team_scenarios.py` covering pre-existing sprint/plan branch detection (created/resumed output) and divergence detection (below/at/above threshold, custom threshold, merge-not-rebase assertion).
+
+### Pre-sprint burn-down
+
+- **Split `test_subagent.py` (500 -> 409 lines).** Extracted `TestSprintReviewerDone` into `test_subagent_sprint_reviewer.py` (112 lines). Resolves concern `426a8155be98`.
+- **Split `branching.py` CLI into `branching_cli.py` (553 -> 414 lines).** Extracted CLI dispatch (`_cmd_*`, `_print_or_skip`, `main`/argparse) into `branching_cli.py` (164 lines). Renamed `_BRANCH_MIN_STAGE` -> `BRANCH_MIN_STAGE` (public cross-module constant).
+- **Consolidate review-input filename constants.** Added `CLOSE_REVIEW_INPUT_PREFIX` and `SPRINT_REVIEW_INPUT_PREFIX` to `marker_names.py`. Updated 20+ Python callers to use constants instead of hardcoded strings. Resolves debt `2b3680f59e6c`.
+
 ## v2.29.1 — Backfill story_id reconciler (post-M-4)
 
 Closes the deferred sprint-034 retro Try #1: a one-shot reconciler for historical commit events whose `metadata.story_id` was either missing (file-overlap fallback returned ties → `None`) or wrong (file-overlap attributed to a different story than the commit message named). The Tier-0 `[story-NNN]` prefix parser shipped in v2.28.1 fixed forward; this script corrects the historical record so retros that look back across multiple sprints get accurate per-story metrics.
