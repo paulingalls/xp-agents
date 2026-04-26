@@ -7,6 +7,7 @@ __main__ guard delegates here.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -98,6 +99,17 @@ def _cmd_list_free(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check_divergence(args: argparse.Namespace) -> int:
+    result = branching.check_plan_divergence(
+        args.cwd, Path(args.smm_dir), args.threshold
+    )
+    if result is None:
+        print("No plan branch found")
+        return 0
+    print(json.dumps(result))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Branch lifecycle operations")
     parser.add_argument("--smm-dir", required=True, help="SMM directory path")
@@ -157,6 +169,11 @@ def main() -> int:
     p_list_free = sub.add_parser("list-free", help="List the user's free branches")
     p_list_free.add_argument("--cwd", required=True)
     p_list_free.set_defaults(func=_cmd_list_free)
+
+    p_div = sub.add_parser("check-divergence", help="Check plan branch divergence")
+    p_div.add_argument("--cwd", required=True)
+    p_div.add_argument("--threshold", type=int, default=10)
+    p_div.set_defaults(func=_cmd_check_divergence)
 
     args = parser.parse_args()
     return args.func(args)

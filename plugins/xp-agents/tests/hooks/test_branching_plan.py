@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Tests for branching.py — plan/free-branch lifecycle.
 
-Covers: create_plan_branch (plan branches recorded into execution_plan.json),
-plus future create_free_branch / list_free_branches.
+Covers: create_plan_branch, create_free_branch, list_free_branches,
+and their CLI subcommands.
 
 Story branch lifecycle tests live in test_branching_lifecycle.py;
 sprint branch tests in test_branching_sprint.py;
+divergence detection in test_branching_divergence.py;
 pure-helper unit tests in test_branching.py.
 """
 

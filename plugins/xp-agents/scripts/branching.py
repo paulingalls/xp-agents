@@ -412,6 +412,36 @@ def delete_branch(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
+def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict | None:
+    """Count how far the plan branch has fallen behind primary.
+
+    Returns None if no plan branch is configured or resolvable.
+    Returns a dict with commits_behind, plan_branch, primary.
+    When commits_behind >= threshold, adds warning and suggestion
+    (merge, not rebase — safer for shared branches).
+    """
+    plan_branch = _recorded_plan_branch(cwd, smm_dir)
+    if not plan_branch:
+        return None
+    primary = get_primary_branch(smm_dir)
+    r = _git(["git", "rev-list", "--count", f"{plan_branch}..{primary}"], cwd)
+    if r.returncode != 0:
+        return None
+    behind = int(r.stdout.strip())
+    result: dict = {
+        "commits_behind": behind,
+        "plan_branch": plan_branch,
+        "primary": primary,
+    }
+    if behind >= threshold:
+        result["suggestion"] = f"git merge {primary}"
+        result["warning"] = (
+            f"Plan branch '{plan_branch}' is {behind} commits behind "
+            f"'{primary}'. Consider merging {primary} into the plan branch."
+        )
+    return result
+
+
 if __name__ == "__main__":
     import branching_cli
 

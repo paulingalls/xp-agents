@@ -184,6 +184,19 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
 
 The CLI outputs `created: <branch>` for new branches or `resumed: <branch>` for pre-existing ones. If the output starts with `resumed:`, ask the user via `AskUserQuestion`: "Sprint branch `<branch>` already exists. Adopt this branch for the new sprint, or start fresh?" Options: "Adopt existing branch", "Delete and recreate". If "Delete and recreate", delete the branch first, then re-run the create-sprint command.
 
+After creating the sprint branch, check for plan-branch divergence from primary:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  check-divergence --cwd .
+```
+
+If the output JSON contains a `warning` field, the plan branch has fallen behind primary. Record a concern event with the warning text and the suggested merge command:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-sprint-start" \
+  --content "<warning text from JSON>" --severity "medium"
+```
+
 **Stage 0-1:** Skip sprint branch creation.
 
 ### Step 9: Create Story Branches
