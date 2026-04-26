@@ -80,6 +80,15 @@ class TestPlanBranchFlow(_IntegrationTestCase):
             env=self._test_env,
         )
 
+    @staticmethod
+    def _parse_branch(output: str) -> str:
+        """Extract branch name from CLI output like 'created: X' or 'resumed: X'."""
+        line = output.strip()
+        for prefix in ("created: ", "resumed: "):
+            if line.startswith(prefix):
+                return line[len(prefix) :]
+        return line
+
     def _create_plan_with_branch(self, branch: str) -> None:
         plan_json = json.dumps(_make_plan(branch=branch))
         result = self._plan_cli("create", stdin=plan_json)
@@ -103,7 +112,7 @@ class TestPlanBranchFlow(_IntegrationTestCase):
             "create-plan", "--cwd", str(self.tmpdir), "--slug", "ac2-create"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        branch_name = result.stdout.strip()
+        branch_name = self._parse_branch(result.stdout)
 
         # Verify the branch actually exists locally
         check = subprocess.run(
@@ -126,7 +135,7 @@ class TestPlanBranchFlow(_IntegrationTestCase):
         plan_result = self._branching(
             "create-plan", "--cwd", str(self.tmpdir), "--slug", "ac3-sprint-base"
         )
-        plan_branch = plan_result.stdout.strip()
+        plan_branch = self._parse_branch(plan_result.stdout)
         plan_tip = subprocess.run(
             ["git", "rev-parse", plan_branch],
             cwd=self.tmpdir,
@@ -164,7 +173,7 @@ class TestPlanBranchFlow(_IntegrationTestCase):
             "anything",
         )
         self.assertEqual(sprint_result.returncode, 0, sprint_result.stderr)
-        sprint_branch = sprint_result.stdout.strip()
+        sprint_branch = self._parse_branch(sprint_result.stdout)
 
         # The new sprint branch's parent commit should be the plan branch tip
         merge_base = subprocess.run(
@@ -183,7 +192,7 @@ class TestPlanBranchFlow(_IntegrationTestCase):
         plan_result = self._branching(
             "create-plan", "--cwd", str(self.tmpdir), "--slug", "ac4-target"
         )
-        plan_branch = plan_result.stdout.strip()
+        plan_branch = self._parse_branch(plan_result.stdout)
 
         target = self._branching("get-target", "--cwd", str(self.tmpdir))
         self.assertEqual(target.returncode, 0)

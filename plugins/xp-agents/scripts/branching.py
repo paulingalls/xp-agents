@@ -37,6 +37,10 @@ def sprint_branch_name(user_ns: str, sprint_id: str, slug: str) -> str:
     return branch_name(user_ns, sprint_id, slug)
 
 
+def plan_branch_name(user_ns: str, slug: str) -> str:
+    return f"{user_ns}/plan-{_slugify(slug)}"
+
+
 _SPRINT_BRANCH_RE = re.compile(r"^[^/]+/sprint-\d{3}-[a-z0-9-]+$")
 
 
@@ -342,7 +346,7 @@ def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     primitive's atomic re-record. Returns None when stage < plan.
     """
     user_ns = identity.user_namespace(cwd)
-    name = f"{user_ns}/plan-{_slugify(slug)}"
+    name = plan_branch_name(user_ns, slug)
     result = _create_or_resume_branch(
         cwd,
         name,

@@ -761,5 +761,114 @@ class TestMergeFailureMessage(unittest.TestCase):
             self.assertIn("CONFLICT", printed)
 
 
+class TestPreExistingBranchDetection(unittest.TestCase):
+    """CLI reports 'created:' or 'resumed:' prefix for sprint/plan branches."""
+
+    def _run_branching(self, smm_dir, *args):
+        script = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+        return subprocess.run(
+            [sys.executable, script, "--smm-dir", str(smm_dir), *args],
+            capture_output=True,
+            text=True,
+            env=_GIT_ENV,
+        )
+
+    def test_create_sprint_reports_created(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            r = self._run_branching(
+                smm_dir,
+                "create-sprint",
+                "--cwd",
+                td,
+                "--sprint",
+                "sprint-099",
+                "--slug",
+                "new-sprint",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(
+                r.stdout.strip().startswith("created:"),
+                f"Expected 'created:' prefix, got: {r.stdout.strip()!r}",
+            )
+
+    def test_create_sprint_reports_resumed(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            subprocess.run(
+                ["git", "branch", "test/sprint-099-old-sprint"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            r = self._run_branching(
+                smm_dir,
+                "create-sprint",
+                "--cwd",
+                td,
+                "--sprint",
+                "sprint-099",
+                "--slug",
+                "old-sprint",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(
+                r.stdout.strip().startswith("resumed:"),
+                f"Expected 'resumed:' prefix, got: {r.stdout.strip()!r}",
+            )
+
+    def test_create_plan_reports_created(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            r = self._run_branching(
+                smm_dir,
+                "create-plan",
+                "--cwd",
+                td,
+                "--slug",
+                "new-plan",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(
+                r.stdout.strip().startswith("created:"),
+                f"Expected 'created:' prefix, got: {r.stdout.strip()!r}",
+            )
+
+    def test_create_plan_reports_resumed(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            subprocess.run(
+                ["git", "branch", "test/plan-old-plan"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            r = self._run_branching(
+                smm_dir,
+                "create-plan",
+                "--cwd",
+                td,
+                "--slug",
+                "old-plan",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(
+                r.stdout.strip().startswith("resumed:"),
+                f"Expected 'resumed:' prefix, got: {r.stdout.strip()!r}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

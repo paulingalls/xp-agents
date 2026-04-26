@@ -13,8 +13,12 @@ from pathlib import Path
 import branching
 
 
-def _print_or_skip(result: str | None, min_stage: int) -> int:
-    print(result if result else f"Skipped (stage < {min_stage})")
+def _print_or_skip(result: str | None, min_stage: int, *, resumed: bool = False) -> int:
+    if result:
+        prefix = "resumed" if resumed else "created"
+        print(f"{prefix}: {result}")
+    else:
+        print(f"Skipped (stage < {min_stage})")
     return 0
 
 
@@ -37,12 +41,12 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
-    return _print_or_skip(
-        branching.create_sprint_branch(
-            args.cwd, args.sprint, args.slug, Path(args.smm_dir)
-        ),
-        branching.BRANCH_MIN_STAGE["sprint"],
-    )
+    smm_dir = Path(args.smm_dir)
+    user_ns = branching.identity.user_namespace(args.cwd)
+    name = branching.sprint_branch_name(user_ns, args.sprint, args.slug)
+    existed = branching.branch_exists(args.cwd, name)
+    result = branching.create_sprint_branch(args.cwd, args.sprint, args.slug, smm_dir)
+    return _print_or_skip(result, branching.BRANCH_MIN_STAGE["sprint"], resumed=existed)
 
 
 def _cmd_get_base(args: argparse.Namespace) -> int:
@@ -73,10 +77,12 @@ def _cmd_merge_branch(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_plan(args: argparse.Namespace) -> int:
-    return _print_or_skip(
-        branching.create_plan_branch(args.cwd, args.slug, Path(args.smm_dir)),
-        branching.BRANCH_MIN_STAGE["plan"],
-    )
+    smm_dir = Path(args.smm_dir)
+    user_ns = branching.identity.user_namespace(args.cwd)
+    name = branching.plan_branch_name(user_ns, args.slug)
+    existed = branching.branch_exists(args.cwd, name)
+    result = branching.create_plan_branch(args.cwd, args.slug, smm_dir)
+    return _print_or_skip(result, branching.BRANCH_MIN_STAGE["plan"], resumed=existed)
 
 
 def _cmd_create_free(args: argparse.Namespace) -> int:

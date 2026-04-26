@@ -182,6 +182,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
 
 `create-sprint` forks off the plan branch when `execution_plan.json` has `branch` set, otherwise off the primary branch. It records the created branch name into `sprint.json`'s `branch_name` field, which downstream lookups read directly.
 
+The CLI outputs `created: <branch>` for new branches or `resumed: <branch>` for pre-existing ones. If the output starts with `resumed:`, ask the user via `AskUserQuestion`: "Sprint branch `<branch>` already exists. Adopt this branch for the new sprint, or start fresh?" Options: "Adopt existing branch", "Delete and recreate". If "Delete and recreate", delete the branch first, then re-run the create-sprint command.
+
 **Stage 0-1:** Skip sprint branch creation.
 
 ### Step 9: Create Story Branches

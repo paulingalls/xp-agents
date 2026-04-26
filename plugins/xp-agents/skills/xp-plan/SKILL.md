@@ -145,6 +145,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create-plan --cwd . --slug <plan-title-slug>
 ```
 
+The CLI outputs `created: <branch>` for new branches or `resumed: <branch>` for pre-existing ones. If the output starts with `resumed:`, ask the user via `AskUserQuestion`: "Plan branch `<branch>` already exists. Adopt this branch for the new plan?" Options: "Adopt existing branch", "Choose a different slug". If the user chooses a different slug, re-run with the new slug.
+
 On **No**, do nothing — sprints will base off the primary branch.
 
 ### Step 6: Record Event
