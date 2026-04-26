@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.30.1 — Try item ID stamping (try_status fix)
+
+Fixes a 3-retro-old gap where `try_status[*].resolved_this_session` always showed `false` for Try items without `event_refs` (process improvements like "wire metadata.resolves"). Root cause: `annotate_try_status` only matched by hex IDs in content/refs — Try items with no referenced events had nothing to match against.
+
+- **Stamp Try items with unique IDs at save time.** `save_retrospective.run()` assigns a 12-char hex `id` (via `secrets.token_hex(6)`) to each Try item that doesn't already have one. Existing IDs are preserved.
+- **Match Try items by own ID.** `annotate_try_status` includes `item.get("id")` in the token set, so a Try item whose ID appears in the resolutions map is correctly flagged as resolved.
+- **Include Try item ID in preload refs.** `get_try_items()` prepends the Try item's `id` to the `[refs: ...]` suffix, so the adopt command's `_extract_refs` wires it into `metadata.resolves`.
+- **Review-input filename constants.** `CLOSE_REVIEW_INPUT_PREFIX` and `SPRINT_REVIEW_INPUT_PREFIX` consolidated in `marker_names.py`. 20+ Python callers updated. Resolves debt `2b3680f59e6c`.
+
 ## v2.30.0 — Team-scenario branching doctrine (M-5) + burn-down
 
 Sprint-035 delivers Milestone 5 of the branch-lifecycle plan: branching doctrine now covers team scenarios. All 5 milestones of the Branch Lifecycle execution plan are complete. Session also paid down retro Tries (test file splits, review-input constant consolidation) and the plan's refactor debt.
