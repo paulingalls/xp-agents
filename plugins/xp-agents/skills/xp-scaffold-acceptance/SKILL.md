@@ -80,9 +80,9 @@ is `sdk` or `message_event`, treat the absence of a config file as
 inconclusive and ask the customer whether tooling already exists before
 proceeding to Step 4. Do not silently scaffold over hidden coverage.
 
-### 1c. Re-invocation stub
+### 1c. Re-invocation flow
 
-When existing tooling is detected, use `AskUserQuestion` to ask the customer how to proceed. M-1 only stubs the question — every option exits with the M-5 deferral message:
+When existing tooling is detected for the chosen surface, use `AskUserQuestion`:
 
 ```
 AskUserQuestion(
@@ -95,11 +95,29 @@ AskUserQuestion(
 )
 ```
 
-Whatever the customer picks, respond:
+Branch on the answer:
 
-> Full re-invocation flow lands in M-5 — for now, no changes were made. Re-invoke after M-5 ships, or perform the action manually.
+**Add complementary tool.** Loop back to Step 3 with one adjustment: when listing the canonical tool options, **exclude the existing `tool_name`** from the list. Concretely, build the Step 3 tool-question options as `[t for t in canonical_tools_for(<surface>) if t != <existing tool_name>] + ["Other (I'll name it)"]`. The downstream flow (Step 2 web-refresh, Step 4 plan, Step 5 confirm, Steps 6-9 apply) runs unchanged — `apply-write` stages new files alongside the existing tool, and the customer's preview in Step 5 shows them what gets added.
 
-Exit cleanly.
+**Redo from scratch.** Resolve the introducing commit via `find-introducing-commit` against the detected `config_files`:
+
+```bash
+INTRO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    find-introducing-commit --repo-root "$REPO_ROOT" \
+    $(printf -- '--config-files %s ' "${CONFIG_FILES[@]}"))
+```
+
+Parse `$INTRO_JSON`. If the JSON is a non-null dict, surface the revert pointer to the customer verbatim:
+
+> Detected existing scaffold introduced by commit `<sha>` ("<subject>", <date>). To redo from scratch, run: `git revert <sha>` then re-invoke `/xp-scaffold-acceptance`.
+
+If `$INTRO_JSON` is `null` (config files untracked, or not in a git repo), emit the manual-cleanup fallback:
+
+> Detected existing config files (<config_files>) but could not pin an introducing commit (untracked, or not a git repo). Remove or revert these files manually, then re-invoke `/xp-scaffold-acceptance`.
+
+In both cases, exit cleanly. **No writes.**
+
+**Cancel.** Exit cleanly with the doctrine cancel message: _"Cancelled — no changes were made."_
 
 ## Step 2: Refresh knowledge
 
