@@ -331,7 +331,12 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
 
-    if name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
+    # edit-field is single-field; only the null-wipe half of _cmd_create's
+    # optional-field contract applies — preservation isn't relevant when
+    # the caller is targeting one specific field.
+    if name in _OPTIONAL_TOP_LEVEL_FIELDS and value is None:
+        data.pop(name, None)
+    elif name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
         data[name] = value
     else:
         for entry in data.get("project_specific", []):
