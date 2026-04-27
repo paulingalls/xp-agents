@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.30.6 — Close-reviewer records concerns as SMM events
+
+The xp-close-reviewer agent previously returned Keep/Concern/Block as text prose; the close skill displayed it once and moved on. Concern and Block items were ephemeral — visible in chat output but never persisted as SMM events. Multiple times this session, valuable concerns from PR #6 / #7 close-reviews would have vanished into the scrollback if I hadn't manually filed them.
+
+- **`xp-close-reviewer.md` Step 4 added.** Before returning the prose summary, the agent now files an SMM `concern` event for each Block (severity `high`) and Concern (severity `medium`) bullet via `${CLAUDE_PLUGIN_ROOT}/smm/append.sh --type "concern"`. Keep bullets remain prose-only. Mirrors the xp-plan-reviewer pattern.
+- **`--files` discipline.** When a bullet cites concrete file paths, the agent attaches them via `--files '[...]'` so the commit-auto-link hook can nudge a future fix commit to add `Resolves-Event: <id>`. Same STRUCTURAL link wiring xp-plan-reviewer uses.
+- **Recording happens BEFORE the prose summary.** If the user picks "Abort — fix concerns first" at the merge confirmation, the concerns stay filed for the next session.
+- **`metadata` fields.** Each event carries `close_mode`, `source_branch`, `target_branch` for downstream filtering.
+- **Test guard added.** `test_close_reviewer_records_concerns_as_smm_events` in `tests/integration/test_sprint_close_chain.py` regex-asserts the agent prompt contains both severity-paired `--type "concern"` blocks, the `--files` discipline, and the before-prose ordering. Catches drift if any of those guarantees disappears.
+
 ## v2.30.5 — Close skills push target branch after merge
 
 Fix surfaced when verifying sprint-036's PR #6 status on GitHub: the local merge happened (`branching.py merge-branch` produced commit `e63e5e9`) but the target branch was never pushed back, so GitHub kept the PR open indefinitely. Same gap in all three close skills.

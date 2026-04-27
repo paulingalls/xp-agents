@@ -19,6 +19,7 @@ Pins the sprint-close chain end-to-end. Two scenarios:
    close skill orchestrates actually work on real git state.
 """
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,46 @@ class TestSprintReviewToCloseChainIntegrity(unittest.TestCase):
         frontmatter = self.agent_text.split("---", 2)[1]
         self.assertNotIn("Edit", frontmatter)
         self.assertNotIn("Write", frontmatter)
+
+    def test_close_reviewer_records_concerns_as_smm_events(self):
+        # The agent must instruct itself to file SMM concern events for
+        # each Concern and Block bullet — without recording, the prose
+        # summary is ephemeral and concerns vanish into the chat scrollback.
+        # Mirrors xp-plan-reviewer's record-then-prose pattern.
+        body = self.agent_text.split("---", 2)[2]
+        # Must include TWO append.sh blocks: one for Block (severity high)
+        # and one for Concern (severity medium). Each block must pair the
+        # severity with --type "concern" — quoted form, matching the
+        # codebase convention in xp-plan-reviewer / xp-code-reviewer.
+        # The DOTALL+lazy regex allows the multi-line append.sh template
+        # between --type and --severity.
+        block_pattern = re.compile(
+            r'--type\s+"concern".*?--severity\s+"high"', re.DOTALL
+        )
+        concern_pattern = re.compile(
+            r'--type\s+"concern".*?--severity\s+"medium"', re.DOTALL
+        )
+        self.assertRegex(
+            body,
+            block_pattern,
+            'agent must include an append.sh template with --type "concern" '
+            'and --severity "high" for Block bullets',
+        )
+        self.assertRegex(
+            body,
+            concern_pattern,
+            'agent must include an append.sh template with --type "concern" '
+            'and --severity "medium" for Concern bullets',
+        )
+        # Must instruct attaching --files when paths are cited (STRUCTURAL link).
+        self.assertIn("--files", body)
+        # Must specify recording happens before the prose summary, so an
+        # aborted close still leaves the concerns filed.
+        self.assertRegex(
+            body,
+            r"[Bb]efore.*(returning|prose|summary)",
+            "agent must record events BEFORE returning the prose summary",
+        )
 
 
 class TestMergeAndCleanupEndToEnd(unittest.TestCase):
