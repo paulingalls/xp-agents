@@ -307,7 +307,15 @@ def _compute_probe_adoption(
     code_commits: list[dict],
     sprint_start_ts: str | None,
 ) -> dict:
-    """Probe adoption: for each probe event, did any commit resolve a candidate?"""
+    """Probe adoption: pair each probe with the next code commit by the
+    same agent_id in the sprint window, then classify into hit / escape /
+    divert / silent.
+
+    - hit: paired commit's metadata.resolves contains a probe candidate id
+    - escape: paired commit's metadata.resolves is empty (Resolves-Event: none)
+    - divert: paired commit's metadata.resolves is non-empty but no overlap
+    - silent: no paired commit (probe fired but no commit by same agent followed)
+    """
     from event_schema import (
         METADATA_KEY_PROBE_CANDIDATES,
         STATUS_CONTENT_RESOLVES_PROBE,
@@ -321,28 +329,63 @@ def _compute_probe_adoption(
         and (e.get("content") or "").startswith(STATUS_CONTENT_RESOLVES_PROBE)
     ]
 
+    zero = {
+        "probe_adoption_rate": 0.0,
+        "probe_adoption_hits": 0,
+        "probe_adoption_total": 0,
+        "probe_escape": 0,
+        "probe_divert": 0,
+        "probe_silent": 0,
+    }
     if not probes:
-        return {
-            "probe_adoption_rate": 0.0,
-            "probe_adoption_hits": 0,
-            "probe_adoption_total": 0,
-        }
+        return zero
 
-    commit_resolves = set()
-    for c in code_commits:
-        for rid in (c.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []:
-            commit_resolves.add(rid)
+    sorted_probes = sorted(probes, key=lambda p: p.get("ts") or "")
+    sorted_commits = sorted(code_commits, key=lambda c: c.get("ts") or "")
+    consumed: set[int] = set()
 
     hits = 0
-    for p in probes:
-        meta = p.get("metadata") or {}
-        candidate_ids = meta.get(METADATA_KEY_PROBE_CANDIDATES) or []
-        if any(cid in commit_resolves for cid in candidate_ids):
+    escape = 0
+    divert = 0
+    silent = 0
+    for probe in sorted_probes:
+        agent_id = probe.get("agent_id")
+        probe_ts = probe.get("ts") or ""
+        candidate_ids = set(
+            (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
+        )
+        # Each probe consumes its own next-by-agent commit; two probes by the
+        # same agent before a single commit must NOT both claim that commit.
+        paired_index = next(
+            (
+                i
+                for i, c in enumerate(sorted_commits)
+                if i not in consumed
+                and c.get("agent_id") == agent_id
+                and (c.get("ts") or "") > probe_ts
+            ),
+            None,
+        )
+        if paired_index is None:
+            silent += 1
+            continue
+        consumed.add(paired_index)
+        resolves = (sorted_commits[paired_index].get("metadata") or {}).get(
+            METADATA_KEY_RESOLVES
+        ) or []
+        if any(rid in candidate_ids for rid in resolves):
             hits += 1
+        elif not resolves:
+            escape += 1
+        else:
+            divert += 1
 
     probe_total = len(probes)
     return {
         "probe_adoption_rate": hits / probe_total if probe_total > 0 else 0.0,
         "probe_adoption_hits": hits,
         "probe_adoption_total": probe_total,
+        "probe_escape": escape,
+        "probe_divert": divert,
+        "probe_silent": silent,
     }

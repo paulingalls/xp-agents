@@ -122,7 +122,10 @@ If none, omit this subsection.
 When `sizing_analysis` contains `resolves_link_rate`, report a "Resolution-Link Adoption" subsection with two metrics:
 
 - **Overall trailer rate** (`resolves_link_rate`): percentage of all code commits with a Resolves-Event trailer. Print as `X% (hits/total)`. If below 0.80, flag as Fix under Communication.
-- **Probe adoption rate** (`probe_adoption_rate`): when the pre-commit nudge showed overlapping concerns, how often did the agent add a trailer? Print as `X% (hits/total)`. This is the actionable metric — it measures nudge effectiveness. If below 0.50, flag as Fix under Feedback.
+- **Probe adoption rate** (`probe_adoption_rate`): when the pre-commit nudge showed overlapping concerns, how often did the agent add a trailer that referenced one of those candidates? Print as `X% (hits/total)`. This is the actionable metric — it measures nudge effectiveness. If below 0.50, flag as Fix under Feedback **and name the dominant miss bucket** so the cause is explicit:
+  - **escape** (`probe_escape`): paired commit had `Resolves-Event: none`. Reads as "agent declined the suggestion to clear the gate." If escape dominates, the suggestions aren't trusted.
+  - **divert** (`probe_divert`): paired commit added a different ID. Reads as "agent had its own context the probe didn't see." If divert dominates, the probe candidate set is noisy or under-specified.
+  - **silent** (`probe_silent`): probe fired but no commit by the same agent followed in the sprint window. Informational only — non-zero values are surfaced under the rate but do not by themselves trigger a Fix (a single stray miss is not enough to act on).
 
 If `resolves_link_rate` is absent (zero probes in the sprint, or non-sprint session), omit the subsection entirely.
 
