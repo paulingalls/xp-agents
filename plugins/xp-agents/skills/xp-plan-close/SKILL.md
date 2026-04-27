@@ -104,18 +104,23 @@ intact for follow-up work; the plan stays unarchived.
 
 ## Step 7: Merge, archive, and clean up
 
-On confirmation, merge with --no-ff and chain archive + delete behind
-the merge's success. Always pass `--target` explicitly — branching.py
-requires it. The `&&` chain guarantees archive only runs after a clean
-merge and delete only runs after a clean archive:
+On confirmation, merge with --no-ff, push the target so the PR closes
+on GitHub, then chain archive + delete behind the push's success.
+Always pass `--target` explicitly — branching.py requires it. The
+`&&` chain guarantees each step runs only after the previous succeeds:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH> && \
+git push origin <TARGET_BRANCH> && \
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive && \
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <CURRENT_BRANCH>
 ```
+
+If `git remote` returned no remote in Step 2, omit the `git push origin
+<TARGET_BRANCH>` line — the merge stays local and the PR step was
+skipped, so there is no PR to close.
 
 Each command exits non-zero on failure, short-circuiting the chain so
 the plan stays intact and the branch survives if any step fails.

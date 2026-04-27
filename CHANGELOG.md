@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.30.5 — Close skills push target branch after merge
+
+Fix surfaced when verifying sprint-036's PR #6 status on GitHub: the local merge happened (`branching.py merge-branch` produced commit `e63e5e9`) but the target branch was never pushed back, so GitHub kept the PR open indefinitely. Same gap in all three close skills.
+
+- **All three close-skill SKILL.md files** now insert `git push origin <TARGET_BRANCH>` between the merge and the cleanup step (delete for sprint/free, archive+delete for plan). The `&&` chain guarantees push only runs after a clean merge and cleanup only runs after a clean push — push failure leaves the source branch alive for retry; merge failure halts before push as before.
+- **Local-only fallback documented.** When `git remote` returned no remote in Step 2, the push line is omitted (no PR to close).
+- **Test guard added.** New `test_pushes_target_after_merge` mixin in `_close_fixtures.py` asserts `git push origin <TARGET_BRANCH>` appears in the close skill body, after `merge-branch` and before `delete --branch`. Runs across all three close skills.
+
 ## v2.30.4 — Drop REVIEW_INPUT file from close skills
 
 Removes the `REVIEW_INPUT` JSON-file pattern from all three close skills (xp-sprint-close, xp-plan-close, xp-free-close). Discovered while dogfooding `/xp-sprint-close` for the first time: the preload's `mktemp` creates an empty file, then SKILL.md tells the LLM to `Write` to that path — but Claude Code's Write tool rejects existing files unless they're read first. The Write call failed silently while the Agent call ran in parallel, falling through using the SubagentStart-style context already in the prompt. The reviewer flagged the 0-byte file in its Concerns block.
