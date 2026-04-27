@@ -119,6 +119,40 @@ In both cases, exit cleanly. **No writes.**
 
 **Cancel.** Exit cleanly with the doctrine cancel message: _"Cancelled — no changes were made."_
 
+### 1d. Monorepo path placement
+
+After Step 1b returns and before Step 3 collects tool choices, run `detect-monorepo` to decide whether the customer needs to pick a placement path:
+
+```bash
+MONO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    detect-monorepo --repo-root "$REPO_ROOT")
+```
+
+Parse `$MONO_JSON`. When `is_monorepo` is `false`, skip this step — `$REPO_ROOT` stays as resolved at the top of SKILL.md.
+
+When `is_monorepo` is `true`, ask the customer where to land the scaffold using `AskUserQuestion`. Build options as `["<repo root>", *<packages>]` from the JSON's `packages` array. Each package label should be the repo-relative posix path (e.g., `packages/web`, `apps/api`).
+
+```
+AskUserQuestion(
+  question: "Detected <kind> monorepo with N packages. Where should the scaffold land?",
+  options: [
+    "<repo root>",
+    "packages/web",
+    "packages/api",
+    ...
+  ]
+)
+```
+
+Resolve the chosen option to an absolute path:
+
+- `<repo root>` → keep `$REPO_ROOT` unchanged.
+- A package path (e.g., `packages/web`) → set `$REPO_ROOT="$REPO_ROOT/<package>"`.
+
+**No silent path assumptions.** If the chosen path does not exist on disk (the package directory was moved/deleted between `detect-monorepo` and the customer's answer), emit a stderr note explaining which path was missing and **re-prompt with the same question**. Do not silently fall back to repo root — the customer's intent must be honored or explicitly re-collected. If the customer keeps picking missing paths, exit cleanly with a message naming the missing paths and instructing them to re-run after fixing the layout.
+
+Downstream Steps 4-9 use `$REPO_ROOT` for all relative paths (config files, install_cmds working dir, verify_cmd cwd). The CLI's `--repo-root` flags receive `$REPO_ROOT` as resolved here.
+
 ## Step 2: Refresh knowledge
 
 After Step 3 collects surface + tool selections (and before Step 4 builds the plan), use the `WebSearch` tool to confirm the **tool's latest stable version** and current best practices. Search for `<tool> latest stable release` and, separately, `<tool> recommended config <year>`. Pin the version into a local Python variable (`tool_version`) — Step 4 records it in the plan and Step 8 (M-4) writes it into the commit message and dependency manifest.
