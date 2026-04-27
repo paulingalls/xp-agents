@@ -85,29 +85,49 @@ def _new_snapshot_dir() -> tuple[str, Path]:
 
 
 def validate_plan(plan: dict, *, repo_root: Path) -> str | None:
-    """Return an error reason if the plan would silently overwrite or delete
-    pre-existing customer state; ``None`` if the plan is safe to apply.
+    """Return an error reason if the plan would silently corrupt customer
+    state; ``None`` if safe to apply.
 
-    Specifically: every ``files_to_create`` entry must NOT already exist in
-    ``repo_root``. ``revert()`` blindly unlinks every create-target on
-    failure, so a misclassified entry (LLM treats an existing file as
-    "create" instead of "modify") would be overwritten by write and
-    deleted on revert with no backup. Validate before any snapshot lands.
+    Two symmetric guards:
+
+    1. Every ``files_to_create`` entry must NOT already exist. ``revert()``
+       blindly unlinks create-targets on failure; a misclassified existing
+       file would be overwritten by write and deleted on revert.
+    2. Every ``files_to_modify`` entry MUST already exist. ``create_snapshot``
+       suppresses ``FileNotFoundError`` when backing up a missing target;
+       ``write_files`` then creates the file fresh, and ``revert()`` cannot
+       restore a backup that was never taken — the file orphans.
+
+    Create-side violations win when both are present: the create case is
+    higher-impact (data loss vs orphan file) so its message surfaces first.
     """
     collisions = [
         entry["path"]
         for entry in plan.get("files_to_create", [])
         if (repo_root / entry["path"]).exists()
     ]
-    if not collisions:
-        return None
-    paths = ", ".join(collisions)
-    return (
-        "files_to_create entries already exist in repo_root: "
-        f"{paths}. These look like modifications — move them to "
-        "files_to_modify (with full merged body) or remove them from "
-        "the plan. Refusing to overwrite pre-existing customer files."
-    )
+    if collisions:
+        paths = ", ".join(collisions)
+        return (
+            "files_to_create entries already exist in repo_root: "
+            f"{paths}. These look like modifications — move them to "
+            "files_to_modify (with full merged body) or remove them from "
+            "the plan. Refusing to overwrite pre-existing customer files."
+        )
+    missing = [
+        entry["path"]
+        for entry in plan.get("files_to_modify", [])
+        if not (repo_root / entry["path"]).exists()
+    ]
+    if missing:
+        paths = ", ".join(missing)
+        return (
+            "files_to_modify entries do not exist in repo_root: "
+            f"{paths}. These look like new files — move them to "
+            "files_to_create or remove them from the plan. Refusing to "
+            "create files via the modify path (no backup means no revert)."
+        )
+    return None
 
 
 def load_snapshot(snapshot_id: str, *, repo_root: Path) -> ApplySnapshot:

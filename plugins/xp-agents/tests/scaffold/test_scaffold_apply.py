@@ -375,5 +375,79 @@ class TestApplyPlanRejectsPreExistingCreateTargets(_ApplyTestBase):
         self.assertTrue(result.ok)
 
 
+class TestApplyPlanRejectsModifyOfNonexistent(_ApplyTestBase):
+    """Symmetric to the create-side guard: a misclassified files_to_modify
+    entry pointing at a path that doesn't yet exist would silently create
+    the file via write_files and then orphan it (revert can't restore a
+    backup that doesn't exist). apply_plan must refuse before any
+    snapshot is created."""
+
+    def _modify_only_plan(self, target_rel: str = "package.json") -> dict:
+        return _plan(
+            files_to_modify=[
+                {
+                    "path": target_rel,
+                    "description": "should fail",
+                    "body": '{"x": 1}\n',
+                }
+            ]
+        )
+
+    def test_modify_of_nonexistent_returns_not_ok(self) -> None:
+        result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+
+    def test_modify_of_nonexistent_reason_names_path(self) -> None:
+        result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertIn("package.json", result.reason or "")
+
+    def test_modify_of_nonexistent_no_snapshot_created(self) -> None:
+        result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.reverted)
+        self.assertIsNone(result.snapshot_id)
+        self.assertIsNone(result.snapshot_dir)
+
+    def test_modify_of_nonexistent_target_not_created(self) -> None:
+        target = self.repo / "package.json"
+        result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(target.exists())
+
+    def test_pre_existing_modify_target_passes_validation(self) -> None:
+        target = self.repo / "package.json"
+        target.write_text('{"name": "demo"}\n', encoding="utf-8")
+        result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok)
+
+    def test_create_collision_wins_when_both_violations_present(self) -> None:
+        """When the plan has both a missing-modify and an existing-create
+        violation, the create-collision reason wins. Locks in deterministic
+        error messaging so callers see a stable contract."""
+        existing = self.repo / "package.json"
+        existing.write_text('{"name": "demo"}\n', encoding="utf-8")
+        plan = _plan(
+            files_to_create=[
+                {"path": "package.json", "description": "collision", "body": "x"}
+            ],
+            files_to_modify=[
+                {
+                    "path": "tests/missing.ts",
+                    "description": "missing",
+                    "body": "x",
+                }
+            ],
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertIn("package.json", result.reason or "")
+        self.assertIn("files_to_create", result.reason or "")
+
+
 if __name__ == "__main__":
     unittest.main()
