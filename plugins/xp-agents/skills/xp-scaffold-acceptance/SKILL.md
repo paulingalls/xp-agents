@@ -105,18 +105,32 @@ After Step 3 collects surface + tool selections (and before Step 4 builds the pl
 
 **Customer-named non-canonical tools**: do extra research — install command, config-file format, minimal verification command. Then call `scaffold_plan.decline_if_unreliable(tool, guidance)`:
 
+Pass guidance via `SCAFFOLD_GUIDANCE` (env var) and the tool name via
+`SCAFFOLD_TOOL` so shell metacharacters or quotes inside the guidance
+text cannot break the `python3 -c` invocation. Set
+`SCAFFOLD_GUIDANCE` to an empty string to mean "no guidance found."
+
 ```bash
-python3 -c "
-import sys
+SCAFFOLD_TOOL='<tool>' SCAFFOLD_GUIDANCE='<guidance text>' python3 -c "
+import os, sys
 from pathlib import Path
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
 from scaffold_plan import decline_if_unreliable
-result = decline_if_unreliable('<tool>', '''<guidance text or empty>''')
+result = decline_if_unreliable(
+    os.environ['SCAFFOLD_TOOL'],
+    os.environ.get('SCAFFOLD_GUIDANCE') or None,
+)
 print(result.decline, result.reason)
 "
 ```
 
 If `result.decline` is `True`, emit `result.reason` verbatim and exit cleanly — declining rather than guessing.
+
+If the customer-named tool itself contains a single quote (rare —
+e.g. `o'reilly-runner`), swap the outer single quotes for double
+quotes on that one variable, or pipe the value into `python3 -c`
+on stdin and read it with `sys.stdin.read().strip()` instead of
+`os.environ['SCAFFOLD_TOOL']`.
 
 **Still no writes in M-2.** Web-refresh produces in-memory variables only.
 
@@ -155,6 +169,11 @@ Assemble the structured `ScaffoldPlan` via `scaffold_plan.build_plan(...)`. Buil
 
 **Draft each file body in working memory before assembling the plan.** The plan dict carries only path/description/line_count metadata — the actual file content lives in your working memory so Step 5's `show files` branch can print it on demand. If you cannot author a file body confidently from web-refreshed knowledge, do not include it in `files_to_create`; loop back to Step 2 for more research, or call `decline_if_unreliable` and exit.
 
+Substitute the surface, tool, version, and concrete file/command lists
+into the snippet below before running. The dict shapes in
+`files_to_create` and `files_to_modify` are required (`path` and
+`description` keys; `line_count` is optional on creates).
+
 ```bash
 python3 -c "
 import sys, json
@@ -163,14 +182,24 @@ from pathlib import Path
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
 from scaffold_plan import build_plan
 plan = build_plan(
-    surface='<surface>',
-    tool='<tool>',
-    tool_version='<version>',
-    files_to_create=[<...>],
-    files_to_modify=[<...>],
-    install_cmds=[<...>],
-    verify_cmd='<verify>',
-    branch_name='<user>/scaffold-<surface>-acceptance',
+    surface='browser',
+    tool='playwright',
+    tool_version='1.51.0',
+    files_to_create=[
+        {'path': 'tests/acceptance/example.spec.ts',
+         'description': 'happy-path test', 'line_count': 12},
+        {'path': 'playwright.config.ts',
+         'description': 'single-project browser config', 'line_count': 18},
+    ],
+    files_to_modify=[
+        {'path': '.gitignore',
+         'description': '+1 line for playwright artifacts'},
+        {'path': 'package.json',
+         'description': '+@playwright/test devDep, +scripts.test:acceptance'},
+    ],
+    install_cmds=['npm install', 'npx playwright install chromium'],
+    verify_cmd='npx playwright test tests/acceptance/example.spec.ts',
+    branch_name='paul/scaffold-browser-acceptance',
 )
 print(json.dumps(asdict(plan), indent=2))
 "

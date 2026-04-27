@@ -276,6 +276,69 @@ class TestSkillM2Wiring(unittest.TestCase):
         self.assertRegex(self.body, r"Reserved for M-3")
 
 
+class TestSkillSnippetSafety(unittest.TestCase):
+    """Snippet examples in SKILL.md must be safe to follow verbatim.
+
+    Concern 023cf12c452c: Step 4's build_plan example used `[<...>]` bare
+    angle-bracket placeholders inside Python list literals — an LLM
+    transcribing the snippet under load would produce SyntaxError.
+    Concern fc505b703d2d: Step 2's decline_if_unreliable invocation
+    inlined guidance text inside Python triple quotes via shell-string
+    interpolation, which breaks if the guidance contains \"\"\", a
+    backslash, or shell metachars."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(text)
+
+    def test_step_4_no_bare_placeholder_in_python_list_literal(self) -> None:
+        step4 = _step_section(self.body, 4)
+        # Bare `<...>` inside `[...]` is the SyntaxError pattern. We use a
+        # narrow regex so legitimate prose like "<surface>" inside a
+        # string literal stays allowed.
+        self.assertNotRegex(
+            step4,
+            r"=\s*\[<[^\]]*\.\.\.[^\]]*>\]",
+            "Step 4 example must not embed bare <...> placeholders inside "
+            "Python list literals — an LLM following the snippet would "
+            "produce SyntaxError. Use a concrete realistic example.",
+        )
+
+    def test_step_4_example_uses_concrete_files_to_create(self) -> None:
+        """A realistic dict (path + description) somewhere in the Step 4
+        snippet proves the example is followable."""
+        step4 = _step_section(self.body, 4)
+        self.assertRegex(
+            step4,
+            r"['\"]path['\"]\s*:\s*['\"][^'\"]+['\"]",
+            "Step 4 example must include at least one concrete file dict "
+            "with a real path so the LLM has a copy-paste-runnable shape.",
+        )
+
+    def test_step_2_decline_does_not_inline_guidance_in_triple_quotes(self) -> None:
+        """Inlining guidance text inside Python triple quotes via shell
+        interpolation is brittle on metachars. Pass via env var or stdin."""
+        step2 = _step_section(self.body, 2)
+        self.assertNotRegex(
+            step2,
+            r"decline_if_unreliable\([^)]*'''",
+            "Step 2 example must not interpolate guidance into a Python "
+            "triple-quoted string literal — pass via os.environ or "
+            "sys.stdin instead.",
+        )
+
+    def test_step_2_decline_uses_env_or_stdin_for_guidance(self) -> None:
+        step2 = _step_section(self.body, 2)
+        self.assertRegex(
+            step2,
+            r"os\.environ|sys\.stdin",
+            "Step 2 decline_if_unreliable example must read guidance via "
+            "os.environ or sys.stdin so shell metachars in the guidance "
+            "string don't break the python -c invocation.",
+        )
+
+
 class TestSkillNoConfigFileSignalCaveat(unittest.TestCase):
     """Debt 8f2ca34871e1: SKILL.md must propagate NO_CONFIG_FILE_SIGNAL
     semantics — has_tooling=False for sdk/message_event surfaces means
