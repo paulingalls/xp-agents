@@ -3,16 +3,17 @@
 
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import scaffold_apply
+from _helpers import init_git_with_seed, run_git
 from scaffold_post import build_commit_message, commit_scaffold
 
 
@@ -101,18 +102,9 @@ class TestBuildCommitMessage(unittest.TestCase):
         self.assertTrue(lines[2].startswith("Tool-version:"))
 
 
-def _run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
-
-
 def _setup_git_repo(repo: Path) -> None:
-    """git init + identity + initial commit so branch creation has a base."""
-    _run_git(["git", "init", "-b", "main"], repo)
-    _run_git(["git", "config", "user.email", "test@example.com"], repo)
-    _run_git(["git", "config", "user.name", "Test"], repo)
-    (repo / "README").write_text("seed\n", encoding="utf-8")
-    _run_git(["git", "add", "README"], repo)
-    _run_git(["git", "commit", "-m", "[chore] seed"], repo)
+    """git init + identity + initial README commit so branch creation has a base."""
+    init_git_with_seed(repo, "README", "seed\n")
 
 
 def _write_branching_strategy(smm_dir: Path, stage: int) -> None:
@@ -173,7 +165,7 @@ class TestCommitScaffoldStageZero(_CommitScaffoldTestBase):
         )
         self.assertTrue(result.ok, result.reason)
         self.assertEqual(result.branch, "main")
-        head = _run_git(["git", "rev-parse", "HEAD"], self.repo).stdout.strip()
+        head = run_git(["git", "rev-parse", "HEAD"], self.repo).stdout.strip()
         self.assertEqual(result.sha, head)
 
     def test_stage_0_subject_uses_doctrine_format(self) -> None:
@@ -187,7 +179,7 @@ class TestCommitScaffoldStageZero(_CommitScaffoldTestBase):
             tool_version="1.51.0",
             concern_id=None,
         )
-        log = _run_git(["git", "log", "-1", "--format=%s"], self.repo)
+        log = run_git(["git", "log", "-1", "--format=%s"], self.repo)
         subject = log.stdout.strip()
         self.assertEqual(subject, "[chore] Scaffold browser acceptance via playwright")
 
@@ -202,7 +194,7 @@ class TestCommitScaffoldStageZero(_CommitScaffoldTestBase):
             tool_version="1.51.0",
             concern_id="abc123def456",
         )
-        body = _run_git(["git", "log", "-1", "--format=%B"], self.repo).stdout
+        body = run_git(["git", "log", "-1", "--format=%B"], self.repo).stdout
         self.assertIn("Resolves-Event: abc123def456", body)
 
 
@@ -210,7 +202,7 @@ class TestCommitScaffoldStageOne(_CommitScaffoldTestBase):
     def test_stage_1_creates_scaffold_branch(self) -> None:
         _write_branching_strategy(self.smm_dir, 1)
         # Move off main so protected-branch refusal does not trigger.
-        _run_git(["git", "checkout", "-b", "feature/work"], self.repo)
+        run_git(["git", "checkout", "-b", "feature/work"], self.repo)
         result = commit_scaffold(
             self._snap(),
             smm_dir=self.smm_dir,
@@ -224,7 +216,7 @@ class TestCommitScaffoldStageOne(_CommitScaffoldTestBase):
         self.assertTrue(
             result.branch.endswith("/scaffold-browser"), f"branch={result.branch!r}"
         )
-        current = _run_git(
+        current = run_git(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"], self.repo
         ).stdout.strip()
         self.assertEqual(current, result.branch)
@@ -244,7 +236,7 @@ class TestCommitScaffoldStageOne(_CommitScaffoldTestBase):
         self.assertFalse(result.ok)
         self.assertIn("main", result.reason or "")
         # No commit was created.
-        oneline = _run_git(["git", "log", "--oneline"], self.repo).stdout.strip()
+        oneline = run_git(["git", "log", "--oneline"], self.repo).stdout.strip()
         self.assertEqual(len(oneline.splitlines()), 1)
 
 

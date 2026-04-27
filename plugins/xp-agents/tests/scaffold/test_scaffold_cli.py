@@ -15,9 +15,11 @@ import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _helpers import init_git_identity, run_git
 from conftest import _SMMTestCase, run_cli
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
@@ -578,7 +580,7 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
     """Snapshot dir lifecycle for the CLI split:
     - apply-write success: snapshot retained (next phase needs it)
     - apply-install success: snapshot retained (verify still needs it)
-    - apply-verify success: cleaned up (last phase of M-3 pipeline)
+    - apply-verify success: snapshot retained (M-4 commit + record still need it)
     - apply-revert with unrestored=[]: cleaned up (explicit cancel)
     - any phase failure with clean revert: cleaned up by failure_result
     """
@@ -601,7 +603,10 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
         snapshot_dir = Path(write_payload["snapshot_dir"])
         self.assertTrue(snapshot_dir.exists())
 
-    def test_apply_verify_success_cleans_up_snapshot(self) -> None:
+    def test_apply_verify_success_retains_snapshot(self) -> None:
+        # M-4: apply-verify is no longer terminal — apply-commit + apply-record
+        # both load the snapshot afterward, so cleanup moved from verify to
+        # record (terminal in M-4) and explicit revert (terminal in cancel).
         write_payload = self._apply_write(self._plan())
         snap_id = write_payload["snapshot_id"]
         snapshot_dir = Path(write_payload["snapshot_dir"])
@@ -617,11 +622,14 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(snapshot_dir.exists())
+        self.assertTrue(snapshot_dir.exists())
 
-    def test_apply_revert_after_apply_verify_returns_two(self) -> None:
+    def test_apply_revert_after_apply_verify_succeeds(self) -> None:
+        # M-4: apply-verify retains the snapshot, so a subsequent apply-revert
+        # (the explicit-cancel terminal) finds it and cleans up cleanly.
         write_payload = self._apply_write(self._plan())
         snap_id = write_payload["snapshot_id"]
+        snapshot_dir = Path(write_payload["snapshot_dir"])
         run_cli(
             _CLI,
             [
@@ -644,7 +652,10 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
             ],
             self.smm_dir,
         )
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(snapshot_dir.exists())
 
     def test_apply_revert_clean_cleans_up_snapshot(self) -> None:
         write_payload = self._apply_write(self._plan())
@@ -692,10 +703,6 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
         self.assertTrue((snapshot_dir / "install.log").exists())
 
 
-def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
-
-
 class _ApplyCliCommitTestBase(_ApplyCliTestBase):
     """_ApplyCliTestBase + git init + identity + initial commit + stage config.
 
@@ -707,11 +714,9 @@ class _ApplyCliCommitTestBase(_ApplyCliTestBase):
 
     def setUp(self) -> None:
         super().setUp()
-        _git(["git", "init", "-b", "main"], self._repo)
-        _git(["git", "config", "user.email", "test@example.com"], self._repo)
-        _git(["git", "config", "user.name", "Test"], self._repo)
-        _git(["git", "add", "package.json"], self._repo)
-        _git(["git", "commit", "-m", "[chore] seed"], self._repo)
+        init_git_identity(self._repo)
+        run_git(["git", "add", "package.json"], self._repo)
+        run_git(["git", "commit", "-m", "[chore] seed"], self._repo)
         (self.smm_dir / "system_context.json").write_text(
             json.dumps({"branching_strategy": {"stage": self.stage}}),
             encoding="utf-8",
@@ -761,7 +766,7 @@ class TestApplyCommitStageZero(_ApplyCliCommitTestBase):
             ],
             self.smm_dir,
         )
-        body = _git(["git", "log", "-1", "--format=%B"], self._repo).stdout
+        body = run_git(["git", "log", "-1", "--format=%B"], self._repo).stdout
         self.assertIn("Resolves-Event: abc123def456", body)
 
 

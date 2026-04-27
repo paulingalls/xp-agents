@@ -206,7 +206,7 @@ def _cmd_apply_verify(args: argparse.Namespace) -> int:
         phase="verify",
         run_fn=scaffold_apply.run_verify,
         timeout_sec=scaffold_apply.VERIFY_TIMEOUT_SEC,
-        cleanup_on_success=True,
+        cleanup_on_success=False,  # M-4: apply-record is the new terminal phase
     )
 
 
@@ -243,6 +243,8 @@ def _cmd_apply_record(args: argparse.Namespace) -> int:
         concern_id=args.concern_id,
         agent_id=args.agent_id,
     )
+    if result.ok:
+        scaffold_apply.cleanup_snapshot(snap)  # apply-record is terminal in M-4
     return _emit(asdict(result))
 
 
