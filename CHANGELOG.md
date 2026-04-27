@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.30.7 — Probe-adoption miss decomposition
+
+Sprint-036's retro reported `probe_adoption_rate=0% (0/2)` and the author wrote two follow-up Tries to investigate. Reading the code with the customer surfaced two issues: Try #4's framing was confused (the metric already filters to "probe fired with candidates" — adding a population-level concern count measures something tangential), and the existing "any code commit anywhere has any candidate ID" matcher was sloppy enough to attribute hits across agents. The fix replaces the loose match with strict per-agent pairing and decomposes adoption misses into named sub-buckets so future retros can diagnose *why* adoption was low rather than just observing the rate.
+
+- **Strict per-agent pairing in `_compute_probe_adoption`.** Each probe pairs with the next-by-`agent_id` COMMIT in the sprint window. A `consumed: set[int]` index tracks already-paired commits so two probes by the same agent before a single commit don't both claim it (the original implementation had this double-pairing bug — caught in /xp-quality-review).
+- **Four-way classification.** Each probe lands in exactly one bucket: `hit` (paired commit's `metadata.resolves` overlaps the probe's candidates), `escape` (paired commit had `Resolves-Event: none`), `divert` (paired commit referenced a different ID), or `silent` (no paired commit followed). `hits + escape + divert + silent == probe_total` by construction.
+- **Backward-compatible digest fields.** Existing `probe_adoption_rate` / `probe_adoption_hits` / `probe_adoption_total` keys remain unchanged. New `probe_escape` / `probe_divert` / `probe_silent` fields are added alongside.
+- **Retrospective agent reads the buckets.** `xp-retrospective.md` §Resolution-Link Adoption keeps the existing 0.50 flat-rate Fix threshold and now names the dominant miss bucket(s) alongside it. Doctrinal interpretation: escape dominance reads "agent declined the suggestion to clear the gate" (suggestions aren't trusted); divert dominance reads "agent had its own context the probe didn't see" (candidate set is noisy). Ties are listed and read as themselves diagnostic. `silent` is informational only — non-zero counts surface but do not by themselves trigger a Fix.
+- **Test guards added.** Seven new cases in `TestProbeAdoptionRate`: each miss bucket gets a dedicated test, plus `test_two_probes_same_agent_pair_with_distinct_commits` (locks in the consumed-set fix), `test_strict_pairing_ignores_other_agent_commits` (locks in same-agent matching), `test_strict_pairing_hit_with_distinct_agents`, and `test_probe_outside_sprint_window_is_excluded`. Helpers `_probe_event` and `_code_commit` gained an optional `agent_id` parameter (default `"main"` so existing single-agent tests stay green).
+
+Try #1 (event `858dc6a51be5`) is resolved by this commit. Try #4 (event `66ed8f4aea82`) is dropped via a separate decision event — the same investigation is answered better by this decomposition.
+
 ## v2.30.6 — Close-reviewer records concerns as SMM events
 
 The xp-close-reviewer agent previously returned Keep/Concern/Block as text prose; the close skill displayed it once and moved on. Concern and Block items were ephemeral — visible in chat output but never persisted as SMM events. Multiple times this session, valuable concerns from PR #6 / #7 close-reviews would have vanished into the scrollback if I hadn't manually filed them.
