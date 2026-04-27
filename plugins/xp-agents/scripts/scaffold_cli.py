@@ -229,6 +229,23 @@ def _cmd_apply_commit(args: argparse.Namespace) -> int:
     return _emit(asdict(result))
 
 
+def _cmd_apply_record(args: argparse.Namespace) -> int:
+    err = _require_smm_dir(args, "apply-record")
+    if err is not None:
+        return err
+    snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
+    verify_cmd = snap.plan["verify_cmd"]
+    result = scaffold_post.record_scaffold(
+        snap,
+        smm_dir=args.smm_dir,
+        surface=args.surface,
+        verify_cmd=verify_cmd,
+        concern_id=args.concern_id,
+        agent_id=args.agent_id,
+    )
+    return _emit(asdict(result))
+
+
 def _cmd_apply_revert(args: argparse.Namespace) -> int:
     snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
     unrestored = scaffold_apply.revert(snap)
@@ -350,6 +367,28 @@ def main() -> None:
         help="Concern event ID resolved by this commit (omit for 'none')",
     )
 
+    apply_record = sub.add_parser(
+        "apply-record",
+        help="Flip system_context surface to covered + decision event",
+    )
+    apply_record.add_argument(
+        "--snapshot-id", required=True, help="Snapshot ID from apply-write"
+    )
+    apply_record.add_argument(
+        "--repo-root", type=Path, default=Path.cwd(), help="Repository root"
+    )
+    apply_record.add_argument("--surface", required=True, help="Acceptance surface")
+    apply_record.add_argument(
+        "--concern-id",
+        default=None,
+        help="Missing-acceptance concern event ID to resolve (decision event)",
+    )
+    apply_record.add_argument(
+        "--agent-id",
+        required=True,
+        help="Agent ID for the decision event (skill is inline; pass caller agent)",
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -363,6 +402,7 @@ def main() -> None:
         "apply-verify": _cmd_apply_verify,
         "apply-revert": _cmd_apply_revert,
         "apply-commit": _cmd_apply_commit,
+        "apply-record": _cmd_apply_record,
     }
 
     sys.exit(dispatch[args.command](args))

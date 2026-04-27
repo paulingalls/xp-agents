@@ -15,15 +15,18 @@ after a green verify:
 - ``record_scaffold(snap, ...)``: flips the matching
   ``acceptance_surfaces[*].status`` to ``"covered"`` and stamps the
   verify command onto ``acceptance_template_command`` for downstream
-  capstone-story reuse (xp-sprint-start). Story-002's next commit will
-  extend this to also append a decision event resolving the
-  missing-acceptance concern.
+  capstone-story reuse (xp-sprint-start). When a non-sentinel
+  ``concern_id`` is supplied, also appends a ``decision`` event with
+  ``metadata.resolves=[concern_id]`` (STRONG link) so the
+  missing-acceptance concern that motivated the scaffold cascades
+  closed.
 """
 
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+import _common
 import branching
 import identity
 import system_context_store
@@ -167,6 +170,8 @@ def record_scaffold(
     smm_dir: Path,
     surface: str,
     verify_cmd: str,
+    concern_id: str | None,
+    agent_id: str,
 ) -> RecordResult:
     """Flip ``acceptance_surfaces[<surface>].status`` to ``"covered"``.
 
@@ -175,10 +180,18 @@ def record_scaffold(
     ``acceptance_template_command=verify_cmd``, and writes the document
     back via ``system_context_store.save_system_context`` (atomic write +
     schema validation). Other surface entries and their fields are
-    untouched. Returns ``RecordResult(ok=False, reason=...)`` when the
-    system_context document is missing, when the named surface is
-    missing, or when the post-mutation save fails schema validation —
-    the caller surfaces the failure verbatim rather than silently no-op.
+    untouched.
+
+    When ``concern_id`` is a 12-hex event ID (not None and not the
+    sentinel ``"none"``), also appends a ``decision`` event with
+    ``metadata.resolves=[concern_id]`` so the missing-acceptance concern
+    that motivated this scaffold cascades closed. The new event's id is
+    returned in ``RecordResult.decision_event_id``.
+
+    Returns ``RecordResult(ok=False, reason=...)`` when the system_context
+    document is missing, when the named surface is missing, or when the
+    post-mutation save fails schema validation — the caller surfaces the
+    failure verbatim rather than silently no-op.
     """
     del snap  # reserved for future provenance; surface-flip is smm-side only
     ctx = system_context_store.load_system_context(smm_dir)
@@ -209,4 +222,17 @@ def record_scaffold(
             ok=False,
             reason=f"system_context save failed: {exc}",
         )
-    return RecordResult(ok=True)
+
+    decision_event_id: str | None = None
+    if concern_id and concern_id != "none":
+        event = _common.make_event(
+            "decision",
+            agent_id,
+            f"Acceptance surface {surface!r} covered via /xp-scaffold-acceptance",
+            topic=f"scaffold-acceptance-{surface}",
+            metadata={"resolves": [concern_id]},
+        )
+        _common.append_safe(smm_dir, event)
+        decision_event_id = event["id"]
+
+    return RecordResult(ok=True, decision_event_id=decision_event_id)

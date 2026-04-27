@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Tests for scripts/scaffold_cli.py — thin CLI wrapper over scaffold helpers.
 
-Covers nine subcommands: teammates-active, detect-surfaces, assess-tool,
+Covers eleven subcommands: teammates-active, detect-surfaces, assess-tool,
 build-plan, render-preview (with --show-files), apply-write,
-apply-install, apply-verify, apply-revert — plus key error paths.
-Follows the run_cli + _SMMTestCase pattern from
+apply-install, apply-verify, apply-revert, apply-commit, apply-record —
+plus key error paths. Follows the run_cli + _SMMTestCase pattern from
 tests/engine/test_plan_cli.py.
 """
 
@@ -789,6 +789,103 @@ class TestApplyCommitStageOneProtected(_ApplyCliCommitTestBase):
         payload = json.loads(result.stdout)
         self.assertFalse(payload["ok"])
         self.assertIn("main", payload["reason"])
+
+
+class _ApplyCliRecordTestBase(_ApplyCliTestBase):
+    """_ApplyCliTestBase + system_context.json with browser:gap surface.
+
+    apply-record needs an existing surface to flip. Sets stage 0 since
+    record is unaffected by branching stage.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        ctx = {
+            "product": "Test product.",
+            "architecture_overview": "Test architecture.",
+            "stack": {"languages": ["Python"]},
+            "modules": [{"name": "core", "purpose": "Core", "path": "src/core"}],
+            "conventions": ["Use type hints"],
+            "key_decisions": [{"topic": "lang", "decision": "Use Python"}],
+            "sources": ["CLAUDE.md"],
+            "project_specific": [],
+            "branching_strategy": {"stage": 0},
+            "acceptance_surfaces": [
+                {
+                    "name": "browser",
+                    "signals": ["next.js"],
+                    "harness": "playwright",
+                    "status": "gap",
+                }
+            ],
+        }
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps(ctx), encoding="utf-8"
+        )
+
+
+class TestApplyRecord(_ApplyCliRecordTestBase):
+    def test_happy_path_flips_surface_and_returns_ok(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-record",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--agent-id",
+                "test-agent",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        ctx = json.loads(
+            (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
+        )
+        browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
+        self.assertEqual(browser["status"], "covered")
+        self.assertEqual(browser["acceptance_template_command"], "true")
+
+    def test_concern_id_appends_decision_event(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-record",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--concern-id",
+                "abc123def456",
+                "--agent-id",
+                "test-agent",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["decision_event_id"])
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        decisions = [e for e in events if e.get("type") == "decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(
+            decisions[0].get("metadata", {}).get("resolves"), ["abc123def456"]
+        )
 
 
 if __name__ == "__main__":

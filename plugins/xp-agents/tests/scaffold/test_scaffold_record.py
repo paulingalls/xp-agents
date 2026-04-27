@@ -87,6 +87,8 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             smm_dir=self.smm_dir,
             surface="browser",
             verify_cmd="npx playwright test tests/acceptance",
+            concern_id=None,
+            agent_id="test-agent",
         )
         self.assertTrue(result.ok, result.reason)
         ctx = self._ctx()
@@ -103,6 +105,8 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             smm_dir=self.smm_dir,
             surface="browser",
             verify_cmd="npx playwright test",
+            concern_id=None,
+            agent_id="test-agent",
         )
         ctx = self._ctx()
         api = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "api")
@@ -115,6 +119,8 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             smm_dir=self.smm_dir,
             surface="browser",
             verify_cmd="npx playwright test",
+            concern_id=None,
+            agent_id="test-agent",
         )
         ctx = self._ctx()
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
@@ -127,6 +133,8 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             smm_dir=self.smm_dir,
             surface="nonexistent",
             verify_cmd="any cmd",
+            concern_id=None,
+            agent_id="test-agent",
         )
         self.assertFalse(result.ok)
         self.assertIn("nonexistent", result.reason or "")
@@ -143,6 +151,8 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             smm_dir=self.smm_dir,
             surface="browser",
             verify_cmd="npx playwright test",
+            concern_id=None,
+            agent_id="test-agent",
         )
         self.assertFalse(result.ok)
         # Caller should be steered to /xp-system-context, not silent no-op.
@@ -168,6 +178,8 @@ class TestRecordScaffoldSaveFailure(_RecordTestBase):
                 smm_dir=self.smm_dir,
                 surface="browser",
                 verify_cmd="npx playwright test",
+                concern_id=None,
+                agent_id="test-agent",
             )
         self.assertFalse(result.ok)
         self.assertIn("disk full", result.reason or "")
@@ -177,6 +189,66 @@ class TestRecordScaffoldSaveFailure(_RecordTestBase):
         ctx = self._ctx()
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
         self.assertEqual(browser["status"], "gap")
+
+
+def _events(smm_dir: Path) -> list[dict]:
+    log = smm_dir / "events.jsonl"
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+
+class TestRecordScaffoldDecisionEvent(_RecordTestBase):
+    def test_appends_decision_event_when_concern_id_supplied(self) -> None:
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id="abc123def456",
+            agent_id="xp-scaffold-acceptance",
+        )
+        self.assertTrue(result.ok, result.reason)
+        self.assertIsNotNone(result.decision_event_id)
+        events = _events(self.smm_dir)
+        decisions = [e for e in events if e.get("type") == "decision"]
+        self.assertEqual(len(decisions), 1)
+        decision = decisions[0]
+        self.assertEqual(decision["id"], result.decision_event_id)
+        self.assertEqual(decision.get("metadata", {}).get("resolves"), ["abc123def456"])
+        self.assertTrue(decision.get("topic"))
+        self.assertEqual(decision["agent_id"], "xp-scaffold-acceptance")
+
+    def test_no_decision_event_when_concern_id_omitted(self) -> None:
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id=None,
+            agent_id="xp-scaffold-acceptance",
+        )
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.decision_event_id)
+        events = _events(self.smm_dir)
+        decisions = [e for e in events if e.get("type") == "decision"]
+        self.assertEqual(decisions, [])
+
+    def test_no_decision_event_when_concern_id_is_literal_none_string(self) -> None:
+        """Treat 'none' (the Resolves-Event sentinel) as no concern."""
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id="none",
+            agent_id="xp-scaffold-acceptance",
+        )
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.decision_event_id)
+        events = _events(self.smm_dir)
+        decisions = [e for e in events if e.get("type") == "decision"]
+        self.assertEqual(decisions, [])
 
 
 if __name__ == "__main__":
