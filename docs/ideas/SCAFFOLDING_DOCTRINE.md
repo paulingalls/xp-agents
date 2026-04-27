@@ -113,7 +113,7 @@ Install + verify:
 
 Commit plan:
   Branch: paul/scaffold-browser-acceptance (new, off main)
-  Message: "[chore] Scaffold browser acceptance with Playwright"
+  Message: "[chore] Scaffold acceptance browser via playwright"
 
 Proceed? [yes / show files / no]
 ```
@@ -369,10 +369,11 @@ Commit message convention:
 ```
 [chore] Scaffold <category> <target> via <tool>
 
-Tool version: <pinned version>
-Files created: <list>
-Files modified: <list>
+Tool-version: <pinned version>
+Files-created: <list>
+Files-modified: <list>
 Verification: <what passed>
+Resolves-Event: <12-hex concern id, or "none">
 ```
 
 Machine-readable enough that a later `/xp-sprint-review` can

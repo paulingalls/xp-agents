@@ -136,6 +136,104 @@ class TestDetectSurfaces(_SMMTestCase):
         self.assertIn("has_tooling", surfaces[0])
 
 
+class TestFindIntroducingCommit(_SMMTestCase):
+    """SKILL.md Step 1c redo branch invokes this to pin the revert pointer."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.repo = self.smm_dir / "repo"
+        self.repo.mkdir()
+        init_git_identity(self.repo)
+
+    def _commit(self, filename: str, body: str, message: str) -> None:
+        (self.repo / filename).write_text(body, encoding="utf-8")
+        run_git(["git", "add", filename], self.repo)
+        run_git(["git", "commit", "-m", message], self.repo)
+
+    def test_returns_introducing_commit_json(self) -> None:
+        self._commit("README.md", "seed\n", "first")
+        self._commit("playwright.config.ts", "{}\n", "add playwright")
+
+        result = run_cli(
+            _CLI,
+            [
+                "find-introducing-commit",
+                "--repo-root",
+                str(self.repo),
+                "--config-files",
+                str(self.repo / "playwright.config.ts"),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["subject"], "add playwright")
+        self.assertIn("sha", payload)
+        self.assertIn("date", payload)
+
+    def test_returns_null_when_untracked(self) -> None:
+        self._commit("README.md", "seed\n", "first")
+        (self.repo / "untracked.config").write_text("{}\n", encoding="utf-8")
+
+        result = run_cli(
+            _CLI,
+            [
+                "find-introducing-commit",
+                "--repo-root",
+                str(self.repo),
+                "--config-files",
+                str(self.repo / "untracked.config"),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(json.loads(result.stdout))
+
+
+class TestDetectMonorepo(_SMMTestCase):
+    """SKILL.md Step 1d invokes this to ask the customer where to scaffold."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.repo = self.smm_dir / "repo"
+        self.repo.mkdir()
+
+    def test_returns_no_signal_for_single_package(self) -> None:
+        (self.repo / "package.json").write_text('{"name":"x"}', encoding="utf-8")
+
+        result = run_cli(
+            _CLI,
+            ["detect-monorepo", "--repo-root", str(self.repo)],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["is_monorepo"])
+        self.assertIsNone(payload["kind"])
+        self.assertEqual(payload["packages"], [])
+
+    def test_returns_pnpm_kind_with_packages(self) -> None:
+        (self.repo / "pnpm-workspace.yaml").write_text(
+            'packages:\n  - "packages/*"\n', encoding="utf-8"
+        )
+        (self.repo / "packages").mkdir()
+        (self.repo / "packages" / "web").mkdir()
+        (self.repo / "packages" / "api").mkdir()
+
+        result = run_cli(
+            _CLI,
+            ["detect-monorepo", "--repo-root", str(self.repo)],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["is_monorepo"])
+        self.assertEqual(payload["kind"], "pnpm")
+        self.assertIn("packages/web", payload["packages"])
+        self.assertIn("packages/api", payload["packages"])
+
+
 class TestAssessTool(_SMMTestCase):
     def test_empty_guidance_declines(self) -> None:
         result = run_cli(

@@ -145,7 +145,7 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
         # Commit landed on HEAD with the doctrine subject + four trailers.
         body = run_git(["git", "log", "-1", "--format=%B"], self.repo).stdout
         self.assertIn(
-            "[chore] Scaffold browser acceptance via playwright", body.splitlines()[0]
+            "[chore] Scaffold acceptance browser via playwright", body.splitlines()[0]
         )
         for trailer in (
             "Tool-version: 1.51.0",

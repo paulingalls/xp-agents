@@ -51,11 +51,53 @@ If the command exits 1, **stop immediately** and emit the doctrine refusal text 
 
 No `--force` flag, no escape hatch. Exit cleanly.
 
-### 1b. Read surfaces and detect existing tooling
+### 1b. Resolve scaffold scope (monorepo path placement)
 
-If no teammates are live, run `detect-surfaces`. The CLI loads
-`acceptance_surfaces` from `system_context.json` and runs the existing-
-tooling probe per surface, returning a single JSON array on stdout:
+Before detection runs, resolve `$REPO_ROOT` against any monorepo layout —
+running detection at the wrong scope makes Step 1c (detect-surfaces) and
+Step 1d (re-invocation) blind to package-scoped configs. Call
+`detect-monorepo` against the original repository root:
+
+```bash
+TOP_REPO_ROOT="${REPO_ROOT:-$(pwd)}"
+MONO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    detect-monorepo --repo-root "$TOP_REPO_ROOT")
+```
+
+Parse `$MONO_JSON`. When `is_monorepo` is `false`, `$REPO_ROOT` stays at
+`$TOP_REPO_ROOT`. When `is_monorepo` is `true`, ask the customer where
+the scaffold should land via `AskUserQuestion` — options are
+`["<repo root>", *<packages>]` from the JSON's `packages` array
+(repo-relative posix labels such as `packages/web`, `apps/api`):
+
+```
+AskUserQuestion(
+  question: "Detected <kind> monorepo with N packages. Where should the scaffold land?",
+  options: ["<repo root>", "packages/web", "packages/api", ...]
+)
+```
+
+Resolve the chosen option to an absolute `$REPO_ROOT`:
+
+- `<repo root>` → keep `$REPO_ROOT="$TOP_REPO_ROOT"`.
+- A package path (e.g., `packages/web`) → set `$REPO_ROOT="$TOP_REPO_ROOT/<package>"`.
+
+**No silent path assumptions.** If the chosen path does not exist on disk
+(stale `detect-monorepo` output, or the package directory was moved/
+deleted between detection and the customer's answer), emit a stderr note
+naming the missing path and **re-prompt** the same `AskUserQuestion`.
+Do not fall back to `$TOP_REPO_ROOT` silently. If the customer keeps
+picking missing paths, exit cleanly with a layout-fix message.
+
+`$REPO_ROOT` resolved here flows through every later step (Step 1c
+detect-surfaces, Step 1d re-invocation, Steps 4-9 apply pipeline).
+
+### 1c. Read surfaces and detect existing tooling
+
+With `$REPO_ROOT` resolved (from Step 1b), run `detect-surfaces`. The
+CLI loads `acceptance_surfaces` from `system_context.json` and runs the
+existing-tooling probe per surface, returning a single JSON array on
+stdout:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
@@ -66,7 +108,7 @@ Each array element has `{name, status, harness, has_tooling, tool_name, config_f
 
 If the array is empty, `system_context.json` is missing or has no `acceptance_surfaces` field — exit cleanly with: _"No acceptance surfaces are recorded in system_context.json. Run /xp-system-context first to detect surfaces, then re-invoke."_
 
-If any surface reports `has_tooling=true`, route to the **re-invocation stub** (below). Otherwise proceed to Step 3.
+If any surface reports `has_tooling=true`, route to the **re-invocation flow** (Step 1d). Otherwise proceed to Step 3.
 
 #### Detection caveat: NO_CONFIG_FILE_SIGNAL
 
@@ -80,9 +122,9 @@ is `sdk` or `message_event`, treat the absence of a config file as
 inconclusive and ask the customer whether tooling already exists before
 proceeding to Step 4. Do not silently scaffold over hidden coverage.
 
-### 1c. Re-invocation stub
+### 1d. Re-invocation flow
 
-When existing tooling is detected, use `AskUserQuestion` to ask the customer how to proceed. M-1 only stubs the question — every option exits with the M-5 deferral message:
+When Step 1c detected existing tooling for the chosen surface, use `AskUserQuestion`:
 
 ```
 AskUserQuestion(
@@ -95,11 +137,41 @@ AskUserQuestion(
 )
 ```
 
-Whatever the customer picks, respond:
+Branch on the answer:
 
-> Full re-invocation flow lands in M-5 — for now, no changes were made. Re-invoke after M-5 ships, or perform the action manually.
+**Add complementary tool.** Loop back to Step 3 with one adjustment: when listing the canonical tool options, **exclude the existing `tool_name`** from the list. Concretely, build the Step 3 tool-question options as `[t for t in canonical_tools_for(<surface>) if t != <existing tool_name>] + ["Other (I'll name it)"]`. The downstream flow (Step 2 web-refresh, Step 4 plan, Step 5 confirm, Steps 6-9 apply) runs unchanged — `apply-write` stages new files alongside the existing tool, and the customer's preview in Step 5 shows them what gets added.
 
-Exit cleanly.
+**Redo from scratch.** Resolve the introducing commit via `find-introducing-commit` against the detected `config_files`. Read the chosen surface's `config_files` array from the Step 1c `detect-surfaces` JSON and substitute them as literal `--config-files <path>` flags in the invocation (one flag per file). Example for a `browser` surface with two playwright configs:
+
+```bash
+INTRO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    find-introducing-commit --repo-root "$REPO_ROOT" \
+    --config-files "$REPO_ROOT/playwright.config.ts" \
+    --config-files "$REPO_ROOT/playwright.config.js")
+```
+
+The agent reads the `config_files` list out of the Step 1c JSON and writes one `--config-files` flag per entry — same agent-substitution model used throughout this SKILL (no bash array extraction; no inline `python3 -c`). At least one `--config-files` flag is required by argparse.
+
+Parse `$INTRO_JSON`. If the JSON is a non-null dict, surface the revert pointer to the customer verbatim:
+
+> Detected existing scaffold introduced by commit `<sha>` ("<subject>", <date>). To redo from scratch, run: `git revert <sha>` then re-invoke `/xp-scaffold-acceptance`.
+
+If `$INTRO_JSON` is `null` (config files untracked, or not in a git repo), emit the manual-cleanup fallback:
+
+> Detected existing config files (<config_files>) but could not pin an introducing commit (untracked, or not a git repo). Remove or revert these files manually, then re-invoke `/xp-scaffold-acceptance`.
+
+In both cases, exit cleanly. **No writes.**
+
+**Cancel.** Exit cleanly with the doctrine cancel message: _"Cancelled — no changes were made."_
+
+### Add-complementary loopback note
+
+The **add complementary tool** branch keeps the `$REPO_ROOT` resolved by
+Step 1b (the package the customer just chose, or the repo root if not a
+monorepo). The complementary tool lands at the same scope as the
+existing tool — that is the intended semantic, since the customer is
+adding to the existing scaffold within that package, not picking a
+different package. No re-entry to Step 1b is needed.
 
 ## Step 2: Refresh knowledge
 

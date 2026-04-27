@@ -94,6 +94,32 @@ def _cmd_detect_surfaces(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_find_introducing_commit(args: argparse.Namespace) -> int:
+    """JSON-on-stdout wrapper for scaffold_detect.find_introducing_commit.
+
+    SKILL.md Step 1c (redo branch) calls this to pin the revert pointer when
+    the customer chose 'redo from scratch'. Prints the JSON dict on stdout
+    when an introducing commit is found, ``null`` otherwise. Caller decides
+    whether ``null`` means "untracked" or "non-git" — the helper is
+    intentionally best-effort.
+    """
+    result = scaffold_detect.find_introducing_commit(args.repo_root, args.config_files)
+    print(json.dumps(result))
+    return 0
+
+
+def _cmd_detect_monorepo(args: argparse.Namespace) -> int:
+    """JSON-on-stdout wrapper for scaffold_detect.detect_monorepo.
+
+    SKILL.md Step 1d calls this to decide whether to ask the customer where
+    in the monorepo to land the scaffold. Always prints a JSON dict (with
+    ``is_monorepo=False`` when no signal fires).
+    """
+    result = scaffold_detect.detect_monorepo(args.repo_root)
+    print(json.dumps(result))
+    return 0
+
+
 def _cmd_assess_tool(args: argparse.Namespace) -> int:
     guidance = sys.stdin.read()
     result = scaffold_plan.decline_if_unreliable(args.tool, guidance)
@@ -283,7 +309,10 @@ def main() -> None:
         "--smm-dir",
         type=Path,
         required=False,
-        help="SMM directory path (required for teammates-active, detect-surfaces)",
+        help=(
+            "SMM directory path (required for teammates-active, detect-surfaces, "
+            "apply-commit, apply-record)"
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -302,6 +331,35 @@ def main() -> None:
         type=Path,
         required=True,
         help="Repository root for config-file detection",
+    )
+
+    find_introducing = sub.add_parser(
+        "find-introducing-commit",
+        help=(
+            "Print JSON for the OLDEST commit that introduced any of the "
+            "given config files; 'null' when not tracked"
+        ),
+    )
+    find_introducing.add_argument(
+        "--repo-root", type=Path, required=True, help="Repository root"
+    )
+    find_introducing.add_argument(
+        "--config-files",
+        type=Path,
+        action="append",
+        required=True,
+        help="Config file path (repeat for multiple)",
+    )
+
+    detect_mono = sub.add_parser(
+        "detect-monorepo",
+        help=(
+            "Print JSON {is_monorepo, kind, packages} for the repo's "
+            "monorepo structure; always prints (kind=null when no signal)"
+        ),
+    )
+    detect_mono.add_argument(
+        "--repo-root", type=Path, required=True, help="Repository root"
     )
 
     assess = sub.add_parser(
@@ -405,6 +463,8 @@ def main() -> None:
     dispatch = {
         "teammates-active": _cmd_teammates_active,
         "detect-surfaces": _cmd_detect_surfaces,
+        "find-introducing-commit": _cmd_find_introducing_commit,
+        "detect-monorepo": _cmd_detect_monorepo,
         "assess-tool": _cmd_assess_tool,
         "build-plan": _cmd_build_plan,
         "render-preview": _cmd_render_preview,
