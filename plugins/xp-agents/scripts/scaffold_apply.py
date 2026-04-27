@@ -9,7 +9,10 @@ Public API:
   Returns ``ApplyResult(ok=True)`` on green. Any phase failure (write
   OSError, install/verify non-zero exit, or timeout) auto-reverts the
   snapshot and returns ``ApplyResult(ok=False, phase=..., reason=...,
-  reverted=True)`` with the failing phase's stderr in ``reason``.
+  reverted=True)`` with the failing phase's stderr in ``reason``. If
+  revert itself can't fully restore (e.g., target file became
+  unwritable), ``unrestored`` lists the relpaths and ``recovery`` carries
+  a manual-recovery message naming the snapshot directory.
 
 - Phase helpers ``create_snapshot``, ``write_files``, ``run_install``,
   ``run_verify``, ``revert`` are exposed for the cycle-5 CLI surface
@@ -180,14 +183,23 @@ def _phase_failure_reason(exc: BaseException, *, timeout_sec: int) -> str:
 
 
 def _failure(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
+    unrestored = revert(snap)
+    recovery = None
+    if unrestored:
+        recovery = (
+            f"Manual recovery required: {len(unrestored)} file(s) could not be "
+            f"restored. Snapshot retained at {snap.snapshot_dir}. "
+            f"Unrestored: {', '.join(unrestored)}"
+        )
     return ApplyResult(
         ok=False,
         phase=phase,
         reason=reason,
         reverted=True,
-        unrestored=revert(snap),
+        unrestored=unrestored,
         snapshot_id=snap.snapshot_id,
         snapshot_dir=str(snap.snapshot_dir),
+        recovery=recovery,
     )
 
 

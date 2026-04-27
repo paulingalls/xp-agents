@@ -199,6 +199,7 @@ class TestApplyPlanRevertOnInstallFailure(_RevertTestBase):
         self._track_snapshot(result)
         self.assertTrue(result.reverted)
         self.assertEqual(result.unrestored, [])
+        self.assertIsNone(result.recovery)
 
     def test_install_failure_pre_state_restored(self) -> None:
         plan = self._build_plan(install_cmds=["false"])
@@ -278,6 +279,49 @@ class TestApplyPlanRevertOnWriteFailure(_RevertTestBase):
         self._track_snapshot(result)
 
         self._assert_pre_state_restored()
+
+
+class TestApplyPlanRevertOfRevertFailure(_RevertTestBase):
+    """Failure path: a phase fails AND the subsequent revert can't fully restore."""
+
+    def _force_revert_break(self) -> None:
+        """Patch shutil.copy2 to raise PermissionError when restoring backup→target."""
+        original_copy = shutil.copy2
+
+        def fake_copy(src, dst, *args, **kw):  # type: ignore[no-untyped-def]
+            if "scaffold-snap-" in str(src) and "/backup/" in str(src):
+                raise PermissionError("simulated restore failure")
+            return original_copy(src, dst, *args, **kw)
+
+        patcher = mock.patch.object(shutil, "copy2", side_effect=fake_copy)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _run_with_broken_revert(self) -> ApplyResult:
+        plan = self._build_plan(install_cmds=["false"])
+        self._force_revert_break()
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        return result
+
+    def test_install_then_revert_failure_records_unrestored(self) -> None:
+        result = self._run_with_broken_revert()
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "install")
+        self.assertIn("package.json", result.unrestored)
+
+    def test_recovery_message_names_snapshot_dir(self) -> None:
+        result = self._run_with_broken_revert()
+        self.assertIsNotNone(result.recovery)
+        self.assertIn(result.snapshot_dir, result.recovery)
+
+    def test_recovery_message_lists_unrestored_paths(self) -> None:
+        result = self._run_with_broken_revert()
+        self.assertIn("package.json", result.recovery)
+
+    def test_recovery_message_mentions_manual(self) -> None:
+        result = self._run_with_broken_revert()
+        self.assertRegex(result.recovery or "", r"(?i)manual")
 
 
 if __name__ == "__main__":
