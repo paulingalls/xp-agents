@@ -84,6 +84,32 @@ def _new_snapshot_dir() -> tuple[str, Path]:
     return snapshot_id, snapshot_dir
 
 
+def validate_plan(plan: dict, *, repo_root: Path) -> str | None:
+    """Return an error reason if the plan would silently overwrite or delete
+    pre-existing customer state; ``None`` if the plan is safe to apply.
+
+    Specifically: every ``files_to_create`` entry must NOT already exist in
+    ``repo_root``. ``revert()`` blindly unlinks every create-target on
+    failure, so a misclassified entry (LLM treats an existing file as
+    "create" instead of "modify") would be overwritten by write and
+    deleted on revert with no backup. Validate before any snapshot lands.
+    """
+    collisions = [
+        entry["path"]
+        for entry in plan.get("files_to_create", [])
+        if (repo_root / entry["path"]).exists()
+    ]
+    if not collisions:
+        return None
+    paths = ", ".join(collisions)
+    return (
+        "files_to_create entries already exist in repo_root: "
+        f"{paths}. These look like modifications — move them to "
+        "files_to_modify (with full merged body) or remove them from "
+        "the plan. Refusing to overwrite pre-existing customer files."
+    )
+
+
 def load_snapshot(snapshot_id: str, *, repo_root: Path) -> ApplySnapshot:
     """Re-load a snapshot for the cycle-5 CLI.
 
@@ -221,13 +247,44 @@ def failure_result(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
     )
 
 
-def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
-    """Drive write → install → verify; auto-revert the snapshot on any failure."""
+def apply_write_only(
+    plan: dict, *, repo_root: Path
+) -> tuple[ApplyResult, ApplySnapshot | None]:
+    """Validate the plan, create snapshot, write all bodies.
+
+    Returns ``(result, snap)``. On success, ``result.ok=True`` and
+    ``snap`` is non-None — caller can run install/verify against it. On
+    validation failure ``snap`` is None; on write failure ``snap`` is the
+    rolled-back snapshot. Both ``apply_plan`` and the CLI ``apply-write``
+    subcommand drive this helper to keep the validate→snapshot→write
+    prefix in one place.
+    """
+    invalid_reason = validate_plan(plan, repo_root=repo_root)
+    if invalid_reason is not None:
+        return (
+            ApplyResult(ok=False, phase="write", reason=invalid_reason),
+            None,
+        )
     snap = create_snapshot(plan, repo_root=repo_root)
     try:
         write_files(snap)
     except OSError as exc:
-        return failure_result("write", str(exc), snap)
+        return (failure_result("write", str(exc), snap), snap)
+    return (
+        ApplyResult(
+            ok=True,
+            snapshot_id=snap.snapshot_id,
+            snapshot_dir=str(snap.snapshot_dir),
+        ),
+        snap,
+    )
+
+
+def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
+    """Drive write → install → verify; auto-revert the snapshot on any failure."""
+    write_result, snap = apply_write_only(plan, repo_root=repo_root)
+    if not write_result.ok or snap is None:
+        return write_result
     try:
         run_install(snap)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:

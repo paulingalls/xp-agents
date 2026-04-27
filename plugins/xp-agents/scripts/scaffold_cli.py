@@ -143,18 +143,8 @@ def _cmd_apply_write(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON on stdin: {exc}", file=sys.stderr)
         return 1
-    snap = scaffold_apply.create_snapshot(plan, repo_root=args.repo_root)
-    try:
-        scaffold_apply.write_files(snap)
-    except OSError as exc:
-        return _emit(asdict(scaffold_apply.failure_result("write", str(exc), snap)))
-    return _emit(
-        {
-            "ok": True,
-            "snapshot_id": snap.snapshot_id,
-            "snapshot_dir": str(snap.snapshot_dir),
-        }
-    )
+    result, _snap = scaffold_apply.apply_write_only(plan, repo_root=args.repo_root)
+    return _emit(asdict(result))
 
 
 def _load_snapshot_or_exit(

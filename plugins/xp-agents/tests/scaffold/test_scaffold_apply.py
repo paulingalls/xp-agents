@@ -324,5 +324,56 @@ class TestApplyPlanRevertOfRevertFailure(_RevertTestBase):
         self.assertRegex(result.recovery or "", r"(?i)manual")
 
 
+class TestApplyPlanRejectsPreExistingCreateTargets(_ApplyTestBase):
+    """Block fix: a misclassified files_to_create entry pointing at an
+    existing customer file would be silently overwritten by write_files
+    and then deleted by revert(). apply_plan must refuse before any
+    snapshot is created."""
+
+    def _run_collision(
+        self, target_rel: str = "package.json", content: str = '{"name": "demo"}\n'
+    ) -> tuple[Path, ApplyResult]:
+        target = self.repo / target_rel
+        target.write_text(content, encoding="utf-8")
+        plan = _plan(
+            files_to_create=[
+                {"path": target_rel, "description": "should fail", "body": "x\n"}
+            ]
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        return target, result
+
+    def test_pre_existing_create_target_returns_not_ok(self) -> None:
+        _, result = self._run_collision()
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+
+    def test_pre_existing_create_target_reason_names_path(self) -> None:
+        _, result = self._run_collision()
+        self.assertIn("package.json", result.reason or "")
+
+    def test_pre_existing_create_target_does_not_touch_file(self) -> None:
+        original = '{"name": "demo", "secret": "preserved"}\n'
+        target, _ = self._run_collision(content=original)
+        self.assertEqual(target.read_text(encoding="utf-8"), original)
+
+    def test_pre_existing_create_target_no_snapshot_created(self) -> None:
+        _, result = self._run_collision()
+        self.assertFalse(result.reverted)
+        self.assertIsNone(result.snapshot_id)
+        self.assertIsNone(result.snapshot_dir)
+
+    def test_clean_plan_passes_validation(self) -> None:
+        plan = _plan(
+            files_to_create=[
+                {"path": "tests/new.spec.ts", "description": "new", "body": "x\n"}
+            ]
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok)
+
+
 if __name__ == "__main__":
     unittest.main()
