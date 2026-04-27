@@ -72,7 +72,12 @@ Then the enriched sections:
 - **Context**: 2+ sentences of what THIS story uniquely does — mechanical specifics, file-count scope, AC summary. **Story context must NOT copy text from milestone design_details or constraints — reference the milestone by number only.** The context field describes WHAT this story uniquely does, not WHY the milestone exists. Open with: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
 - **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain. For investigation, verification, or research stories with no expected code changes, use an empty list `[]` — this marks the story as code-free and prevents false pipeline-gap noise in retro metrics.
 - **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
-- **Acceptance Criteria**: 3-5 testable conditions. At least one E2E prefixed with "E2E:".
+- **Acceptance Criteria**: 3-5 testable conditions in **Given/When/Then prose** (per `docs/completed/ACCEPTANCE_TESTING_DOCTRINE.md §BDD Prose as the Universal Acceptance Format`). Use `And`/`But` to extend any clause. At least one criterion is an end-to-end scenario; mark it with the canonical `"E2E:"` prefix (the doctrine's signal for cross-cutting acceptance). Examples:
+  - `"Given a registered user with a valid session, When they click 'Export', Then a CSV download starts within 2 seconds"`
+  - `"Given the install command fails, When the workflow returns, Then phase is 'install' And the prior manifest is restored"`
+  - `"E2E: Given the customer approves the preview, When the skill drives the full pipeline, Then the project's test runner reports green"`
+
+  **BDD runner recommendation**: if the project's `system_context.json` lists a BDD harness (Cucumber, behave, SpecFlow, etc.) under `acceptance_surfaces`, write the criteria as executable `.feature` Gherkin and point `acceptance_execution.type` at that runner. Otherwise prose Given/When/Then plus the project's native test runner is the default.
 - **Acceptance Execution** (optional): How `/xp-accept` runs this story's acceptance test. Only include when the project has an automated acceptance surface (test runner, CLI, HTTP endpoint). Omit for stories without automated acceptance — `/xp-accept` defaults to manual walkthrough.
   - `type`: Runner name (e.g., `pytest`, `playwright`, `bash`, `bats`, `cargo`).
   - `command`: Exact invocation. Exit code 0 = pass.
@@ -115,7 +120,7 @@ Do not write files until the customer confirms.
 
 ### Step 6: Write sprint.json
 
-After confirmation, assemble as JSON and write via the CLI:
+After confirmation, assemble as JSON and write via the CLI. The example below shows GWT prose criteria — when the project uses a BDD harness (per Step 3's runner recommendation), substitute Gherkin `.feature`-style scenarios into each criterion string instead.
 
 ```bash
 cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> create
@@ -135,7 +140,11 @@ cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <S
       "context": "<inlined design context>",
       "file_domain": ["path/to/file.py — <what to change>"],
       "interface_contracts": ["path/to/shared.py:fn — shared with story-002"],
-      "acceptance_criteria": ["<criterion 1>", "E2E: <scenario>"]
+      "acceptance_criteria": [
+        "Given <precondition>, When <trigger>, Then <observable outcome>",
+        "Given <precondition>, When <trigger>, Then <outcome A> And <outcome B>",
+        "E2E: Given <precondition>, When <user action sequence>, Then <observable outcome>"
+      ]
     }
   ]
 }
