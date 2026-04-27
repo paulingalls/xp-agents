@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """CLI wrapper for /xp-scaffold-acceptance helpers.
 
-Thin wrapper over scaffold_detect.py, scaffold_plan.py, and
-coordination.py for the SKILL.md to invoke. Subcommands:
+Thin wrapper over scaffold_detect.py, scaffold_plan.py, scaffold_apply.py,
+and coordination.py for the SKILL.md to invoke. Subcommands:
 
 - teammates-active: exit 0 = no teammates, exit 1 = active (JSON on stdout)
 - detect-surfaces: print acceptance_surfaces with detection results as JSON
 - assess-tool: read guidance from stdin, print decline_if_unreliable result
 - build-plan: read plan-input JSON from stdin, print ScaffoldPlan as JSON
 - render-preview: read ScaffoldPlan JSON from stdin, print preview text
+  (use --show-files to render bodies under a Files: section)
+- apply-write: read plan JSON from stdin, snapshot + write all bodies,
+  print ApplyResult JSON. Auto-reverts on write failure.
+- apply-install: --snapshot-id, run install_cmds, auto-revert on failure
+- apply-verify: --snapshot-id, run verify_cmd, auto-revert on failure
+- apply-revert: --snapshot-id, explicit cancel — restore snapshot
 
 Stdin/stdout are the canonical channels for structured input/output —
 no shell-quoted Python embeds.
@@ -16,6 +22,7 @@ no shell-quoted Python embeds.
 
 import argparse
 import json
+import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -24,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import coordination
+import scaffold_apply
 import scaffold_detect
 import scaffold_plan
 
@@ -56,7 +64,7 @@ def _cmd_teammates_active(args: argparse.Namespace) -> int:
             for aid, entry in sorted(others.items())
         ],
     }
-    print(json.dumps(payload))
+    _emit(payload)
     return 1
 
 
@@ -119,8 +127,86 @@ def _cmd_render_preview(args: argparse.Namespace) -> int:
     except TypeError as exc:
         print(f"render-preview input error: {exc}", file=sys.stderr)
         return 1
-    print(scaffold_plan.render_preview(plan))
+    print(scaffold_plan.render_preview(plan, show_files=args.show_files))
     return 0
+
+
+def _emit(payload: dict) -> int:
+    print(json.dumps(payload))
+    return 0
+
+
+def _cmd_apply_write(args: argparse.Namespace) -> int:
+    raw = sys.stdin.read()
+    try:
+        plan = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON on stdin: {exc}", file=sys.stderr)
+        return 1
+    snap = scaffold_apply.create_snapshot(plan, repo_root=args.repo_root)
+    try:
+        scaffold_apply.write_files(snap)
+    except OSError as exc:
+        return _emit(asdict(scaffold_apply.failure_result("write", str(exc), snap)))
+    return _emit(
+        {
+            "ok": True,
+            "snapshot_id": snap.snapshot_id,
+            "snapshot_dir": str(snap.snapshot_dir),
+        }
+    )
+
+
+def _load_snapshot_or_exit(
+    snapshot_id: str, repo_root: Path
+) -> scaffold_apply.ApplySnapshot:
+    try:
+        return scaffold_apply.load_snapshot(snapshot_id, repo_root=repo_root)
+    except FileNotFoundError as exc:
+        print(f"Snapshot not found: {snapshot_id} ({exc})", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
+def _run_apply_phase(
+    args: argparse.Namespace, *, phase: str, run_fn, timeout_sec: int
+) -> int:
+    snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
+    try:
+        run_fn(snap)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        reason = scaffold_apply.phase_failure_reason(exc, timeout_sec=timeout_sec)
+        return _emit(asdict(scaffold_apply.failure_result(phase, reason, snap)))
+    return _emit({"ok": True})
+
+
+def _cmd_apply_install(args: argparse.Namespace) -> int:
+    return _run_apply_phase(
+        args,
+        phase="install",
+        run_fn=scaffold_apply.run_install,
+        timeout_sec=scaffold_apply.INSTALL_TIMEOUT_SEC,
+    )
+
+
+def _cmd_apply_verify(args: argparse.Namespace) -> int:
+    return _run_apply_phase(
+        args,
+        phase="verify",
+        run_fn=scaffold_apply.run_verify,
+        timeout_sec=scaffold_apply.VERIFY_TIMEOUT_SEC,
+    )
+
+
+def _cmd_apply_revert(args: argparse.Namespace) -> int:
+    snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
+    unrestored = scaffold_apply.revert(snap)
+    return _emit(
+        {
+            "ok": not unrestored,
+            "unrestored": unrestored,
+            "snapshot_dir": str(snap.snapshot_dir),
+        }
+    )
 
 
 def main() -> None:
@@ -173,10 +259,42 @@ def main() -> None:
         help="Build ScaffoldPlan from JSON on stdin; print JSON on stdout",
     )
 
-    sub.add_parser(
+    render = sub.add_parser(
         "render-preview",
         help="Render preview text from ScaffoldPlan JSON on stdin",
     )
+    render.add_argument(
+        "--show-files",
+        action="store_true",
+        help="Render file bodies under a Files: section (requires bodies in plan)",
+    )
+
+    apply_write = sub.add_parser(
+        "apply-write",
+        help="Snapshot + write all bodies; print ApplyResult JSON",
+    )
+    apply_write.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path.cwd(),
+        help="Repository root (default: cwd)",
+    )
+
+    for name, helptext in [
+        ("apply-install", "Run install_cmds; auto-revert on failure"),
+        ("apply-verify", "Run verify_cmd; auto-revert on failure"),
+        ("apply-revert", "Explicit cancel — restore the snapshot"),
+    ]:
+        p = sub.add_parser(name, help=helptext)
+        p.add_argument(
+            "--snapshot-id", required=True, help="Snapshot ID from apply-write"
+        )
+        p.add_argument(
+            "--repo-root",
+            type=Path,
+            default=Path.cwd(),
+            help="Repository root (default: cwd)",
+        )
 
     args = parser.parse_args()
 
@@ -186,6 +304,10 @@ def main() -> None:
         "assess-tool": _cmd_assess_tool,
         "build-plan": _cmd_build_plan,
         "render-preview": _cmd_render_preview,
+        "apply-write": _cmd_apply_write,
+        "apply-install": _cmd_apply_install,
+        "apply-verify": _cmd_apply_verify,
+        "apply-revert": _cmd_apply_revert,
     }
 
     sys.exit(dispatch[args.command](args))
