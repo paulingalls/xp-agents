@@ -12,9 +12,12 @@ after a green verify:
   Stage 0 commits on HEAD; Stage 1+ creates ``<user>/scaffold-<surface>``
   via ``branching.create_scaffold_branch`` and refuses commits to protected
   branches (main/master) when no scaffold branch is yet active.
-
-Story-002 will add ``record_scaffold(...)`` here for the system_context
-flip + concern-resolution decision event.
+- ``record_scaffold(snap, ...)``: flips the matching
+  ``acceptance_surfaces[*].status`` to ``"covered"`` and stamps the
+  verify command onto ``acceptance_template_command`` for downstream
+  capstone-story reuse (xp-sprint-start). Story-002's next commit will
+  extend this to also append a decision event resolving the
+  missing-acceptance concern.
 """
 
 import subprocess
@@ -23,6 +26,7 @@ from pathlib import Path
 
 import branching
 import identity
+import system_context_store
 from scaffold_apply import ApplySnapshot
 
 
@@ -148,3 +152,61 @@ def commit_scaffold(
 
     sha = _git(["git", "rev-parse", "HEAD"], repo_root).stdout.strip()
     return CommitResult(ok=True, sha=sha, branch=target_branch)
+
+
+@dataclass
+class RecordResult:
+    ok: bool
+    reason: str | None = None
+    decision_event_id: str | None = None
+
+
+def record_scaffold(
+    snap: ApplySnapshot,
+    *,
+    smm_dir: Path,
+    surface: str,
+    verify_cmd: str,
+) -> RecordResult:
+    """Flip ``acceptance_surfaces[<surface>].status`` to ``"covered"``.
+
+    Reads ``system_context.json`` via ``system_context_store.load_system_context``,
+    finds the surface entry by name, sets ``status="covered"`` and
+    ``acceptance_template_command=verify_cmd``, and writes the document
+    back via ``system_context_store.save_system_context`` (atomic write +
+    schema validation). Other surface entries and their fields are
+    untouched. Returns ``RecordResult(ok=False, reason=...)`` when the
+    system_context document is missing, when the named surface is
+    missing, or when the post-mutation save fails schema validation —
+    the caller surfaces the failure verbatim rather than silently no-op.
+    """
+    del snap  # reserved for future provenance; surface-flip is smm-side only
+    ctx = system_context_store.load_system_context(smm_dir)
+    if ctx is None:
+        return RecordResult(
+            ok=False,
+            reason=(
+                "system_context.json not found; run /xp-system-context "
+                "before scaffolding"
+            ),
+        )
+    surfaces = ctx.get("acceptance_surfaces", [])
+    target = next((s for s in surfaces if s.get("name") == surface), None)
+    if target is None:
+        return RecordResult(
+            ok=False,
+            reason=(
+                f"surface {surface!r} not found in acceptance_surfaces; "
+                "run /xp-system-context to record it before scaffolding"
+            ),
+        )
+    target["status"] = "covered"
+    target["acceptance_template_command"] = verify_cmd
+    try:
+        system_context_store.save_system_context(smm_dir, ctx)
+    except (ValueError, OSError) as exc:
+        return RecordResult(
+            ok=False,
+            reason=f"system_context save failed: {exc}",
+        )
+    return RecordResult(ok=True)
