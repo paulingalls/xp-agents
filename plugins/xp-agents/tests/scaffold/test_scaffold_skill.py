@@ -125,8 +125,8 @@ class TestSkillBody(unittest.TestCase):
     def test_reinvocation_stub_references_m5(self) -> None:
         self.assertIn("M-5", self.body)
 
-    def test_reserved_steps_marked(self) -> None:
-        self.assertRegex(self.body, r"Reserved for M-3")
+    def test_remaining_reserved_steps_marked_for_m4(self) -> None:
+        self.assertRegex(self.body, r"Reserved for M-4")
 
 
 def _gap_concern_block(text: str) -> str:
@@ -274,13 +274,12 @@ class TestSkillM2Wiring(unittest.TestCase):
     def test_step_5_show_files_branch_documented(self) -> None:
         step5 = _step_section(self.body, 5)
         self.assertIn("show files", step5.lower())
-        self.assertRegex(step5, r"file body|read.*back|Read each file")
+        self.assertRegex(step5, r"file body|read.*back|Read each file|\.body|Bodies")
 
-    def test_no_writes_in_m2(self) -> None:
+    def test_steps_6_through_9_present(self) -> None:
         for marker in ("Step 6", "Step 7", "Step 8", "Step 9"):
             section_index = self.body.find(f"## {marker}")
             self.assertGreater(section_index, -1, f"missing {marker} section")
-        self.assertRegex(self.body, r"Reserved for M-3")
 
 
 class TestSkillSnippetSafety(unittest.TestCase):
@@ -391,6 +390,81 @@ class TestSkillNoConfigFileSignalCaveat(unittest.TestCase):
             "config-file" in caveat or "no config" in caveat,
             "Caveat must mention the config-file-signal distinction",
         )
+
+
+class TestSkillM3Wiring(unittest.TestCase):
+    """M-3 wiring: Step 6 apply-write, Step 7 apply-install + apply-verify;
+    runtime-order header; show-files uses plan bodies; manifest full-body
+    responsibility documented."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(text)
+
+    def test_runtime_order_line_present_near_top(self) -> None:
+        first_step_idx = self.body.find("## Step 1")
+        self.assertGreater(first_step_idx, 0, "Step 1 section missing")
+        prologue = self.body[:first_step_idx]
+        self.assertRegex(
+            prologue,
+            r"1\s*[→-]>?\s*3\s*[→-]>?\s*2",
+            "Prologue must name actual runtime order 1→3→2→4→5",
+        )
+
+    def test_step_5_show_files_uses_plan_bodies(self) -> None:
+        step5 = _step_section(self.body, 5)
+        self.assertRegex(
+            step5,
+            r"(?i)\$?PLAN_JSON|render-preview\s+--show-files|files_to_create\[\]\.body",
+            "Step 5 show-files branch must read bodies from the plan, not "
+            "from working memory",
+        )
+
+    def test_step_6_invokes_apply_write_subcommand(self) -> None:
+        step6 = _step_section(self.body, 6)
+        self.assertIn("scaffold_cli.py", step6)
+        self.assertIn("apply-write", step6)
+
+    def test_step_6_documents_full_body_manifest_responsibility(self) -> None:
+        step6 = _step_section(self.body, 6)
+        self.assertRegex(
+            step6,
+            r"(?i)full[- ]body|complete\s+(?:manifest\s+)?body|deep[- ]merge",
+            "Step 6 must document that files_to_modify entries carry the full "
+            "merged manifest body — apply.py is format-agnostic",
+        )
+
+    def test_step_7_invokes_apply_install_and_apply_verify(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertIn("apply-install", step7)
+        self.assertIn("apply-verify", step7)
+
+    def test_step_7_references_apply_revert_for_cancel_path(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertIn("apply-revert", step7)
+
+    def test_step_7_surfaces_failure_reason_verbatim(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertRegex(
+            step7,
+            r"(?i)reason|stderr|verbatim",
+            "Step 7 must surface phase failure reason to the customer",
+        )
+
+    def test_steps_8_and_9_reserved_for_m4(self) -> None:
+        step8 = _step_section(self.body, 8)
+        step9 = _step_section(self.body, 9)
+        combined = step8 + step9
+        self.assertRegex(combined, r"Reserved for M-4")
+
+    def test_step_6_uses_repo_root_flag(self) -> None:
+        step6 = _step_section(self.body, 6)
+        self.assertIn("--repo-root", step6)
+
+    def test_step_7_uses_snapshot_id_flag(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertIn("--snapshot-id", step7)
 
 
 if __name__ == "__main__":

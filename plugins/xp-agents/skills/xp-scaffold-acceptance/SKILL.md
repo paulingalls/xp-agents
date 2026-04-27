@@ -16,7 +16,11 @@ allowed-tools:
 
 # Scaffold Acceptance
 
-This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.** M-1 covers Step 1 (detect) and Step 3 (ask). M-2 adds Step 2 (web-refresh) and Steps 4–5 (plan + confirm). Steps 6–9 are reserved for M-3 onward; never write, install, or commit during M-1 or M-2.
+This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.** M-1 delivered Step 1 (detect) and Step 3 (ask). M-2 added Step 2 (web-refresh) and Steps 4–5 (plan + confirm). M-3 wires Steps 6–7 (write/install/verify) with atomic revert. Steps 8–9 (commit + record) are reserved for M-4.
+
+**Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7** — Step 3 picks tool before Step 2 web-refreshes its version. Sections below follow doctrine numbering, not execution order; don't be misled by reading 1→2→3→4→5 top-to-bottom.
+
+`$REPO_ROOT` in Steps 6–7 is the customer's repository root (the cwd at skill invocation, unless the customer named a different one in Step 1). Resolve it once and reuse.
 
 ## Step 1: Detect
 
@@ -157,7 +161,7 @@ If the customer picks "Other," ask a follow-up free-text question for the tool n
 
 Assemble the structured `ScaffoldPlan` via `scaffold_plan.build_plan(...)`. Build the `files_to_create` and `files_to_modify` lists from your web-refreshed knowledge of the tool — typical entries: a config file, a happy-path test, a `.gitignore` modification, a `package.json` / `pyproject.toml` / `Cargo.toml` modification. Set `verify_cmd` to the runner's invocation against the generated test (e.g., `npx playwright test tests/acceptance/example.spec.ts`). Set `branch_name` to `<user>/scaffold-<surface>-acceptance`.
 
-**Draft each file body in working memory before assembling the plan.** The plan dict carries only path/description/line_count metadata — the actual file content lives in your working memory so Step 5's `show files` branch can print it on demand. If you cannot author a file body confidently from web-refreshed knowledge, do not include it in `files_to_create`; loop back to Step 2 for more research, or call `decline_if_unreliable` and exit.
+**Draft each file body before assembling the plan and embed it in the plan dict.** Each `files_to_create` and `files_to_modify` entry carries a `body` field with the full desired contents — Step 5's `show files` branch and Step 6's `apply-write` both read from `$PLAN_JSON.*.body`. (`path`/`description`/`line_count` are metadata for the preview; `body` is the contract.) If you cannot author a file body confidently from web-refreshed knowledge, do not include it in `files_to_create`; loop back to Step 2 for more research, or call `decline_if_unreliable` and exit.
 
 Pass a plan-input JSON to `build-plan` on stdin. Required keys:
 `surface`, `tool`, `tool_version`, `files_to_create`,
@@ -177,15 +181,19 @@ PLAN_JSON=$(cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli
   "tool_version": "1.51.0",
   "files_to_create": [
     {"path": "tests/acceptance/example.spec.ts",
-     "description": "happy-path test", "line_count": 12},
+     "description": "happy-path test", "line_count": 12,
+     "body": "import { test, expect } from '@playwright/test';\n..."},
     {"path": "playwright.config.ts",
-     "description": "single-project browser config", "line_count": 18}
+     "description": "single-project browser config", "line_count": 18,
+     "body": "import { defineConfig } from '@playwright/test';\n..."}
   ],
   "files_to_modify": [
     {"path": ".gitignore",
-     "description": "+1 line for playwright artifacts"},
+     "description": "+1 line for playwright artifacts",
+     "body": "<existing .gitignore content>\n/test-results/\n"},
     {"path": "package.json",
-     "description": "+@playwright/test devDep, +scripts.test:acceptance"}
+     "description": "+@playwright/test devDep, +scripts.test:acceptance",
+     "body": "<existing package.json with devDeps + scripts deep-merged>"}
   ],
   "install_cmds": ["npm install", "npx playwright install chromium"],
   "verify_cmd": "npx playwright test tests/acceptance/example.spec.ts",
@@ -197,7 +205,7 @@ PLANEOF
 
 `$PLAN_JSON` now holds the structured plan; Step 5 pipes it into `render-preview`.
 
-**M-2 stops here for write-side concerns.** The plan is in-memory only. Step 5 previews it; Steps 6–9 (M-3 onward) actually write.
+The plan is in-memory only at this point — Step 5 previews it; Step 6 (M-3) writes.
 
 ## Step 5: Confirm
 
@@ -223,15 +231,57 @@ AskUserQuestion(
 )
 ```
 
-**`yes`** — in M-2, stop here with: _"Plan approved. Write/install/verify/commit lands in M-3 onward — no changes were made."_ M-3 will pick up from this point.
+**`yes`** — proceed to Step 6 (Write). The plan in `$PLAN_JSON` carries everything Step 6 needs.
 
-**`show files`** — Print every drafted file body (authored in working memory during Step 4) in fenced code blocks, with the target path as the heading for each block. Then re-ask the same `AskUserQuestion` with the three options. Looping `show files` is allowed; the customer must eventually pick `yes` or `no`.
+**`show files`** — Render the same plan with bodies under a `Files:` section by re-invoking `render-preview` with `--show-files`:
+
+```bash
+printf '%s' "$PLAN_JSON" | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    render-preview --show-files
+```
+
+Bodies are read directly from `$PLAN_JSON.files_to_create[].body` and `$PLAN_JSON.files_to_modify[].body` — no working-memory drafting. Then re-ask the same `AskUserQuestion` with the three options. Looping `show files` is allowed; the customer must eventually pick `yes` or `no`.
 
 **`no`** — exit cleanly with: _"Cancelled — no changes were made."_ No partial state.
 
 ## Step 6: Write
+
+**`files_to_modify` carries the FULL desired body, not a diff.** apply.py is format-agnostic — it writes whatever body the plan provides. For a real `package.json` / `pyproject.toml` / `Cargo.toml` modification, you must read the existing file (Step 4 working memory), deep-merge the new entries (preserving customer devDeps, scripts, dependencies), and embed the **complete merged contents** into `files_to_modify[].body`. Mismanaging this clobbers customer manifest state — the preview that Step 5 shows the customer is the contract.
+
+Pipe the approved `$PLAN_JSON` into `apply-write`:
+
+```bash
+APPLY_JSON=$(printf '%s' "$PLAN_JSON" | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    apply-write --repo-root "$REPO_ROOT")
+```
+
+The CLI prints a JSON object on stdout. Parse it: on `ok=true` capture `snapshot_id` into `$SNAPSHOT_ID` for Step 7 and proceed. On `ok=false` (write failure), the snapshot has already auto-reverted — surface `reason` verbatim to the customer and exit cleanly. If `recovery` is set (revert itself failed), surface that string verbatim too — it names the snapshot directory and unrestored paths for manual recovery.
+
 ## Step 7: Install and verify
+
+With `$SNAPSHOT_ID` from Step 6, run `apply-install` first; only run `apply-verify` if install came back `ok=true`:
+
+```bash
+INSTALL_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    apply-install --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
+# Parse INSTALL_JSON: if .ok is false, surface .reason verbatim and exit.
+VERIFY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    apply-verify --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
+# Same parse for VERIFY_JSON.
+```
+
+On any `ok=false`, the failing phase's `stderr` is captured into `reason` and the snapshot has already auto-reverted. Surface `reason` verbatim, plus `recovery` if set, then exit cleanly.
+
+**`apply-revert` is for explicit customer cancellation only** — phase failures already self-heal, so do not call it after an `ok=false`. Use it when the customer says "stop, undo this" between Step 6 and Step 7 while everything is still green.
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    apply-revert --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT"
+```
+
+After a green verify, Steps 8–9 (M-4) take over for commit + system_context update. For now, leave the scaffold in place uncommitted and report success to the customer with the snapshot directory pointer for manual cleanup if needed.
+
 ## Step 8: Commit
 ## Step 9: Record
 
-_Reserved for M-3 onward — see docs/ideas/SCAFFOLDING_DOCTRINE.md §Core Flow for the full nine-step pipeline._
+_Reserved for M-4 onward — see docs/ideas/SCAFFOLDING_DOCTRINE.md §Core Flow for the full nine-step pipeline._
