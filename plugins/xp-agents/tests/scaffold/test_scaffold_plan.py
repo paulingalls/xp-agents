@@ -161,6 +161,131 @@ class TestRenderPreviewEdgeCases(unittest.TestCase):
         self.assertIn("2.0.0-beta.1", plan.commit_msg)
 
 
+class TestBodyRoundTrip(unittest.TestCase):
+    def test_body_preserved_in_files_to_create(self) -> None:
+        body = (
+            "import { test } from '@playwright/test';\n"
+            "test('home', async ({ page }) => {});\n"
+        )
+        plan = _sample_plan(
+            files_to_create=[
+                {
+                    "path": "tests/acceptance/home.spec.ts",
+                    "description": "happy-path test",
+                    "line_count": 2,
+                    "body": body,
+                }
+            ]
+        )
+        self.assertEqual(plan.files_to_create[0].get("body"), body)
+
+    def test_body_preserved_in_files_to_modify(self) -> None:
+        body = (
+            '{\n  "name": "demo",\n'
+            '  "scripts": {"test:acceptance": "playwright test"}\n'
+            "}\n"
+        )
+        plan = _sample_plan(
+            files_to_modify=[
+                {
+                    "path": "package.json",
+                    "description": "+@playwright/test devDep",
+                    "body": body,
+                }
+            ]
+        )
+        self.assertEqual(plan.files_to_modify[0].get("body"), body)
+
+
+class TestRenderPreviewShowFiles(unittest.TestCase):
+    def test_renders_files_section_when_body_present(self) -> None:
+        body = "console.log('hello');\n"
+        plan = _sample_plan(
+            files_to_create=[
+                {
+                    "path": "tests/acceptance/home.spec.ts",
+                    "description": "happy-path test",
+                    "body": body,
+                }
+            ],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
+        self.assertIn("Files:", preview)
+        self.assertIn("tests/acceptance/home.spec.ts", preview)
+        self.assertIn(body.rstrip(), preview)
+
+    def test_files_section_uses_fenced_code_blocks(self) -> None:
+        body = "x = 1\n"
+        plan = _sample_plan(
+            files_to_create=[{"path": "x.py", "description": "stub", "body": body}],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
+        self.assertIn("```", preview)
+
+    def test_show_files_omits_section_when_no_bodies(self) -> None:
+        plan = _sample_plan()
+        preview = render_preview(plan, show_files=True)
+        self.assertNotIn("Files:", preview)
+
+    def test_show_files_default_false_preserves_legacy_output(self) -> None:
+        body = "x = 1\n"
+        plan = _sample_plan(
+            files_to_create=[{"path": "x.py", "description": "stub", "body": body}],
+            files_to_modify=[],
+        )
+        legacy = render_preview(plan)
+        self.assertNotIn("Files:", legacy)
+        self.assertNotIn(body, legacy)
+
+    def test_files_section_renders_modify_bodies_too(self) -> None:
+        body = '{"name": "demo"}\n'
+        plan = _sample_plan(
+            files_to_create=[],
+            files_to_modify=[
+                {"path": "package.json", "description": "+dep", "body": body}
+            ],
+        )
+        preview = render_preview(plan, show_files=True)
+        self.assertIn("Files:", preview)
+        self.assertIn("package.json", preview)
+        self.assertIn(body.rstrip(), preview)
+
+    def test_files_section_skips_entries_without_body(self) -> None:
+        body = "x = 1\n"
+        plan = _sample_plan(
+            files_to_create=[
+                {"path": "with_body.py", "description": "has body", "body": body},
+                {"path": "no_body.py", "description": "skipped"},
+            ],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
+        self.assertIn("with_body.py", preview)
+        files_section = preview.split("Files:", 1)[1]
+        self.assertNotIn("no_body.py", files_section)
+
+    def test_empty_body_treated_as_no_body(self) -> None:
+        plan = _sample_plan(
+            files_to_create=[
+                {"path": "blank.py", "description": "empty body", "body": ""}
+            ],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
+        self.assertNotIn("Files:", preview)
+
+    def test_files_section_appears_before_install_section(self) -> None:
+        body = "x = 1\n"
+        plan = _sample_plan(
+            files_to_create=[{"path": "x.py", "description": "stub", "body": body}],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
+        self.assertLess(preview.index("Files:"), preview.index("Install + verify"))
+
+
 class TestDeclineIfUnreliable(unittest.TestCase):
     def test_returns_decline_result_named_tuple(self) -> None:
         result = decline_if_unreliable("custom-tool", None)
