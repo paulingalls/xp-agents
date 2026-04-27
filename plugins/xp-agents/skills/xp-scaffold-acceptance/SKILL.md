@@ -1,12 +1,15 @@
 ---
 name: xp-scaffold-acceptance
 description: >-
-  Scaffold acceptance test harness for a project surface. Triggers on
-  /xp-scaffold-acceptance. Inline skill: detects active teammates and existing
-  tooling, asks the customer to pick a surface and tool, web-refreshes the
-  tool's latest version, then plans + previews the scaffold for explicit
-  yes/show-files/no confirmation. Refuses to run while teammate worktrees are
-  live; the actual write/install/commit flow lands in M-3 through M-5.
+  Scaffold an acceptance test harness for a project surface. Triggers on
+  /xp-scaffold-acceptance. Inline skill that detects active teammates and
+  existing tooling, asks the customer to pick a surface and tool (with
+  monorepo path placement when relevant), web-refreshes the tool's latest
+  version, plans + previews the scaffold for explicit yes/show-files/no
+  confirmation, then atomically writes + installs + verifies + commits and
+  flips the system_context surface to covered. Re-running on a scaffolded
+  repo offers add-complementary / redo-via-revert / cancel. Refuses to run
+  while teammate worktrees are live.
 allowed-tools:
   - Read
   - AskUserQuestion
@@ -16,7 +19,7 @@ allowed-tools:
 
 # Scaffold Acceptance
 
-This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.** M-1 delivered Step 1 (detect) and Step 3 (ask). M-2 added Step 2 (web-refresh) and Steps 4–5 (plan + confirm). M-3 wires Steps 6–7 (write/install/verify) with atomic revert. M-4 ships Steps 8–9 (commit + record).
+This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.** Step 1 detects teammates, monorepo layout, and existing tooling; Step 2 web-refreshes the tool's latest version; Step 3 asks for surface + tool; Steps 4–5 plan + preview + confirm; Steps 6–7 write + install + verify with atomic revert; Steps 8–9 commit + flip system_context to covered.
 
 **Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9** — Step 3 picks tool before Step 2 web-refreshes its version. Sections below follow doctrine numbering, not execution order; don't be misled by reading 1→2→3→4→5 top-to-bottom.
 
