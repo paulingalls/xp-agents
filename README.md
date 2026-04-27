@@ -56,7 +56,7 @@ For local development, use `--plugin-dir` (session-only, not persisted):
 claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 ```
 
-**Requirements:** Python 3.10+ on PATH. macOS or Linux. Zero external packages.
+**Requirements:** Python 3.11+ on PATH. macOS or Linux. Zero external packages.
 
 **Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees).
 
