@@ -11,7 +11,7 @@ allowed-tools:
   - Read
   - AskUserQuestion
   - WebSearch
-  - Bash(python3 -c *)
+  - Bash(python3 */scripts/scaffold_cli.py *)
 ---
 
 # Scaffold Acceptance
@@ -24,19 +24,20 @@ This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not
 
 ### 1a. Refuse if teammates are live
 
-Call `coordination.has_active_teammates(smm_dir, agent_id)` from `plugins/xp-agents/scripts/coordination.py`:
+Run the `teammates-active` subcommand. **Exit code is the signal**:
+exit 0 means no teammates active (proceed); exit 1 means teammates
+active — stdout has a `{count, worktrees: [...]}` JSON payload the
+agent reads to populate the doctrine refusal. Exit 2 means the
+coordination data could not be read (stop and surface the stderr
+message; do NOT emit the doctrine refusal — we don't know if
+teammates are live).
 
 ```bash
-python3 -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
-from coordination import has_active_teammates
-print(has_active_teammates(Path('<SMM_DIR>'), '<your-agent-id>'))
-"
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    --smm-dir <SMM_DIR> teammates-active --agent-id <your-agent-id>
 ```
 
-If the result is `True`, **stop immediately** and emit the doctrine refusal text verbatim. Replace `N` with the actual count and list the live worktrees:
+If the command exits 1, **stop immediately** and emit the doctrine refusal text verbatim. Replace `N` with the actual count and list the live worktrees from the JSON payload:
 
 > *"N teammate worktrees are currently live: story-042 (paul), story-043 (alice). Scaffolding modifies shared manifests and adds dependencies; running it now would create merge conflicts when teammate work lands. Finish or pause teammate worktrees, then re-invoke."*
 
@@ -44,25 +45,20 @@ No `--force` flag, no escape hatch. Exit cleanly.
 
 ### 1b. Read surfaces and detect existing tooling
 
-If no teammates are live, call `scaffold_detect.read_acceptance_surfaces(smm_dir)` to load the `acceptance_surfaces` array from `system_context.json`. For each surface, call `scaffold_detect.detect_existing_tooling(surface_name, repo_root)`:
+If no teammates are live, run `detect-surfaces`. The CLI loads
+`acceptance_surfaces` from `system_context.json` and runs the existing-
+tooling probe per surface, returning a single JSON array on stdout:
 
 ```bash
-python3 -c "
-import sys
-from pathlib import Path
-sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
-from scaffold_detect import read_acceptance_surfaces, detect_existing_tooling
-smm = Path('<SMM_DIR>')
-repo = Path('<REPO_ROOT>')
-for surface in read_acceptance_surfaces(smm):
-    name = surface['name']
-    print(name, detect_existing_tooling(name, repo))
-"
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    --smm-dir <SMM_DIR> detect-surfaces --repo-root <REPO_ROOT>
 ```
 
-If `read_acceptance_surfaces` returns an empty list, `system_context.json` either is missing or has no `acceptance_surfaces` field — exit cleanly with: _"No acceptance surfaces are recorded in system_context.json. Run /xp-system-context first to detect surfaces, then re-invoke."_
+Each array element has `{name, status, harness, has_tooling, tool_name, config_files}`. Read the JSON directly.
 
-If any surface reports `has_tooling=True`, route to the **re-invocation stub** (below). Otherwise proceed to Step 3.
+If the array is empty, `system_context.json` is missing or has no `acceptance_surfaces` field — exit cleanly with: _"No acceptance surfaces are recorded in system_context.json. Run /xp-system-context first to detect surfaces, then re-invoke."_
+
+If any surface reports `has_tooling=true`, route to the **re-invocation stub** (below). Otherwise proceed to Step 3.
 
 #### Detection caveat: NO_CONFIG_FILE_SIGNAL
 
@@ -103,34 +99,16 @@ After Step 3 collects surface + tool selections (and before Step 4 builds the pl
 
 **Canonical tools** (`scaffold_detect.canonical_tools_for(surface)`): proceed with the web-refreshed knowledge.
 
-**Customer-named non-canonical tools**: do extra research — install command, config-file format, minimal verification command. Then call `scaffold_plan.decline_if_unreliable(tool, guidance)`:
-
-Pass guidance via `SCAFFOLD_GUIDANCE` (env var) and the tool name via
-`SCAFFOLD_TOOL` so shell metacharacters or quotes inside the guidance
-text cannot break the `python3 -c` invocation. Set
-`SCAFFOLD_GUIDANCE` to an empty string to mean "no guidance found."
+**Customer-named non-canonical tools**: do extra research — install command, config-file format, minimal verification command. Pass the gathered guidance to `assess-tool` via stdin (empty stdin means "no guidance found"). The CLI prints `{"decline": bool, "reason": str|null}`:
 
 ```bash
-SCAFFOLD_TOOL='<tool>' SCAFFOLD_GUIDANCE='<guidance text>' python3 -c "
-import os, sys
-from pathlib import Path
-sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
-from scaffold_plan import decline_if_unreliable
-result = decline_if_unreliable(
-    os.environ['SCAFFOLD_TOOL'],
-    os.environ.get('SCAFFOLD_GUIDANCE') or None,
-)
-print(result.decline, result.reason)
-"
+echo '<guidance text>' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    assess-tool --tool '<tool>'
 ```
 
-If `result.decline` is `True`, emit `result.reason` verbatim and exit cleanly — declining rather than guessing.
+If `decline=true` in the JSON output, emit the `reason` string verbatim and exit cleanly — declining rather than guessing.
 
-If the customer-named tool itself contains a single quote (rare —
-e.g. `o'reilly-runner`), swap the outer single quotes for double
-quotes on that one variable, or pipe the value into `python3 -c`
-on stdin and read it with `sys.stdin.read().strip()` instead of
-`os.environ['SCAFFOLD_TOOL']`.
+Stdin carries the guidance (so quotes, backslashes, newlines, and shell metachars are safe by construction). The `--tool` value goes through one layer of shell quoting; for tool names with apostrophes use `--tool="$tool"` or pipe the name on a separate stdin channel.
 
 **Still no writes in M-2.** Web-refresh produces in-memory variables only.
 
@@ -169,47 +147,58 @@ Assemble the structured `ScaffoldPlan` via `scaffold_plan.build_plan(...)`. Buil
 
 **Draft each file body in working memory before assembling the plan.** The plan dict carries only path/description/line_count metadata — the actual file content lives in your working memory so Step 5's `show files` branch can print it on demand. If you cannot author a file body confidently from web-refreshed knowledge, do not include it in `files_to_create`; loop back to Step 2 for more research, or call `decline_if_unreliable` and exit.
 
-Substitute the surface, tool, version, and concrete file/command lists
-into the snippet below before running. The dict shapes in
-`files_to_create` and `files_to_modify` are required (`path` and
-`description` keys; `line_count` is optional on creates).
+Pass a plan-input JSON to `build-plan` on stdin. Required keys:
+`surface`, `tool`, `tool_version`, `files_to_create`,
+`files_to_modify`, `install_cmds`, `verify_cmd`, `branch_name`.
+File-list entries need `path` and `description`; `line_count` is
+optional on creates.
+
+Capture the JSON output into `$PLAN_JSON` so Step 5 can pipe it into
+`render-preview`:
 
 ```bash
-python3 -c "
-import sys, json
-from dataclasses import asdict
-from pathlib import Path
-sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
-from scaffold_plan import build_plan
-plan = build_plan(
-    surface='browser',
-    tool='playwright',
-    tool_version='1.51.0',
-    files_to_create=[
-        {'path': 'tests/acceptance/example.spec.ts',
-         'description': 'happy-path test', 'line_count': 12},
-        {'path': 'playwright.config.ts',
-         'description': 'single-project browser config', 'line_count': 18},
-    ],
-    files_to_modify=[
-        {'path': '.gitignore',
-         'description': '+1 line for playwright artifacts'},
-        {'path': 'package.json',
-         'description': '+@playwright/test devDep, +scripts.test:acceptance'},
-    ],
-    install_cmds=['npm install', 'npx playwright install chromium'],
-    verify_cmd='npx playwright test tests/acceptance/example.spec.ts',
-    branch_name='paul/scaffold-browser-acceptance',
+PLAN_JSON=$(cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    build-plan
+{
+  "surface": "browser",
+  "tool": "playwright",
+  "tool_version": "1.51.0",
+  "files_to_create": [
+    {"path": "tests/acceptance/example.spec.ts",
+     "description": "happy-path test", "line_count": 12},
+    {"path": "playwright.config.ts",
+     "description": "single-project browser config", "line_count": 18}
+  ],
+  "files_to_modify": [
+    {"path": ".gitignore",
+     "description": "+1 line for playwright artifacts"},
+    {"path": "package.json",
+     "description": "+@playwright/test devDep, +scripts.test:acceptance"}
+  ],
+  "install_cmds": ["npm install", "npx playwright install chromium"],
+  "verify_cmd": "npx playwright test tests/acceptance/example.spec.ts",
+  "branch_name": "paul/scaffold-browser-acceptance"
+}
+PLANEOF
 )
-print(json.dumps(asdict(plan), indent=2))
-"
 ```
+
+`$PLAN_JSON` now holds the structured plan; Step 5 pipes it into `render-preview`.
 
 **M-2 stops here for write-side concerns.** The plan is in-memory only. Step 5 previews it; Steps 6–9 (M-3 onward) actually write.
 
 ## Step 5: Confirm
 
-Render the plan with `scaffold_plan.render_preview(plan)` and show the output to the customer verbatim. Then ask via `AskUserQuestion`:
+Pipe the `build-plan` JSON output into `render-preview`. The CLI emits
+the formatted preview text (matching scaffolding doctrine
+§Preview-before-write) ending with `Proceed? [yes / show files / no]`:
+
+```bash
+printf '%s' "$PLAN_JSON" | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    render-preview
+```
+
+Show the preview text to the customer verbatim. Then ask via `AskUserQuestion`:
 
 ```
 AskUserQuestion(

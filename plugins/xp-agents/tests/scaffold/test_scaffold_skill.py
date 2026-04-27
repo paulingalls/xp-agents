@@ -89,17 +89,20 @@ class TestSkillBody(unittest.TestCase):
         cls.text = _SKILL_PATH.read_text(encoding="utf-8")
         _, cls.body = _frontmatter_body(cls.text)
 
-    def test_mentions_coordination_helper(self) -> None:
-        self.assertIn("coordination.has_active_teammates", self.body)
+    def test_step_1a_invokes_teammates_active_subcommand(self) -> None:
+        self.assertIn("scaffold_cli.py", self.body)
+        self.assertIn("teammates-active", self.body)
+        self.assertIn("--agent-id", self.body)
 
-    def test_mentions_read_acceptance_surfaces(self) -> None:
-        self.assertIn("scaffold_detect.read_acceptance_surfaces", self.body)
+    def test_step_1b_invokes_detect_surfaces_subcommand(self) -> None:
+        self.assertIn("detect-surfaces", self.body)
+        self.assertIn("--repo-root", self.body)
 
-    def test_mentions_detect_existing_tooling(self) -> None:
-        self.assertIn("detect_existing_tooling", self.body)
-
-    def test_mentions_canonical_tools_for(self) -> None:
+    def test_step_3_mentions_canonical_tools_for(self) -> None:
         self.assertIn("canonical_tools_for", self.body)
+
+    def test_caveat_still_mentions_detect_existing_tooling_semantics(self) -> None:
+        self.assertIn("detect_existing_tooling", self.body)
 
     def test_contains_verbatim_doctrine_refusal(self) -> None:
         doctrine_refusal = _doctrine_refusal_text()
@@ -246,17 +249,21 @@ class TestSkillM2Wiring(unittest.TestCase):
         self.assertIn("WebSearch", step2)
         self.assertIn("version", step2.lower())
 
-    def test_step_2_handles_non_canonical_tool_decline(self) -> None:
+    def test_step_2_invokes_assess_tool_subcommand(self) -> None:
         step2 = _step_section(self.body, 2)
-        self.assertIn("decline_if_unreliable", step2)
+        self.assertIn("scaffold_cli.py", step2)
+        self.assertIn("assess-tool", step2)
+        self.assertIn("--tool", step2)
 
-    def test_step_4_calls_build_plan(self) -> None:
+    def test_step_4_invokes_build_plan_subcommand(self) -> None:
         step4 = _step_section(self.body, 4)
-        self.assertIn("scaffold_plan.build_plan", step4)
+        self.assertIn("scaffold_cli.py", step4)
+        self.assertIn("build-plan", step4)
 
-    def test_step_5_calls_render_preview(self) -> None:
+    def test_step_5_invokes_render_preview_subcommand(self) -> None:
         step5 = _step_section(self.body, 5)
-        self.assertIn("scaffold_plan.render_preview", step5)
+        self.assertIn("scaffold_cli.py", step5)
+        self.assertIn("render-preview", step5)
 
     def test_step_5_uses_askuserquestion_with_three_options(self) -> None:
         step5 = _step_section(self.body, 5)
@@ -277,37 +284,37 @@ class TestSkillM2Wiring(unittest.TestCase):
 
 
 class TestSkillSnippetSafety(unittest.TestCase):
-    """Snippet examples in SKILL.md must be safe to follow verbatim.
-
-    Concern 023cf12c452c: Step 4's build_plan example used `[<...>]` bare
-    angle-bracket placeholders inside Python list literals — an LLM
-    transcribing the snippet under load would produce SyntaxError.
-    Concern fc505b703d2d: Step 2's decline_if_unreliable invocation
-    inlined guidance text inside Python triple quotes via shell-string
-    interpolation, which breaks if the guidance contains \"\"\", a
-    backslash, or shell metachars."""
+    """SKILL.md must not embed Python code inside `python3 -c "..."` for
+    user-data flows. The CLI refactor (scaffold_cli.py) is the canonical
+    entrypoint; concerns 023cf12c452c and fc505b703d2d were symptoms of
+    the inline-Python pattern they replaced."""
 
     @classmethod
     def setUpClass(cls) -> None:
         text = _SKILL_PATH.read_text(encoding="utf-8")
         _, cls.body = _frontmatter_body(text)
 
-    def test_step_4_no_bare_placeholder_in_python_list_literal(self) -> None:
+    def test_no_inline_python_dash_c_anywhere(self) -> None:
+        """Catch regressions: any `python3 -c "..."` in the skill is a
+        sign the inline-Python pattern is creeping back. The CLI is the
+        only Python entrypoint."""
+        self.assertNotIn(
+            'python3 -c "',
+            self.body,
+            "SKILL.md must invoke scaffold_cli.py subcommands, not embed "
+            "Python via python3 -c. Use a CLI subcommand or extend it.",
+        )
+
+    def test_step_4_uses_heredoc_for_plan_input(self) -> None:
         step4 = _step_section(self.body, 4)
-        # Bare `<...>` inside `[...]` is the SyntaxError pattern. We use a
-        # narrow regex so legitimate prose like "<surface>" inside a
-        # string literal stays allowed.
-        self.assertNotRegex(
+        self.assertRegex(
             step4,
-            r"=\s*\[<[^\]]*\.\.\.[^\]]*>\]",
-            "Step 4 example must not embed bare <...> placeholders inside "
-            "Python list literals — an LLM following the snippet would "
-            "produce SyntaxError. Use a concrete realistic example.",
+            r"<<'?[A-Z_]+'?",
+            "Step 4 must pass plan-input JSON via heredoc on stdin, not "
+            "as inline shell args.",
         )
 
     def test_step_4_example_uses_concrete_files_to_create(self) -> None:
-        """A realistic dict (path + description) somewhere in the Step 4
-        snippet proves the example is followable."""
         step4 = _step_section(self.body, 4)
         self.assertRegex(
             step4,
@@ -316,26 +323,17 @@ class TestSkillSnippetSafety(unittest.TestCase):
             "with a real path so the LLM has a copy-paste-runnable shape.",
         )
 
-    def test_step_2_decline_does_not_inline_guidance_in_triple_quotes(self) -> None:
-        """Inlining guidance text inside Python triple quotes via shell
-        interpolation is brittle on metachars. Pass via env var or stdin."""
-        step2 = _step_section(self.body, 2)
-        self.assertNotRegex(
-            step2,
-            r"decline_if_unreliable\([^)]*'''",
-            "Step 2 example must not interpolate guidance into a Python "
-            "triple-quoted string literal — pass via os.environ or "
-            "sys.stdin instead.",
-        )
-
-    def test_step_2_decline_uses_env_or_stdin_for_guidance(self) -> None:
+    def test_step_2_passes_guidance_via_stdin(self) -> None:
+        """Step 2's assess-tool call must read guidance from stdin (echo,
+        cat, heredoc, printf — any stdin producer is fine). The safety
+        property is 'guidance never appears as a Python string literal in
+        the snippet,' regardless of how it gets there."""
         step2 = _step_section(self.body, 2)
         self.assertRegex(
             step2,
-            r"os\.environ|sys\.stdin",
-            "Step 2 decline_if_unreliable example must read guidance via "
-            "os.environ or sys.stdin so shell metachars in the guidance "
-            "string don't break the python -c invocation.",
+            r"(?s)(?:echo|cat|printf|<<).*\|\s*python3.*scaffold_cli\.py.*assess-tool",
+            "Step 2 must pipe guidance into scaffold_cli.py assess-tool "
+            "via stdin (echo / cat / printf / heredoc all acceptable).",
         )
 
 
