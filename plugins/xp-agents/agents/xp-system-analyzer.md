@@ -141,10 +141,12 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-acceptance-surfaces
 ```
 
-**Raise concerns for gaps.** For each surface with `status: "gap"`, raise an actionable concern:
+**Raise concerns for gaps.** For each surface with `status: "gap"`, raise an actionable concern. The `--topic` value is load-bearing — `/xp-scaffold-acceptance` Step 8 greps `events.jsonl` for `"topic": "missing-acceptance-<surface>"` to discover the concern_id and pass it to `apply-record` so the concern cascades closed when the scaffold lands. Use the surface's canonical snake_case name (the same string written into `acceptance_surfaces[].name`):
+
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-system-analyzer" --severity "medium" \
+  --topic "missing-acceptance-<surface>" \
   --content "<Surface> surface detected (<signals>), no acceptance harness found. Run /xp-scaffold-acceptance to begin acceptance setup. If acceptance testing is not needed for this surface, dismiss this concern."
 ```
 
