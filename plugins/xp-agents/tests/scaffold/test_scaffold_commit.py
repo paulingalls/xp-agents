@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Tests for scaffold_post.build_commit_message — pure subject + trailer formatter."""
+"""Tests for scaffold_post — build_commit_message + commit_scaffold orchestrator."""
 
+import json
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from scaffold_post import build_commit_message
+import scaffold_apply
+from scaffold_post import build_commit_message, commit_scaffold
 
 
 class TestBuildCommitMessage(unittest.TestCase):
@@ -93,6 +99,153 @@ class TestBuildCommitMessage(unittest.TestCase):
         self.assertTrue(lines[0].startswith("[chore] Scaffold"))
         self.assertEqual(lines[1], "")
         self.assertTrue(lines[2].startswith("Tool-version:"))
+
+
+def _run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+def _setup_git_repo(repo: Path) -> None:
+    """git init + identity + initial commit so branch creation has a base."""
+    _run_git(["git", "init", "-b", "main"], repo)
+    _run_git(["git", "config", "user.email", "test@example.com"], repo)
+    _run_git(["git", "config", "user.name", "Test"], repo)
+    (repo / "README").write_text("seed\n", encoding="utf-8")
+    _run_git(["git", "add", "README"], repo)
+    _run_git(["git", "commit", "-m", "[chore] seed"], repo)
+
+
+def _write_branching_strategy(smm_dir: Path, stage: int) -> None:
+    smm_dir.mkdir(parents=True, exist_ok=True)
+    (smm_dir / "system_context.json").write_text(
+        json.dumps({"branching_strategy": {"stage": stage}}),
+        encoding="utf-8",
+    )
+
+
+class _CommitScaffoldTestBase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repo = Path(tempfile.mkdtemp(prefix="scaffold-commit-test-"))
+        self.smm_dir = Path(tempfile.mkdtemp(prefix="scaffold-commit-smm-"))
+        _setup_git_repo(self.repo)
+        # Pre-seed a created file so write_files would have written it.
+        (self.repo / "tests").mkdir()
+        (self.repo / "tests" / "example.spec.ts").write_text(
+            "test();\n", encoding="utf-8"
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.repo, ignore_errors=True)
+        shutil.rmtree(self.smm_dir, ignore_errors=True)
+
+    def _snap(self) -> scaffold_apply.ApplySnapshot:
+        plan = {
+            "surface": "browser",
+            "tool": "playwright",
+            "tool_version": "1.51.0",
+            "files_to_create": [
+                {"path": "tests/example.spec.ts", "description": "spec"},
+            ],
+            "files_to_modify": [],
+            "install_cmds": [],
+            "verify_cmd": "pytest tests/",
+            "branch_name": "scaffold/test",
+        }
+        return scaffold_apply.ApplySnapshot(
+            snapshot_id="testid",
+            snapshot_dir=self.smm_dir / "snap",
+            repo_root=self.repo,
+            plan=plan,
+        )
+
+
+class TestCommitScaffoldStageZero(_CommitScaffoldTestBase):
+    def test_stage_0_commits_on_current_head(self) -> None:
+        _write_branching_strategy(self.smm_dir, 0)
+        result = commit_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            stage=0,
+            surface="browser",
+            tool="playwright",
+            tool_version="1.51.0",
+            concern_id=None,
+        )
+        self.assertTrue(result.ok, result.reason)
+        self.assertEqual(result.branch, "main")
+        head = _run_git(["git", "rev-parse", "HEAD"], self.repo).stdout.strip()
+        self.assertEqual(result.sha, head)
+
+    def test_stage_0_subject_uses_doctrine_format(self) -> None:
+        _write_branching_strategy(self.smm_dir, 0)
+        commit_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            stage=0,
+            surface="browser",
+            tool="playwright",
+            tool_version="1.51.0",
+            concern_id=None,
+        )
+        log = _run_git(["git", "log", "-1", "--format=%s"], self.repo)
+        subject = log.stdout.strip()
+        self.assertEqual(subject, "[chore] Scaffold browser acceptance via playwright")
+
+    def test_stage_0_resolves_event_in_body(self) -> None:
+        _write_branching_strategy(self.smm_dir, 0)
+        commit_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            stage=0,
+            surface="browser",
+            tool="playwright",
+            tool_version="1.51.0",
+            concern_id="abc123def456",
+        )
+        body = _run_git(["git", "log", "-1", "--format=%B"], self.repo).stdout
+        self.assertIn("Resolves-Event: abc123def456", body)
+
+
+class TestCommitScaffoldStageOne(_CommitScaffoldTestBase):
+    def test_stage_1_creates_scaffold_branch(self) -> None:
+        _write_branching_strategy(self.smm_dir, 1)
+        # Move off main so protected-branch refusal does not trigger.
+        _run_git(["git", "checkout", "-b", "feature/work"], self.repo)
+        result = commit_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            stage=1,
+            surface="browser",
+            tool="playwright",
+            tool_version="1.51.0",
+            concern_id=None,
+        )
+        self.assertTrue(result.ok, result.reason)
+        self.assertTrue(
+            result.branch.endswith("/scaffold-browser"), f"branch={result.branch!r}"
+        )
+        current = _run_git(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], self.repo
+        ).stdout.strip()
+        self.assertEqual(current, result.branch)
+
+    def test_stage_1_refuses_on_protected_branch(self) -> None:
+        _write_branching_strategy(self.smm_dir, 1)
+        # Default branch is main (protected at stage 1+).
+        result = commit_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            stage=1,
+            surface="browser",
+            tool="playwright",
+            tool_version="1.51.0",
+            concern_id=None,
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("main", result.reason or "")
+        # No commit was created.
+        oneline = _run_git(["git", "log", "--oneline"], self.repo).stdout.strip()
+        self.assertEqual(len(oneline.splitlines()), 1)
 
 
 if __name__ == "__main__":
