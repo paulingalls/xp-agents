@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.30.4 — Drop REVIEW_INPUT file from close skills
+
+Removes the `REVIEW_INPUT` JSON-file pattern from all three close skills (xp-sprint-close, xp-plan-close, xp-free-close). Discovered while dogfooding `/xp-sprint-close` for the first time: the preload's `mktemp` creates an empty file, then SKILL.md tells the LLM to `Write` to that path — but Claude Code's Write tool rejects existing files unless they're read first. The Write call failed silently while the Agent call ran in parallel, falling through using the SubagentStart-style context already in the prompt. The reviewer flagged the 0-byte file in its Concerns block.
+
+Every field the JSON file carried (`mode`, `source_branch`, `target_branch`, `diff_command`) was already in the Agent prompt anyway. The file was a redundant indirection layer copied from forked-skill patterns that DO use SubagentStart injection (xp-housekeeper, xp-retrospective). For close skills there is no SubagentStart injection — the path-passing happens manually through the Agent prompt — so the file added no value and created a deterministic LLM-tool-failure mode.
+
+- **Remove tempfile pattern from 3 preloads.** `xp-{sprint,plan,free}-close/scripts/preload.sh` no longer creates `${SMM_DIR}/.close-review-input.XXXXXX` via mktemp. One fewer subprocess per close invocation.
+- **Inline prompt sections in 3 SKILL.md files.** Replaced the "write JSON file" Step 4 with a direct Agent invocation that embeds `## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command` as inline prompt sections. Prompt template split into two clean blocks gated by `When GH_AVAILABLE=true:` / `When GH_AVAILABLE=false:` headings (avoids the inline `# or:` comment that the LLM might transcribe verbatim).
+- **xp-close-reviewer agent reads from prompt context.** Step 1 now reads four prompt sections directly. No Read tool call. Failure mode is "section missing" rather than "file missing or malformed JSON."
+- **Cleanup.** `_preload_base.sh` sweep glob no longer matches `.close-review-input.*`. `marker_names.CLOSE_REVIEW_INPUT_PREFIX` removed. Stale `subagent_start.py` docstring updated.
+- **Test contract.** New mixin assertions in `_close_fixtures.py`: `test_does_not_emit_review_input` (preloads no longer echo REVIEW_INPUT), `test_prompt_template_carries_close_review_fields` (four section headings appear with actual command values, regex-guarded against heading-without-value regressions, plus per-branch `assertIn` for both `gh pr diff` and `git diff` forms). Two obsolete tests deleted.
+
+Net change: −90 lines across 15 files. Zero new attack surface; reduced filesystem operations; one fewer Read tool call in the reviewer per close invocation.
+
 ## v2.30.3 — Trailer rate metric fix
 
 Fixes the 3-retro declining trailer rate (73%→62%→60%). Root cause: `Resolves-Event: none` (valid discipline — developer explicitly declares nothing to resolve) was counted as "no trailer" because "none" isn't a valid hex ID. Fix: `extract_resolves_trailer` now returns a `has_trailer` boolean; `bash_post_tool` records `metadata.has_resolves_trailer`; `retro_metrics` counts both `metadata.resolves` and `has_resolves_trailer` for the discipline rate.
