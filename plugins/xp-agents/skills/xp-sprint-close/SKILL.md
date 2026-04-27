@@ -22,8 +22,8 @@ allowed-tools:
 # Sprint Close
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, `WORKTREE_CLEAN`, and `REVIEW_INPUT`. Use these values
-verbatim — do not recompute them.
+`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
+not recompute them.
 
 ## Step 1: Pre-flight
 
@@ -61,53 +61,29 @@ If `GH_AVAILABLE=false`, **skip the PR step** and tell the user the gh
 CLI was not on PATH so PR creation was bypassed. The reviewer will diff
 locally instead.
 
-## Step 4: Write the close-review input
+## Step 4: Fork the close-reviewer
 
-Write a JSON file at `<REVIEW_INPUT>` (the per-invocation tempfile path
-the preload echoed) with the four fields the close-reviewer agent
-reads. The shape depends on `GH_AVAILABLE`:
+Invoke the forked review agent. Pass `SMM_DIR` and the four close-review
+fields (mode, source branch, target branch, diff command) inline as
+prompt sections — the agent reads them from the prompt. There is no
+SubagentStart injection.
 
-When `GH_AVAILABLE=true`:
-
-```json
-{
-  "mode": "sprint",
-  "source_branch": "<CURRENT_BRANCH>",
-  "target_branch": "<TARGET_BRANCH>",
-  "diff_command": "gh pr diff <PR_NUMBER>"
-}
-```
-
-When `GH_AVAILABLE=false` (PR was skipped):
-
-```json
-{
-  "mode": "sprint",
-  "source_branch": "<CURRENT_BRANCH>",
-  "target_branch": "<TARGET_BRANCH>",
-  "diff_command": "git diff <TARGET_BRANCH>...HEAD"
-}
-```
-
-## Step 5: Fork the close-reviewer
-
-Invoke the forked review agent. Pass `SMM_DIR` and the per-invocation
-`REVIEW_INPUT` path (from the preload) explicitly in the prompt — the
-agent reads them from there. There is no SubagentStart injection.
+The `diff_command` shape depends on `GH_AVAILABLE`: when `true`, use
+`gh pr diff <PR_NUMBER>`; when `false`, use `git diff <TARGET_BRANCH>...HEAD`.
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "SMM_DIR=<SMM_DIR>\nREVIEW_INPUT=<REVIEW_INPUT>\n\n## Mode\nsprint\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRead REVIEW_INPUT, run diff_command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nsprint\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\ngh pr diff <PR_NUMBER>   # or: git diff <TARGET_BRANCH>...HEAD when no PR\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
 )
 ```
 
-## Step 6: Present findings
+## Step 5: Present findings
 
 Output the reviewer's Keep / Concern / Block summary verbatim to the
 user. The tool result is not visible to them — surface it as text.
 
-## Step 7: Confirm the merge
+## Step 6: Confirm the merge
 
 Use `AskUserQuestion` to ask whether to proceed with the merge. Two
 options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
@@ -115,7 +91,7 @@ options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 If the user picks abort, stop here. The branch and PR (if any) stay
 intact for follow-up work.
 
-## Step 8: Merge and clean up
+## Step 7: Merge and clean up
 
 On confirmation, merge with --no-ff and chain delete behind the merge's
 success. Always pass `--target` explicitly — branching.py requires it.
@@ -133,7 +109,7 @@ call already include the source/target branch names and the conflict
 marker) and **do not** delete the branch — the user needs to resolve the
 conflict on the still-existing branch. Conflicts are never auto-resolved.
 
-## Step 9: Plan-close chain (if applicable)
+## Step 8: Plan-close chain (if applicable)
 
 After the merge cleanup completes, check whether the sprint just shipped
 the last milestone of a plan-branch plan. The gate fires only when both

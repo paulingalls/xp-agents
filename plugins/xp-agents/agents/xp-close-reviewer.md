@@ -11,22 +11,22 @@ model: inherit
 
 # Close-Branch Reviewer
 
-A close skill is about to merge a branch. Review the cumulative diff and report concerns before the merge happens. The Agent prompt that invoked you carries `SMM_DIR=<path>` and `REVIEW_INPUT=<path>` (a per-invocation tempfile written by the close skill).
+A close skill is about to merge a branch. Review the cumulative diff and report concerns before the merge happens. The Agent prompt that invoked you carries `SMM_DIR=<path>` plus four structured sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`) the close skill embeds in the prompt itself.
 
 ## Step 1: Read Review Input
 
-Read the JSON file at `REVIEW_INPUT`. Required fields:
+Read these four values from your invoking prompt:
 
-- `mode` — one of `sprint`, `plan`, `free`
-- `source_branch` — branch being merged
-- `target_branch` — merge target (typically `main`)
-- `diff_command` — exact `gh pr diff` or `git diff` invocation to use
+- `## Mode` — one of `sprint`, `plan`, `free`
+- `## Source Branch` — branch being merged
+- `## Target Branch` — merge target (typically `main`)
+- `## Diff Command` — exact `gh pr diff` or `git diff` invocation to use
 
-If the file doesn't exist or required fields are missing, return immediately and say so.
+If any of those four sections are missing, return immediately and say so.
 
 ## Step 2: Capture the Diff
 
-Run `diff_command` via Bash exactly as given. Do not substitute another command. Bash is available for the diff command and other read-only inspection (`gh pr view`, `git log`, etc.) — **never run mutating commands** (no commits, no pushes, no file writes, no `git checkout`); the close skills do not expect you to mutate anything.
+Run the command from the `## Diff Command` section via Bash exactly as given. Do not substitute another command. Bash is available for the diff command and other read-only inspection (`gh pr view`, `git log`, etc.) — **never run mutating commands** (no commits, no pushes, no file writes, no `git checkout`); the close skills do not expect you to mutate anything.
 
 ## Step 3: Analyze (mode-aware)
 

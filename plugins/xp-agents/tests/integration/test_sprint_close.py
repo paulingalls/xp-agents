@@ -50,10 +50,11 @@ _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
 class TestSprintCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     """Sprint-close SKILL.md guard tests.
 
-    Inherits the nine shared close-skill guards from
-    _CloseSkillTextCommonTests (refusal prose, gh-conditional, REVIEW_INPUT
-    keys, agent prompt literals, merge+delete ordering, AskUserQuestion).
-    Adds the sprint-specific plan-close chain test.
+    Inherits the shared close-skill guards from
+    _CloseSkillTextCommonTests (refusal prose, gh-conditional, prompt-section
+    contract for the close-reviewer, agent prompt literals, merge+delete
+    ordering, AskUserQuestion).  Adds the sprint-specific plan-close chain
+    test.
     """
 
     _SKILL_MD = _SKILL_MD
