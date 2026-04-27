@@ -13,6 +13,7 @@ Three pure-read functions consumed by the scaffold-acceptance skill:
 No writes, no installs, no shell-outs. Skill orchestration lives in SKILL.md.
 """
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -153,3 +154,58 @@ def detect_existing_tooling(surface_name: str, repo_root: Path) -> dict:
                 "config_files": hits,
             }
     return {"has_tooling": False, "tool_name": None, "config_files": []}
+
+
+def find_introducing_commit(repo_root: Path, config_files: list[Path]) -> dict | None:
+    """Return metadata for the OLDEST commit that introduced any of the given files.
+
+    For each path in ``config_files``, runs
+    ``git log --diff-filter=A --follow --format=<sep> -- <file>`` to find the
+    add-only commits and picks the latest line (oldest, since git log walks newest-
+    first). Across all files, the OLDEST result wins — that is the canonical
+    "scaffold introduction" commit the re-invocation redo branch points the user at.
+
+    Returns ``{"sha": str, "subject": str, "date": str (ISO 8601 with offset)}``
+    or ``None`` when no config file has a tracked introducer (untracked, missing,
+    not-a-git-repo, or git unavailable). Does not raise on git failures —
+    returns None and lets the caller decide how to proceed.
+    """
+    sep = "\x1f"
+    # %ct (committer timestamp, seconds since epoch) is the sort key —
+    # robust across timezone boundaries; %ci is the human-readable date
+    # we surface to callers.
+    fmt = f"%H{sep}%s{sep}%ci{sep}%ct"
+    candidates: list[tuple[str, str, str, int]] = []
+    for path in config_files:
+        try:
+            r = subprocess.run(
+                [
+                    "git",
+                    "log",
+                    "--diff-filter=A",
+                    "--follow",
+                    f"--format={fmt}",
+                    "--",
+                    str(path),
+                ],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if r.returncode != 0:
+            return None
+        lines = [line for line in r.stdout.splitlines() if line.strip()]
+        if not lines:
+            continue
+        # `git log` walks newest-first; --diff-filter=A gives only add commits;
+        # with --follow, the LAST line is the original introducer (earliest
+        # ancestor across renames).
+        sha, subject, date, ts = lines[-1].split(sep, 3)
+        candidates.append((sha, subject, date, int(ts)))
+    if not candidates:
+        return None
+    sha, subject, date, _ = min(candidates, key=lambda c: c[3])
+    return {"sha": sha, "subject": subject, "date": date}
