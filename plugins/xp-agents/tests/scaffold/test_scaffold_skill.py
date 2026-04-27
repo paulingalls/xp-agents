@@ -122,8 +122,14 @@ class TestSkillBody(unittest.TestCase):
             step3 = step3[: next_step.start()]
         self.assertIn("AskUserQuestion", step3)
 
-    def test_reinvocation_stub_references_m5(self) -> None:
-        self.assertIn("M-5", self.body)
+    def test_reinvocation_flow_wires_real_three_options(self) -> None:
+        """Step 1c shipped the real flow in M-5: add-complementary / redo /
+        cancel. The M-5 deferral stub is gone."""
+        self.assertNotIn("M-5 deferral", self.body)
+        self.assertNotIn("Full re-invocation flow lands in M-5", self.body)
+        self.assertIn("Add complementary tool", self.body)
+        self.assertIn("Redo from scratch", self.body)
+        self.assertIn("find-introducing-commit", self.body)
 
     def test_steps_8_9_no_longer_reserved(self) -> None:
         """M-4 ships Steps 8-9; the placeholder text must be gone."""
