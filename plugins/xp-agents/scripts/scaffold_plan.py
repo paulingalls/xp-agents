@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """Pure-logic plan/preview/decline helpers for /xp-scaffold-acceptance.
 
-Three pure functions consumed by the scaffold-acceptance skill at M-2:
+Three pure functions consumed by the scaffold-acceptance skill:
 
 - build_plan(...): assemble the structured in-memory ``ScaffoldPlan`` the
-  skill shows the customer in Step 4 (no writes — M-3 onward owns disk
-  I/O).
-- render_preview(plan): format the plan per scaffolding doctrine
-  §Preview-before-write, ending with the verbatim
-  ``Proceed? [yes / show files / no]`` prompt.
+  skill shows the customer in Step 4. Files-to-create / files-to-modify
+  entries may carry an optional ``body`` field with the full file contents
+  the apply pipeline will write.
+- render_preview(plan, show_files=False): format the plan per scaffolding
+  doctrine §Preview-before-write, ending with the verbatim
+  ``Proceed? [yes / show files / no]`` prompt. When ``show_files=True``
+  and at least one entry carries a body, an additional ``Files:`` section
+  with fenced code blocks is rendered before the install/verify section.
 - decline_if_unreliable(tool, guidance): structured ``DeclineResult`` for
   non-canonical tools where the agent's web research did not surface
   reliable install/config guidance.
 
 No I/O, no subprocess, no network. Skill orchestration (web refresh,
-AskUserQuestion, file reads for show-files) lives in SKILL.md.
+AskUserQuestion) lives in SKILL.md; disk I/O lives in scaffold_apply.
 """
 
 from dataclasses import dataclass, field
@@ -77,12 +80,18 @@ def build_plan(
     )
 
 
-def render_preview(plan: ScaffoldPlan) -> str:
+def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
     """Format ``plan`` per scaffolding doctrine §Preview-before-write.
 
     Output ends with the verbatim ``PROCEED_PROMPT`` so the skill's
     confirm step can present a single deterministic string to the
     customer.
+
+    When ``show_files=True`` and at least one ``files_to_create`` /
+    ``files_to_modify`` entry carries a non-empty ``body``, a ``Files:``
+    section with fenced code blocks renders before the install/verify
+    section. Entries without a body are omitted from that section. With
+    ``show_files=False`` (default), bodies are never rendered.
     """
     lines: list[str] = []
     lines.append(f"Selected surface: {plan.surface}")
@@ -97,6 +106,21 @@ def render_preview(plan: ScaffoldPlan) -> str:
     for entry in plan.files_to_modify:
         lines.append(f"  Modify: {entry['path']} ({entry['description']})")
     lines.append("")
+    if show_files:
+        bodied = [
+            entry
+            for entry in (*plan.files_to_create, *plan.files_to_modify)
+            if entry.get("body")
+        ]
+        if bodied:
+            lines.append("Files:")
+            lines.append("")
+            for entry in bodied:
+                lines.append(f"### {entry['path']}")
+                lines.append("```")
+                lines.append(entry["body"].rstrip("\n"))
+                lines.append("```")
+                lines.append("")
     lines.append("Install + verify:")
     for cmd in plan.install_cmds:
         lines.append(f"  {cmd}")
