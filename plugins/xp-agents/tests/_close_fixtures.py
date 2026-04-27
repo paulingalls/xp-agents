@@ -251,6 +251,23 @@ class _CloseSkillTextCommonTests:
             "delete --branch must appear AFTER merge-branch",
         )
 
+    def test_pushes_target_after_merge(self):
+        # The merge step must push the target branch so the GitHub PR
+        # auto-closes. The push must appear AFTER merge-branch and BEFORE
+        # delete (push failure should leave the source branch alive for
+        # retry; merge failure should not push).
+        self.assertIn("git push origin <TARGET_BRANCH>", self.text)
+        merge_idx = self.text.index("merge-branch")
+        push_idx = self.text.index("git push origin <TARGET_BRANCH>")
+        delete_match = re.search(r"\bdelete\b.*--branch", self.text)
+        assert delete_match is not None
+        self.assertLess(merge_idx, push_idx, "git push must appear AFTER merge-branch")
+        self.assertLess(
+            push_idx,
+            delete_match.start(),
+            "git push must appear BEFORE delete --branch",
+        )
+
     def test_asks_user_before_merging(self):
         # Per design, the close skill must ask the user to confirm the
         # merge after presenting the reviewer's findings.

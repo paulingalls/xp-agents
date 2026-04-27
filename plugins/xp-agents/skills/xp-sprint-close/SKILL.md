@@ -101,20 +101,27 @@ intact for follow-up work.
 
 ## Step 7: Merge and clean up
 
-On confirmation, merge with --no-ff and chain delete behind the merge's
-success. Always pass `--target` explicitly — branching.py requires it.
-The `&&` chain guarantees delete only runs after a clean merge:
+On confirmation, merge with --no-ff, push the target so the PR closes
+on GitHub, then chain delete behind the push's success. Always pass
+`--target` explicitly — branching.py requires it. The `&&` chain
+guarantees push only runs after a clean merge and delete only runs
+after a clean push:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH> && \
+git push origin <TARGET_BRANCH> && \
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <CURRENT_BRANCH>
 ```
 
+If `git remote` returned no remote in Step 2, omit the `git push origin
+<TARGET_BRANCH>` line — the merge stays local and the PR step was
+skipped, so there is no PR to close.
+
 If the merge fails, surface the failure (stderr + stdout from the merge
 call already include the source/target branch names and the conflict
-marker) and **do not** delete the branch — the user needs to resolve the
+marker) and **do not** push or delete — the user needs to resolve the
 conflict on the still-existing branch. Conflicts are never auto-resolved.
 
 ## Step 8: Plan-close chain (if applicable)
