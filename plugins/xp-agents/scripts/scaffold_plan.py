@@ -88,10 +88,12 @@ def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
     customer.
 
     When ``show_files=True`` and at least one ``files_to_create`` /
-    ``files_to_modify`` entry carries a non-empty ``body``, a ``Files:``
+    ``files_to_modify`` entry carries a ``body`` key (including an empty
+    string, which renders an explicit empty fence pair), a ``Files:``
     section with fenced code blocks renders before the install/verify
-    section. Entries without a body are omitted from that section. With
-    ``show_files=False`` (default), bodies are never rendered.
+    section. Entries with a missing or ``None`` body are omitted from
+    that section. With ``show_files=False`` (default), bodies are never
+    rendered.
     """
     lines: list[str] = []
     lines.append(f"Selected surface: {plan.surface}")
@@ -110,7 +112,7 @@ def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
         bodied = [
             entry
             for entry in (*plan.files_to_create, *plan.files_to_modify)
-            if entry.get("body")
+            if entry.get("body") is not None
         ]
         if bodied:
             lines.append("Files:")
@@ -118,7 +120,8 @@ def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
             for entry in bodied:
                 lines.append(f"### {entry['path']}")
                 lines.append("```")
-                lines.append(entry["body"].rstrip("\n"))
+                if entry["body"]:
+                    lines.append(entry["body"].rstrip("\n"))
                 lines.append("```")
                 lines.append("")
     lines.append("Install + verify:")
