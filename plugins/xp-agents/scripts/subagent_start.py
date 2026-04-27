@@ -5,7 +5,8 @@ Tiered injection via dispatch table (measured sizes):
 - Explore: Intent + Constraints + XP values (~5 KB)
 - xp-code-reviewer / Default: Full SMM + XP values (~10 KB)
 - xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values (~1.6 KB)
-- xp-close-reviewer: SMM_DIR + REVIEW_INPUT paths + XP values (~1.6 KB)
+- xp-close-reviewer: XP values only (close skill embeds review fields
+  inline in the Agent prompt)
 - xp-housekeeper: curation input path + work selection + XP values (~1.5-3 KB)
 - xp-* forked agents: XP values only (~1.4 KB)
 """

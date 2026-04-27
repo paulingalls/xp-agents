@@ -1,5 +1,37 @@
 # Changelog
 
+## v2.30.6 — Close-reviewer records concerns as SMM events
+
+The xp-close-reviewer agent previously returned Keep/Concern/Block as text prose; the close skill displayed it once and moved on. Concern and Block items were ephemeral — visible in chat output but never persisted as SMM events. Multiple times this session, valuable concerns from PR #6 / #7 close-reviews would have vanished into the scrollback if I hadn't manually filed them.
+
+- **`xp-close-reviewer.md` Step 4 added.** Before returning the prose summary, the agent now files an SMM `concern` event for each Block (severity `high`) and Concern (severity `medium`) bullet via `${CLAUDE_PLUGIN_ROOT}/smm/append.sh --type "concern"`. Keep bullets remain prose-only. Mirrors the xp-plan-reviewer pattern.
+- **`--files` discipline.** When a bullet cites concrete file paths, the agent attaches them via `--files '[...]'` so the commit-auto-link hook can nudge a future fix commit to add `Resolves-Event: <id>`. Same STRUCTURAL link wiring xp-plan-reviewer uses.
+- **Recording happens BEFORE the prose summary.** If the user picks "Abort — fix concerns first" at the merge confirmation, the concerns stay filed for the next session.
+- **`metadata` fields.** Each event carries `close_mode`, `source_branch`, `target_branch` for downstream filtering.
+- **Test guard added.** `test_close_reviewer_records_concerns_as_smm_events` in `tests/integration/test_sprint_close_chain.py` regex-asserts the agent prompt contains both severity-paired `--type "concern"` blocks, the `--files` discipline, and the before-prose ordering. Catches drift if any of those guarantees disappears.
+
+## v2.30.5 — Close skills push target branch after merge
+
+Fix surfaced when verifying sprint-036's PR #6 status on GitHub: the local merge happened (`branching.py merge-branch` produced commit `e63e5e9`) but the target branch was never pushed back, so GitHub kept the PR open indefinitely. Same gap in all three close skills.
+
+- **All three close-skill SKILL.md files** now insert `git push origin <TARGET_BRANCH>` between the merge and the cleanup step (delete for sprint/free, archive+delete for plan). The `&&` chain guarantees push only runs after a clean merge and cleanup only runs after a clean push — push failure leaves the source branch alive for retry; merge failure halts before push as before.
+- **Local-only fallback documented.** When `git remote` returned no remote in Step 2, the push line is omitted (no PR to close).
+- **Test guard added.** New `test_pushes_target_after_merge` mixin in `_close_fixtures.py` asserts `git push origin <TARGET_BRANCH>` appears in the close skill body, after `merge-branch` and before `delete --branch`. Runs across all three close skills.
+
+## v2.30.4 — Drop REVIEW_INPUT file from close skills
+
+Removes the `REVIEW_INPUT` JSON-file pattern from all three close skills (xp-sprint-close, xp-plan-close, xp-free-close). Discovered while dogfooding `/xp-sprint-close` for the first time: the preload's `mktemp` creates an empty file, then SKILL.md tells the LLM to `Write` to that path — but Claude Code's Write tool rejects existing files unless they're read first. The Write call failed silently while the Agent call ran in parallel, falling through using the SubagentStart-style context already in the prompt. The reviewer flagged the 0-byte file in its Concerns block.
+
+Every field the JSON file carried (`mode`, `source_branch`, `target_branch`, `diff_command`) was already in the Agent prompt anyway. The file was a redundant indirection layer copied from forked-skill patterns that DO use SubagentStart injection (xp-housekeeper, xp-retrospective). For close skills there is no SubagentStart injection — the path-passing happens manually through the Agent prompt — so the file added no value and created a deterministic LLM-tool-failure mode.
+
+- **Remove tempfile pattern from 3 preloads.** `xp-{sprint,plan,free}-close/scripts/preload.sh` no longer creates `${SMM_DIR}/.close-review-input.XXXXXX` via mktemp. One fewer subprocess per close invocation.
+- **Inline prompt sections in 3 SKILL.md files.** Replaced the "write JSON file" Step 4 with a direct Agent invocation that embeds `## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command` as inline prompt sections. Prompt template split into two clean blocks gated by `When GH_AVAILABLE=true:` / `When GH_AVAILABLE=false:` headings (avoids the inline `# or:` comment that the LLM might transcribe verbatim).
+- **xp-close-reviewer agent reads from prompt context.** Step 1 now reads four prompt sections directly. No Read tool call. Failure mode is "section missing" rather than "file missing or malformed JSON."
+- **Cleanup.** `_preload_base.sh` sweep glob no longer matches `.close-review-input.*`. `marker_names.CLOSE_REVIEW_INPUT_PREFIX` removed. Stale `subagent_start.py` docstring updated.
+- **Test contract.** New mixin assertions in `_close_fixtures.py`: `test_does_not_emit_review_input` (preloads no longer echo REVIEW_INPUT), `test_prompt_template_carries_close_review_fields` (four section headings appear with actual command values, regex-guarded against heading-without-value regressions, plus per-branch `assertIn` for both `gh pr diff` and `git diff` forms). Two obsolete tests deleted.
+
+Net change: −90 lines across 15 files. Zero new attack surface; reduced filesystem operations; one fewer Read tool call in the reviewer per close invocation.
+
 ## v2.30.3 — Trailer rate metric fix
 
 Fixes the 3-retro declining trailer rate (73%→62%→60%). Root cause: `Resolves-Event: none` (valid discipline — developer explicitly declares nothing to resolve) was counted as "no trailer" because "none" isn't a valid hex ID. Fix: `extract_resolves_trailer` now returns a `has_trailer` boolean; `bash_post_tool` records `metadata.has_resolves_trailer`; `retro_metrics` counts both `metadata.resolves` and `has_resolves_trailer` for the discipline rate.

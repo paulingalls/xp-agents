@@ -20,7 +20,7 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
 # Clean up temp files from previous preload runs.
 # These are created by smm_render_to_tempfile/sprint_render_to_tempfile
 # and are safe to remove once the previous skill has finished.
-find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".close-review-input.*" -o -name ".sprint-review-input.*" \) -exec rm -f {} + 2>/dev/null || true
+find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" \) -exec rm -f {} + 2>/dev/null || true
 
 dump_smm() {
     if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then

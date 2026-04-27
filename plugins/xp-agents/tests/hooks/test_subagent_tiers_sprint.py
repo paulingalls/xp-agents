@@ -80,9 +80,9 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                 self.assertNotIn("Ship v1", result)
 
     def test_close_reviewer_has_no_dedicated_handler(self):
-        """xp-close-reviewer reads REVIEW_INPUT from the Agent prompt, not
-        from SubagentStart injection — the close skill computes a per-
-        invocation tempfile path and embeds it in the prompt itself."""
+        """xp-close-reviewer reads its review fields (mode, source_branch,
+        target_branch, diff_command) from the Agent prompt sections the
+        close skill embeds — never via SubagentStart injection."""
         for agent_type in (
             "xp-close-reviewer",
             "xp-agents:xp-close-reviewer",

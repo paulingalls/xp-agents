@@ -22,9 +22,9 @@ allowed-tools:
 # Free Close
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, `WORKTREE_CLEAN`, and `REVIEW_INPUT`. Use these values
-verbatim — do not recompute them. `TARGET_BRANCH` is the primary
-integration branch (free-close merges a free branch → primary).
+`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
+not recompute them. `TARGET_BRANCH` is the primary integration branch
+(free-close merges a free branch → primary).
 
 ## Step 1: Pre-flight
 
@@ -63,53 +63,37 @@ If `GH_AVAILABLE=false`, **skip the PR step** and tell the user the gh
 CLI was not on PATH so PR creation was bypassed. The reviewer will
 diff locally instead.
 
-## Step 4: Write the close-review input
+## Step 4: Fork the close-reviewer
 
-Write a JSON file at `<REVIEW_INPUT>` (the per-invocation tempfile
-path the preload echoed) with the four fields the close-reviewer
-agent reads. The shape depends on `GH_AVAILABLE`:
+Invoke the forked review agent. Pass `SMM_DIR` and the four close-review
+fields (mode, source branch, target branch, diff command) inline as
+prompt sections — the agent reads them from the prompt. There is no
+SubagentStart injection.
 
 When `GH_AVAILABLE=true`:
-
-```json
-{
-  "mode": "free",
-  "source_branch": "<CURRENT_BRANCH>",
-  "target_branch": "<TARGET_BRANCH>",
-  "diff_command": "gh pr diff <PR_NUMBER>"
-}
-```
-
-When `GH_AVAILABLE=false` (PR was skipped):
-
-```json
-{
-  "mode": "free",
-  "source_branch": "<CURRENT_BRANCH>",
-  "target_branch": "<TARGET_BRANCH>",
-  "diff_command": "git diff <TARGET_BRANCH>...HEAD"
-}
-```
-
-## Step 5: Fork the close-reviewer
-
-Invoke the forked review agent. Pass `SMM_DIR` and the per-invocation
-`REVIEW_INPUT` path (from the preload) explicitly in the prompt — the
-agent reads them from there. There is no SubagentStart injection.
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "SMM_DIR=<SMM_DIR>\nREVIEW_INPUT=<REVIEW_INPUT>\n\n## Mode\nfree\n\n## Context\nClosing free branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRead REVIEW_INPUT, run diff_command, analyze cumulative diff with free-mode focus (standard quality review only — code quality, clarity, naming, obvious bugs, missing error handling at boundaries, test coverage gaps). Sprint/plan-level scope concerns do not apply. Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nfree\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\ngh pr diff <PR_NUMBER>\n\n## Context\nClosing free branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with free-mode focus (standard quality review only — code quality, clarity, naming, obvious bugs, missing error handling at boundaries, test coverage gaps). Sprint/plan-level scope concerns do not apply. Return Keep / Concern / Block summary."
 )
 ```
 
-## Step 6: Present findings
+When `GH_AVAILABLE=false` (PR was skipped):
+
+```
+Agent(
+  subagent_type: "xp-agents:xp-close-reviewer",
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nfree\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\ngit diff <TARGET_BRANCH>...HEAD\n\n## Context\nClosing free branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR not created (no gh).\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with free-mode focus (standard quality review only — code quality, clarity, naming, obvious bugs, missing error handling at boundaries, test coverage gaps). Sprint/plan-level scope concerns do not apply. Return Keep / Concern / Block summary."
+)
+```
+
+## Step 5: Present findings
 
 Output the reviewer's Keep / Concern / Block summary verbatim to the
 user. The tool result is not visible to them — surface it as text.
 
-## Step 7: Confirm the merge
+## Step 6: Confirm the merge
 
 Use `AskUserQuestion` to ask whether to proceed with the merge. Two
 options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
@@ -117,26 +101,32 @@ options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 If the user picks abort, stop here. The branch and PR (if any) stay
 intact for follow-up work.
 
-## Step 8: Merge and clean up
+## Step 7: Merge and clean up
 
-On confirmation, merge with --no-ff and chain delete behind the
-merge's success. Always pass `--target` explicitly — branching.py
-requires it. The `&&` chain guarantees delete only runs after a clean
-merge:
+On confirmation, merge with --no-ff, push the target so the PR closes
+on GitHub, then chain delete behind the push's success. Always pass
+`--target` explicitly — branching.py requires it. The `&&` chain
+guarantees push only runs after a clean merge and delete only runs
+after a clean push:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   merge-branch --cwd . --branch <CURRENT_BRANCH> --target <TARGET_BRANCH> && \
+git push origin <TARGET_BRANCH> && \
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   delete --cwd . --branch <CURRENT_BRANCH>
 ```
+
+If `git remote` returned no remote in Step 2, omit the `git push origin
+<TARGET_BRANCH>` line — the merge stays local and the PR step was
+skipped, so there is no PR to close.
 
 Each command exits non-zero on failure, short-circuiting the chain so
 the branch survives if the merge fails.
 
 If the merge fails, surface the failure (stderr + stdout from the
 merge call already include the source/target branch names and the
-conflict marker) and **do not** delete the branch — the user needs to
+conflict marker) and **do not** push or delete — the user needs to
 resolve the conflict on the still-existing branch. Conflicts are never
 auto-resolved.
 
