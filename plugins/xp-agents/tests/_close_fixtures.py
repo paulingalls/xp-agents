@@ -189,6 +189,33 @@ class _CloseSkillTextCommonTests:
             self.assertIn(
                 section, self.text, f"Missing prompt section heading: {section}"
             )
+        # Diff Command section must carry an actual command, not just the
+        # heading — guards against a regression that drops the value while
+        # keeping the section. The `\\n` matches the literal escape
+        # sequence in the embedded Python-style prompt string (SKILL.md
+        # writes prompts as one-liners with `\n` characters as text, not
+        # real newlines). Trailing space after `git diff ` distinguishes
+        # the subcommand from lookalike substrings.
+        self.assertRegex(
+            self.text,
+            r"## Diff Command\\n(gh pr diff|git diff )",
+            "## Diff Command section must be followed by gh pr diff or git diff",
+        )
+        # Both branches must be present — the GH_AVAILABLE=true block
+        # carries `gh pr diff`, the GH_AVAILABLE=false block carries the
+        # `git diff <TARGET_BRANCH>...HEAD` fallback. Asserting both
+        # individually catches a regression where one branch is dropped
+        # but the other still satisfies the regex above.
+        self.assertIn(
+            "gh pr diff",
+            self.text,
+            "GH_AVAILABLE=true branch must invoke `gh pr diff`",
+        )
+        self.assertIn(
+            "git diff <TARGET_BRANCH>...HEAD",
+            self.text,
+            "GH_AVAILABLE=false branch must invoke `git diff <TARGET_BRANCH>...HEAD`",
+        )
 
     def test_agent_prompt_carries_smm_dir_and_mode(self):
         # The Agent prompt must literally embed SMM_DIR= and the mode

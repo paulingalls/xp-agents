@@ -71,13 +71,21 @@ fields (mode, source branch, target branch, diff command) inline as
 prompt sections — the agent reads them from the prompt. There is no
 SubagentStart injection.
 
-The `diff_command` shape depends on `GH_AVAILABLE`: when `true`, use
-`gh pr diff <PR_NUMBER>`; when `false`, use `git diff <TARGET_BRANCH>...HEAD`.
+When `GH_AVAILABLE=true`:
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nplan\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\ngh pr diff <PR_NUMBER>   # or: git diff <TARGET_BRANCH>...HEAD when no PR\n\n## Context\nClosing plan branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with plan-mode focus (architectural coherence across the whole plan, accumulated debt, security posture of the cumulative diff, decisions whose rationale weakened). Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nplan\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\ngh pr diff <PR_NUMBER>\n\n## Context\nClosing plan branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_NUMBER>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with plan-mode focus (architectural coherence across the whole plan, accumulated debt, security posture of the cumulative diff, decisions whose rationale weakened). Return Keep / Concern / Block summary."
+)
+```
+
+When `GH_AVAILABLE=false` (PR was skipped):
+
+```
+Agent(
+  subagent_type: "xp-agents:xp-close-reviewer",
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nplan\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\ngit diff <TARGET_BRANCH>...HEAD\n\n## Context\nClosing plan branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR not created (no gh).\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with plan-mode focus (architectural coherence across the whole plan, accumulated debt, security posture of the cumulative diff, decisions whose rationale weakened). Return Keep / Concern / Block summary."
 )
 ```
 
