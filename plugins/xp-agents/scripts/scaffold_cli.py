@@ -173,17 +173,19 @@ def _run_apply_phase(
             exc, timeout_sec=timeout_sec, log_path=snap.log_path(phase)
         )
         return _emit(asdict(scaffold_apply.failure_result(phase, reason, snap)))
-    snapshot_dir: str | None = str(snap.snapshot_dir)
     if cleanup_on_success:
         scaffold_apply.cleanup_snapshot(snap)
-        snapshot_dir = None
-    return _emit(
-        {
-            "ok": True,
-            "snapshot_id": snap.snapshot_id,
-            "snapshot_dir": snapshot_dir,
-        }
-    )
+        result = scaffold_apply.ApplyResult(
+            ok=True, snapshot_id=snap.snapshot_id, snapshot_state="cleaned"
+        )
+    else:
+        result = scaffold_apply.ApplyResult(
+            ok=True,
+            snapshot_id=snap.snapshot_id,
+            snapshot_dir=str(snap.snapshot_dir),
+            snapshot_state="retained",
+        )
+    return _emit(asdict(result))
 
 
 def _cmd_apply_install(args: argparse.Namespace) -> int:

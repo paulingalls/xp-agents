@@ -47,10 +47,13 @@ import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+SnapshotState = Literal["cleaned", "retained", "none"]
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-from _append_impl import write_text_atomic
+from _append_impl import write_text_atomic  # noqa: E402
 
 INSTALL_TIMEOUT_SEC = 300
 VERIFY_TIMEOUT_SEC = 60
@@ -64,6 +67,7 @@ class ApplyResult:
     ok: bool
     snapshot_id: str | None = None
     snapshot_dir: str | None = None
+    snapshot_state: SnapshotState = "none"
     phase: str | None = None
     reason: str | None = None
     reverted: bool = False
@@ -313,6 +317,7 @@ def failure_result(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
         unrestored=unrestored,
         snapshot_id=snap.snapshot_id,
         snapshot_dir=str(snap.snapshot_dir),
+        snapshot_state="retained",
         recovery=recovery,
     )
 
@@ -345,6 +350,7 @@ def apply_write_only(
             ok=True,
             snapshot_id=snap.snapshot_id,
             snapshot_dir=str(snap.snapshot_dir),
+            snapshot_state="retained",
         ),
         snap,
     )
@@ -381,4 +387,6 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
         )
     snapshot_id = snap.snapshot_id
     cleanup_snapshot(snap)
-    return ApplyResult(ok=True, snapshot_id=snapshot_id, snapshot_dir=None)
+    return ApplyResult(
+        ok=True, snapshot_id=snapshot_id, snapshot_dir=None, snapshot_state="cleaned"
+    )
