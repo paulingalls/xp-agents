@@ -28,6 +28,7 @@ class TestBuildCommitMessage(unittest.TestCase):
         files_created: list[str] | None = None,
         files_modified: list[str] | None = None,
         concern_id: str | None = None,
+        category: str = "acceptance",
     ) -> str:
         if files_created is None:
             files_created = ["tests/acceptance/example.spec.ts", "playwright.config.ts"]
@@ -41,17 +42,28 @@ class TestBuildCommitMessage(unittest.TestCase):
             files_created=files_created,
             files_modified=files_modified,
             concern_id=concern_id,
+            category=category,
         )
 
     def test_subject_uses_doctrine_format(self) -> None:
         msg = self._msg()
         first = msg.splitlines()[0]
-        self.assertEqual(first, "[chore] Scaffold browser acceptance via playwright")
+        self.assertEqual(first, "[chore] Scaffold acceptance browser via playwright")
 
     def test_subject_substitutes_surface_and_tool(self) -> None:
         msg = self._msg(surface="api", tool="pytest")
         first = msg.splitlines()[0]
-        self.assertEqual(first, "[chore] Scaffold api acceptance via pytest")
+        self.assertEqual(first, "[chore] Scaffold acceptance api via pytest")
+
+    def test_subject_uses_category_param(self) -> None:
+        msg = self._msg(surface="http_ws", tool="supertest", category="contract")
+        first = msg.splitlines()[0]
+        self.assertEqual(first, "[chore] Scaffold contract http_ws via supertest")
+
+    def test_subject_category_defaults_to_acceptance(self) -> None:
+        msg = self._msg(surface="browser", tool="playwright")
+        first = msg.splitlines()[0]
+        self.assertEqual(first, "[chore] Scaffold acceptance browser via playwright")
 
     def test_includes_tool_version_trailer(self) -> None:
         msg = self._msg(tool_version="2.0.0-beta.1")
@@ -181,7 +193,7 @@ class TestCommitScaffoldStageZero(_CommitScaffoldTestBase):
         )
         log = run_git(["git", "log", "-1", "--format=%s"], self.repo)
         subject = log.stdout.strip()
-        self.assertEqual(subject, "[chore] Scaffold browser acceptance via playwright")
+        self.assertEqual(subject, "[chore] Scaffold acceptance browser via playwright")
 
     def test_stage_0_resolves_event_in_body(self) -> None:
         _write_branching_strategy(self.smm_dir, 0)

@@ -42,17 +42,22 @@ def build_commit_message(
     files_created: list[str],
     files_modified: list[str],
     concern_id: str | None,
+    category: str = "acceptance",
 ) -> str:
     """Return the M-4 doctrine commit message string.
 
-    Subject: ``[chore] Scaffold <surface> acceptance via <tool>``.
+    Subject: ``[chore] Scaffold <category> <surface> via <tool>`` —
+    3-slot per scaffolding doctrine §Commit Strategy. ``category``
+    defaults to ``"acceptance"`` for the M-4 acceptance-only flow;
+    future categories (contract, chaos, …) slot in without renaming.
+
     Trailers (in order): ``Tool-version``, ``Files-created`` (omitted
     when empty), ``Files-modified`` (omitted when empty),
     ``Verification``, ``Resolves-Event`` — with ``Resolves-Event: none``
     when ``concern_id`` is None, per the SMM constraint that every
     commit body carry a Resolves-Event trailer.
     """
-    subject = f"[chore] Scaffold {surface} acceptance via {tool}"
+    subject = f"[chore] Scaffold {category} {surface} via {tool}"
     trailers = [f"Tool-version: {tool_version}"]
     if files_created:
         trailers.append(f"Files-created: {', '.join(files_created)}")
