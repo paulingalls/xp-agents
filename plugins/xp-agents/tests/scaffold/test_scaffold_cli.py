@@ -245,12 +245,9 @@ class TestBuildPlan(_SMMTestCase):
             "install_cmds",
             "verify_cmd",
             "branch_name",
-            "commit_msg",
         ):
             self.assertIn(key, plan)
         self.assertEqual(plan["surface"], "browser")
-        self.assertIn("playwright", plan["commit_msg"])
-        self.assertIn("1.51.0", plan["commit_msg"])
 
     def test_invalid_json_exits_one(self) -> None:
         result = run_cli(
@@ -318,7 +315,7 @@ class TestRenderPreview(_SMMTestCase):
             "Selected tool",
             "Planning scaffold",
             "Install + verify",
-            "Commit plan",
+            "Commit branch",
         ):
             self.assertIn(marker, result.stdout)
 
@@ -413,7 +410,6 @@ class _ApplyCliTestBase(_SMMTestCase):
             "install_cmds": ["true"],
             "verify_cmd": "true",
             "branch_name": "paul/scaffold-browser-acceptance",
-            "commit_msg": "test",
         }
         plan.update(overrides)
         return plan

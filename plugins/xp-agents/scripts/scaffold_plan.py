@@ -24,7 +24,6 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 PROCEED_PROMPT = "Proceed? [yes / show files / no]"
-COMMIT_MSG_TEMPLATE = "[chore] Scaffold {surface} acceptance with {tool} {tool_version}"
 VERIFY_SUFFIX = "    # must pass green"
 BRANCH_NEW_SUFFIX = "(new, off main)"
 
@@ -39,7 +38,6 @@ class ScaffoldPlan:
     files_to_create: list[dict] = field(default_factory=list)
     files_to_modify: list[dict] = field(default_factory=list)
     install_cmds: list[str] = field(default_factory=list)
-    commit_msg: str = ""
 
 
 class DeclineResult(NamedTuple):
@@ -74,9 +72,6 @@ def build_plan(
         files_to_create=list(files_to_create),
         files_to_modify=list(files_to_modify),
         install_cmds=list(install_cmds),
-        commit_msg=COMMIT_MSG_TEMPLATE.format(
-            surface=surface, tool=tool, tool_version=tool_version
-        ),
     )
 
 
@@ -129,9 +124,7 @@ def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
         lines.append(f"  {cmd}")
     lines.append(f"  {plan.verify_cmd}{VERIFY_SUFFIX}")
     lines.append("")
-    lines.append("Commit plan:")
-    lines.append(f"  Branch: {plan.branch_name} {BRANCH_NEW_SUFFIX}")
-    lines.append(f'  Message: "{plan.commit_msg}"')
+    lines.append(f"Commit branch: {plan.branch_name} {BRANCH_NEW_SUFFIX}")
     lines.append("")
     lines.append(PROCEED_PROMPT)
     return "\n".join(lines)

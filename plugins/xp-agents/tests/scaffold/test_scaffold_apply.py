@@ -33,7 +33,6 @@ def _plan(
         "install_cmds": install_cmds or ["true"],
         "verify_cmd": verify_cmd,
         "branch_name": "scaffold/test",
-        "commit_msg": "test",
     }
 
 
