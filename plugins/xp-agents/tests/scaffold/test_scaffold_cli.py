@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Tests for scripts/scaffold_cli.py — thin CLI wrapper over scaffold helpers.
 
-Covers all five subcommands (teammates-active, detect-surfaces,
-assess-tool, build-plan, render-preview) plus key error paths. Follows
-the run_cli + _SMMTestCase pattern from tests/engine/test_plan_cli.py.
+Covers nine subcommands: teammates-active, detect-surfaces, assess-tool,
+build-plan, render-preview (with --show-files), apply-write,
+apply-install, apply-verify, apply-revert — plus key error paths.
+Follows the run_cli + _SMMTestCase pattern from
+tests/engine/test_plan_cli.py.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 import unittest
@@ -340,6 +343,239 @@ class TestRenderPreview(_SMMTestCase):
             stdin_data="not json",
         )
         self.assertEqual(result.returncode, 1)
+
+    def test_show_files_renders_files_section(self) -> None:
+        plan = self._sample_plan()
+        plan["files_to_create"][0]["body"] = "test('x', () => {});\n"
+        result = run_cli(
+            _CLI,
+            ["render-preview", "--show-files"],
+            self.smm_dir,
+            stdin_data=json.dumps(plan),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Files:", result.stdout)
+        self.assertIn("test('x', () => {});", result.stdout)
+
+    def test_show_files_default_false(self) -> None:
+        plan = self._sample_plan()
+        plan["files_to_create"][0]["body"] = "test('x', () => {});\n"
+        result = run_cli(
+            _CLI,
+            ["render-preview"],
+            self.smm_dir,
+            stdin_data=json.dumps(plan),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Files:", result.stdout)
+
+
+class _ApplyCliTestBase(_SMMTestCase):
+    """Stages a temp repo + apply plan; runs apply-write to produce a snapshot."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._repo = self.smm_dir.parent / f"{self.smm_dir.name}-repo"
+        self._repo.mkdir()
+        (self._repo / "package.json").write_text('{"name": "demo"}\n', encoding="utf-8")
+        self._snapshots: list[Path] = []
+
+    def tearDown(self) -> None:
+        for snap in self._snapshots:
+            shutil.rmtree(snap, ignore_errors=True)
+        shutil.rmtree(self._repo, ignore_errors=True)
+        super().tearDown()
+
+    def _track_snapshot(self, payload: dict) -> None:
+        snap_dir = payload.get("snapshot_dir")
+        if snap_dir:
+            self._snapshots.append(Path(snap_dir))
+
+    def _plan(self, **overrides: object) -> dict:
+        plan = {
+            "surface": "browser",
+            "tool": "playwright",
+            "tool_version": "1.51.0",
+            "files_to_create": [
+                {
+                    "path": "tests/x.spec.ts",
+                    "description": "happy",
+                    "body": "x\n",
+                }
+            ],
+            "files_to_modify": [
+                {
+                    "path": "package.json",
+                    "description": "+dep",
+                    "body": '{"name": "demo", "added": true}\n',
+                }
+            ],
+            "install_cmds": ["true"],
+            "verify_cmd": "true",
+            "branch_name": "paul/scaffold-browser-acceptance",
+            "commit_msg": "test",
+        }
+        plan.update(overrides)
+        return plan
+
+    def _apply_write(self, plan: dict) -> dict:
+        result = run_cli(
+            _CLI,
+            ["apply-write", "--repo-root", str(self._repo)],
+            self.smm_dir,
+            stdin_data=json.dumps(plan),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self._track_snapshot(payload)
+        return payload
+
+
+class TestApplyWrite(_ApplyCliTestBase):
+    def test_happy_path_returns_ok_with_snapshot_id(self) -> None:
+        payload = self._apply_write(self._plan())
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["snapshot_id"])
+        self.assertTrue(Path(payload["snapshot_dir"]).exists())
+
+    def test_files_actually_written(self) -> None:
+        self._apply_write(self._plan())
+        self.assertTrue((self._repo / "tests/x.spec.ts").exists())
+        self.assertIn(
+            '"added": true',
+            (self._repo / "package.json").read_text(),
+        )
+
+    def test_invalid_json_stdin_exits_one(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["apply-write", "--repo-root", str(self._repo)],
+            self.smm_dir,
+            stdin_data="not json",
+        )
+        self.assertEqual(result.returncode, 1)
+
+
+class TestApplyInstall(_ApplyCliTestBase):
+    def test_happy_path_returns_ok(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-install",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+
+    def test_failure_reverts_and_records_phase(self) -> None:
+        write_payload = self._apply_write(self._plan(install_cmds=["false"]))
+        result = run_cli(
+            _CLI,
+            [
+                "apply-install",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["phase"], "install")
+        self.assertTrue(payload["reverted"])
+        self.assertFalse((self._repo / "tests/x.spec.ts").exists())
+        self.assertEqual(
+            (self._repo / "package.json").read_text(),
+            '{"name": "demo"}\n',
+        )
+
+    def test_missing_snapshot_id_exits_two(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["apply-install", "--snapshot-id", "nonexistent12"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+
+
+class TestApplyVerify(_ApplyCliTestBase):
+    def test_happy_path_returns_ok(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-verify",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+
+    def test_failure_reverts_and_records_phase(self) -> None:
+        write_payload = self._apply_write(self._plan(verify_cmd="false"))
+        result = run_cli(
+            _CLI,
+            [
+                "apply-verify",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["phase"], "verify")
+        self.assertTrue(payload["reverted"])
+
+
+class TestApplyRevert(_ApplyCliTestBase):
+    def test_explicit_cancel_after_write(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        self.assertTrue((self._repo / "tests/x.spec.ts").exists())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-revert",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["unrestored"], [])
+        self.assertFalse((self._repo / "tests/x.spec.ts").exists())
+        self.assertEqual(
+            (self._repo / "package.json").read_text(),
+            '{"name": "demo"}\n',
+        )
+
+    def test_missing_snapshot_id_exits_two(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["apply-revert", "--snapshot-id", "nonexistent12"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
 
 
 if __name__ == "__main__":
