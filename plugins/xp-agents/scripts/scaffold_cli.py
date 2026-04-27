@@ -164,7 +164,9 @@ def _run_apply_phase(
     try:
         run_fn(snap)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        reason = scaffold_apply.phase_failure_reason(exc, timeout_sec=timeout_sec)
+        reason = scaffold_apply.phase_failure_reason(
+            exc, timeout_sec=timeout_sec, log_path=snap.log_path(phase)
+        )
         return _emit(asdict(scaffold_apply.failure_result(phase, reason, snap)))
     return _emit({"ok": True})
 

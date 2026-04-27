@@ -29,9 +29,12 @@ Snapshot layout (under ``${TMPDIR}/scaffold-snap-<id>``):
 
 Subprocess discipline: install/verify run with ``shell=False``; commands
 are split via ``shlex.split`` so the canonical / web-refreshed knowledge
-the skill provides is interpreted as argv, not a shell string. stdout is
-discarded (npm install / pip install -v emit MBs of progress); stderr is
-captured for failure diagnostics. Timeouts: 300s install, 60s verify.
+the skill provides is interpreted as argv, not a shell string. stdout
+streams to ``snapshot_dir/<phase>.log`` (npm install / pip install -v
+emit MBs of progress — file-streaming avoids in-memory buffering and
+leaves the firehose available for inspection on failure); stderr stays
+in-memory as PIPE for the brief reason summary. Timeouts: 300s install,
+60s verify.
 """
 
 import contextlib
@@ -74,6 +77,10 @@ class ApplySnapshot:
     snapshot_dir: Path
     repo_root: Path
     plan: dict
+
+    def log_path(self, phase: str) -> Path:
+        """Path to the streamed-stdout log for a given phase ("install"/"verify")."""
+        return self.snapshot_dir / f"{phase}.log"
 
 
 def _new_snapshot_dir() -> tuple[str, Path]:
@@ -188,33 +195,51 @@ def write_files(snap: ApplySnapshot) -> None:
 
 
 def run_install(snap: ApplySnapshot) -> None:
-    """Run each install_cmds entry in repo_root. Raises CalledProcessError."""
-    for cmd in snap.plan.get("install_cmds", []):
+    """Run each install_cmds entry in repo_root.
+
+    stdout streams to ``snapshot_dir/install.log`` (npm/pip/jest emit
+    multi-MB on failure — file-streaming avoids in-memory buffering and
+    leaves the firehose available for inspection). stderr stays captured
+    in-memory so ``CalledProcessError.stderr`` carries the brief summary
+    that goes into ApplyResult.reason. Multiple install_cmds append to
+    the same log so the ordering is preserved.
+
+    Raises CalledProcessError or TimeoutExpired on failure.
+    """
+    log_path = snap.log_path("install")
+    with log_path.open("ab") as logf:
+        for cmd in snap.plan.get("install_cmds", []):
+            subprocess.run(
+                shlex.split(cmd),
+                cwd=snap.repo_root,
+                check=True,
+                timeout=INSTALL_TIMEOUT_SEC,
+                stdout=logf,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+
+def run_verify(snap: ApplySnapshot) -> None:
+    """Run verify_cmd in repo_root, streaming stdout to verify.log.
+
+    Same stdout-to-log + stderr-to-PIPE pattern as run_install. Raises
+    CalledProcessError or TimeoutExpired on non-zero / timeout.
+    """
+    cmd = snap.plan.get("verify_cmd")
+    if not cmd:
+        return
+    log_path = snap.log_path("verify")
+    with log_path.open("ab") as logf:
         subprocess.run(
             shlex.split(cmd),
             cwd=snap.repo_root,
             check=True,
-            timeout=INSTALL_TIMEOUT_SEC,
-            stdout=subprocess.DEVNULL,
+            timeout=VERIFY_TIMEOUT_SEC,
+            stdout=logf,
             stderr=subprocess.PIPE,
             text=True,
         )
-
-
-def run_verify(snap: ApplySnapshot) -> None:
-    """Run verify_cmd in repo_root. Raises CalledProcessError on non-zero."""
-    cmd = snap.plan.get("verify_cmd")
-    if not cmd:
-        return
-    subprocess.run(
-        shlex.split(cmd),
-        cwd=snap.repo_root,
-        check=True,
-        timeout=VERIFY_TIMEOUT_SEC,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
 
 
 def revert(snap: ApplySnapshot) -> list[str]:
@@ -238,12 +263,23 @@ def revert(snap: ApplySnapshot) -> list[str]:
     return unrestored
 
 
-def phase_failure_reason(exc: BaseException, *, timeout_sec: int) -> str:
-    """Format a single-line failure reason from a subprocess exception."""
+def phase_failure_reason(
+    exc: BaseException, *, timeout_sec: int, log_path: Path | None = None
+) -> str:
+    """Format a failure reason from a subprocess exception.
+
+    Brief stderr summary first; when ``log_path`` is provided, append a
+    hint pointing the customer at the full stdout firehose for the failed
+    phase.
+    """
     if isinstance(exc, subprocess.TimeoutExpired):
-        return f"timeout after {timeout_sec}s"
-    stderr = getattr(exc, "stderr", "") or ""
-    return stderr.strip() or str(exc)
+        head = f"timeout after {timeout_sec}s"
+    else:
+        stderr = getattr(exc, "stderr", "") or ""
+        head = stderr.strip() or str(exc)
+    if log_path is not None:
+        return f"{head}\n(see {log_path} for full output)"
+    return head
 
 
 def failure_result(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
@@ -310,7 +346,11 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         return failure_result(
             "install",
-            phase_failure_reason(exc, timeout_sec=INSTALL_TIMEOUT_SEC),
+            phase_failure_reason(
+                exc,
+                timeout_sec=INSTALL_TIMEOUT_SEC,
+                log_path=snap.log_path("install"),
+            ),
             snap,
         )
     try:
@@ -318,7 +358,11 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         return failure_result(
             "verify",
-            phase_failure_reason(exc, timeout_sec=VERIFY_TIMEOUT_SEC),
+            phase_failure_reason(
+                exc,
+                timeout_sec=VERIFY_TIMEOUT_SEC,
+                log_path=snap.log_path("verify"),
+            ),
             snap,
         )
     return ApplyResult(

@@ -449,5 +449,79 @@ class TestApplyPlanRejectsModifyOfNonexistent(_ApplyTestBase):
         self.assertIn("files_to_create", result.reason or "")
 
 
+class TestApplyPhaseLogs(_ApplyTestBase):
+    """Each phase (install, verify) writes its stdout to a log file under
+    snapshot_dir, named `{phase}.log`. On failure the reason field includes
+    the log path so the customer can inspect the firehose. stderr stays
+    captured into reason directly for the brief summary."""
+
+    def test_successful_run_writes_install_log(self) -> None:
+        plan = _plan(install_cmds=["echo install-output"])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok, result.reason)
+        log = Path(result.snapshot_dir) / "install.log"
+        self.assertTrue(log.exists())
+        self.assertIn("install-output", log.read_text(encoding="utf-8"))
+
+    def test_successful_run_writes_verify_log(self) -> None:
+        plan = _plan(verify_cmd="echo verify-output")
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok, result.reason)
+        log = Path(result.snapshot_dir) / "verify.log"
+        self.assertTrue(log.exists())
+        self.assertIn("verify-output", log.read_text(encoding="utf-8"))
+
+    def test_install_failure_reason_includes_log_path(self) -> None:
+        plan = _plan(
+            install_cmds=['sh -c "echo to-stdout; echo to-stderr >&2; exit 1"']
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertIn("install.log", result.reason or "")
+
+    def test_install_failure_reason_includes_stderr_summary(self) -> None:
+        plan = _plan(install_cmds=['sh -c "echo BANG-INSTALL-STDERR >&2; exit 1"'])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertIn("BANG-INSTALL-STDERR", result.reason or "")
+
+    def test_install_log_captures_stdout_on_failure(self) -> None:
+        plan = _plan(install_cmds=['sh -c "echo from-stdout; exit 1"'])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        log = Path(result.snapshot_dir) / "install.log"
+        self.assertTrue(log.exists())
+        self.assertIn("from-stdout", log.read_text(encoding="utf-8"))
+
+    def test_verify_failure_reason_includes_verify_log_path(self) -> None:
+        plan = _plan(verify_cmd='sh -c "exit 1"')
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertIn("verify.log", result.reason or "")
+
+    def test_install_log_and_verify_log_coexist_after_verify_failure(self) -> None:
+        plan = _plan(
+            install_cmds=["echo install-trace"],
+            verify_cmd='sh -c "echo verify-trace; exit 1"',
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        snap_dir = Path(result.snapshot_dir)
+        self.assertTrue((snap_dir / "install.log").exists())
+        self.assertTrue((snap_dir / "verify.log").exists())
+        self.assertIn(
+            "install-trace",
+            (snap_dir / "install.log").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "verify-trace",
+            (snap_dir / "verify.log").read_text(encoding="utf-8"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
