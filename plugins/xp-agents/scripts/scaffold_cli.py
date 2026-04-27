@@ -30,10 +30,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import branching
 import coordination
 import scaffold_apply
 import scaffold_detect
 import scaffold_plan
+import scaffold_post
 
 
 def _require_smm_dir(args: argparse.Namespace, command: str) -> int | None:
@@ -208,6 +210,25 @@ def _cmd_apply_verify(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_apply_commit(args: argparse.Namespace) -> int:
+    err = _require_smm_dir(args, "apply-commit")
+    if err is not None:
+        return err
+    snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
+    stage = branching.get_branching_stage(args.smm_dir)
+    tool_version = snap.plan["tool_version"]
+    result = scaffold_post.commit_scaffold(
+        snap,
+        smm_dir=args.smm_dir,
+        stage=stage,
+        surface=args.surface,
+        tool=args.tool,
+        tool_version=tool_version,
+        concern_id=args.concern_id,
+    )
+    return _emit(asdict(result))
+
+
 def _cmd_apply_revert(args: argparse.Namespace) -> int:
     snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
     unrestored = scaffold_apply.revert(snap)
@@ -311,6 +332,24 @@ def main() -> None:
             help="Repository root (default: cwd)",
         )
 
+    apply_commit = sub.add_parser(
+        "apply-commit",
+        help="Stage-aware branch + commit for a green scaffold",
+    )
+    apply_commit.add_argument(
+        "--snapshot-id", required=True, help="Snapshot ID from apply-write"
+    )
+    apply_commit.add_argument(
+        "--repo-root", type=Path, default=Path.cwd(), help="Repository root"
+    )
+    apply_commit.add_argument("--surface", required=True, help="Acceptance surface")
+    apply_commit.add_argument("--tool", required=True, help="Scaffolded tool name")
+    apply_commit.add_argument(
+        "--concern-id",
+        default=None,
+        help="Concern event ID resolved by this commit (omit for 'none')",
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -323,6 +362,7 @@ def main() -> None:
         "apply-install": _cmd_apply_install,
         "apply-verify": _cmd_apply_verify,
         "apply-revert": _cmd_apply_revert,
+        "apply-commit": _cmd_apply_commit,
     }
 
     sys.exit(dispatch[args.command](args))

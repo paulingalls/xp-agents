@@ -245,12 +245,9 @@ class TestBuildPlan(_SMMTestCase):
             "install_cmds",
             "verify_cmd",
             "branch_name",
-            "commit_msg",
         ):
             self.assertIn(key, plan)
         self.assertEqual(plan["surface"], "browser")
-        self.assertIn("playwright", plan["commit_msg"])
-        self.assertIn("1.51.0", plan["commit_msg"])
 
     def test_invalid_json_exits_one(self) -> None:
         result = run_cli(
@@ -318,7 +315,7 @@ class TestRenderPreview(_SMMTestCase):
             "Selected tool",
             "Planning scaffold",
             "Install + verify",
-            "Commit plan",
+            "Commit branch",
         ):
             self.assertIn(marker, result.stdout)
 
@@ -413,7 +410,6 @@ class _ApplyCliTestBase(_SMMTestCase):
             "install_cmds": ["true"],
             "verify_cmd": "true",
             "branch_name": "paul/scaffold-browser-acceptance",
-            "commit_msg": "test",
         }
         plan.update(overrides)
         return plan
@@ -694,6 +690,105 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
         self.assertEqual(payload["unrestored"], [])
         self.assertTrue(snapshot_dir.exists())
         self.assertTrue((snapshot_dir / "install.log").exists())
+
+
+def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+class _ApplyCliCommitTestBase(_ApplyCliTestBase):
+    """_ApplyCliTestBase + git init + identity + initial commit + stage config.
+
+    Sets up a real git tempdir so apply-commit can actually run git.
+    Subclasses override the ``stage`` class attribute for Stage 1+ tests.
+    """
+
+    stage: int = 0
+
+    def setUp(self) -> None:
+        super().setUp()
+        _git(["git", "init", "-b", "main"], self._repo)
+        _git(["git", "config", "user.email", "test@example.com"], self._repo)
+        _git(["git", "config", "user.name", "Test"], self._repo)
+        _git(["git", "add", "package.json"], self._repo)
+        _git(["git", "commit", "-m", "[chore] seed"], self._repo)
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps({"branching_strategy": {"stage": self.stage}}),
+            encoding="utf-8",
+        )
+
+
+class TestApplyCommitStageZero(_ApplyCliCommitTestBase):
+    def test_happy_path_returns_ok_with_sha_and_branch(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["sha"])
+        self.assertEqual(payload["branch"], "main")
+
+    def test_concern_id_in_resolves_event_trailer(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+                "--concern-id",
+                "abc123def456",
+            ],
+            self.smm_dir,
+        )
+        body = _git(["git", "log", "-1", "--format=%B"], self._repo).stdout
+        self.assertIn("Resolves-Event: abc123def456", body)
+
+
+class TestApplyCommitStageOneProtected(_ApplyCliCommitTestBase):
+    stage = 1
+
+    def test_refuses_on_main_at_stage_1(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("main", payload["reason"])
 
 
 if __name__ == "__main__":

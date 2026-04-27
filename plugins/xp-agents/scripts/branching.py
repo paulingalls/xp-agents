@@ -224,6 +224,7 @@ def _create_or_resume_branch(
     min_stage: int,
     *,
     base: str | None = None,
+    allow_dirty: bool = False,
 ) -> str | None:
     """Create `name` or resume it if it already exists locally.
 
@@ -233,6 +234,12 @@ def _create_or_resume_branch(
     fast-forwards to `base` when its tip is an ancestor of `base` so
     sprint-start scaffolds don't snap to a stale base mid-sprint.
     Branches with unique commits ahead of base are left alone.
+
+    ``allow_dirty=True`` skips the worktree-clean precondition for cases
+    where the dirty state IS the work being branched (e.g., scaffold-
+    acceptance has just written files and now needs to land them on a
+    fresh branch). git checkout -b preserves uncommitted changes when
+    the new branch starts at the same commit.
     """
     if get_branching_stage(smm_dir) < min_stage:
         return None
@@ -243,7 +250,7 @@ def _create_or_resume_branch(
             _fast_forward_if_safe(cwd, name, base)
         return name
 
-    if not is_worktree_clean(cwd):
+    if not allow_dirty and not is_worktree_clean(cwd):
         print("Working tree is dirty — commit or stash changes first", file=sys.stderr)
         sys.exit(1)
 
@@ -267,6 +274,7 @@ BRANCH_MIN_STAGE: dict[str, int] = {
     "sprint": 2,
     "plan": 2,
     "free": 1,
+    "scaffold": 1,
 }
 
 
@@ -313,6 +321,27 @@ def create_sprint_branch(
 
 def _utc_today_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
+    """Create or resume ``<user>/scaffold-<surface>`` off the primary branch.
+
+    Scaffold branches host the M-4 commit landed by /xp-scaffold-acceptance
+    Step 8 at stage 1+. Returns None at stage 0 (no branch discipline).
+    Passes ``allow_dirty=True`` because the scaffold flow has already
+    written files to disk before this call — the dirty state is the
+    work being branched, not stale uncommitted changes.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = branch_name(user_ns, "scaffold", surface)
+    return _create_or_resume_branch(
+        cwd,
+        name,
+        smm_dir,
+        min_stage=BRANCH_MIN_STAGE["scaffold"],
+        base=get_primary_branch(smm_dir),
+        allow_dirty=True,
+    )
 
 
 def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
