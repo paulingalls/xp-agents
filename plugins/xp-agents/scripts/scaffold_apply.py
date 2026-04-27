@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """Write/install/verify/atomic-revert pipeline for /xp-scaffold-acceptance.
 
-Public API (cycle 2 — happy path only; revert/error paths land cycles 3-4):
+Public API:
 
-- ``apply_plan(plan, *, repo_root)`` — happy-path driver. Snapshots every
+- ``apply_plan(plan, *, repo_root)`` — full pipeline. Snapshots every
   ``files_to_modify`` target, writes ``files_to_create`` and
   ``files_to_modify`` bodies, runs ``install_cmds`` then ``verify_cmd``.
-  Returns ``ApplyResult(ok=True)`` on green; subprocess.CalledProcessError
-  / OSError propagate uncaught for now (cycle 3 wraps them in auto-revert).
+  Returns ``ApplyResult(ok=True)`` on green. Any phase failure (write
+  OSError, install/verify non-zero exit, or timeout) auto-reverts the
+  snapshot and returns ``ApplyResult(ok=False, phase=..., reason=...,
+  reverted=True)`` with the failing phase's stderr in ``reason``.
 
-- Phase helpers ``snapshot_and_write``, ``run_install``, ``run_verify``,
-  ``revert`` are exposed for the CLI surface — each apply-* subcommand
-  (cycle 5) maps to one helper.
+- Phase helpers ``create_snapshot``, ``write_files``, ``run_install``,
+  ``run_verify``, ``revert`` are exposed for the cycle-5 CLI surface
+  (apply-write / apply-install / apply-verify / apply-revert subcommands).
 
 Snapshot layout (under ``${TMPDIR}/scaffold-snap-<id>``):
 
     backup/<relpath>   — copy of every files_to_modify target before write
-    plan.json          — full plan persisted by apply-write so apply-install,
-                         apply-verify, apply-revert can re-load it
-    created.txt        — newline-separated relpaths of files apply-write
-                         actually created (revert unlinks these)
+    plan.json          — full plan persisted at snapshot time. Revert reads
+                         plan.files_to_create from in-memory snap; the
+                         on-disk plan.json is for the cycle-5 CLI to
+                         re-load state across phase boundaries. Unlink is
+                         missing_ok so partial-write states revert cleanly.
 
 Subprocess discipline: install/verify run with ``shell=False``; commands
 are split via ``shlex.split`` so the canonical / web-refreshed knowledge
@@ -48,7 +51,6 @@ VERIFY_TIMEOUT_SEC = 60
 SNAPSHOT_PREFIX = "scaffold-snap-"
 BACKUP_SUBDIR = "backup"
 PLAN_FILE = "plan.json"
-CREATED_FILE = "created.txt"
 
 
 @dataclass
@@ -69,7 +71,6 @@ class ApplySnapshot:
     snapshot_dir: Path
     repo_root: Path
     plan: dict
-    created_paths: list[Path] = field(default_factory=list)
 
 
 def _new_snapshot_dir() -> tuple[str, Path]:
@@ -80,46 +81,44 @@ def _new_snapshot_dir() -> tuple[str, Path]:
     return snapshot_id, snapshot_dir
 
 
-def _persist_state(snap: ApplySnapshot) -> None:
-    write_text_atomic(snap.snapshot_dir / PLAN_FILE, json.dumps(snap.plan))
-    rels = [str(p.relative_to(snap.repo_root)) for p in snap.created_paths]
-    write_text_atomic(snap.snapshot_dir / CREATED_FILE, "\n".join(rels))
+def create_snapshot(plan: dict, *, repo_root: Path) -> ApplySnapshot:
+    """Create snapshot dir + plan.json, back up every files_to_modify target.
 
-
-def snapshot_and_write(plan: dict, *, repo_root: Path) -> ApplySnapshot:
-    """Snapshot every files_to_modify target, then write all bodies.
-
-    For each modify-entry: best-effort copy the existing file into
-    ``backup/<relpath>`` (silently skipped when the target doesn't yet
-    exist), then atomically write the new body. For each create-entry:
-    atomically write the body and record the path so revert can unlink.
-    Plan + created list are persisted to ``snapshot_dir`` so cycle-5 CLI
-    subcommands can re-load them across phase boundaries.
+    No repo writes happen here — bodies land in ``write_files``. Splitting
+    snapshot creation from body writes lets ``apply_plan`` revert partial
+    writes when ``write_files`` itself raises.
     """
     snapshot_id, snapshot_dir = _new_snapshot_dir()
     backup_dir = snapshot_dir / BACKUP_SUBDIR
-    snap = ApplySnapshot(
-        snapshot_id=snapshot_id,
-        snapshot_dir=snapshot_dir,
-        repo_root=repo_root,
-        plan=plan,
-    )
     for entry in plan.get("files_to_modify", []):
         target = repo_root / entry["path"]
         backup = backup_dir / entry["path"]
         backup.parent.mkdir(parents=True, exist_ok=True)
         with contextlib.suppress(FileNotFoundError):
             shutil.copy2(target, backup)
-        if "body" in entry:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            write_text_atomic(target, entry["body"])
+    snap = ApplySnapshot(
+        snapshot_id=snapshot_id,
+        snapshot_dir=snapshot_dir,
+        repo_root=repo_root,
+        plan=plan,
+    )
+    write_text_atomic(snap.snapshot_dir / PLAN_FILE, json.dumps(plan))
+    return snap
+
+
+def write_files(snap: ApplySnapshot) -> None:
+    """Atomically write every files_to_modify body and every files_to_create body."""
+    plan = snap.plan
+    for entry in plan.get("files_to_modify", []):
+        if "body" not in entry:
+            continue
+        target = snap.repo_root / entry["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_text_atomic(target, entry["body"])
     for entry in plan.get("files_to_create", []):
-        target = repo_root / entry["path"]
+        target = snap.repo_root / entry["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
         write_text_atomic(target, entry.get("body", ""))
-        snap.created_paths.append(target)
-    _persist_state(snap)
-    return snap
 
 
 def run_install(snap: ApplySnapshot) -> None:
@@ -164,24 +163,57 @@ def revert(snap: ApplySnapshot) -> list[str]:
             pass
         except OSError:
             unrestored.append(rel)
-    for created in snap.created_paths:
+    for entry in snap.plan.get("files_to_create", []):
+        rel = entry["path"]
         try:
-            created.unlink(missing_ok=True)
+            (snap.repo_root / rel).unlink(missing_ok=True)
         except OSError:
-            unrestored.append(str(created.relative_to(snap.repo_root)))
+            unrestored.append(rel)
     return unrestored
 
 
-def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
-    """Drive the write → install → verify pipeline (happy path only).
+def _phase_failure_reason(exc: BaseException, *, timeout_sec: int) -> str:
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"timeout after {timeout_sec}s"
+    stderr = getattr(exc, "stderr", "") or ""
+    return stderr.strip() or str(exc)
 
-    Cycle 3 will wrap phases in try/except + auto-revert; cycle 4 adds
-    revert-of-revert manual-recovery messaging. For now, subprocess and
-    OSError exceptions propagate uncaught.
-    """
-    snap = snapshot_and_write(plan, repo_root=repo_root)
-    run_install(snap)
-    run_verify(snap)
+
+def _failure(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
+    return ApplyResult(
+        ok=False,
+        phase=phase,
+        reason=reason,
+        reverted=True,
+        unrestored=revert(snap),
+        snapshot_id=snap.snapshot_id,
+        snapshot_dir=str(snap.snapshot_dir),
+    )
+
+
+def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
+    """Drive write → install → verify; auto-revert the snapshot on any failure."""
+    snap = create_snapshot(plan, repo_root=repo_root)
+    try:
+        write_files(snap)
+    except OSError as exc:
+        return _failure("write", str(exc), snap)
+    try:
+        run_install(snap)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        return _failure(
+            "install",
+            _phase_failure_reason(exc, timeout_sec=INSTALL_TIMEOUT_SEC),
+            snap,
+        )
+    try:
+        run_verify(snap)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        return _failure(
+            "verify",
+            _phase_failure_reason(exc, timeout_sec=VERIFY_TIMEOUT_SEC),
+            snap,
+        )
     return ApplyResult(
         ok=True,
         snapshot_id=snap.snapshot_id,

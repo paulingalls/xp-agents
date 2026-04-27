@@ -6,9 +6,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import scaffold_apply
 from scaffold_apply import (
     ApplyResult,
     apply_plan,
@@ -143,6 +145,139 @@ class TestApplyPlanHappyPath(_ApplyTestBase):
         self.assertIsNone(result.phase)
         self.assertIsNone(result.reason)
         self.assertFalse(result.reverted)
+
+
+class _RevertTestBase(_ApplyTestBase):
+    """Sets up a manifest with pre-existing content + a creating-and-modifying plan."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.manifest = self.repo / "package.json"
+        self.manifest.write_text('{"name": "demo"}\n', encoding="utf-8")
+        self.created_target = self.repo / "tests/x.spec.ts"
+
+    def _build_plan(self, **overrides: object) -> dict:
+        plan = _plan(
+            files_to_create=[
+                {"path": "tests/x.spec.ts", "description": "spec", "body": "x\n"}
+            ],
+            files_to_modify=[
+                {
+                    "path": "package.json",
+                    "description": "+dep",
+                    "body": '{"name": "demo", "added": true}\n',
+                }
+            ],
+        )
+        plan.update(overrides)
+        return plan
+
+    def _assert_pre_state_restored(self) -> None:
+        self.assertFalse(self.created_target.exists())
+        self.assertEqual(
+            self.manifest.read_text(encoding="utf-8"),
+            '{"name": "demo"}\n',
+        )
+
+
+class TestApplyPlanRevertOnInstallFailure(_RevertTestBase):
+    def test_install_failure_returns_not_ok(self) -> None:
+        plan = self._build_plan(install_cmds=["false"])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+
+    def test_install_failure_phase_recorded(self) -> None:
+        plan = self._build_plan(install_cmds=["false"])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertEqual(result.phase, "install")
+
+    def test_install_failure_reverted_flag(self) -> None:
+        plan = self._build_plan(install_cmds=["false"])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.reverted)
+        self.assertEqual(result.unrestored, [])
+
+    def test_install_failure_pre_state_restored(self) -> None:
+        plan = self._build_plan(install_cmds=["false"])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self._assert_pre_state_restored()
+
+    def test_install_failure_stderr_in_reason(self) -> None:
+        plan = self._build_plan(
+            install_cmds=['sh -c "echo BANG_FROM_INSTALL >&2; exit 1"']
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertIn("BANG_FROM_INSTALL", result.reason or "")
+
+
+class TestApplyPlanRevertOnVerifyFailure(_RevertTestBase):
+    def test_verify_failure_returns_not_ok(self) -> None:
+        plan = self._build_plan(verify_cmd="false")
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+
+    def test_verify_failure_phase_recorded(self) -> None:
+        plan = self._build_plan(verify_cmd="false")
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertEqual(result.phase, "verify")
+
+    def test_verify_failure_pre_state_restored(self) -> None:
+        plan = self._build_plan(verify_cmd="false")
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self._assert_pre_state_restored()
+        self.assertTrue(result.reverted)
+
+    def test_verify_failure_stderr_in_reason(self) -> None:
+        plan = self._build_plan(verify_cmd='sh -c "echo BANG_FROM_VERIFY >&2; exit 1"')
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertIn("BANG_FROM_VERIFY", result.reason or "")
+
+
+class TestApplyPlanRevertOnWriteFailure(_RevertTestBase):
+    def test_write_failure_returns_not_ok(self) -> None:
+        plan = self._build_plan()
+
+        original_write = scaffold_apply.write_text_atomic
+        call_count = {"n": 0}
+
+        def fake_write(path: Path, content: str, **kw: object) -> None:
+            call_count["n"] += 1
+            if "x.spec.ts" in str(path):
+                raise OSError("simulated write failure")
+            original_write(path, content, **kw)
+
+        with mock.patch.object(scaffold_apply, "write_text_atomic", fake_write):
+            result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+        self.assertTrue(result.reverted)
+
+    def test_write_failure_pre_state_restored(self) -> None:
+        plan = self._build_plan()
+
+        original_write = scaffold_apply.write_text_atomic
+
+        def fake_write(path: Path, content: str, **kw: object) -> None:
+            if "x.spec.ts" in str(path):
+                raise OSError("simulated write failure")
+            original_write(path, content, **kw)
+
+        with mock.patch.object(scaffold_apply, "write_text_atomic", fake_write):
+            result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+
+        self._assert_pre_state_restored()
 
 
 if __name__ == "__main__":
