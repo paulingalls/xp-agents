@@ -172,6 +172,7 @@ def record_scaffold(
     verify_cmd: str,
     concern_id: str | None,
     agent_id: str,
+    commit_sha: str | None = None,
 ) -> RecordResult:
     """Flip ``acceptance_surfaces[<surface>].status`` to ``"covered"``.
 
@@ -182,18 +183,42 @@ def record_scaffold(
     schema validation). Other surface entries and their fields are
     untouched.
 
+    When ``commit_sha`` is supplied, verifies via ``git cat-file -e`` that
+    the sha exists in ``snap.repo_root`` BEFORE the surface flip. Closes
+    the atomicity gap where ``apply-record`` could flip a surface to
+    covered even when ``apply-commit`` produced no commit on disk —
+    state would lie. ``RecordResult(ok=False, reason=...)`` short-circuits
+    when the sha is missing.
+
     When ``concern_id`` is a 12-hex event ID (not None and not the
     sentinel ``"none"``), also appends a ``decision`` event with
-    ``metadata.resolves=[concern_id]`` so the missing-acceptance concern
-    that motivated this scaffold cascades closed. The new event's id is
-    returned in ``RecordResult.decision_event_id``.
+    ``metadata.resolves=[concern_id]``, ``metadata.snapshot_id`` (from
+    ``snap.snapshot_id``) and (when supplied) ``metadata.commit_sha`` for
+    provenance. The new event's id is returned in
+    ``RecordResult.decision_event_id``.
 
     Returns ``RecordResult(ok=False, reason=...)`` when the system_context
-    document is missing, when the named surface is missing, or when the
-    post-mutation save fails schema validation — the caller surfaces the
-    failure verbatim rather than silently no-op.
+    document is missing, when the named surface is missing, when the
+    expected commit_sha is absent from the repo, or when the post-mutation
+    save fails schema validation.
     """
-    del snap  # reserved for future provenance; surface-flip is smm-side only
+    if commit_sha:
+        check = subprocess.run(
+            ["git", "cat-file", "-e", commit_sha],
+            cwd=snap.repo_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if check.returncode != 0:
+            return RecordResult(
+                ok=False,
+                reason=(
+                    f"expected scaffold commit {commit_sha!r} not found in "
+                    f"{snap.repo_root}; refuse to flip surface to covered "
+                    "without the commit landed"
+                ),
+            )
     ctx = system_context_store.load_system_context(smm_dir)
     if ctx is None:
         return RecordResult(
@@ -225,12 +250,15 @@ def record_scaffold(
 
     decision_event_id: str | None = None
     if concern_id and concern_id != "none":
+        metadata: dict = {"resolves": [concern_id], "snapshot_id": snap.snapshot_id}
+        if commit_sha:
+            metadata["commit_sha"] = commit_sha
         event = _common.make_event(
             "decision",
             agent_id,
             f"Acceptance surface {surface!r} covered via /xp-scaffold-acceptance",
             topic=f"scaffold-acceptance-{surface}",
-            metadata={"resolves": [concern_id]},
+            metadata=metadata,
         )
         _common.append_safe(smm_dir, event)
         decision_event_id = event["id"]

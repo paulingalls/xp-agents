@@ -3,37 +3,26 @@
 
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import scaffold_apply
+from _helpers import valid_system_context
 from scaffold_post import record_scaffold
-
-
-def _valid_system_context(surfaces: list[dict]) -> dict:
-    return {
-        "product": "Test product.",
-        "architecture_overview": "Test architecture.",
-        "stack": {"languages": ["Python"]},
-        "modules": [{"name": "core", "purpose": "Core", "path": "src/core"}],
-        "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "lang", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
-        "project_specific": [],
-        "acceptance_surfaces": surfaces,
-    }
 
 
 class _RecordTestBase(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = Path(tempfile.mkdtemp(prefix="scaffold-record-test-"))
         self.smm_dir = Path(tempfile.mkdtemp(prefix="scaffold-record-smm-"))
-        ctx = _valid_system_context(
+        ctx = valid_system_context(
             [
                 {
                     "name": "browser",
@@ -249,6 +238,61 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
         events = _events(self.smm_dir)
         decisions = [e for e in events if e.get("type") == "decision"]
         self.assertEqual(decisions, [])
+
+
+class TestRecordScaffoldCommitShaGate(_RecordTestBase):
+    """When commit_sha is supplied, record_scaffold refuses to flip the
+    surface unless the commit actually exists in snap.repo_root.
+
+    Closes the atomicity gap surfaced by the close-reviewer: previously,
+    apply-record could flip system_context.acceptance_surfaces[*] to
+    'covered' even if apply-commit had failed silently, leaving a state
+    that lied about the on-disk reality.
+    """
+
+    def test_missing_commit_sha_returns_failure(self) -> None:
+        # No git repo init in self.repo, so any sha is missing.
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id=None,
+            agent_id="test-agent",
+            commit_sha="deadbeefcafe",
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("deadbeefcafe", result.reason or "")
+        # system_context untouched.
+        ctx = self._ctx()
+        browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
+        self.assertEqual(browser["status"], "gap")
+
+    def test_decision_event_carries_snapshot_id_and_commit_sha(self) -> None:
+        from _helpers import init_git_with_seed
+
+        init_git_with_seed(self.repo, "README", "seed\n")
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id="abc123def456",
+            agent_id="test-agent",
+            commit_sha=head,
+        )
+        self.assertTrue(result.ok, result.reason)
+        events = _events(self.smm_dir)
+        decision = next(e for e in events if e.get("type") == "decision")
+        self.assertEqual(decision["metadata"]["snapshot_id"], "testid")
+        self.assertEqual(decision["metadata"]["commit_sha"], head)
 
 
 if __name__ == "__main__":

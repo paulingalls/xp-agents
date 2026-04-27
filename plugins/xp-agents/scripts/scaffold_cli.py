@@ -242,6 +242,7 @@ def _cmd_apply_record(args: argparse.Namespace) -> int:
         verify_cmd=verify_cmd,
         concern_id=args.concern_id,
         agent_id=args.agent_id,
+        commit_sha=args.commit_sha,
     )
     if result.ok:
         scaffold_apply.cleanup_snapshot(snap)  # apply-record is terminal in M-4
@@ -389,6 +390,14 @@ def main() -> None:
         "--agent-id",
         required=True,
         help="Agent ID for the decision event (skill is inline; pass caller agent)",
+    )
+    apply_record.add_argument(
+        "--commit-sha",
+        default=None,
+        help=(
+            "Scaffold commit SHA from apply-commit; if supplied, "
+            "apply-record verifies the commit exists before flipping the surface"
+        ),
     )
 
     args = parser.parse_args()

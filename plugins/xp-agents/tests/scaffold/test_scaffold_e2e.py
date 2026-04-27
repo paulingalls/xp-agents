@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _helpers import init_git_with_seed, run_git
+from _helpers import init_git_with_seed, run_git, valid_system_context
 from conftest import run_cli
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -25,25 +25,17 @@ _CLI = _PLUGIN_ROOT / "scripts" / "scaffold_cli.py"
 
 
 def _setup_smm(smm_dir: Path) -> None:
-    ctx = {
-        "product": "Demo product.",
-        "architecture_overview": "Simple frontend.",
-        "stack": {"languages": ["TypeScript"]},
-        "modules": [{"name": "app", "purpose": "App", "path": "src/app"}],
-        "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "lang", "decision": "Use TS"}],
-        "sources": ["CLAUDE.md"],
-        "project_specific": [],
-        "branching_strategy": {"stage": 0},
-        "acceptance_surfaces": [
+    ctx = valid_system_context(
+        surfaces=[
             {
                 "name": "browser",
                 "signals": ["next.js"],
                 "harness": "playwright",
                 "status": "gap",
             }
-        ],
-    }
+        ]
+    )
+    ctx["branching_strategy"] = {"stage": 0}
     (smm_dir / "system_context.json").write_text(json.dumps(ctx), encoding="utf-8")
 
 
@@ -130,6 +122,7 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
         )
         self.assertTrue(commit_payload["ok"])
         self.assertEqual(commit_payload["branch"], "main")  # stage 0 → HEAD
+        commit_sha = commit_payload["sha"]
 
         self._run(
             [
@@ -144,6 +137,8 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
                 "abc123def456",
                 "--agent-id",
                 "test-agent",
+                "--commit-sha",
+                commit_sha,
             ]
         )
 
@@ -177,7 +172,12 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
         ]
         decisions = [e for e in events if e.get("type") == "decision"]
         self.assertTrue(decisions, "no decision event recorded")
-        self.assertIn("abc123def456", decisions[-1].get("metadata", {}).get("resolves"))
+        decision_meta = decisions[-1].get("metadata", {})
+        self.assertIn("abc123def456", decision_meta.get("resolves"))
+        # Provenance: snapshot_id + commit_sha land on the decision event so
+        # the surface flip can be cross-referenced back to the apply pipeline.
+        self.assertEqual(decision_meta.get("snapshot_id"), snap_id)
+        self.assertEqual(decision_meta.get("commit_sha"), commit_sha)
 
 
 if __name__ == "__main__":

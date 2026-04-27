@@ -36,3 +36,24 @@ def init_git_with_seed(repo: Path, seed_path: str, seed_body: str) -> None:
     (repo / seed_path).write_text(seed_body, encoding="utf-8")
     run_git(["git", "add", seed_path], repo)
     run_git(["git", "commit", "-m", "[chore] seed"], repo)
+
+
+def valid_system_context(surfaces: list[dict] | None = None) -> dict:
+    """Minimal schema-valid system_context.json doc with optional surfaces.
+
+    Used by record / cli / e2e tests that need to seed an SMM dir before
+    invoking apply-record (which goes through schema validation).
+    """
+    doc: dict = {
+        "product": "Test product.",
+        "architecture_overview": "Test architecture.",
+        "stack": {"languages": ["Python"]},
+        "modules": [{"name": "core", "purpose": "Core", "path": "src/core"}],
+        "conventions": ["Use type hints"],
+        "key_decisions": [{"topic": "lang", "decision": "Use Python"}],
+        "sources": ["CLAUDE.md"],
+        "project_specific": [],
+    }
+    if surfaces is not None:
+        doc["acceptance_surfaces"] = surfaces
+    return doc

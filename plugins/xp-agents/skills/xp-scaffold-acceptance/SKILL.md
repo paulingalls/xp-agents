@@ -301,11 +301,13 @@ After a green verify, the snapshot directory is **retained** for Steps 8–9 (co
 Resolve the **missing-acceptance concern_id** for the chosen surface — that is the open `concern` event that `xp-system-analyzer` raised when the gap was first detected. Use `grep` against `${SMM_DIR}/events.jsonl` to extract its 12-hex id without reading the full log:
 
 ```bash
-CONCERN_ID=$(grep -m1 "\"topic\": \"missing-acceptance-${SURFACE}\"" \
+CONCERN_ID=$(grep "\"topic\": \"missing-acceptance-${SURFACE}\"" \
     "${SMM_DIR}/events.jsonl" \
-    | grep -oE '"id": "[a-f0-9]{12}"' | head -1 | cut -d'"' -f4)
+    | tail -1 | grep -oE '"id": "[a-f0-9]{12}"' | cut -d'"' -f4)
 CONCERN_ID="${CONCERN_ID:-none}"
 ```
+
+`tail -1` picks the **most recent** matching concern — re-runs of `xp-system-analyzer` against an already-resolved gap leave the latest emit as the live one.
 
 If no matching open concern exists (e.g., manual scaffold not preceded by analyzer), `$CONCERN_ID` falls back to `none` — `apply-commit` writes `Resolves-Event: none` per doctrine.
 
@@ -324,12 +326,16 @@ COMMIT_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
 
 Flip the surface to covered and resolve the concern via the decision-event STRONG link:
 
+Pull the scaffold commit SHA out of `$COMMIT_JSON` (Step 8) and pass it to `apply-record` as `--commit-sha` so the surface flip is gated on the commit having actually landed:
+
 ```bash
+COMMIT_SHA=$(printf '%s' "$COMMIT_JSON" | grep -oE '"sha": "[a-f0-9]+"' | cut -d'"' -f4)
+
 RECORD_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     --smm-dir <SMM_DIR> apply-record \
     --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT" \
     --surface "$SURFACE" --concern-id "$CONCERN_ID" \
-    --agent-id "$AGENT_ID")
+    --agent-id "$AGENT_ID" --commit-sha "$COMMIT_SHA")
 # Parse RECORD_JSON: on ok=false, surface .reason verbatim and exit.
 # On ok=true, .decision_event_id carries the resolution event's id.
 ```

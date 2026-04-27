@@ -19,28 +19,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _helpers import init_git_identity, run_git
+from _helpers import init_git_identity, run_git, valid_system_context
 from conftest import _SMMTestCase, run_cli
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _CLI = _PLUGIN_ROOT / "scripts" / "scaffold_cli.py"
-
-
-def _valid_system_context(surfaces: list[dict] | None = None) -> dict:
-    doc: dict = {
-        "product": "A test product.",
-        "architecture_overview": "Simple architecture.",
-        "stack": {"languages": ["Python"]},
-        "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
-        "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "language", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
-        "project_specific": [],
-    }
-    if surfaces is not None:
-        doc["acceptance_surfaces"] = surfaces
-    return doc
 
 
 class TestTeammatesActive(_SMMTestCase):
@@ -126,7 +110,7 @@ class TestDetectSurfaces(_SMMTestCase):
         self.assertEqual(json.loads(result.stdout), [])
 
     def test_returns_surface_array(self) -> None:
-        ctx = _valid_system_context(
+        ctx = valid_system_context(
             surfaces=[
                 {
                     "name": "browser",
@@ -805,25 +789,17 @@ class _ApplyCliRecordTestBase(_ApplyCliTestBase):
 
     def setUp(self) -> None:
         super().setUp()
-        ctx = {
-            "product": "Test product.",
-            "architecture_overview": "Test architecture.",
-            "stack": {"languages": ["Python"]},
-            "modules": [{"name": "core", "purpose": "Core", "path": "src/core"}],
-            "conventions": ["Use type hints"],
-            "key_decisions": [{"topic": "lang", "decision": "Use Python"}],
-            "sources": ["CLAUDE.md"],
-            "project_specific": [],
-            "branching_strategy": {"stage": 0},
-            "acceptance_surfaces": [
+        ctx = valid_system_context(
+            surfaces=[
                 {
                     "name": "browser",
                     "signals": ["next.js"],
                     "harness": "playwright",
                     "status": "gap",
                 }
-            ],
-        }
+            ]
+        )
+        ctx["branching_strategy"] = {"stage": 0}
         (self.smm_dir / "system_context.json").write_text(
             json.dumps(ctx), encoding="utf-8"
         )
