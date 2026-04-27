@@ -692,5 +692,104 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
         self.assertTrue((snapshot_dir / "install.log").exists())
 
 
+def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+class _ApplyCliCommitTestBase(_ApplyCliTestBase):
+    """_ApplyCliTestBase + git init + identity + initial commit + stage config.
+
+    Sets up a real git tempdir so apply-commit can actually run git.
+    Subclasses override the ``stage`` class attribute for Stage 1+ tests.
+    """
+
+    stage: int = 0
+
+    def setUp(self) -> None:
+        super().setUp()
+        _git(["git", "init", "-b", "main"], self._repo)
+        _git(["git", "config", "user.email", "test@example.com"], self._repo)
+        _git(["git", "config", "user.name", "Test"], self._repo)
+        _git(["git", "add", "package.json"], self._repo)
+        _git(["git", "commit", "-m", "[chore] seed"], self._repo)
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps({"branching_strategy": {"stage": self.stage}}),
+            encoding="utf-8",
+        )
+
+
+class TestApplyCommitStageZero(_ApplyCliCommitTestBase):
+    def test_happy_path_returns_ok_with_sha_and_branch(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["sha"])
+        self.assertEqual(payload["branch"], "main")
+
+    def test_concern_id_in_resolves_event_trailer(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+                "--concern-id",
+                "abc123def456",
+            ],
+            self.smm_dir,
+        )
+        body = _git(["git", "log", "-1", "--format=%B"], self._repo).stdout
+        self.assertIn("Resolves-Event: abc123def456", body)
+
+
+class TestApplyCommitStageOneProtected(_ApplyCliCommitTestBase):
+    stage = 1
+
+    def test_refuses_on_main_at_stage_1(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("main", payload["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()
