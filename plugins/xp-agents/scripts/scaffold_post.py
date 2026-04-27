@@ -12,17 +12,24 @@ after a green verify:
   Stage 0 commits on HEAD; Stage 1+ creates ``<user>/scaffold-<surface>``
   via ``branching.create_scaffold_branch`` and refuses commits to protected
   branches (main/master) when no scaffold branch is yet active.
-
-Story-002 will add ``record_scaffold(...)`` here for the system_context
-flip + concern-resolution decision event.
+- ``record_scaffold(snap, ...)``: flips the matching
+  ``acceptance_surfaces[*].status`` to ``"covered"`` and stamps the
+  verify command onto ``acceptance_template_command`` for downstream
+  capstone-story reuse (xp-sprint-start). When a non-sentinel
+  ``concern_id`` is supplied, also appends a ``decision`` event with
+  ``metadata.resolves=[concern_id]`` (STRONG link) so the
+  missing-acceptance concern that motivated the scaffold cascades
+  closed.
 """
 
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+import _common
 import branching
 import identity
+import system_context_store
 from scaffold_apply import ApplySnapshot
 
 
@@ -148,3 +155,84 @@ def commit_scaffold(
 
     sha = _git(["git", "rev-parse", "HEAD"], repo_root).stdout.strip()
     return CommitResult(ok=True, sha=sha, branch=target_branch)
+
+
+@dataclass
+class RecordResult:
+    ok: bool
+    reason: str | None = None
+    decision_event_id: str | None = None
+
+
+def record_scaffold(
+    snap: ApplySnapshot,
+    *,
+    smm_dir: Path,
+    surface: str,
+    verify_cmd: str,
+    concern_id: str | None,
+    agent_id: str,
+) -> RecordResult:
+    """Flip ``acceptance_surfaces[<surface>].status`` to ``"covered"``.
+
+    Reads ``system_context.json`` via ``system_context_store.load_system_context``,
+    finds the surface entry by name, sets ``status="covered"`` and
+    ``acceptance_template_command=verify_cmd``, and writes the document
+    back via ``system_context_store.save_system_context`` (atomic write +
+    schema validation). Other surface entries and their fields are
+    untouched.
+
+    When ``concern_id`` is a 12-hex event ID (not None and not the
+    sentinel ``"none"``), also appends a ``decision`` event with
+    ``metadata.resolves=[concern_id]`` so the missing-acceptance concern
+    that motivated this scaffold cascades closed. The new event's id is
+    returned in ``RecordResult.decision_event_id``.
+
+    Returns ``RecordResult(ok=False, reason=...)`` when the system_context
+    document is missing, when the named surface is missing, or when the
+    post-mutation save fails schema validation — the caller surfaces the
+    failure verbatim rather than silently no-op.
+    """
+    del snap  # reserved for future provenance; surface-flip is smm-side only
+    ctx = system_context_store.load_system_context(smm_dir)
+    if ctx is None:
+        return RecordResult(
+            ok=False,
+            reason=(
+                "system_context.json not found; run /xp-system-context "
+                "before scaffolding"
+            ),
+        )
+    surfaces = ctx.get("acceptance_surfaces", [])
+    target = next((s for s in surfaces if s.get("name") == surface), None)
+    if target is None:
+        return RecordResult(
+            ok=False,
+            reason=(
+                f"surface {surface!r} not found in acceptance_surfaces; "
+                "run /xp-system-context to record it before scaffolding"
+            ),
+        )
+    target["status"] = "covered"
+    target["acceptance_template_command"] = verify_cmd
+    try:
+        system_context_store.save_system_context(smm_dir, ctx)
+    except (ValueError, OSError) as exc:
+        return RecordResult(
+            ok=False,
+            reason=f"system_context save failed: {exc}",
+        )
+
+    decision_event_id: str | None = None
+    if concern_id and concern_id != "none":
+        event = _common.make_event(
+            "decision",
+            agent_id,
+            f"Acceptance surface {surface!r} covered via /xp-scaffold-acceptance",
+            topic=f"scaffold-acceptance-{surface}",
+            metadata={"resolves": [concern_id]},
+        )
+        _common.append_safe(smm_dir, event)
+        decision_event_id = event["id"]
+
+    return RecordResult(ok=True, decision_event_id=decision_event_id)
