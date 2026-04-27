@@ -54,8 +54,8 @@ No `--force` flag, no escape hatch. Exit cleanly.
 ### 1b. Resolve scaffold scope (monorepo path placement)
 
 Before detection runs, resolve `$REPO_ROOT` against any monorepo layout —
-running detection at the wrong scope makes Step 1c (re-invocation) and
-Step 1d (detect-surfaces) blind to package-scoped configs. Call
+running detection at the wrong scope makes Step 1c (detect-surfaces) and
+Step 1d (re-invocation) blind to package-scoped configs. Call
 `detect-monorepo` against the original repository root:
 
 ```bash
@@ -141,7 +141,7 @@ Branch on the answer:
 
 **Add complementary tool.** Loop back to Step 3 with one adjustment: when listing the canonical tool options, **exclude the existing `tool_name`** from the list. Concretely, build the Step 3 tool-question options as `[t for t in canonical_tools_for(<surface>) if t != <existing tool_name>] + ["Other (I'll name it)"]`. The downstream flow (Step 2 web-refresh, Step 4 plan, Step 5 confirm, Steps 6-9 apply) runs unchanged — `apply-write` stages new files alongside the existing tool, and the customer's preview in Step 5 shows them what gets added.
 
-**Redo from scratch.** Resolve the introducing commit via `find-introducing-commit` against the detected `config_files`. Read the chosen surface's `config_files` array from the Step 1b `detect-surfaces` JSON and substitute them as literal `--config-files <path>` flags in the invocation (one flag per file). Example for a `browser` surface with two playwright configs:
+**Redo from scratch.** Resolve the introducing commit via `find-introducing-commit` against the detected `config_files`. Read the chosen surface's `config_files` array from the Step 1c `detect-surfaces` JSON and substitute them as literal `--config-files <path>` flags in the invocation (one flag per file). Example for a `browser` surface with two playwright configs:
 
 ```bash
 INTRO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
@@ -150,7 +150,7 @@ INTRO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     --config-files "$REPO_ROOT/playwright.config.js")
 ```
 
-The agent reads the `config_files` list out of the Step 1b JSON and writes one `--config-files` flag per entry — same agent-substitution model used throughout this SKILL (no bash array extraction; no inline `python3 -c`). At least one `--config-files` flag is required by argparse.
+The agent reads the `config_files` list out of the Step 1c JSON and writes one `--config-files` flag per entry — same agent-substitution model used throughout this SKILL (no bash array extraction; no inline `python3 -c`). At least one `--config-files` flag is required by argparse.
 
 Parse `$INTRO_JSON`. If the JSON is a non-null dict, surface the revert pointer to the customer verbatim:
 
