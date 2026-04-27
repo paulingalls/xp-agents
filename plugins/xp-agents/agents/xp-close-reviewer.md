@@ -64,6 +64,8 @@ Standard quality review only. Sprint/plan-level scope concerns do not apply — 
 
 **Before** returning the prose summary, file an SMM `concern` event for each Block and Concern bullet. The prose alone is ephemeral — the close skill displays it once and moves on. Recording survives merge confirmation, abort, and subsequent sessions, and wires the commit-auto-link nudge so a later fix can resolve the concern via a `Resolves-Event:` trailer.
 
+**Do not emit any prose until every Block and Concern bullet has a corresponding `append.sh` exit-zero.** If you skip the recording step or emit prose first and the user picks "Abort" at the merge confirmation, the concerns are gone.
+
 **Keep** bullets are positive observations — do **not** record them as events. They appear only in the prose summary.
 
 For each **Block** bullet — issues the close skill should fix before merging:
@@ -88,7 +90,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 **`--files` discipline:** when your bullet cites concrete paths (e.g. `scripts/foo.py:42`), pass them via `--files`. The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omitting `--files` silently disables that STRUCTURAL link. If a concern is purely architectural with no file pin, omit `--files` rather than guessing.
 
-**Content budget:** `concern` events are capped at 400 chars. If a bullet runs longer, summarize tighter or split into two events — the call will fail validation otherwise.
+**Content budget:** `concern` events are capped at 400 chars. If a bullet runs longer, summarize tighter or split into two events. **If `append.sh` exits non-zero for any reason** (budget overrun, schema validation, file lock), retry with a shorter `--content` or fix the input — do not continue to the prose summary until every bullet has a successful `append.sh` exit-zero. A swallowed error here means the concern is silently lost, defeating the whole point of recording.
 
 ## Reporting Back
 

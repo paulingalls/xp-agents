@@ -117,11 +117,20 @@ class TestSprintReviewToCloseChainIntegrity(unittest.TestCase):
         # Must instruct attaching --files when paths are cited (STRUCTURAL link).
         self.assertIn("--files", body)
         # Must specify recording happens before the prose summary, so an
-        # aborted close still leaves the concerns filed.
+        # aborted close still leaves the concerns filed. This is a smoke
+        # check on the prompt text — it cannot verify runtime ordering, but
+        # it catches accidental deletion of the ordering rule. Two distinct
+        # phrasings must both be present so a single ambiguous "before
+        # returning the summary, do X" sentence elsewhere can't satisfy it.
         self.assertRegex(
             body,
-            r"[Bb]efore.*(returning|prose|summary)",
-            "agent must record events BEFORE returning the prose summary",
+            r"[Bb]efore\*{0,2}\s+returning the prose summary",
+            "agent must explicitly state recording happens before prose",
+        )
+        self.assertRegex(
+            body,
+            r"(?i)do not emit.*prose",
+            "agent must explicitly forbid emitting prose before recording",
         )
 
 
