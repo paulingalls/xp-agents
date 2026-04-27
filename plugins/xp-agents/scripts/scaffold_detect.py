@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Detection helpers for /xp-scaffold-acceptance.
 
-Three pure-read functions consumed by the scaffold-acceptance skill:
+Pure-read functions consumed by the scaffold-acceptance skill:
 
 - read_acceptance_surfaces(smm_dir): pull the acceptance_surfaces array from
   system_context.json (empty list when absent).
@@ -9,8 +9,15 @@ Three pure-read functions consumed by the scaffold-acceptance skill:
   xp-system-analyzer surface table.
 - detect_existing_tooling(surface, repo_root): look for known config files of
   any canonical tool for the surface; first hit wins.
+- find_introducing_commit(repo_root, config_files): git-log lookup of the
+  oldest commit that introduced any of the config files. Best-effort —
+  shells out to ``git log`` and returns None on any failure.
+- detect_monorepo(repo_root): pure-read priority-ordered monorepo signal
+  detection across pnpm/turbo/nx/lerna/workspaces/cargo/multi-pyproject.
 
-No writes, no installs, no shell-outs. Skill orchestration lives in SKILL.md.
+No writes, no installs. ``find_introducing_commit`` shells out to ``git
+log`` (argv-only, no shell, best-effort None-on-failure); other helpers
+are pure file/JSON/TOML reads. Skill orchestration lives in SKILL.md.
 """
 
 import json
@@ -333,7 +340,12 @@ _PNPM_PACKAGES_LINE = re.compile(r'^\s*-\s+["\']?([^"\'#]+?)["\']?\s*(?:#.*)?$')
 
 
 def _parse_pnpm_workspace(yaml_path: Path) -> list[str]:
-    """Hand-parse a pnpm-workspace.yaml `packages:` list. Conservative."""
+    """Hand-parse a pnpm-workspace.yaml `packages:` list. Conservative.
+
+    Accepts the `packages:` key at any indentation (root or nested under a
+    parent map). Stops at a sibling top-level key (column-0 non-blank line
+    that isn't `packages:` itself).
+    """
     try:
         text = yaml_path.read_text(encoding="utf-8")
     except OSError:
@@ -341,9 +353,10 @@ def _parse_pnpm_workspace(yaml_path: Path) -> list[str]:
     in_packages = False
     patterns: list[str] = []
     for line in text.splitlines():
-        if line.lstrip().startswith("#"):
+        stripped = line.strip()
+        if stripped.startswith("#"):
             continue
-        if line.rstrip() == "packages:":
+        if stripped == "packages:":
             in_packages = True
             continue
         if in_packages:

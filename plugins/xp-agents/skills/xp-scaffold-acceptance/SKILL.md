@@ -51,11 +51,53 @@ If the command exits 1, **stop immediately** and emit the doctrine refusal text 
 
 No `--force` flag, no escape hatch. Exit cleanly.
 
-### 1b. Read surfaces and detect existing tooling
+### 1b. Resolve scaffold scope (monorepo path placement)
 
-If no teammates are live, run `detect-surfaces`. The CLI loads
-`acceptance_surfaces` from `system_context.json` and runs the existing-
-tooling probe per surface, returning a single JSON array on stdout:
+Before detection runs, resolve `$REPO_ROOT` against any monorepo layout —
+running detection at the wrong scope makes Step 1c (re-invocation) and
+Step 1d (detect-surfaces) blind to package-scoped configs. Call
+`detect-monorepo` against the original repository root:
+
+```bash
+TOP_REPO_ROOT="${REPO_ROOT:-$(pwd)}"
+MONO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    detect-monorepo --repo-root "$TOP_REPO_ROOT")
+```
+
+Parse `$MONO_JSON`. When `is_monorepo` is `false`, `$REPO_ROOT` stays at
+`$TOP_REPO_ROOT`. When `is_monorepo` is `true`, ask the customer where
+the scaffold should land via `AskUserQuestion` — options are
+`["<repo root>", *<packages>]` from the JSON's `packages` array
+(repo-relative posix labels such as `packages/web`, `apps/api`):
+
+```
+AskUserQuestion(
+  question: "Detected <kind> monorepo with N packages. Where should the scaffold land?",
+  options: ["<repo root>", "packages/web", "packages/api", ...]
+)
+```
+
+Resolve the chosen option to an absolute `$REPO_ROOT`:
+
+- `<repo root>` → keep `$REPO_ROOT="$TOP_REPO_ROOT"`.
+- A package path (e.g., `packages/web`) → set `$REPO_ROOT="$TOP_REPO_ROOT/<package>"`.
+
+**No silent path assumptions.** If the chosen path does not exist on disk
+(stale `detect-monorepo` output, or the package directory was moved/
+deleted between detection and the customer's answer), emit a stderr note
+naming the missing path and **re-prompt** the same `AskUserQuestion`.
+Do not fall back to `$TOP_REPO_ROOT` silently. If the customer keeps
+picking missing paths, exit cleanly with a layout-fix message.
+
+`$REPO_ROOT` resolved here flows through every later step (Step 1c
+detect-surfaces, Step 1d re-invocation, Steps 4-9 apply pipeline).
+
+### 1c. Read surfaces and detect existing tooling
+
+With `$REPO_ROOT` resolved (from Step 1b), run `detect-surfaces`. The
+CLI loads `acceptance_surfaces` from `system_context.json` and runs the
+existing-tooling probe per surface, returning a single JSON array on
+stdout:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
@@ -66,7 +108,7 @@ Each array element has `{name, status, harness, has_tooling, tool_name, config_f
 
 If the array is empty, `system_context.json` is missing or has no `acceptance_surfaces` field — exit cleanly with: _"No acceptance surfaces are recorded in system_context.json. Run /xp-system-context first to detect surfaces, then re-invoke."_
 
-If any surface reports `has_tooling=true`, route to the **re-invocation stub** (below). Otherwise proceed to Step 3.
+If any surface reports `has_tooling=true`, route to the **re-invocation flow** (Step 1d). Otherwise proceed to Step 3.
 
 #### Detection caveat: NO_CONFIG_FILE_SIGNAL
 
@@ -80,9 +122,9 @@ is `sdk` or `message_event`, treat the absence of a config file as
 inconclusive and ask the customer whether tooling already exists before
 proceeding to Step 4. Do not silently scaffold over hidden coverage.
 
-### 1c. Re-invocation flow
+### 1d. Re-invocation flow
 
-When existing tooling is detected for the chosen surface, use `AskUserQuestion`:
+When Step 1c detected existing tooling for the chosen surface, use `AskUserQuestion`:
 
 ```
 AskUserQuestion(
@@ -122,39 +164,14 @@ In both cases, exit cleanly. **No writes.**
 
 **Cancel.** Exit cleanly with the doctrine cancel message: _"Cancelled — no changes were made."_
 
-### 1d. Monorepo path placement
+### Add-complementary loopback note
 
-After Step 1b returns and before Step 3 collects tool choices, run `detect-monorepo` to decide whether the customer needs to pick a placement path:
-
-```bash
-MONO_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
-    detect-monorepo --repo-root "$REPO_ROOT")
-```
-
-Parse `$MONO_JSON`. When `is_monorepo` is `false`, skip this step — `$REPO_ROOT` stays as resolved at the top of SKILL.md.
-
-When `is_monorepo` is `true`, ask the customer where to land the scaffold using `AskUserQuestion`. Build options as `["<repo root>", *<packages>]` from the JSON's `packages` array. Each package label should be the repo-relative posix path (e.g., `packages/web`, `apps/api`).
-
-```
-AskUserQuestion(
-  question: "Detected <kind> monorepo with N packages. Where should the scaffold land?",
-  options: [
-    "<repo root>",
-    "packages/web",
-    "packages/api",
-    ...
-  ]
-)
-```
-
-Resolve the chosen option to an absolute path:
-
-- `<repo root>` → keep `$REPO_ROOT` unchanged.
-- A package path (e.g., `packages/web`) → set `$REPO_ROOT="$REPO_ROOT/<package>"`.
-
-**No silent path assumptions.** If the chosen path does not exist on disk (the package directory was moved/deleted between `detect-monorepo` and the customer's answer), emit a stderr note explaining which path was missing and **re-prompt with the same question**. Do not silently fall back to repo root — the customer's intent must be honored or explicitly re-collected. If the customer keeps picking missing paths, exit cleanly with a message naming the missing paths and instructing them to re-run after fixing the layout.
-
-Downstream Steps 4-9 use `$REPO_ROOT` for all relative paths (config files, install_cmds working dir, verify_cmd cwd). The CLI's `--repo-root` flags receive `$REPO_ROOT` as resolved here.
+The **add complementary tool** branch keeps the `$REPO_ROOT` resolved by
+Step 1b (the package the customer just chose, or the repo root if not a
+monorepo). The complementary tool lands at the same scope as the
+existing tool — that is the intended semantic, since the customer is
+adding to the existing scaffold within that package, not picking a
+different package. No re-entry to Step 1b is needed.
 
 ## Step 2: Refresh knowledge
 
