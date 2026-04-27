@@ -84,6 +84,23 @@ def _new_snapshot_dir() -> tuple[str, Path]:
     return snapshot_id, snapshot_dir
 
 
+def load_snapshot(snapshot_id: str, *, repo_root: Path) -> ApplySnapshot:
+    """Re-load a snapshot for the cycle-5 CLI.
+
+    Reads ``${TMPDIR}/scaffold-snap-<id>/plan.json``. Raises
+    FileNotFoundError when the snapshot directory or plan.json is gone
+    (e.g., the temp dir was already cleaned up).
+    """
+    snapshot_dir = Path(tempfile.gettempdir()) / f"{SNAPSHOT_PREFIX}{snapshot_id}"
+    plan = json.loads((snapshot_dir / PLAN_FILE).read_text(encoding="utf-8"))
+    return ApplySnapshot(
+        snapshot_id=snapshot_id,
+        snapshot_dir=snapshot_dir,
+        repo_root=repo_root,
+        plan=plan,
+    )
+
+
 def create_snapshot(plan: dict, *, repo_root: Path) -> ApplySnapshot:
     """Create snapshot dir + plan.json, back up every files_to_modify target.
 
@@ -175,14 +192,15 @@ def revert(snap: ApplySnapshot) -> list[str]:
     return unrestored
 
 
-def _phase_failure_reason(exc: BaseException, *, timeout_sec: int) -> str:
+def phase_failure_reason(exc: BaseException, *, timeout_sec: int) -> str:
+    """Format a single-line failure reason from a subprocess exception."""
     if isinstance(exc, subprocess.TimeoutExpired):
         return f"timeout after {timeout_sec}s"
     stderr = getattr(exc, "stderr", "") or ""
     return stderr.strip() or str(exc)
 
 
-def _failure(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
+def failure_result(phase: str, reason: str, snap: ApplySnapshot) -> ApplyResult:
     unrestored = revert(snap)
     recovery = None
     if unrestored:
@@ -209,21 +227,21 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
     try:
         write_files(snap)
     except OSError as exc:
-        return _failure("write", str(exc), snap)
+        return failure_result("write", str(exc), snap)
     try:
         run_install(snap)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        return _failure(
+        return failure_result(
             "install",
-            _phase_failure_reason(exc, timeout_sec=INSTALL_TIMEOUT_SEC),
+            phase_failure_reason(exc, timeout_sec=INSTALL_TIMEOUT_SEC),
             snap,
         )
     try:
         run_verify(snap)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        return _failure(
+        return failure_result(
             "verify",
-            _phase_failure_reason(exc, timeout_sec=VERIFY_TIMEOUT_SEC),
+            phase_failure_reason(exc, timeout_sec=VERIFY_TIMEOUT_SEC),
             snap,
         )
     return ApplyResult(
