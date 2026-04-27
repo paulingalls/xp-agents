@@ -38,6 +38,7 @@ _CANONICAL_TOOLS: dict[str, list[str]] = {
         "grpcurl",
         "postman",
         "newman",
+        "bun",
     ],
     "browser": [
         "playwright",
@@ -53,11 +54,13 @@ _CANONICAL_TOOLS: dict[str, list[str]] = {
         "aruba",
         "cram",
         "pytest-console-scripts",
+        "bun",
     ],
     "sdk": [
         "doctest",
         "hypothesis",
         "fast-check",
+        "bun",
     ],
     "automation": [
         "detox",
@@ -104,6 +107,7 @@ _TOOL_CONFIGS: dict[str, list[tuple[str, str | None]]] = {
     ],
     "detox": [(".detoxrc.json", None), (".detoxrc.js", None)],
     "appium": [("appium.conf.json", None), ("appium.config.json", None)],
+    "bun": [("bunfig.toml", None)],
 }
 
 # Surfaces whose canonical tools generally lack a single config-file signal

@@ -108,6 +108,15 @@ class TestCanonicalToolsFor(unittest.TestCase):
     def test_unknown_surface_returns_empty(self) -> None:
         self.assertEqual(canonical_tools_for("not-a-surface"), [])
 
+    def test_http_websocket_includes_bun(self) -> None:
+        self.assertIn("bun", canonical_tools_for("http_websocket"))
+
+    def test_sdk_includes_bun(self) -> None:
+        self.assertIn("bun", canonical_tools_for("sdk"))
+
+    def test_cli_includes_bun(self) -> None:
+        self.assertIn("bun", canonical_tools_for("cli"))
+
 
 class TestDetectExistingTooling(unittest.TestCase):
     def setUp(self) -> None:
@@ -206,6 +215,29 @@ class TestDetectExistingTooling(unittest.TestCase):
         cfg.write_text('[project]\nname = "x"\n')
         result = detect_existing_tooling("cli", self.repo)
         self.assertFalse(result["has_tooling"])
+
+    def test_detects_bun_via_bunfig_for_http_websocket(self) -> None:
+        cfg = self.repo / "bunfig.toml"
+        cfg.write_text("")
+        result = detect_existing_tooling("http_websocket", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "bun")
+
+    def test_detects_bun_via_bunfig_for_sdk(self) -> None:
+        cfg = self.repo / "bunfig.toml"
+        cfg.write_text("")
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "bun")
+
+    def test_bun_yields_to_earlier_canonical_when_both_configured(self) -> None:
+        """When both pytest (cli surface, earlier in canonical list) and bunfig
+        configs exist, the earlier canonical wins. Bun is intentionally placed
+        after established tools so it acts as a fall-through, not an override."""
+        (self.repo / "pytest.ini").write_text("[pytest]\n")
+        (self.repo / "bunfig.toml").write_text("")
+        result = detect_existing_tooling("cli", self.repo)
+        self.assertEqual(result["tool_name"], "pytest-console-scripts")
 
 
 def _git(args: list[str], cwd: Path) -> None:
