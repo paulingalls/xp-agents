@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+from _probe import probe_config_file
 from system_context_store import load_system_context
 
 _CANONICAL_TOOLS: dict[str, list[str]] = {
@@ -128,17 +129,6 @@ def canonical_tools_for(surface_name: str) -> list[str]:
     return list(_CANONICAL_TOOLS.get(surface_name, []))
 
 
-def _matches(repo_root: Path, filename: str, marker: str | None) -> Path | None:
-    """Return the matching path if filename exists (and marker is present)."""
-    path = repo_root / filename
-    if not path.is_file():
-        return None
-    if marker is None:
-        return path
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    return path if marker in text else None
-
-
 def detect_existing_tooling(surface_name: str, repo_root: Path) -> dict:
     """Detect whether any canonical tool for the surface is configured.
 
@@ -154,7 +144,7 @@ def detect_existing_tooling(surface_name: str, repo_root: Path) -> dict:
         hits = [
             match
             for filename, marker in _TOOL_CONFIGS.get(tool, [])
-            if (match := _matches(repo_root, filename, marker)) is not None
+            if (match := probe_config_file(repo_root, filename, marker)) is not None
         ]
         if hits:
             return {

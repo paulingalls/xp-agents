@@ -187,6 +187,15 @@ Works with blocking output too:
 | `hooks` | object | Hook config scoped to this skill's lifecycle |
 | `shell` | enum | `bash` (default) or `powershell` for `!` commands |
 
+### Common Built-in Tools in `allowed-tools`
+
+Beyond `Bash(...)`, `Read`, `AskUserQuestion`, and the standard editing tools, skills can declare any built-in Claude Code tool in their frontmatter `allowed-tools` list. Notable examples:
+
+- **`WebSearch`** — query the web for fresh information at skill invocation time. Used by `xp-scaffold-acceptance` to refresh tool versions and current best practices before assembling the scaffold plan; declaring it pre-grants the permission so the customer is not re-prompted mid-flow.
+- **`WebFetch`** — retrieve a specific URL when the skill knows the target up front (release-notes pages, docs).
+
+Pre-granting via `allowed-tools` is preferable to relying on user approval mid-skill — interactive prompts during a multi-step skill break the flow.
+
 ### Arguments
 
 Skills accept arguments via `/skill-name arg1 arg2`. Available as substitution variables:
