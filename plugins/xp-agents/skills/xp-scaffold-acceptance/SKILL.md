@@ -99,16 +99,28 @@ After Step 3 collects surface + tool selections (and before Step 4 builds the pl
 
 **Canonical tools** (`scaffold_detect.canonical_tools_for(surface)`): proceed with the web-refreshed knowledge.
 
-**Customer-named non-canonical tools**: do extra research — install command, config-file format, minimal verification command. Pass the gathered guidance to `assess-tool` via stdin (empty stdin means "no guidance found"). The CLI prints `{"decline": bool, "reason": str|null}`:
+**Customer-named non-canonical tools**: do extra research — install command, config-file format, minimal verification command. Pass the gathered guidance to `assess-tool` via heredoc on stdin (empty heredoc means "no guidance found"). The CLI prints `{"decline": bool, "reason": str|null}`:
 
 ```bash
-echo '<guidance text>' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+cat <<'GUIDANCE_EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     assess-tool --tool '<tool>'
+<guidance text — apostrophes, quotes, backslashes, newlines all safe>
+GUIDANCE_EOF
 ```
 
 If `decline=true` in the JSON output, emit the `reason` string verbatim and exit cleanly — declining rather than guessing.
 
-Stdin carries the guidance (so quotes, backslashes, newlines, and shell metachars are safe by construction). The `--tool` value goes through one layer of shell quoting; for tool names with apostrophes use `--tool="$tool"` or pipe the name on a separate stdin channel.
+The heredoc carries the guidance — the `'GUIDANCE_EOF'` quoting form disables shell expansion inside, so any character (including `$`, `` ` ``, `'`, `"`, `\`, newline) is delivered verbatim to the CLI's stdin. The `--tool` value still goes through one layer of shell quoting; if the tool name itself contains an apostrophe (rare — e.g. `o'reilly-runner`), put the name in a shell variable and pass it through:
+
+```bash
+tool="o'reilly-runner"
+cat <<'GUIDANCE_EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    assess-tool --tool="$tool"
+<guidance text>
+GUIDANCE_EOF
+```
+
+Double-quoted `"$tool"` preserves the apostrophe.
 
 **Still no writes in M-2.** Web-refresh produces in-memory variables only.
 
