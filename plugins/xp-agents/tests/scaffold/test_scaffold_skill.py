@@ -281,6 +281,25 @@ class TestSkillM2Wiring(unittest.TestCase):
             section_index = self.body.find(f"## {marker}")
             self.assertGreater(section_index, -1, f"missing {marker} section")
 
+    def test_step_4_warns_install_cmds_are_argv_shaped(self) -> None:
+        """install_cmds and verify_cmd are run with shell=False after
+        shlex.split. The skill must warn the LLM that pipes/&&/redirects/
+        $VAR expansion don't work as bare commands; sh -c is the escape
+        hatch. Without this warning the LLM authors strings like
+        'npm install && npm test' that fail at runtime."""
+        step4 = _step_section(self.body, 4)
+        self.assertRegex(
+            step4,
+            r"(?i)shlex|argv|shell=False",
+            "Step 4 must explain the argv shape (no shell interpretation)",
+        )
+        self.assertIn(
+            "sh -c",
+            step4,
+            "Step 4 must show `sh -c` as the escape hatch when shell "
+            "features are needed",
+        )
+
 
 class TestSkillSnippetSafety(unittest.TestCase):
     """SKILL.md must not embed Python code inside `python3 -c "..."` for
@@ -384,7 +403,7 @@ class TestSkillNoConfigFileSignalCaveat(unittest.TestCase):
             r"NO_CONFIG_FILE_SIGNAL[\s\S]{0,400}",
             self.body,
         )
-        self.assertIsNotNone(match, "NO_CONFIG_FILE_SIGNAL caveat not found")
+        assert match is not None, "NO_CONFIG_FILE_SIGNAL caveat not found"
         caveat = match.group(0).lower()
         self.assertTrue(
             "config-file" in caveat or "no config" in caveat,

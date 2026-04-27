@@ -167,6 +167,13 @@ Assemble the structured `ScaffoldPlan` via `scaffold_plan.build_plan(...)`. Buil
 
 **Draft each file body before assembling the plan and embed it in the plan dict.** Each `files_to_create` and `files_to_modify` entry carries a `body` field with the full desired contents — Step 5's `show files` branch and Step 6's `apply-write` both read from `$PLAN_JSON.*.body`. (`path`/`description`/`line_count` are metadata for the preview; `body` is the contract.) If you cannot author a file body confidently from web-refreshed knowledge, do not include it in `files_to_create`; loop back to Step 2 for more research, or call `decline_if_unreliable` and exit.
 
+**`install_cmds` entries and `verify_cmd` are argv-shaped, not shell strings.** Step 7 runs them with `subprocess.run(shlex.split(cmd), shell=False)` — pipes (`|`), conjunctions (`&&`/`||`), redirects (`>`, `>>`), background (`&`), and `$VAR` expansion don't work as bare commands. Wrap them in `sh -c "..."` when shell features are needed:
+
+- ✅ `"npm install"`, `"npx playwright install chromium"`, `"pytest tests/"`
+- ❌ `"npm install && npm test"` — shlex.split treats `&&` as an arg to npm
+- ✅ `"sh -c 'npm install && npm test'"` — shell-feature escape hatch
+- ❌ `"echo $HOME > /tmp/log"` — both `>` and `$VAR` need `sh -c`
+
 Pass a plan-input JSON to `build-plan` on stdin. Required keys:
 `surface`, `tool`, `tool_version`, `files_to_create`,
 `files_to_modify`, `install_cmds`, `verify_cmd`, `branch_name`.
