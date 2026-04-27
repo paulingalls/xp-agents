@@ -20,7 +20,11 @@ This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not
 
 **Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7** — Step 3 picks tool before Step 2 web-refreshes its version. Sections below follow doctrine numbering, not execution order; don't be misled by reading 1→2→3→4→5 top-to-bottom.
 
-`$REPO_ROOT` in Steps 6–7 is the customer's repository root (the cwd at skill invocation, unless the customer named a different one in Step 1). Resolve it once and reuse.
+`$REPO_ROOT` in Steps 6–7 is the customer's repository root (the cwd at skill invocation, unless the customer named a different one in Step 1). Resolve it once and reuse:
+
+```bash
+REPO_ROOT="${REPO_ROOT:-$(pwd)}"
+```
 
 ## Step 1: Detect
 

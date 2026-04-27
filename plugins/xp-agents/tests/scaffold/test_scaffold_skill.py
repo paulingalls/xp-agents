@@ -466,6 +466,21 @@ class TestSkillM3Wiring(unittest.TestCase):
         step7 = _step_section(self.body, 7)
         self.assertIn("--snapshot-id", step7)
 
+    def test_runtime_order_section_shows_repo_root_assignment(self) -> None:
+        """$REPO_ROOT is referenced in Steps 6-7 examples; the prologue
+        must show a concrete assignment so the LLM doesn't have to invent
+        one. Use the canonical `${REPO_ROOT:-$(pwd)}` form so an
+        out-of-band override survives."""
+        first_step_idx = self.body.find("## Step 1")
+        prologue = self.body[:first_step_idx]
+        self.assertRegex(
+            prologue,
+            r"REPO_ROOT=.*\$\{REPO_ROOT:-\$\(pwd\)\}",
+            "Prologue must show the canonical "
+            "REPO_ROOT=${REPO_ROOT:-$(pwd)} assignment so an out-of-band "
+            "override survives the fallback",
+        )
+
     def test_step_7_warns_against_orphan_install_state(self) -> None:
         """Customer must run apply-install → apply-verify-or-apply-revert as a
         contiguous pair. Leaving install state without verify or revert
