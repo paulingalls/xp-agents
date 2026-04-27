@@ -252,7 +252,7 @@ class TestRenderPreviewShowFiles(unittest.TestCase):
         self.assertIn("package.json", preview)
         self.assertIn(body.rstrip(), preview)
 
-    def test_files_section_skips_entries_without_body(self) -> None:
+    def test_missing_body_key_skipped(self) -> None:
         body = "x = 1\n"
         plan = _sample_plan(
             files_to_create=[
@@ -266,7 +266,12 @@ class TestRenderPreviewShowFiles(unittest.TestCase):
         files_section = preview.split("Files:", 1)[1]
         self.assertNotIn("no_body.py", files_section)
 
-    def test_empty_body_treated_as_no_body(self) -> None:
+    def test_empty_string_body_renders_empty_block(self) -> None:
+        """Empty string is a real intentional body — render the header and fence pair.
+
+        Closes concern 793afa6c79e9: distinguish None/missing body (skip)
+        from empty-string body (render with explicit empty marker).
+        """
         plan = _sample_plan(
             files_to_create=[
                 {"path": "blank.py", "description": "empty body", "body": ""}
@@ -274,7 +279,25 @@ class TestRenderPreviewShowFiles(unittest.TestCase):
             files_to_modify=[],
         )
         preview = render_preview(plan, show_files=True)
+        self.assertIn("Files:", preview)
+        self.assertIn("### blank.py", preview)
+        files_section = preview.split("Files:", 1)[1]
+        self.assertIn("```\n```", files_section)
+
+    def test_none_body_skipped(self) -> None:
+        plan = _sample_plan(
+            files_to_create=[
+                {
+                    "path": "skipped.py",
+                    "description": "explicit None body",
+                    "body": None,
+                }
+            ],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
         self.assertNotIn("Files:", preview)
+        self.assertNotIn("### skipped.py", preview)
 
     def test_files_section_appears_before_install_section(self) -> None:
         body = "x = 1\n"
