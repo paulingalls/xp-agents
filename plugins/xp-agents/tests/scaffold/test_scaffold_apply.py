@@ -33,7 +33,6 @@ def _plan(
         "install_cmds": install_cmds or ["true"],
         "verify_cmd": verify_cmd,
         "branch_name": "scaffold/test",
-        "commit_msg": "test",
     }
 
 
@@ -607,6 +606,46 @@ class TestApplyPlanCleansUpSnapshot(_ApplyTestBase):
         self.assertIsNotNone(result.snapshot_dir)
         self.assertTrue(Path(result.snapshot_dir).exists())
         self.assertIn(result.snapshot_dir, result.recovery or "")
+
+
+class TestApplyResultLifecycle(_ApplyTestBase):
+    """ApplyResult.snapshot_state distinguishes never-had / cleaned-up / on-disk.
+
+    Closes debt 5cb9c753dc13: the snapshot_dir field overloads location +
+    lifecycle (None means both 'cleaned up' and 'never had a snapshot').
+    A dedicated state field makes the lifecycle unambiguous.
+    """
+
+    def test_success_path_state_is_cleaned(self) -> None:
+        result = apply_plan(_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.snapshot_state, "cleaned")
+        self.assertIsNone(result.snapshot_dir)
+
+    def test_validation_failure_state_is_none(self) -> None:
+        target = self.repo / "package.json"
+        target.write_text('{"name": "demo"}\n', encoding="utf-8")
+        plan = _plan(
+            files_to_create=[
+                {"path": "package.json", "description": "collides", "body": "x\n"}
+            ]
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.snapshot_state, "none")
+        self.assertIsNone(result.snapshot_dir)
+
+
+class TestApplyResultLifecycleRetained(_RevertTestBase):
+    def test_install_failure_state_is_retained(self) -> None:
+        plan = self._build_plan(install_cmds=["false"])
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.snapshot_state, "retained")
+        self.assertIsNotNone(result.snapshot_dir)
 
 
 if __name__ == "__main__":

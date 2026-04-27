@@ -9,7 +9,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from scaffold_plan import (
-    COMMIT_MSG_TEMPLATE,
     PROCEED_PROMPT,
     DeclineResult,
     ScaffoldPlan,
@@ -56,13 +55,6 @@ class TestBuildPlan(unittest.TestCase):
         plan = _sample_plan()
         self.assertIsInstance(plan, ScaffoldPlan)
 
-    def test_commit_msg_uses_template(self) -> None:
-        plan = _sample_plan()
-        expected = COMMIT_MSG_TEMPLATE.format(
-            surface="browser", tool="playwright", tool_version="1.51.0"
-        )
-        self.assertEqual(plan.commit_msg, expected)
-
     def test_files_to_create_entries_have_path_and_description(self) -> None:
         plan = _sample_plan()
         for entry in plan.files_to_create:
@@ -101,7 +93,7 @@ class TestRenderPreview(unittest.TestCase):
             "Selected tool",
             "Planning scaffold",
             "Install + verify",
-            "Commit plan",
+            "Commit branch",
         ):
             self.assertIn(marker, self.preview, f"preview missing section: {marker}")
 
@@ -154,11 +146,6 @@ class TestRenderPreviewEdgeCases(unittest.TestCase):
         preview = render_preview(plan)
         self.assertIn("Modify: y.json (+1 dep)", preview)
         self.assertNotIn("999", preview)
-
-    def test_special_chars_in_tool_pass_through_commit_msg(self) -> None:
-        plan = _sample_plan(tool="@scope/runner", tool_version="2.0.0-beta.1")
-        self.assertIn("@scope/runner", plan.commit_msg)
-        self.assertIn("2.0.0-beta.1", plan.commit_msg)
 
 
 class TestBodyRoundTrip(unittest.TestCase):
@@ -252,7 +239,7 @@ class TestRenderPreviewShowFiles(unittest.TestCase):
         self.assertIn("package.json", preview)
         self.assertIn(body.rstrip(), preview)
 
-    def test_files_section_skips_entries_without_body(self) -> None:
+    def test_missing_body_key_skipped(self) -> None:
         body = "x = 1\n"
         plan = _sample_plan(
             files_to_create=[
@@ -266,7 +253,12 @@ class TestRenderPreviewShowFiles(unittest.TestCase):
         files_section = preview.split("Files:", 1)[1]
         self.assertNotIn("no_body.py", files_section)
 
-    def test_empty_body_treated_as_no_body(self) -> None:
+    def test_empty_string_body_renders_empty_block(self) -> None:
+        """Empty string is a real intentional body — render the header and fence pair.
+
+        Closes concern 793afa6c79e9: distinguish None/missing body (skip)
+        from empty-string body (render with explicit empty marker).
+        """
         plan = _sample_plan(
             files_to_create=[
                 {"path": "blank.py", "description": "empty body", "body": ""}
@@ -274,7 +266,25 @@ class TestRenderPreviewShowFiles(unittest.TestCase):
             files_to_modify=[],
         )
         preview = render_preview(plan, show_files=True)
+        self.assertIn("Files:", preview)
+        self.assertIn("### blank.py", preview)
+        files_section = preview.split("Files:", 1)[1]
+        self.assertIn("```\n```", files_section)
+
+    def test_none_body_skipped(self) -> None:
+        plan = _sample_plan(
+            files_to_create=[
+                {
+                    "path": "skipped.py",
+                    "description": "explicit None body",
+                    "body": None,
+                }
+            ],
+            files_to_modify=[],
+        )
+        preview = render_preview(plan, show_files=True)
         self.assertNotIn("Files:", preview)
+        self.assertNotIn("### skipped.py", preview)
 
     def test_files_section_appears_before_install_section(self) -> None:
         body = "x = 1\n"

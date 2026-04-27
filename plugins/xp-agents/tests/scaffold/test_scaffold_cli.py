@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Tests for scripts/scaffold_cli.py — thin CLI wrapper over scaffold helpers.
 
-Covers nine subcommands: teammates-active, detect-surfaces, assess-tool,
+Covers eleven subcommands: teammates-active, detect-surfaces, assess-tool,
 build-plan, render-preview (with --show-files), apply-write,
-apply-install, apply-verify, apply-revert — plus key error paths.
-Follows the run_cli + _SMMTestCase pattern from
+apply-install, apply-verify, apply-revert, apply-commit, apply-record —
+plus key error paths. Follows the run_cli + _SMMTestCase pattern from
 tests/engine/test_plan_cli.py.
 """
 
@@ -15,30 +15,16 @@ import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _helpers import init_git_identity, run_git, valid_system_context
 from conftest import _SMMTestCase, run_cli
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _CLI = _PLUGIN_ROOT / "scripts" / "scaffold_cli.py"
-
-
-def _valid_system_context(surfaces: list[dict] | None = None) -> dict:
-    doc: dict = {
-        "product": "A test product.",
-        "architecture_overview": "Simple architecture.",
-        "stack": {"languages": ["Python"]},
-        "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
-        "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "language", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
-        "project_specific": [],
-    }
-    if surfaces is not None:
-        doc["acceptance_surfaces"] = surfaces
-    return doc
 
 
 class TestTeammatesActive(_SMMTestCase):
@@ -124,7 +110,7 @@ class TestDetectSurfaces(_SMMTestCase):
         self.assertEqual(json.loads(result.stdout), [])
 
     def test_returns_surface_array(self) -> None:
-        ctx = _valid_system_context(
+        ctx = valid_system_context(
             surfaces=[
                 {
                     "name": "browser",
@@ -245,12 +231,9 @@ class TestBuildPlan(_SMMTestCase):
             "install_cmds",
             "verify_cmd",
             "branch_name",
-            "commit_msg",
         ):
             self.assertIn(key, plan)
         self.assertEqual(plan["surface"], "browser")
-        self.assertIn("playwright", plan["commit_msg"])
-        self.assertIn("1.51.0", plan["commit_msg"])
 
     def test_invalid_json_exits_one(self) -> None:
         result = run_cli(
@@ -318,7 +301,7 @@ class TestRenderPreview(_SMMTestCase):
             "Selected tool",
             "Planning scaffold",
             "Install + verify",
-            "Commit plan",
+            "Commit branch",
         ):
             self.assertIn(marker, result.stdout)
 
@@ -413,7 +396,6 @@ class _ApplyCliTestBase(_SMMTestCase):
             "install_cmds": ["true"],
             "verify_cmd": "true",
             "branch_name": "paul/scaffold-browser-acceptance",
-            "commit_msg": "test",
         }
         plan.update(overrides)
         return plan
@@ -582,7 +564,7 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
     """Snapshot dir lifecycle for the CLI split:
     - apply-write success: snapshot retained (next phase needs it)
     - apply-install success: snapshot retained (verify still needs it)
-    - apply-verify success: cleaned up (last phase of M-3 pipeline)
+    - apply-verify success: snapshot retained (M-4 commit + record still need it)
     - apply-revert with unrestored=[]: cleaned up (explicit cancel)
     - any phase failure with clean revert: cleaned up by failure_result
     """
@@ -605,7 +587,10 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
         snapshot_dir = Path(write_payload["snapshot_dir"])
         self.assertTrue(snapshot_dir.exists())
 
-    def test_apply_verify_success_cleans_up_snapshot(self) -> None:
+    def test_apply_verify_success_retains_snapshot(self) -> None:
+        # M-4: apply-verify is no longer terminal — apply-commit + apply-record
+        # both load the snapshot afterward, so cleanup moved from verify to
+        # record (terminal in M-4) and explicit revert (terminal in cancel).
         write_payload = self._apply_write(self._plan())
         snap_id = write_payload["snapshot_id"]
         snapshot_dir = Path(write_payload["snapshot_dir"])
@@ -621,11 +606,14 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(snapshot_dir.exists())
+        self.assertTrue(snapshot_dir.exists())
 
-    def test_apply_revert_after_apply_verify_returns_two(self) -> None:
+    def test_apply_revert_after_apply_verify_succeeds(self) -> None:
+        # M-4: apply-verify retains the snapshot, so a subsequent apply-revert
+        # (the explicit-cancel terminal) finds it and cleans up cleanly.
         write_payload = self._apply_write(self._plan())
         snap_id = write_payload["snapshot_id"]
+        snapshot_dir = Path(write_payload["snapshot_dir"])
         run_cli(
             _CLI,
             [
@@ -648,7 +636,10 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
             ],
             self.smm_dir,
         )
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(snapshot_dir.exists())
 
     def test_apply_revert_clean_cleans_up_snapshot(self) -> None:
         write_payload = self._apply_write(self._plan())
@@ -694,6 +685,188 @@ class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
         self.assertEqual(payload["unrestored"], [])
         self.assertTrue(snapshot_dir.exists())
         self.assertTrue((snapshot_dir / "install.log").exists())
+
+
+class _ApplyCliCommitTestBase(_ApplyCliTestBase):
+    """_ApplyCliTestBase + git init + identity + initial commit + stage config.
+
+    Sets up a real git tempdir so apply-commit can actually run git.
+    Subclasses override the ``stage`` class attribute for Stage 1+ tests.
+    """
+
+    stage: int = 0
+
+    def setUp(self) -> None:
+        super().setUp()
+        init_git_identity(self._repo)
+        run_git(["git", "add", "package.json"], self._repo)
+        run_git(["git", "commit", "-m", "[chore] seed"], self._repo)
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps({"branching_strategy": {"stage": self.stage}}),
+            encoding="utf-8",
+        )
+
+
+class TestApplyCommitStageZero(_ApplyCliCommitTestBase):
+    def test_happy_path_returns_ok_with_sha_and_branch(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["sha"])
+        self.assertEqual(payload["branch"], "main")
+
+    def test_concern_id_in_resolves_event_trailer(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+                "--concern-id",
+                "abc123def456",
+            ],
+            self.smm_dir,
+        )
+        body = run_git(["git", "log", "-1", "--format=%B"], self._repo).stdout
+        self.assertIn("Resolves-Event: abc123def456", body)
+
+
+class TestApplyCommitStageOneProtected(_ApplyCliCommitTestBase):
+    stage = 1
+
+    def test_refuses_on_main_at_stage_1(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn("main", payload["reason"])
+
+
+class _ApplyCliRecordTestBase(_ApplyCliTestBase):
+    """_ApplyCliTestBase + system_context.json with browser:gap surface.
+
+    apply-record needs an existing surface to flip. Sets stage 0 since
+    record is unaffected by branching stage.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        ctx = valid_system_context(
+            surfaces=[
+                {
+                    "name": "browser",
+                    "signals": ["next.js"],
+                    "harness": "playwright",
+                    "status": "gap",
+                }
+            ]
+        )
+        ctx["branching_strategy"] = {"stage": 0}
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps(ctx), encoding="utf-8"
+        )
+
+
+class TestApplyRecord(_ApplyCliRecordTestBase):
+    def test_happy_path_flips_surface_and_returns_ok(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-record",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--agent-id",
+                "test-agent",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        ctx = json.loads(
+            (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
+        )
+        browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
+        self.assertEqual(browser["status"], "covered")
+        self.assertEqual(browser["acceptance_template_command"], "true")
+
+    def test_concern_id_appends_decision_event(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-record",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--concern-id",
+                "abc123def456",
+                "--agent-id",
+                "test-agent",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["decision_event_id"])
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        decisions = [e for e in events if e.get("type") == "decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(
+            decisions[0].get("metadata", {}).get("resolves"), ["abc123def456"]
+        )
 
 
 if __name__ == "__main__":

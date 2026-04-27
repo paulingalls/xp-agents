@@ -16,9 +16,9 @@ allowed-tools:
 
 # Scaffold Acceptance
 
-This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.** M-1 delivered Step 1 (detect) and Step 3 (ask). M-2 added Step 2 (web-refresh) and Steps 4–5 (plan + confirm). M-3 wires Steps 6–7 (write/install/verify) with atomic revert. Steps 8–9 (commit + record) are reserved for M-4.
+This skill is the entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.** M-1 delivered Step 1 (detect) and Step 3 (ask). M-2 added Step 2 (web-refresh) and Steps 4–5 (plan + confirm). M-3 wires Steps 6–7 (write/install/verify) with atomic revert. M-4 ships Steps 8–9 (commit + record).
 
-**Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7** — Step 3 picks tool before Step 2 web-refreshes its version. Sections below follow doctrine numbering, not execution order; don't be misled by reading 1→2→3→4→5 top-to-bottom.
+**Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9** — Step 3 picks tool before Step 2 web-refreshes its version. Sections below follow doctrine numbering, not execution order; don't be misled by reading 1→2→3→4→5 top-to-bottom.
 
 `$REPO_ROOT` in Steps 6–7 is the customer's repository root (the cwd at skill invocation, unless the customer named a different one in Step 1). Resolve it once and reuse:
 
@@ -259,6 +259,8 @@ Bodies are read directly from `$PLAN_JSON.files_to_create[].body` and `$PLAN_JSO
 
 **`files_to_modify` carries the FULL desired body, not a diff.** apply.py is format-agnostic — it writes whatever body the plan provides. For a real `package.json` / `pyproject.toml` / `Cargo.toml` modification, you must read the existing file (Step 4 working memory), deep-merge the new entries (preserving customer devDeps, scripts, dependencies), and embed the **complete merged contents** into `files_to_modify[].body`. Mismanaging this clobbers customer manifest state — the preview that Step 5 shows the customer is the contract.
 
+**BDD-runner conditional:** if `system_context.acceptance_surfaces[<surface>].harness` names a BDD runner (`cucumber`, `behave`, `specflow`, etc.), Step 4's `files_to_create` bodies should be Gherkin `.feature` content and `verify_cmd` should invoke that BDD runner — Given/When/Then prose alone is not executable acceptance for those projects.
+
 Pipe the approved `$PLAN_JSON` into `apply-write`:
 
 ```bash
@@ -292,9 +294,50 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-revert --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT"
 ```
 
-After a green verify, the snapshot directory is auto-cleaned up by `apply-verify`. Steps 8–9 (M-4) take over for commit + system_context update; for now, leave the scaffold in place uncommitted and report success to the customer.
+After a green verify, the snapshot directory is **retained** for Steps 8–9 (commit + record); both consume the snapshot's plan to know what to commit and which surface to flip. The terminal phase (`apply-record`) cleans the snapshot up. If the customer cancels between Step 7 and Step 8, call `apply-revert` instead — it cleans up too.
 
 ## Step 8: Commit
+
+Resolve the **missing-acceptance concern_id** for the chosen surface — that is the open `concern` event that `xp-system-analyzer` raised when the gap was first detected. Use `grep` against `${SMM_DIR}/events.jsonl` to extract its 12-hex id without reading the full log:
+
+```bash
+CONCERN_ID=$(grep "\"topic\": \"missing-acceptance-${SURFACE}\"" \
+    "${SMM_DIR}/events.jsonl" \
+    | tail -1 | grep -oE '"id": "[a-f0-9]{12}"' | cut -d'"' -f4)
+CONCERN_ID="${CONCERN_ID:-none}"
+```
+
+`tail -1` picks the **most recent** matching concern — re-runs of `xp-system-analyzer` against an already-resolved gap leave the latest emit as the live one.
+
+If no matching open concern exists (e.g., manual scaffold not preceded by analyzer), `$CONCERN_ID` falls back to `none` — `apply-commit` writes `Resolves-Event: none` per doctrine.
+
+```bash
+COMMIT_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    --smm-dir <SMM_DIR> apply-commit \
+    --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT" \
+    --surface "$SURFACE" --tool "$TOOL" --concern-id "$CONCERN_ID")
+# Parse COMMIT_JSON: on ok=false, surface .reason verbatim and exit.
+# COMMIT_JSON.sha and .branch carry the new commit's coordinates.
+```
+
+`apply-commit` is stage-aware: at Stage 0 it commits on the current HEAD; at Stage 1+ it creates `<user>/scaffold-<surface>` and commits there, refusing outright if HEAD is on a protected branch (`main`/`master`).
+
 ## Step 9: Record
 
-_Reserved for M-4 onward — see docs/ideas/SCAFFOLDING_DOCTRINE.md §Core Flow for the full nine-step pipeline._
+Flip the surface to covered and resolve the concern via the decision-event STRONG link:
+
+Pull the scaffold commit SHA out of `$COMMIT_JSON` (Step 8) and pass it to `apply-record` as `--commit-sha` so the surface flip is gated on the commit having actually landed:
+
+```bash
+COMMIT_SHA=$(printf '%s' "$COMMIT_JSON" | grep -oE '"sha": "[a-f0-9]+"' | cut -d'"' -f4)
+
+RECORD_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    --smm-dir <SMM_DIR> apply-record \
+    --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT" \
+    --surface "$SURFACE" --concern-id "$CONCERN_ID" \
+    --agent-id "$AGENT_ID" --commit-sha "$COMMIT_SHA")
+# Parse RECORD_JSON: on ok=false, surface .reason verbatim and exit.
+# On ok=true, .decision_event_id carries the resolution event's id.
+```
+
+`apply-record` updates `system_context.acceptance_surfaces[<surface>]` to `status=covered` with `acceptance_template_command=verify_cmd`, and (when `concern_id` is a 12-hex event ID, not the `none` sentinel) appends a `decision` event with `metadata.resolves=[concern_id]` so the gap-surface concern cascades closed. The snapshot is auto-cleaned up after success.

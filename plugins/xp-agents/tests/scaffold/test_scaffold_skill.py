@@ -125,8 +125,48 @@ class TestSkillBody(unittest.TestCase):
     def test_reinvocation_stub_references_m5(self) -> None:
         self.assertIn("M-5", self.body)
 
-    def test_remaining_reserved_steps_marked_for_m4(self) -> None:
-        self.assertRegex(self.body, r"Reserved for M-4")
+    def test_steps_8_9_no_longer_reserved(self) -> None:
+        """M-4 ships Steps 8-9; the placeholder text must be gone."""
+        self.assertNotIn("Reserved for M-4", self.body)
+
+    def test_runtime_order_header_includes_steps_8_9(self) -> None:
+        """Runtime order extends to 8 → 9 once M-4 wires the commit + record."""
+        self.assertIn("1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9", self.body)
+
+    def test_step_8_invokes_apply_commit(self) -> None:
+        """Step 8 calls scaffold_cli.py apply-commit with the doctrine args."""
+        step8 = self.body.split("## Step 8")[1].split("## Step 9")[0]
+        self.assertIn("apply-commit", step8)
+        self.assertIn("--snapshot-id", step8)
+        self.assertIn("--surface", step8)
+        self.assertIn("--tool", step8)
+        self.assertIn("--concern-id", step8)
+
+    def test_step_9_invokes_apply_record(self) -> None:
+        """Step 9 calls scaffold_cli.py apply-record with surface + agent-id."""
+        step9 = self.body.split("## Step 9")[1]
+        self.assertIn("apply-record", step9)
+        self.assertIn("--surface", step9)
+        self.assertIn("--agent-id", step9)
+        self.assertIn("--concern-id", step9)
+
+    def test_step_6_mentions_bdd_runner_conditional(self) -> None:
+        """Step 6 must steer Cucumber/behave/SpecFlow projects to Gherkin
+        bodies + BDD-runner verify_cmd. Resolves concern 64dfc499fd12."""
+        step6 = self.body.split("## Step 6")[1].split("## Step 7")[0]
+        self.assertRegex(step6, r"(?i)Cucumber|behave|SpecFlow")
+
+    def test_step_8_documents_concern_id_lookup(self) -> None:
+        """Step 8 must tell the agent where to obtain --concern-id (the
+        pre-existing missing-acceptance concern from xp-system-analyzer),
+        not silently leave the source ambiguous."""
+        step8 = self.body.split("## Step 8")[1].split("## Step 9")[0]
+        # Should reference the gap-surface concern OR events.jsonl lookup
+        # OR system-analyzer-raised concern.
+        self.assertRegex(
+            step8,
+            r"(?i)events\.jsonl|missing-acceptance|gap.*concern|xp-system-analyzer",
+        )
 
 
 def _gap_concern_block(text: str) -> str:
@@ -159,6 +199,26 @@ class TestAnalyzerConcernWiring(unittest.TestCase):
 
     def test_gap_block_does_not_say_install(self) -> None:
         self.assertNotIn("install the harness", self.gap_block)
+
+    def test_gap_block_emits_missing_acceptance_topic(self) -> None:
+        """Analyzer must emit --topic missing-acceptance-<surface> on the
+        gap-concern. /xp-scaffold-acceptance Step 8 greps events.jsonl by
+        that exact topic shape to recover the concern_id; without it the
+        resolution cascade silently degrades to Resolves-Event: none and
+        the gap concern never auto-closes."""
+        self.assertIn("missing-acceptance-", self.gap_block)
+        self.assertRegex(self.gap_block, r"--topic[ =\"']+missing-acceptance-")
+
+    def test_skill_step_8_topic_pattern_matches_analyzer_emit(self) -> None:
+        """Step 8's grep pattern must literally match the topic shape the
+        analyzer writes. Catches drift in either direction at test time."""
+        skill_text = _SKILL_PATH.read_text(encoding="utf-8")
+        step8 = skill_text.split("## Step 8")[1].split("## Step 9")[0]
+        # The skill greps for "topic": "missing-acceptance-<surface>" with
+        # escaped quotes inside the bash double-quoted grep argument.
+        self.assertRegex(step8, r'topic\\?":\s*\\?"missing-acceptance-')
+        # Analyzer must write the same prefix verbatim
+        self.assertIn("missing-acceptance-", self.gap_block)
 
     def test_analyzer_pins_canonical_surface_names(self) -> None:
         """Analyzer must enumerate the snake_case surface identifiers that
@@ -470,12 +530,6 @@ class TestSkillM3Wiring(unittest.TestCase):
             r"(?i)reason|stderr|verbatim",
             "Step 7 must surface phase failure reason to the customer",
         )
-
-    def test_steps_8_and_9_reserved_for_m4(self) -> None:
-        step8 = _step_section(self.body, 8)
-        step9 = _step_section(self.body, 9)
-        combined = step8 + step9
-        self.assertRegex(combined, r"Reserved for M-4")
 
     def test_step_6_uses_repo_root_flag(self) -> None:
         step6 = _step_section(self.body, 6)

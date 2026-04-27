@@ -30,10 +30,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import branching
 import coordination
 import scaffold_apply
 import scaffold_detect
 import scaffold_plan
+import scaffold_post
 
 
 def _require_smm_dir(args: argparse.Namespace, command: str) -> int | None:
@@ -173,17 +175,19 @@ def _run_apply_phase(
             exc, timeout_sec=timeout_sec, log_path=snap.log_path(phase)
         )
         return _emit(asdict(scaffold_apply.failure_result(phase, reason, snap)))
-    snapshot_dir: str | None = str(snap.snapshot_dir)
     if cleanup_on_success:
         scaffold_apply.cleanup_snapshot(snap)
-        snapshot_dir = None
-    return _emit(
-        {
-            "ok": True,
-            "snapshot_id": snap.snapshot_id,
-            "snapshot_dir": snapshot_dir,
-        }
-    )
+        result = scaffold_apply.ApplyResult(
+            ok=True, snapshot_id=snap.snapshot_id, snapshot_state="cleaned"
+        )
+    else:
+        result = scaffold_apply.ApplyResult(
+            ok=True,
+            snapshot_id=snap.snapshot_id,
+            snapshot_dir=str(snap.snapshot_dir),
+            snapshot_state="retained",
+        )
+    return _emit(asdict(result))
 
 
 def _cmd_apply_install(args: argparse.Namespace) -> int:
@@ -202,8 +206,47 @@ def _cmd_apply_verify(args: argparse.Namespace) -> int:
         phase="verify",
         run_fn=scaffold_apply.run_verify,
         timeout_sec=scaffold_apply.VERIFY_TIMEOUT_SEC,
-        cleanup_on_success=True,
+        cleanup_on_success=False,  # M-4: apply-record is the new terminal phase
     )
+
+
+def _cmd_apply_commit(args: argparse.Namespace) -> int:
+    err = _require_smm_dir(args, "apply-commit")
+    if err is not None:
+        return err
+    snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
+    stage = branching.get_branching_stage(args.smm_dir)
+    tool_version = snap.plan["tool_version"]
+    result = scaffold_post.commit_scaffold(
+        snap,
+        smm_dir=args.smm_dir,
+        stage=stage,
+        surface=args.surface,
+        tool=args.tool,
+        tool_version=tool_version,
+        concern_id=args.concern_id,
+    )
+    return _emit(asdict(result))
+
+
+def _cmd_apply_record(args: argparse.Namespace) -> int:
+    err = _require_smm_dir(args, "apply-record")
+    if err is not None:
+        return err
+    snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
+    verify_cmd = snap.plan["verify_cmd"]
+    result = scaffold_post.record_scaffold(
+        snap,
+        smm_dir=args.smm_dir,
+        surface=args.surface,
+        verify_cmd=verify_cmd,
+        concern_id=args.concern_id,
+        agent_id=args.agent_id,
+        commit_sha=args.commit_sha,
+    )
+    if result.ok:
+        scaffold_apply.cleanup_snapshot(snap)  # apply-record is terminal in M-4
+    return _emit(asdict(result))
 
 
 def _cmd_apply_revert(args: argparse.Namespace) -> int:
@@ -309,6 +352,54 @@ def main() -> None:
             help="Repository root (default: cwd)",
         )
 
+    apply_commit = sub.add_parser(
+        "apply-commit",
+        help="Stage-aware branch + commit for a green scaffold",
+    )
+    apply_commit.add_argument(
+        "--snapshot-id", required=True, help="Snapshot ID from apply-write"
+    )
+    apply_commit.add_argument(
+        "--repo-root", type=Path, default=Path.cwd(), help="Repository root"
+    )
+    apply_commit.add_argument("--surface", required=True, help="Acceptance surface")
+    apply_commit.add_argument("--tool", required=True, help="Scaffolded tool name")
+    apply_commit.add_argument(
+        "--concern-id",
+        default=None,
+        help="Concern event ID resolved by this commit (omit for 'none')",
+    )
+
+    apply_record = sub.add_parser(
+        "apply-record",
+        help="Flip system_context surface to covered + decision event",
+    )
+    apply_record.add_argument(
+        "--snapshot-id", required=True, help="Snapshot ID from apply-write"
+    )
+    apply_record.add_argument(
+        "--repo-root", type=Path, default=Path.cwd(), help="Repository root"
+    )
+    apply_record.add_argument("--surface", required=True, help="Acceptance surface")
+    apply_record.add_argument(
+        "--concern-id",
+        default=None,
+        help="Missing-acceptance concern event ID to resolve (decision event)",
+    )
+    apply_record.add_argument(
+        "--agent-id",
+        required=True,
+        help="Agent ID for the decision event (skill is inline; pass caller agent)",
+    )
+    apply_record.add_argument(
+        "--commit-sha",
+        default=None,
+        help=(
+            "Scaffold commit SHA from apply-commit; if supplied, "
+            "apply-record verifies the commit exists before flipping the surface"
+        ),
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -321,6 +412,8 @@ def main() -> None:
         "apply-install": _cmd_apply_install,
         "apply-verify": _cmd_apply_verify,
         "apply-revert": _cmd_apply_revert,
+        "apply-commit": _cmd_apply_commit,
+        "apply-record": _cmd_apply_record,
     }
 
     sys.exit(dispatch[args.command](args))
