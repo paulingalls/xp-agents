@@ -242,6 +242,20 @@ def run_verify(snap: ApplySnapshot) -> None:
         )
 
 
+def cleanup_snapshot(snap: ApplySnapshot) -> None:
+    """Remove the on-disk snapshot directory.
+
+    Call only on success paths: apply_plan ok=True, apply-verify ok=True,
+    apply-revert with unrestored=[]. Failure paths retain the snapshot —
+    the reason field points at the per-phase log file for customer
+    inspection, and the recovery message (when revert itself fails)
+    names the snapshot dir + unrestored paths. Cleaning up on failure
+    would invalidate both pointers. ``ignore_errors=True`` since the dir
+    is process-local under TMPDIR — partial cleanup is fine.
+    """
+    shutil.rmtree(snap.snapshot_dir, ignore_errors=True)
+
+
 def revert(snap: ApplySnapshot) -> list[str]:
     """Restore snapshot. Returns relpaths that could not be restored."""
     unrestored: list[str] = []
@@ -365,8 +379,6 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
             ),
             snap,
         )
-    return ApplyResult(
-        ok=True,
-        snapshot_id=snap.snapshot_id,
-        snapshot_dir=str(snap.snapshot_dir),
-    )
+    snapshot_id = snap.snapshot_id
+    cleanup_snapshot(snap)
+    return ApplyResult(ok=True, snapshot_id=snapshot_id, snapshot_dir=None)

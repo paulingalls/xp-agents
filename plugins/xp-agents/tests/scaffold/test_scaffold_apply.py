@@ -135,8 +135,8 @@ class TestApplyPlanHappyPath(_ApplyTestBase):
         self.assertTrue(result.ok)
         self.assertIsNotNone(result.snapshot_id)
         self.assertTrue(result.snapshot_id)
-        self.assertIsNotNone(result.snapshot_dir)
-        self.assertTrue(Path(result.snapshot_dir).exists())
+        # snapshot_dir is None on success — directory is auto-cleaned up.
+        self.assertIsNone(result.snapshot_dir)
 
     def test_no_failure_fields_on_success(self) -> None:
         result = apply_plan(_plan(), repo_root=self.repo)
@@ -455,21 +455,22 @@ class TestApplyPhaseLogs(_ApplyTestBase):
     the log path so the customer can inspect the firehose. stderr stays
     captured into reason directly for the brief summary."""
 
-    def test_successful_run_writes_install_log(self) -> None:
+    def test_run_install_writes_install_log(self) -> None:
+        # Test the phase helper directly — apply_plan cleans up on success.
         plan = _plan(install_cmds=["echo install-output"])
-        result = apply_plan(plan, repo_root=self.repo)
-        self._track_snapshot(result)
-        self.assertTrue(result.ok, result.reason)
-        log = Path(result.snapshot_dir) / "install.log"
+        snap = scaffold_apply.create_snapshot(plan, repo_root=self.repo)
+        self._snapshots_to_clean.append(snap.snapshot_dir)
+        scaffold_apply.run_install(snap)
+        log = snap.log_path("install")
         self.assertTrue(log.exists())
         self.assertIn("install-output", log.read_text(encoding="utf-8"))
 
-    def test_successful_run_writes_verify_log(self) -> None:
+    def test_run_verify_writes_verify_log(self) -> None:
         plan = _plan(verify_cmd="echo verify-output")
-        result = apply_plan(plan, repo_root=self.repo)
-        self._track_snapshot(result)
-        self.assertTrue(result.ok, result.reason)
-        log = Path(result.snapshot_dir) / "verify.log"
+        snap = scaffold_apply.create_snapshot(plan, repo_root=self.repo)
+        self._snapshots_to_clean.append(snap.snapshot_dir)
+        scaffold_apply.run_verify(snap)
+        log = snap.log_path("verify")
         self.assertTrue(log.exists())
         self.assertIn("verify-output", log.read_text(encoding="utf-8"))
 
@@ -521,6 +522,91 @@ class TestApplyPhaseLogs(_ApplyTestBase):
             "verify-trace",
             (snap_dir / "verify.log").read_text(encoding="utf-8"),
         )
+
+
+class TestApplyPlanCleansUpSnapshot(_ApplyTestBase):
+    """apply_plan must clean up snapshot_dir on success paths.
+
+    On ok=True: cleanup; result.snapshot_dir is None.
+    On failure with clean revert (unrestored=[]): cleanup; snapshot_dir is None.
+    On failure with unrestored != []: retain; snapshot_dir populated for the
+    customer's manual recovery (and recovery message names it)."""
+
+    def test_apply_plan_success_removes_snapshot_dir(self) -> None:
+        result = apply_plan(_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.snapshot_dir)
+
+    def test_apply_plan_success_disk_dir_gone(self) -> None:
+        # Capture by creating snapshot ourselves so we can check after cleanup.
+        result = apply_plan(_plan(), repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok)
+        # The snapshot_id is preserved on the result so callers can correlate;
+        # the dir under TMPDIR derived from that id must be gone.
+        snapshot_dir = (
+            Path(tempfile.gettempdir()) / f"scaffold-snap-{result.snapshot_id}"
+        )
+        self.assertFalse(snapshot_dir.exists())
+
+    def test_apply_plan_clean_revert_retains_snapshot_for_log_inspection(
+        self,
+    ) -> None:
+        """Clean-revert failure retains the snapshot so the per-phase log
+        file referenced in `reason` (e.g. 'see install.log') survives for
+        customer inspection. Cleanup happens only on success paths."""
+        manifest = self.repo / "package.json"
+        manifest.write_text('{"name": "demo"}\n', encoding="utf-8")
+        plan = _plan(
+            files_to_create=[
+                {"path": "tests/x.spec.ts", "description": "spec", "body": "x\n"}
+            ],
+            files_to_modify=[
+                {
+                    "path": "package.json",
+                    "description": "+dep",
+                    "body": '{"name": "demo", "added": true}\n',
+                }
+            ],
+            install_cmds=["false"],
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.unrestored, [])
+        self.assertIsNotNone(result.snapshot_dir)
+        self.assertTrue(Path(result.snapshot_dir).exists())
+        self.assertTrue((Path(result.snapshot_dir) / "install.log").exists())
+
+    def test_apply_plan_retains_snapshot_when_unrestored(self) -> None:
+        manifest = self.repo / "package.json"
+        manifest.write_text('{"name": "demo"}\n', encoding="utf-8")
+        plan = _plan(
+            files_to_modify=[
+                {
+                    "path": "package.json",
+                    "description": "+dep",
+                    "body": '{"name": "demo", "added": true}\n',
+                }
+            ],
+            install_cmds=["false"],
+        )
+        original_copy = shutil.copy2
+
+        def fake_copy(src, dst, *args, **kw):  # type: ignore[no-untyped-def]
+            if "scaffold-snap-" in str(src) and "/backup/" in str(src):
+                raise PermissionError("simulated restore failure")
+            return original_copy(src, dst, *args, **kw)
+
+        with mock.patch.object(shutil, "copy2", side_effect=fake_copy):
+            result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertNotEqual(result.unrestored, [])
+        self.assertIsNotNone(result.snapshot_dir)
+        self.assertTrue(Path(result.snapshot_dir).exists())
+        self.assertIn(result.snapshot_dir, result.recovery or "")
 
 
 if __name__ == "__main__":

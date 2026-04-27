@@ -578,5 +578,123 @@ class TestApplyRevert(_ApplyCliTestBase):
         self.assertEqual(result.returncode, 2)
 
 
+class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
+    """Snapshot dir lifecycle for the CLI split:
+    - apply-write success: snapshot retained (next phase needs it)
+    - apply-install success: snapshot retained (verify still needs it)
+    - apply-verify success: cleaned up (last phase of M-3 pipeline)
+    - apply-revert with unrestored=[]: cleaned up (explicit cancel)
+    - any phase failure with clean revert: cleaned up by failure_result
+    """
+
+    def test_apply_install_success_retains_snapshot(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        snap_id = write_payload["snapshot_id"]
+        result = run_cli(
+            _CLI,
+            [
+                "apply-install",
+                "--snapshot-id",
+                snap_id,
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        snapshot_dir = Path(write_payload["snapshot_dir"])
+        self.assertTrue(snapshot_dir.exists())
+
+    def test_apply_verify_success_cleans_up_snapshot(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        snap_id = write_payload["snapshot_id"]
+        snapshot_dir = Path(write_payload["snapshot_dir"])
+        result = run_cli(
+            _CLI,
+            [
+                "apply-verify",
+                "--snapshot-id",
+                snap_id,
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(snapshot_dir.exists())
+
+    def test_apply_revert_after_apply_verify_returns_two(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        snap_id = write_payload["snapshot_id"]
+        run_cli(
+            _CLI,
+            [
+                "apply-verify",
+                "--snapshot-id",
+                snap_id,
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        result = run_cli(
+            _CLI,
+            [
+                "apply-revert",
+                "--snapshot-id",
+                snap_id,
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_apply_revert_clean_cleans_up_snapshot(self) -> None:
+        write_payload = self._apply_write(self._plan())
+        snap_id = write_payload["snapshot_id"]
+        snapshot_dir = Path(write_payload["snapshot_dir"])
+        result = run_cli(
+            _CLI,
+            [
+                "apply-revert",
+                "--snapshot-id",
+                snap_id,
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(snapshot_dir.exists())
+
+    def test_apply_install_failure_retains_snapshot_for_log_inspection(
+        self,
+    ) -> None:
+        """Phase failure (clean revert) retains the snapshot so the log file
+        named in `reason` survives for customer inspection."""
+        write_payload = self._apply_write(self._plan(install_cmds=["false"]))
+        snap_id = write_payload["snapshot_id"]
+        snapshot_dir = Path(write_payload["snapshot_dir"])
+        result = run_cli(
+            _CLI,
+            [
+                "apply-install",
+                "--snapshot-id",
+                snap_id,
+                "--repo-root",
+                str(self._repo),
+            ],
+            self.smm_dir,
+        )
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["unrestored"], [])
+        self.assertTrue(snapshot_dir.exists())
+        self.assertTrue((snapshot_dir / "install.log").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

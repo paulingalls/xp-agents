@@ -158,7 +158,12 @@ def _load_snapshot_or_exit(
 
 
 def _run_apply_phase(
-    args: argparse.Namespace, *, phase: str, run_fn, timeout_sec: int
+    args: argparse.Namespace,
+    *,
+    phase: str,
+    run_fn,
+    timeout_sec: int,
+    cleanup_on_success: bool,
 ) -> int:
     snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
     try:
@@ -168,7 +173,17 @@ def _run_apply_phase(
             exc, timeout_sec=timeout_sec, log_path=snap.log_path(phase)
         )
         return _emit(asdict(scaffold_apply.failure_result(phase, reason, snap)))
-    return _emit({"ok": True})
+    snapshot_dir: str | None = str(snap.snapshot_dir)
+    if cleanup_on_success:
+        scaffold_apply.cleanup_snapshot(snap)
+        snapshot_dir = None
+    return _emit(
+        {
+            "ok": True,
+            "snapshot_id": snap.snapshot_id,
+            "snapshot_dir": snapshot_dir,
+        }
+    )
 
 
 def _cmd_apply_install(args: argparse.Namespace) -> int:
@@ -177,6 +192,7 @@ def _cmd_apply_install(args: argparse.Namespace) -> int:
         phase="install",
         run_fn=scaffold_apply.run_install,
         timeout_sec=scaffold_apply.INSTALL_TIMEOUT_SEC,
+        cleanup_on_success=False,
     )
 
 
@@ -186,17 +202,22 @@ def _cmd_apply_verify(args: argparse.Namespace) -> int:
         phase="verify",
         run_fn=scaffold_apply.run_verify,
         timeout_sec=scaffold_apply.VERIFY_TIMEOUT_SEC,
+        cleanup_on_success=True,
     )
 
 
 def _cmd_apply_revert(args: argparse.Namespace) -> int:
     snap = _load_snapshot_or_exit(args.snapshot_id, args.repo_root)
     unrestored = scaffold_apply.revert(snap)
+    snapshot_dir: str | None = str(snap.snapshot_dir)
+    if not unrestored:
+        scaffold_apply.cleanup_snapshot(snap)
+        snapshot_dir = None
     return _emit(
         {
             "ok": not unrestored,
             "unrestored": unrestored,
-            "snapshot_dir": str(snap.snapshot_dir),
+            "snapshot_dir": snapshot_dir,
         }
     )
 

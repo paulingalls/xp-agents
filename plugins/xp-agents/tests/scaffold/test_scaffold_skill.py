@@ -466,6 +466,22 @@ class TestSkillM3Wiring(unittest.TestCase):
         step7 = _step_section(self.body, 7)
         self.assertIn("--snapshot-id", step7)
 
+    def test_step_7_warns_against_orphan_install_state(self) -> None:
+        """Customer must run apply-install → apply-verify-or-apply-revert as a
+        contiguous pair. Leaving install state without verify or revert
+        leaks the snapshot dir under TMPDIR (since apply-install does not
+        cleanup; cleanup only happens at apply-verify ok or apply-revert)."""
+        step7 = _step_section(self.body, 7)
+        self.assertRegex(
+            step7,
+            r"(?i)must|never abandon|always (?:run|follow)",
+            "Step 7 must instruct the customer that apply-install requires "
+            "a follow-up apply-verify or apply-revert",
+        )
+        self.assertIn("apply-install", step7)
+        self.assertIn("apply-verify", step7)
+        self.assertIn("apply-revert", step7)
+
 
 if __name__ == "__main__":
     unittest.main()

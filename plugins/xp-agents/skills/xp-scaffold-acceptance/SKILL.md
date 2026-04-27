@@ -259,6 +259,8 @@ The CLI prints a JSON object on stdout. Parse it: on `ok=true` capture `snapshot
 
 ## Step 7: Install and verify
 
+**Once apply-write returns `ok=true` you MUST follow it with both `apply-install` AND either `apply-verify` (to complete the pipeline) or `apply-revert` (to cancel). Never abandon a snapshot mid-pipeline** — the snapshot dir under TMPDIR stays on disk between phases (apply-install does not clean it up; cleanup happens at apply-verify success or apply-revert success). Walking away after apply-install leaks the snapshot forever.
+
 With `$SNAPSHOT_ID` from Step 6, run `apply-install` first; only run `apply-verify` if install came back `ok=true`:
 
 ```bash
@@ -279,7 +281,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-revert --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT"
 ```
 
-After a green verify, Steps 8–9 (M-4) take over for commit + system_context update. For now, leave the scaffold in place uncommitted and report success to the customer with the snapshot directory pointer for manual cleanup if needed.
+After a green verify, the snapshot directory is auto-cleaned up by `apply-verify`. Steps 8–9 (M-4) take over for commit + system_context update; for now, leave the scaffold in place uncommitted and report success to the customer.
 
 ## Step 8: Commit
 ## Step 9: Record
