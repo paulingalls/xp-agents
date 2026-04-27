@@ -323,17 +323,43 @@ class TestSkillSnippetSafety(unittest.TestCase):
             "with a real path so the LLM has a copy-paste-runnable shape.",
         )
 
-    def test_step_2_passes_guidance_via_stdin(self) -> None:
-        """Step 2's assess-tool call must read guidance from stdin (echo,
-        cat, heredoc, printf — any stdin producer is fine). The safety
-        property is 'guidance never appears as a Python string literal in
-        the snippet,' regardless of how it gets there."""
+    def test_step_2_uses_heredoc_or_printf_for_guidance(self) -> None:
+        """Step 2's assess-tool call must use heredoc (`<<EOF`) or printf
+        for the guidance payload — bare `echo '<guidance>'` breaks if the
+        guidance contains an apostrophe (very common in tool-help text).
+        Heredoc may attach directly to the CLI invocation (suffix form)
+        or pipe in (prefix form via `cat <<EOF | ...`)."""
         step2 = _step_section(self.body, 2)
-        self.assertRegex(
+        has_heredoc = bool(re.search(r"<<'?[A-Z_]+'?", step2))
+        has_printf = "printf" in step2
+        invokes_assess = "assess-tool" in step2
+        self.assertTrue(
+            invokes_assess and (has_heredoc or has_printf),
+            "Step 2 must invoke assess-tool with guidance delivered via "
+            "heredoc or printf — apostrophes in guidance text break bare "
+            "`echo '...'`.",
+        )
+
+    def test_step_2_no_bare_echo_for_guidance(self) -> None:
+        """Bare `echo '...'` is exactly the apostrophe-fragility pattern
+        we want to avoid in Step 2."""
+        step2 = _step_section(self.body, 2)
+        self.assertNotRegex(
             step2,
-            r"(?s)(?:echo|cat|printf|<<).*\|\s*python3.*scaffold_cli\.py.*assess-tool",
-            "Step 2 must pipe guidance into scaffold_cli.py assess-tool "
-            "via stdin (echo / cat / printf / heredoc all acceptable).",
+            r"echo\s+'[^']*<guidance",
+            "Step 2 must not use bare `echo '<guidance>'` — apostrophes "
+            "in guidance text break the call. Use heredoc.",
+        )
+
+    def test_step_2_no_misleading_separate_stdin_hint(self) -> None:
+        """A 'separate stdin channel' hint is unactionable — there is only
+        one stdin per process. Drop or replace with `--tool=\"$tool\"`."""
+        step2 = _step_section(self.body, 2)
+        self.assertNotIn(
+            "separate stdin channel",
+            step2,
+            "Step 2 must not suggest piping the tool name on a separate "
+            'stdin channel — there is only one stdin. Use --tool="$tool".',
         )
 
 
