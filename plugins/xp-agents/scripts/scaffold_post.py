@@ -124,7 +124,10 @@ def commit_scaffold(
             return CommitResult(
                 ok=False,
                 branch=current_branch,
-                reason=f"branching gate skipped scaffold branch at stage {stage}",
+                reason=(
+                    f"failed to create or resume scaffold branch at stage "
+                    f"{stage} (git checkout/create failed; see stderr above)"
+                ),
             )
         target_branch = new_branch
 
