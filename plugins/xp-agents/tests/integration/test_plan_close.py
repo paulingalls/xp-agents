@@ -127,8 +127,9 @@ class TestSprintCloseToPlanCloseChainIntegrity(unittest.TestCase):
 
     def test_plan_close_forks_close_reviewer_in_plan_mode(self):
         # plan-close SKILL.md must invoke xp-close-reviewer with mode=plan.
+        # The mode literal lives under the ## Mode prompt section.
         self.assertIn("xp-agents:xp-close-reviewer", self.plan_close_text)
-        self.assertIn('"plan"', self.plan_close_text)
+        self.assertIn("## Mode\\nplan", self.plan_close_text)
 
     def test_close_reviewer_agent_supports_plan_mode(self):
         # Agent's mode-aware focus list must include plan as a distinct
@@ -149,7 +150,7 @@ class TestPlanMergeAndArchiveEndToEnd(_IntegrationTestCase):
 
     The fixture creates a real single-milestone plan marked delivered
     so plan_cli is-plan-complete exits 0 (the exact gate sprint-close's
-    Step 9 keys off). No mocks — honest E2E against branching.py +
+    Step 8 keys off). No mocks — honest E2E against branching.py +
     plan_cli.py primitives the LLM-driven SKILL.md instructs.
     """
 
@@ -213,7 +214,7 @@ class TestPlanMergeAndArchiveEndToEnd(_IntegrationTestCase):
         )
 
         # is-plan-complete must exit 0 against this real plan — the exact
-        # gate sprint-close's Step 9 chain keys off.
+        # gate sprint-close's Step 8 chain keys off.
         gate = self._run_plan_cli("is-plan-complete")
         self.assertEqual(
             gate.returncode,

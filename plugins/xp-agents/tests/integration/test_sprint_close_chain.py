@@ -6,8 +6,8 @@ Pins the sprint-close chain end-to-end. Two scenarios:
 1. **Chain integrity** — every node the chain requires (the close skill,
    its preload, the close-reviewer agent) is in place AND the close
    skill actually forks the close-reviewer. The narrower assertions
-   (sprint-review references close, dispatch wiring, agent receives
-   REVIEW_INPUT) live in test_sprint_close.py and
+   (sprint-review references close, dispatch wiring, close-reviewer
+   prompt-section contract) live in test_sprint_close.py and
    test_subagent_tiers_sprint.py — this capstone only proves the parts
    compose, not the per-step contracts.
 

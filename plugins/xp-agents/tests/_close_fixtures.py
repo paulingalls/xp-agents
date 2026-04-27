@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Shared test fixtures for the close-skill family preload tests.
 
-`_ClosePreloadCommonTests` covers the eight assertions every close-skill
+`_ClosePreloadCommonTests` covers the assertions every close-skill
 preload must satisfy: it emits SMM_DIR, CURRENT_BRANCH, GH_AVAILABLE,
-WORKTREE_CLEAN, REVIEW_INPUT (mktemp, unique per call), and exits 0
-even with a fresh CLAUDE_PLUGIN_DATA. Subclasses inherit the mixin
-plus `_IntegrationTestCase` and supply `_PRELOAD`. The TARGET_BRANCH
-assertion is skill-specific (sprint-close uses get-target, plan-close
-uses get-primary, free-close will mirror plan-close), so subclasses
-own that test individually.
+WORKTREE_CLEAN, and exits 0 even with a fresh CLAUDE_PLUGIN_DATA.
+Subclasses inherit the mixin plus `_IntegrationTestCase` and supply
+`_PRELOAD`. The TARGET_BRANCH assertion is skill-specific (sprint-close
+uses get-target, plan-close uses get-primary, free-close mirrors
+plan-close), so subclasses own that test individually.
 
-`_CloseSkillTextCommonTests` covers the nine SKILL.md guard assertions
+`_CloseSkillTextCommonTests` covers the SKILL.md guard assertions
 shared across sprint/plan/free close skills (refusal prose, gh-conditional
-PR, REVIEW_INPUT keys, agent prompt literals, merge+delete ordering, etc.).
-Subclasses supply `_SKILL_MD: Path` and `_MODE: str` ("sprint" | "plan" |
-"free"); mode-specific tests (plan-archive, sprint→plan-close chain,
-current==target refusal) stay on the subclasses.
+PR, prompt-section names for the close-reviewer, agent prompt literals,
+merge+delete ordering, etc.). Subclasses supply `_SKILL_MD: Path` and
+`_MODE: str` ("sprint" | "plan" | "free"); mode-specific tests
+(plan-archive, sprint→plan-close chain, current==target refusal) stay
+on the subclasses.
 """
 
 import re
@@ -23,7 +23,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import marker_names
 from conftest import _extract_preload_var
 
 
@@ -84,29 +83,22 @@ class _ClosePreloadCommonTests:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(_extract_preload_var(result.stdout, "WORKTREE_CLEAN"), "false")
 
-    def test_emits_review_input_path(self):
-        # REVIEW_INPUT is a per-invocation tempfile under SMM_DIR — concurrent
-        # close skills in different worktrees must not race on a shared path.
+    def test_does_not_emit_review_input(self):
+        # The close skill no longer creates a tempfile or echoes a
+        # REVIEW_INPUT line — the four close-review fields are now passed
+        # inline in the Agent prompt as ## Source Branch / Target Branch /
+        # Diff Command sections, with the mode literal already in the prompt.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        review_input = _extract_preload_var(result.stdout, "REVIEW_INPUT")
-        self.assertIsNotNone(review_input)
-        review_path = Path(review_input)
-        self.assertEqual(review_path.parent, self.smm_dir)
-        self.assertTrue(
-            review_path.name.startswith(marker_names.CLOSE_REVIEW_INPUT_PREFIX)
+        self.assertIsNone(
+            _extract_preload_var(result.stdout, "REVIEW_INPUT"),
+            "preload must not emit REVIEW_INPUT (file pattern removed)",
         )
-        self.assertTrue(review_path.exists(), "mktemp should create the file")
-
-    def test_review_input_path_is_unique_per_call(self):
-        first = _extract_preload_var(self._preload().stdout, "REVIEW_INPUT")
-        second = _extract_preload_var(self._preload().stdout, "REVIEW_INPUT")
-        self.assertNotEqual(first, second)
 
     def test_exits_zero_with_unwritable_smm(self):
         # Override CLAUDE_PLUGIN_DATA to a fresh empty dir so init.sh
         # produces a different SMM path with no shared_mental_model.json.
-        # Preload should still emit its six lines and exit 0.
+        # Preload should still emit its five lines and exit 0.
         with tempfile.TemporaryDirectory() as fresh_data:
             result = self._run_preload(
                 self._PRELOAD, extra_env={"CLAUDE_PLUGIN_DATA": fresh_data}
@@ -118,7 +110,6 @@ class _ClosePreloadCommonTests:
             "TARGET_BRANCH",
             "GH_AVAILABLE",
             "WORKTREE_CLEAN",
-            "REVIEW_INPUT",
         ):
             self.assertIsNotNone(
                 _extract_preload_var(result.stdout, key),
@@ -179,20 +170,60 @@ class _CloseSkillTextCommonTests:
             "SKILL.md must describe the gh-not-available skip path",
         )
 
-    def test_writes_close_review_input_with_required_fields(self):
-        # The body must instruct writing the close-review-input file with
-        # the four keys the close-reviewer agent reads.
-        self.assertIn("REVIEW_INPUT", self.text)
-        for key in ("mode", "source_branch", "target_branch", "diff_command"):
-            self.assertIn(key, self.text, f"Missing review-input key: {key}")
+    def test_prompt_template_carries_close_review_fields(self):
+        # The Agent prompt template must include the four close-review
+        # sections inline — the close-reviewer reads them from the prompt
+        # now that the JSON file pattern was removed. The mode literal
+        # ('sprint' | 'plan' | 'free') must also appear in the prompt.
+        self.assertNotIn(
+            "REVIEW_INPUT",
+            self.text,
+            "REVIEW_INPUT pattern was removed; SKILL.md must not reference it",
+        )
+        for section in (
+            "## Mode",
+            "## Source Branch",
+            "## Target Branch",
+            "## Diff Command",
+        ):
+            self.assertIn(
+                section, self.text, f"Missing prompt section heading: {section}"
+            )
+        # Diff Command section must carry an actual command, not just the
+        # heading — guards against a regression that drops the value while
+        # keeping the section. The `\\n` matches the literal escape
+        # sequence in the embedded Python-style prompt string (SKILL.md
+        # writes prompts as one-liners with `\n` characters as text, not
+        # real newlines). Trailing space after `git diff ` distinguishes
+        # the subcommand from lookalike substrings.
+        self.assertRegex(
+            self.text,
+            r"## Diff Command\\n(gh pr diff|git diff )",
+            "## Diff Command section must be followed by gh pr diff or git diff",
+        )
+        # Both branches must be present — the GH_AVAILABLE=true block
+        # carries `gh pr diff`, the GH_AVAILABLE=false block carries the
+        # `git diff <TARGET_BRANCH>...HEAD` fallback. Asserting both
+        # individually catches a regression where one branch is dropped
+        # but the other still satisfies the regex above.
+        self.assertIn(
+            "gh pr diff",
+            self.text,
+            "GH_AVAILABLE=true branch must invoke `gh pr diff`",
+        )
+        self.assertIn(
+            "git diff <TARGET_BRANCH>...HEAD",
+            self.text,
+            "GH_AVAILABLE=false branch must invoke `git diff <TARGET_BRANCH>...HEAD`",
+        )
 
-    def test_agent_prompt_carries_smm_dir_and_review_input(self):
-        # The Agent prompt must literally embed SMM_DIR= and REVIEW_INPUT=
-        # lines — the close-reviewer reads them from the prompt now that
-        # SubagentStart no longer injects them. Mode literal must match.
+    def test_agent_prompt_carries_smm_dir_and_mode(self):
+        # The Agent prompt must literally embed SMM_DIR= and the mode
+        # literal under the ## Mode section — the close-reviewer reads
+        # them from the prompt now that SubagentStart no longer injects
+        # anything for it.
         self.assertIn("SMM_DIR=", self.text)
-        self.assertIn("REVIEW_INPUT=", self.text)
-        self.assertIn(f'"{self._MODE}"', self.text)
+        self.assertIn(f"## Mode\\n{self._MODE}", self.text)
 
     def test_invokes_close_reviewer_via_agent_tool(self):
         # The body must instruct forking xp-close-reviewer via the Agent tool.
