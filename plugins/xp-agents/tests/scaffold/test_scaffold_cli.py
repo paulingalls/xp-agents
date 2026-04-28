@@ -658,6 +658,44 @@ class TestApplyRevert(_ApplyCliTestBase):
         self.assertEqual(result.returncode, 2)
 
 
+class TestApplyRequiresRepoRoot(_ApplyCliTestBase):
+    """apply-install / apply-verify / apply-revert require --repo-root.
+
+    Concern 0a6e983fd1d4 (--repo-root contract). Previously these three
+    subcommands defaulted --repo-root to Path.cwd() while apply-write,
+    apply-commit, apply-record, and the detect-* subcommands were
+    required=True. The mixed contract risked silent surprise when a
+    caller invoked from an unexpected cwd. Pin "required everywhere".
+    """
+
+    def test_apply_install_requires_repo_root(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["apply-install", "--snapshot-id", "abc"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--repo-root", result.stderr)
+
+    def test_apply_verify_requires_repo_root(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["apply-verify", "--snapshot-id", "abc"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--repo-root", result.stderr)
+
+    def test_apply_revert_requires_repo_root(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["apply-revert", "--snapshot-id", "abc"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--repo-root", result.stderr)
+
+
 class TestApplyCliSnapshotLifecycle(_ApplyCliTestBase):
     """Snapshot dir lifecycle for the CLI split:
     - apply-write success: snapshot retained (next phase needs it)
