@@ -27,5 +27,7 @@ QUESTION_NUDGED = ".question-nudged-{agent_id}"
 
 SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."
 
+RETROSPECTIVES_DIR = "retrospectives"
+
 RENDER_RETRO_SIGNATURE = "# XP Retrospective \u2014 Keep / Fix / Try"
 RENDER_SMM_SIGNATURE = "# Shared Mental Model \u2014 Curated View"

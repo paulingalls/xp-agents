@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Render retrospective JSON as Keep/Fix/Try markdown.
+"""Render the latest retrospective as Keep/Fix/Try markdown.
 
-Reads a retrospective JSON file (as written by scripts/save_retrospective.py)
-and emits a Keep/Fix/Try markdown report on stdout.
+Reads the latest retrospective JSON from <smm-dir>/retrospectives/
+(written by scripts/save_retrospective.py) and emits a Keep/Fix/Try
+markdown report on stdout. The CLI encapsulates storage layout —
+callers don't need to know where retros live or which is latest.
 
 Usage:
-    retro_cli.py --smm-dir DIR render <retro-json-path>
+    retro_cli.py --smm-dir DIR render
 """
 
 import argparse
@@ -39,11 +41,28 @@ def render_markdown(retro: dict) -> str:
     return "\n".join(parts)
 
 
+def _find_latest_retro(smm_dir: Path) -> Path | None:
+    """Return the lexicographically largest retrospective JSON, or None.
+
+    File names are ISO-8601 timestamps so lexicographic max == newest.
+    """
+    retros_dir = smm_dir / marker_names.RETROSPECTIVES_DIR
+    if not retros_dir.is_dir():
+        return None
+    candidates = sorted(retros_dir.glob("*.json"))
+    return candidates[-1] if candidates else None
+
+
 def _cmd_render(args: argparse.Namespace) -> int:
+    retros_dir = args.smm_dir / marker_names.RETROSPECTIVES_DIR
+    latest = _find_latest_retro(args.smm_dir)
+    if latest is None:
+        print(f"No retrospectives found under {retros_dir}/", file=sys.stderr)
+        return 1
     try:
-        data = json.loads(args.path.read_text(encoding="utf-8"))
+        data = json.loads(latest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        print(f"Error rendering {args.path}: {exc}", file=sys.stderr)
+        print(f"Error rendering {latest}: {exc}", file=sys.stderr)
         return 1
     print(render_markdown(data))
     return 0
@@ -52,19 +71,17 @@ def _cmd_render(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Retrospective render CLI",
-        epilog=("Examples:\n  retro_cli.py --smm-dir DIR render path/to/retro.json"),
+        epilog="Examples:\n  retro_cli.py --smm-dir DIR render",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--smm-dir",
         type=Path,
-        default=None,
-        help="SMM directory path (accepted for caller symmetry; not read)",
+        required=True,
+        help="SMM directory (retrospectives are read from <smm-dir>/retrospectives/)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-
-    render_p = sub.add_parser("render", help="Render retrospective JSON as markdown")
-    render_p.add_argument("path", type=Path, help="Path to retrospective JSON file")
+    sub.add_parser("render", help="Render the latest retrospective as markdown")
 
     args = parser.parse_args()
     dispatch = {"render": _cmd_render}

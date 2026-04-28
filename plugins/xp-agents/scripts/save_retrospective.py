@@ -19,6 +19,7 @@ import secrets
 
 import _append_impl
 import _common
+import marker_names
 import retro_schema
 from event_schema import RETRO_ACTION_SESSION_DONE, RETRO_ACTION_SPRINT_DONE
 
@@ -108,7 +109,7 @@ def run(
     # Use event timestamp for the file (avoids divergent timestamps)
     ts_str = event["ts"]
     filename = ts_str.replace(":", "-").replace("+", "_")[:19] + ".json"
-    retro_dir = smm_dir / "retrospectives"
+    retro_dir = smm_dir / marker_names.RETROSPECTIVES_DIR
     retro_dir.mkdir(exist_ok=True)
     retro_file = retro_dir / filename
 
