@@ -5,6 +5,7 @@ worktree markers, green nudge, push warning, QR linkage.
 Split from test_bash.py.
 """
 
+import contextlib
 import sys
 import unittest
 from pathlib import Path
@@ -71,26 +72,39 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
 
     _LEAKED_AGENT_TYPE = "xp-leaked"
 
-    def test_xp_agent_type_does_not_block_commit_event(self):
+    @contextlib.contextmanager
+    def _patch_commit_lookups(
+        self,
+        files: list[str] | None = None,
+        body: str = "[story-001] foo",
+        head_sha: str = "leakedabc1234",
+    ):
+        """Patch the commits.* lookups _handle_commit calls into git.
+
+        Three patches travel together at every leak-path test site; the only
+        knobs are the committed-files list, body, and head SHA.
+        """
+        committed_files = files or ["plugins/xp-agents/scripts/x.py"]
         with (
-            patch(
-                "commits.get_committed_files",
-                return_value=["plugins/xp-agents/scripts/x.py"],
-            ),
-            patch(
-                "commits.get_commit_message_body",
-                return_value="[story-001] foo",
-            ),
-            patch("commits.get_head_commit_hash", return_value="leakedabc1234"),
+            patch("commits.get_committed_files", return_value=committed_files),
+            patch("commits.get_commit_message_body", return_value=body),
+            patch("commits.get_head_commit_hash", return_value=head_sha),
         ):
-            bash_post_tool.run(
-                _make_bash_input(
-                    command="git commit -m '[story-001] foo'",
-                    stdout="[main leakedabc] [story-001] foo\n 1 file changed",
-                    agent_type=self._LEAKED_AGENT_TYPE,
-                ),
-                smm_dir=self.smm_dir,
-            )
+            yield
+
+    def _run_leaked_commit(self):
+        return bash_post_tool.run(
+            _make_bash_input(
+                command="git commit -m '[story-001] foo'",
+                stdout="[main leakedabc] [story-001] foo\n 1 file changed",
+                agent_type=self._LEAKED_AGENT_TYPE,
+            ),
+            smm_dir=self.smm_dir,
+        )
+
+    def test_xp_agent_type_does_not_block_commit_event(self):
+        with self._patch_commit_lookups():
+            self._run_leaked_commit()
         commit_events = [e for e in self._read_events() if e.get("type") == "commit"]
         self.assertEqual(len(commit_events), 1)
 
@@ -105,6 +119,60 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
         )
         self.assertIsNone(result)
         self.assertEqual(self._read_events(), [])
+
+    def test_xp_agent_type_does_not_consume_main_security_marker(self):
+        """Leaked agent_type must not consume main's security marker.
+
+        Under the original hoist (commit 44698fe), a Bash tagged with leaked
+        agent_type drove _handle_commit to completion — including
+        security.consume_security_triaged(agent_id), which would wipe main's
+        marker when agent_id resolved to 'main' in the leak path. The
+        commit event must still land (recording is the priority), but
+        marker mutations under wrong identity are unsafe.
+        """
+        security.write_security_triaged(self.smm_dir, "main")
+        self.assertTrue(security.security_triaged_exists(self.smm_dir, "main"))
+
+        with self._patch_commit_lookups():
+            self._run_leaked_commit()
+
+        # Commit event still recorded — the bug fix is preserved.
+        commit_events = [e for e in self._read_events() if e.get("type") == "commit"]
+        self.assertEqual(len(commit_events), 1)
+        # Side effect blocked: security marker still present.
+        self.assertTrue(
+            security.security_triaged_exists(self.smm_dir, "main"),
+            "leaked-type Bash should not consume main's security marker",
+        )
+
+    def test_xp_agent_type_does_not_run_lint_resolution(self):
+        """Leaked agent_type must not invoke _resolve_lint_on_commit.
+
+        Closes the 4th-of-4 side-effect coverage gap. _resolve_lint_on_commit
+        runs ruff per committed file and resolves matching lint concerns; on
+        the leak path this would resolve concerns under the wrong identity.
+        """
+        with (
+            self._patch_commit_lookups(),
+            patch.object(bash_post_tool, "_resolve_lint_on_commit") as lint_spy,
+        ):
+            self._run_leaked_commit()
+        lint_spy.assert_not_called()
+
+    def test_xp_agent_type_does_not_reset_main_review_cycle(self):
+        """Leaked agent_type must not reset main's review-cycle flags."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+
+        with self._patch_commit_lookups():
+            result = self._run_leaked_commit()
+
+        # Side effect blocked: review-cycle flags unchanged.
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+        self.assertTrue(cycle["quality_review_done"])
+        # No QR-warning leakage to the (leaked) caller.
+        self.assertIsNone(result)
 
     def test_xp_agent_type_failed_commit_records_no_event(self):
         # parse_commit_message returns None when the response lacks the

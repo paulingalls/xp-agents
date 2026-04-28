@@ -70,6 +70,32 @@ class _RecordTestBase(unittest.TestCase):
             (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
         )
 
+    def _seed_commit(self) -> str:
+        """Seed a [chore] Scaffold commit in self.repo and return its SHA.
+
+        Tests that don't directly exercise the gate still need to pass
+        ``commit_sha`` (now required) to drive past the 3-stage check —
+        any flip / decision / save-error scenario downstream needs a
+        real seeded commit so the gate clears.
+        """
+        return _seed_scaffold_commit(self.repo)
+
+
+class TestRecordScaffoldRequiresCommitSha(_RecordTestBase):
+    """commit_sha is required so future entry points cannot silently bypass
+    the HEAD-advancement gate. Concern 7e8e6fd50730."""
+
+    def test_record_scaffold_without_commit_sha_raises(self) -> None:
+        with self.assertRaises(TypeError):
+            record_scaffold(  # type: ignore[call-arg]
+                self._snap(),
+                smm_dir=self.smm_dir,
+                surface="browser",
+                verify_cmd="npx playwright test",
+                concern_id=None,
+                agent_id="test-agent",
+            )
+
 
 class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
     def test_flips_matching_surface_to_covered(self) -> None:
@@ -80,6 +106,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test tests/acceptance",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok, result.reason)
         ctx = self._ctx()
@@ -98,6 +125,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         ctx = self._ctx()
         api = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "api")
@@ -112,6 +140,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         ctx = self._ctx()
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
@@ -126,6 +155,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="any cmd",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         self.assertFalse(result.ok)
         self.assertIn("nonexistent", result.reason or "")
@@ -144,6 +174,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         self.assertFalse(result.ok)
         # Caller should be steered to /xp-system-context, not silent no-op.
@@ -171,6 +202,7 @@ class TestRecordScaffoldSaveFailure(_RecordTestBase):
                 verify_cmd="npx playwright test",
                 concern_id=None,
                 agent_id="test-agent",
+                commit_sha=self._seed_commit(),
             )
         self.assertFalse(result.ok)
         self.assertIn("disk full", result.reason or "")
@@ -198,6 +230,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id="abc123def456",
             agent_id="xp-scaffold-acceptance",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok, result.reason)
         self.assertIsNotNone(result.decision_event_id)
@@ -218,6 +251,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="xp-scaffold-acceptance",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok)
         self.assertIsNone(result.decision_event_id)
@@ -234,6 +268,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id="none",
             agent_id="xp-scaffold-acceptance",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok)
         self.assertIsNone(result.decision_event_id)
@@ -298,10 +333,13 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
     would lie about what landed.
     """
 
-    def test_head_mismatch_returns_failure(self) -> None:
-        """Commit exists but HEAD has advanced past it (user added a commit)."""
+    def _seed_with_advanced_head(self) -> str:
+        """Seed a scaffold commit, then advance HEAD with an unrelated commit.
+
+        Returns the scaffold commit's SHA — HEAD now points past it. Drives
+        the head-mismatch leg of the 3-stage gate.
+        """
         scaffold_sha = _seed_scaffold_commit(self.repo)
-        # User adds an unrelated commit on top — HEAD no longer == scaffold_sha.
         (self.repo / "extra.txt").write_text("unrelated\n", encoding="utf-8")
         subprocess.run(
             ["git", "add", "extra.txt"],
@@ -316,6 +354,11 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
             check=True,
             env=GIT_ENV,
         )
+        return scaffold_sha
+
+    def test_head_mismatch_returns_failure(self) -> None:
+        """Commit exists but HEAD has advanced past it (user added a commit)."""
+        scaffold_sha = self._seed_with_advanced_head()
 
         result = record_scaffold(
             self._snap(),
@@ -335,6 +378,35 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
         self.assertEqual(browser["status"], "gap")
         events = _events(self.smm_dir)
         self.assertFalse([e for e in events if e.get("type") == "decision"])
+
+    def test_head_mismatch_reason_uses_git_short_sha(self) -> None:
+        """The HEAD-mismatch diagnostic should use 7-char (git short) SHAs.
+
+        Concerns 2124f5892191 + 4ba371517f90: scaffold_post used [:12] in
+        user-facing reasons while branching.py uses git's standard [:7].
+        Mixed conventions across the same plugin's user-facing strings is
+        confusing — git users expect 7-hex short shas.
+        """
+        scaffold_sha = self._seed_with_advanced_head()
+
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id="abc123def456",
+            agent_id="test-agent",
+            commit_sha=scaffold_sha,
+        )
+
+        self.assertFalse(result.ok)
+        reason = result.reason or ""
+        # Positive: SHA appears at all (guards against a refactor that
+        # silently drops the SHA from the diagnostic). Negative: not the
+        # 12-char form (the actual regression signal — [:7] is a prefix of
+        # [:12], so without this the [:12] form would also pass `[:7] in`).
+        self.assertIn(scaffold_sha[:7], reason)
+        self.assertNotIn(scaffold_sha[:12], reason)
 
     def test_subject_mismatch_returns_failure(self) -> None:
         """HEAD == commit_sha but subject is not '[chore] Scaffold ...'."""

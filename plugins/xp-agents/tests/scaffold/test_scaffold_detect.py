@@ -336,6 +336,12 @@ class TestDetectMonorepo(unittest.TestCase):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def _mk_pyproject(self, parent: str, name: str) -> None:
+        self._mkpkg(parent, name)
+        (self.repo / parent / name / "pyproject.toml").write_text(
+            f'[project]\nname = "{name}"\n', encoding="utf-8"
+        )
+
     def test_single_package_returns_false(self) -> None:
         (self.repo / "package.json").write_text('{"name":"x"}', encoding="utf-8")
         result = detect_monorepo(self.repo)
@@ -439,19 +445,36 @@ class TestDetectMonorepo(unittest.TestCase):
         self.assertEqual(result["packages"], [])
 
     def test_detect_multi_pyproject(self) -> None:
-        self._mkpkg("packages", "lib_a")
-        (self.repo / "packages" / "lib_a" / "pyproject.toml").write_text(
-            '[project]\nname = "a"\n', encoding="utf-8"
-        )
-        self._mkpkg("packages", "lib_b")
-        (self.repo / "packages" / "lib_b" / "pyproject.toml").write_text(
-            '[project]\nname = "b"\n', encoding="utf-8"
-        )
+        self._mk_pyproject("packages", "lib_a")
+        self._mk_pyproject("packages", "lib_b")
         result = detect_monorepo(self.repo)
         self.assertTrue(result["is_monorepo"])
         self.assertEqual(result["kind"], "multi-pyproject")
         self.assertIn("packages/lib_a", result["packages"])
         self.assertIn("packages/lib_b", result["packages"])
+
+    def test_detect_multi_pyproject_includes_examples_docs_and_vendor(self) -> None:
+        """Pin: vendor/examples/docs subdirs with pyproject.toml flag as packages.
+
+        Doctrine accepts this false-positive risk — see concern 828ea567ff55.
+        ``detect_monorepo`` does not exclude ``examples/``, ``docs/``, or
+        ``vendor/`` paths; callers downstream (the SKILL agent) negotiate
+        with the customer about which "package" actually deserves a
+        scaffold. Tightening detect_monorepo here would silently break the
+        flow without that negotiation point. This test is the contract,
+        not a bug indicator: do NOT 'fix' it by adding an exclude-list.
+        """
+        self._mk_pyproject("packages", "lib_a")
+        self._mk_pyproject("examples", "sample")
+        self._mk_pyproject("docs", "x")
+        self._mk_pyproject("vendor", "third_party")
+        result = detect_monorepo(self.repo)
+        self.assertTrue(result["is_monorepo"])
+        self.assertEqual(result["kind"], "multi-pyproject")
+        self.assertIn("packages/lib_a", result["packages"])
+        self.assertIn("examples/sample", result["packages"])
+        self.assertIn("docs/x", result["packages"])
+        self.assertIn("vendor/third_party", result["packages"])
 
     def test_priority_pnpm_over_workspaces(self) -> None:
         """pnpm-workspace.yaml outranks package.json workspaces."""

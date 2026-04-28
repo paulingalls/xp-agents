@@ -406,8 +406,8 @@ def main() -> None:
         p.add_argument(
             "--repo-root",
             type=Path,
-            default=Path.cwd(),
-            help="Repository root (default: cwd)",
+            required=True,
+            help="Repository root",
         )
 
     apply_commit = sub.add_parser(
