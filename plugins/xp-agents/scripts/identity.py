@@ -43,6 +43,11 @@ def extract_worktree_name(cwd: str) -> str | None:
     return tail.split("/")[0]
 
 
+def is_teammate_agent_id(agent_id: str) -> bool:
+    """True if `agent_id` belongs to a CLI teammate (e.g., 'teammate-story-001')."""
+    return agent_id.startswith(_TEAMMATE_PREFIX)
+
+
 def is_worktree_teammate(input_data: dict) -> bool:
     """Detect CLI teammates by worktree cwd path or XP_TEAMMATE_NAME env var."""
     name = extract_worktree_name(input_data.get("cwd", ""))

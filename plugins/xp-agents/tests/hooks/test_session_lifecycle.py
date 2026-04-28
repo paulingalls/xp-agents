@@ -276,9 +276,9 @@ class TestSessionEnd(_HookTestCase):
         self.assertIn(g1["id"], resolves)
         self.assertIn(g2["id"], resolves)
 
-    def test_does_not_resolve_prior_session_goals(self):
-        """Goals before the previous session_end belong to a prior session
-        and must not be resolved by this session_end."""
+    def test_already_resolved_goals_not_re_resolved(self):
+        """Goals already resolved by a prior session_end (via metadata.resolves)
+        must not be re-listed in the new session_end's metadata.resolves."""
         import session_end
 
         prior_goal = make_event(
@@ -291,6 +291,7 @@ class TestSessionEnd(_HookTestCase):
             "session_end",
             ts="2026-03-12T09:00:00+00:00",
             content="Session ended: prior",
+            metadata={"resolves": [prior_goal["id"]]},
         )
         current_goal = make_event(
             "goal",
@@ -308,6 +309,54 @@ class TestSessionEnd(_HookTestCase):
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(current_goal["id"], resolves)
         self.assertNotIn(prior_goal["id"], resolves)
+
+    def test_main_session_does_not_resolve_teammate_goals(self):
+        """Multi-teammate worktrees share one SMM. Main session_end must
+        not claim ownership of a teammate's still-unresolved goals."""
+        import session_end
+
+        main_goal = make_event("goal", content="Main goal", agent_id="xp-kickoff")
+        teammate_goal = make_event(
+            "goal", content="Teammate goal", agent_id="teammate-story-001"
+        )
+        self._write_events([main_goal, teammate_goal])
+        session_end.run(
+            {"session_id": "test", "reason": "logout", "cwd": "/home/user/project"},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        resolves = (se.get("metadata") or {}).get("resolves", [])
+        self.assertIn(main_goal["id"], resolves)
+        self.assertNotIn(teammate_goal["id"], resolves)
+
+    def test_teammate_resolves_only_own_goals(self):
+        """A teammate session_end resolves only its own teammate-prefixed
+        goals — not main's goals nor other teammates' goals."""
+        import session_end
+
+        main_goal = make_event("goal", content="Main goal", agent_id="xp-kickoff")
+        own_goal = make_event(
+            "goal", content="Own teammate goal", agent_id="teammate-story-001"
+        )
+        other_goal = make_event(
+            "goal", content="Other teammate goal", agent_id="teammate-story-002"
+        )
+        self._write_events([main_goal, own_goal, other_goal])
+        session_end.run(
+            {
+                "session_id": "test",
+                "reason": "done",
+                "cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src",
+            },
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        se = next(e for e in events if e.get("type") == "session_end")
+        resolves = (se.get("metadata") or {}).get("resolves", [])
+        self.assertIn(own_goal["id"], resolves)
+        self.assertNotIn(main_goal["id"], resolves)
+        self.assertNotIn(other_goal["id"], resolves)
 
     def test_no_resolves_metadata_when_no_goals(self):
         """When no goals were emitted in the session, the session_end
