@@ -18,12 +18,7 @@ import _common
 import identity
 import markers
 
-
-def _truncate(text: str, limit: int = 500) -> str:
-    """Truncate text with ellipsis if over limit."""
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
+_ANSWER_CONTENT_MAX = 500
 
 
 def _extract_response_text(input_data: dict) -> str:
@@ -54,7 +49,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         markers.marker_write(smm_dir, markers.ASKING_USER, "1")
         if error.strip():
             event = _common.make_event(
-                _common.CUSTOMER_INPUT, agent_id, _truncate(error)
+                _common.CUSTOMER_INPUT,
+                agent_id,
+                _common.truncate(error, _ANSWER_CONTENT_MAX),
             )
             _common.append_safe(smm_dir, event)
         return None
@@ -72,13 +69,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         event = _common.make_event(
             _common.ANSWER,
             agent_id,
-            f"Answer: {_truncate(response_text)}",
+            f"Answer: {_common.truncate(response_text, _ANSWER_CONTENT_MAX)}",
             references=[question_id],
         )
         _common.append_safe(smm_dir, event)
     elif response_text:
         event = _common.make_event(
-            _common.CUSTOMER_INPUT, agent_id, _truncate(response_text)
+            _common.CUSTOMER_INPUT,
+            agent_id,
+            _common.truncate(response_text, _ANSWER_CONTENT_MAX),
         )
         _common.append_safe(smm_dir, event)
 

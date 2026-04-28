@@ -143,6 +143,21 @@ def _truncate_for_log(value: object, max_len: int = 200) -> str:
     return s if len(s) <= max_len else s[:max_len] + "...[truncated]"
 
 
+def truncate(text: str, max_len: int) -> str:
+    """Truncate ``text`` to ``max_len`` chars, terminating with ``...``.
+
+    Caller must pass ``max_len`` — there is no default because consumers
+    differ (prompt nuggets cap at 120; customer-input echoes cap at 500),
+    and a silent default would change behavior on a future shared use.
+    For the structured ``hook_errors.jsonl`` writer, see
+    ``_truncate_for_log`` — it uses ``...[truncated]`` to signal the
+    cap was hit in machine-readable log lines.
+    """
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
+
+
 def _log_hook_error(reason: str, error_class: str, **ctx: object) -> None:
     """Best-effort diagnostic log for silent-failure paths.
 
