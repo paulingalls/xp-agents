@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_failure
 import bash_post_tool
+from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 
 
@@ -174,9 +175,7 @@ class TestEventsReadDedup(_HookTestCase):
 
     def test_read_events_raw_called_once(self):
         with (
-            patch("commits.get_committed_files", return_value=["src/app.py"]),
-            patch("commits.get_commit_message_body", return_value="Fix"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
+            patch_commits(files=["src/app.py"], body="Fix"),
             patch(
                 "bash_post_tool._common.read_events_raw",
                 wraps=_common.read_events_raw,

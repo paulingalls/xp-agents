@@ -19,16 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_post_tool
 import commits
+from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 
 
 class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
     def test_git_commit_records_commit_event(self):
-        with (
-            patch("commits.get_committed_files", return_value=["a", "b", "c"]),
-            patch("commits.get_commit_message_body", return_value="Add auth"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
-        ):
+        with patch_commits(files=["a", "b", "c"], body="Add auth"):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add auth'",
@@ -50,11 +47,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             "Resolves-Event: 4eb35ddcd24e, a55290ae79b9\n"
             "Co-Authored-By: Claude <x@y>"
         )
-        with (
-            patch("commits.get_committed_files", return_value=["a.py"]),
-            patch("commits.get_commit_message_body", return_value=body),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
-        ):
+        with patch_commits(files=["a.py"], body=body):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix the thing'",
@@ -72,11 +65,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
     def test_git_commit_no_resolves_trailer_omits_key(self):
         """Absent trailer must not add a resolves key to metadata."""
         body = "Fix the thing\n\nNo trailer here."
-        with (
-            patch("commits.get_committed_files", return_value=["a.py"]),
-            patch("commits.get_commit_message_body", return_value=body),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
-        ):
+        with patch_commits(files=["a.py"], body=body):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix'",
@@ -92,11 +81,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         body = (
             "Fix the bug\n\nDetailed explanation.\n\nCo-Authored-By: Someone <x@y.com>"
         )
-        with (
-            patch("commits.get_committed_files", return_value=["a.py"]),
-            patch("commits.get_commit_message_body", return_value=body),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
-        ):
+        with patch_commits(files=["a.py"], body=body):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix the bug'",
@@ -142,13 +127,9 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
 
     def test_commit_code_files_has_code_commit_metadata(self):
         """Commit event has metadata.code_commit=True when code files present."""
-        with (
-            patch(
-                "commits.get_committed_files",
-                return_value=["src/app.py", "tests/test_app.py"],
-            ),
-            patch("commits.get_commit_message_body", return_value="Add feature"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
+        with patch_commits(
+            files=["src/app.py", "tests/test_app.py"],
+            body="Add feature",
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -164,13 +145,9 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
 
     def test_commit_no_code_files_has_code_commit_false(self):
         """Commit event has metadata.code_commit=False for docs-only commits."""
-        with (
-            patch(
-                "commits.get_committed_files",
-                return_value=["README.md", "docs/guide.md"],
-            ),
-            patch("commits.get_commit_message_body", return_value="Update docs"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
+        with patch_commits(
+            files=["README.md", "docs/guide.md"],
+            body="Update docs",
         ):
             bash_post_tool.run(
                 _make_bash_input(
@@ -194,11 +171,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 sprint_id="sprint-042",
             )
         )
-        with (
-            patch("commits.get_committed_files", return_value=["a.py"]),
-            patch("commits.get_commit_message_body", return_value="feat"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
-        ):
+        with patch_commits(files=["a.py"], body="feat"):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'feat'",
@@ -327,11 +300,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         commit_hash: str | None = "abc123",
     ):
         """Run bash_post_tool with mocked git metadata and return the value."""
-        with (
-            patch("commits.get_committed_files", return_value=committed_files),
-            patch("commits.get_commit_message_body", return_value=body),
-            patch("commits.get_head_commit_hash", return_value=commit_hash),
-        ):
+        with patch_commits(files=committed_files, body=body, head_sha=commit_hash):
             return bash_post_tool.run(
                 _make_bash_input(
                     command=f"git commit -m '{commit_msg}'",

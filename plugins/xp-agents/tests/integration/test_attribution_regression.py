@@ -14,13 +14,13 @@ ensures regressions in the write chain become visible at test time.
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import bash_post_tool
+from _commit_helpers import patch_commits
 from _lock_helpers import briefly_held_lock
 from conftest import _HookTestCase, _make_bash_input
 
@@ -40,17 +40,10 @@ class TestAttributionRegression(_HookTestCase):
         """
         with (
             briefly_held_lock(self.smm_dir),
-            patch(
-                "commits.get_committed_files",
-                return_value=["plugins/xp-agents/scripts/x.py"],
-            ),
-            patch(
-                "commits.get_commit_message_body",
-                return_value="[story-001] regression probe",
-            ),
-            patch(
-                "commits.get_head_commit_hash",
-                return_value="abc1234deadbeef",
+            patch_commits(
+                files=["plugins/xp-agents/scripts/x.py"],
+                body="[story-001] regression probe",
+                head_sha="abc1234deadbeef",
             ),
         ):
             # cwd is the git-repo root in production; here it is just a
