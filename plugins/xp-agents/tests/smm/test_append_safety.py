@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -21,7 +22,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
-from conftest import _TempRepoTestCase
+from conftest import _SMMTestCase, _TempRepoTestCase, make_event
 
 
 class TestAnsiStripping(unittest.TestCase):
@@ -68,38 +69,30 @@ class TestAnsiStripping(unittest.TestCase):
         self.assertEqual(written["content"], "Normal text without escapes")
 
 
-class TestLockTimeout(unittest.TestCase):
+class TestLockTimeout(_SMMTestCase):
     """Test that lock timeout raises instead of degrading."""
 
     def test_append_fails_on_lock_timeout(self):
         """If the lock can't be acquired, append should raise, not silently continue."""
-        smm_dir = Path(tempfile.mkdtemp())
-        events_file = smm_dir / "events.jsonl"
-        lock_file = smm_dir / "events.lock"
-        events_file.touch()
-        lock_file.touch()
+        event = make_event(
+            "customer_input", agent_id="main", content="test", id="abc123abc123"
+        )
 
-        event = {
-            "id": "12345678-1234-4123-8123-123456789abc",
-            "ts": "2026-03-12T00:00:00+00:00",
-            "type": "customer_input",
-            "agent_id": "main",
-            "content": "test",
-            "schema_version": 1,
-        }
-
-        # Hold an exclusive lock so append_event can't acquire it
-        lock_fd = open(lock_file, "a")  # noqa: SIM115
+        # Hold an exclusive lock so append_event can't acquire it.
+        # Patch the budget down so the test fires fast — the assertion is
+        # "LockTimeoutError raised", not "lock waited a specific duration".
+        lock_fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
-            with self.assertRaises(_append_impl.LockTimeoutError):
-                _append_impl.append_event(smm_dir, event)
-            # File should be unchanged — no write without lock
-            self.assertEqual(events_file.read_text(), "")
+            with (
+                mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1),
+                self.assertRaises(_append_impl.LockTimeoutError),
+            ):
+                _append_impl.append_event(self.smm_dir, event)
+            self.assertEqual(self.events_file.read_text(), "")
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
-            shutil.rmtree(smm_dir)
 
 
 class TestConcurrentWrites(_TempRepoTestCase):
@@ -149,6 +142,45 @@ class TestConcurrentWrites(_TempRepoTestCase):
         self.assertEqual(
             len(agents), 20, f"Expected 20 unique agents, got {len(agents)}"
         )
+
+
+class TestLockBudgetTolerance(_SMMTestCase):
+    """Flock budget must outlast brief contention from concurrent hooks.
+
+    The original 2-second budget caused silent drops in sprint-040 — a single
+    slow writer could starve every parallel async PostToolUse hook racing for
+    events.lock. The bumped 10-second budget absorbs realistic contention
+    while still bounding hang time.
+    """
+
+    def test_append_event_succeeds_when_lock_released_within_budget(self):
+        """A flock held for ~3 s should clear the configured budget without
+        raising LockTimeoutError."""
+        release_lock = threading.Event()
+        lock_acquired = threading.Event()
+
+        def hold_lock_briefly() -> None:
+            fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            lock_acquired.set()
+            try:
+                # Hold ~3 s — under the configured budget.
+                release_lock.wait(timeout=3.0)
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                fd.close()
+
+        holder = threading.Thread(target=hold_lock_briefly)
+        holder.start()
+        self.addCleanup(holder.join, 5.0)
+        self.addCleanup(release_lock.set)
+        self.assertTrue(lock_acquired.wait(timeout=2.0))
+
+        event = make_event(
+            "customer_input", agent_id="main", content="test", id="def456def456"
+        )
+        _append_impl.append_event(self.smm_dir, event)
+        self.assertIn("def456def456", self.events_file.read_text())
 
 
 class TestAgentIdValidation(unittest.TestCase):

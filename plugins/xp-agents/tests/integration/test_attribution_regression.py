@@ -2,12 +2,12 @@
 """Regression test for the events.jsonl commit-recording write path.
 
 Pins the end-to-end invariant: under brief flock contention short enough
-to clear a sane budget, `bash_post_tool.run()` with a valid git-commit
-input must record a `commit` event in events.jsonl.
+to clear the configured budget, `bash_post_tool.run()` with a valid
+git-commit input must record a `commit` event in events.jsonl.
 
 The original failure mode silently dropped commit events when
-`_common.bulk_append_safe` swallowed `LockTimeoutError` raised from a
-2 s flock budget under high parallel-hook contention. This guard
+`_common.bulk_append_safe` swallowed `LockTimeoutError` raised from too
+short a flock budget under high parallel-hook contention. This guard
 ensures regressions in the write chain become visible at test time.
 """
 
@@ -29,16 +29,15 @@ from conftest import _HookTestCase, _make_bash_input
 class TestAttributionRegression(_HookTestCase):
     """End-to-end: commit event survives brief flock contention."""
 
-    @unittest.expectedFailure
     def test_commit_event_lands_under_lock_contention(self):
         """A commit event must land in events.jsonl despite a brief
         external flock hold of events.lock.
 
-        Holds the lock for ~3 seconds in a background thread (longer
-        than the 2 s flock budget) and invokes `bash_post_tool.run()`
-        with a valid git-commit input. Currently fails because
-        `bulk_append_safe` suppresses LockTimeoutError and the commit
-        event is dropped silently.
+        Holds the lock for ~3 seconds in a background thread, then
+        invokes `bash_post_tool.run()` with a valid git-commit input.
+        The flock budget in `_append_impl.LOCK_TIMEOUT_SECONDS` must
+        outlast the contention so `bulk_append_safe` can land the
+        commit event without raising LockTimeoutError.
         """
         lock_file = self.smm_dir / "events.lock"
         lock_acquired = threading.Event()

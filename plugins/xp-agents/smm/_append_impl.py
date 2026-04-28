@@ -148,8 +148,13 @@ class LockTimeoutError(Exception):
     pass
 
 
+LOCK_TIMEOUT_SECONDS = 10
+
+
 def _on_alarm(signum: int, frame: object) -> None:
-    raise LockTimeoutError("Could not acquire lock within 2 seconds")
+    raise LockTimeoutError(
+        f"Could not acquire lock within {LOCK_TIMEOUT_SECONDS} seconds"
+    )
 
 
 def _safe_open_nofollow(path: Path, flags: int) -> int:
@@ -158,10 +163,10 @@ def _safe_open_nofollow(path: Path, flags: int) -> int:
 
 
 def read_with_lock(path: Path) -> str:
-    """Read file contents under shared flock with 2-second timeout.
+    """Read file contents under shared flock.
 
-    Raises LockTimeoutError if the lock cannot be acquired.
-    Raises OSError if the lock file is a symlink.
+    Raises LockTimeoutError if the lock cannot be acquired within the
+    flock budget. Raises OSError if the lock file is a symlink.
     """
     lock_path = path.parent / "events.lock"
     lock_fd = None
@@ -182,7 +187,7 @@ def read_with_lock(path: Path) -> str:
 
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
         try:
-            signal.alarm(2)
+            signal.alarm(LOCK_TIMEOUT_SECONDS)
             fcntl.flock(lock_fd, fcntl.LOCK_SH)
             signal.alarm(0)
         finally:
@@ -252,8 +257,8 @@ def append_event(smm_dir: Path, event: dict) -> None:
     """Append event as a single JSON line to events.jsonl with flock.
 
     Strips ANSI escape codes from content before writing.
-    Raises LockTimeoutError if the lock cannot be acquired within 2 seconds.
-    Raises OSError if lock or events file is a symlink.
+    Raises LockTimeoutError if the lock cannot be acquired within the
+    flock budget. Raises OSError if lock or events file is a symlink.
     """
     # Strip ANSI escape codes from content to prevent garbage in the log
     if "content" in event:
@@ -281,10 +286,10 @@ def append_event(smm_dir: Path, event: dict) -> None:
             raise
         raw_fd = None  # now owned by lock_fd
 
-        # Use blocking flock with SIGALRM timeout (2 seconds)
+        # Use blocking flock with SIGALRM timeout.
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
         try:
-            signal.alarm(2)
+            signal.alarm(LOCK_TIMEOUT_SECONDS)
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             signal.alarm(0)
         finally:
@@ -318,7 +323,8 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
     writes. Strips ANSI from content. Same safety guarantees as append_event().
 
     Raises ValueError if any event fails validation.
-    Raises LockTimeoutError if the lock cannot be acquired within 2 seconds.
+    Raises LockTimeoutError if the lock cannot be acquired within the
+    flock budget.
     """
     if not events:
         return
@@ -364,7 +370,7 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
 
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
         try:
-            signal.alarm(2)
+            signal.alarm(LOCK_TIMEOUT_SECONDS)
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             signal.alarm(0)
         finally:
@@ -415,7 +421,7 @@ def replace_events_file(smm_dir: Path, events: list[dict]) -> str:
 
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
         try:
-            signal.alarm(2)
+            signal.alarm(LOCK_TIMEOUT_SECONDS)
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
             signal.alarm(0)
         finally:
