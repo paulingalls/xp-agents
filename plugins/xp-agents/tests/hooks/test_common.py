@@ -157,6 +157,17 @@ class TestAppendSafeErrorLogging(_HookTestCase):
     regressions are visible.
     """
 
+    def setUp(self) -> None:
+        super().setUp()
+        # Patch the budget to 1s for the lock-timeout tests — the assertion is
+        # "LockTimeoutError logged", not "lock waited 10 s". Saves ~18s/run.
+        # Same pattern as TestLockTimeout in tests/smm/test_append_safety.py.
+        import _append_impl
+
+        patcher = patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @contextlib.contextmanager
     def _hold_events_lock(self):
         """Hold an exclusive flock on events.lock for the with-block duration."""

@@ -8,6 +8,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -87,7 +88,11 @@ class TestParseEvents(_SMMTestCase):
         lock_fd = open(lock_file, "a")  # noqa: SIM115
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
-            with self.assertRaises(_append_impl.LockTimeoutError):
+            # Patch the budget to 1s — the assertion is "raises", not "waits 10s".
+            with (
+                mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1),
+                self.assertRaises(_append_impl.LockTimeoutError),
+            ):
                 materialize.parse_events(self.smm_dir)
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
