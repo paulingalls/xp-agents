@@ -162,7 +162,10 @@ Step 1b (the package the customer just chose, or the repo root if not a
 monorepo). The complementary tool lands at the same scope as the
 existing tool — that is the intended semantic, since the customer is
 adding to the existing scaffold within that package, not picking a
-different package. No re-entry to Step 1b is needed.
+different package. No re-entry to Step 1b is needed. The Step 1d
+re-invocation probe also does not re-run on add-complementary loopback;
+the customer's Step 1b monorepo path selection persists for the rest of
+the flow.
 
 ## Step 2: Refresh knowledge
 
