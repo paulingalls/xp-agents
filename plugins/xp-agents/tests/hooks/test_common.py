@@ -4,6 +4,8 @@
 Split from the monolithic test_hooks.py.
 """
 
+import contextlib
+import fcntl
 import io
 import json
 import os
@@ -22,6 +24,14 @@ from conftest import _HookTestCase, make_event
 # ===========================================================================
 # _common.py tests
 # ===========================================================================
+
+
+def _read_hook_error_log(smm_dir: Path) -> list[dict]:
+    """Parse ${smm_dir}/hook_errors.jsonl, skipping empty lines."""
+    path = smm_dir / "hook_errors.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 class TestResolveSmmDir(unittest.TestCase):
@@ -91,20 +101,12 @@ class TestReadHookInput(unittest.TestCase):
 class TestReadHookInputErrorLogging(_HookTestCase):
     """Silent-failure paths in read_hook_input must leave a hook_errors.jsonl trace."""
 
-    def _read_error_log(self) -> list[dict]:
-        path = self.smm_dir / "hook_errors.jsonl"
-        if not path.exists():
-            return []
-        return [
-            json.loads(line) for line in path.read_text().splitlines() if line.strip()
-        ]
-
     def test_invalid_json_logs_to_hook_errors_jsonl(self):
         with patch("sys.stdin", io.StringIO("not json at all")):
             with self.assertRaises(SystemExit) as cm:
                 _common.read_hook_input()
             self.assertEqual(cm.exception.code, 0)
-        entries = self._read_error_log()
+        entries = _read_hook_error_log(self.smm_dir)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["error_class"], "JSONDecodeError")
 
@@ -118,7 +120,7 @@ class TestReadHookInputErrorLogging(_HookTestCase):
         ):
             _common.read_hook_input()
         self.assertEqual(cm.exception.code, 0)
-        entries = self._read_error_log()
+        entries = _read_hook_error_log(self.smm_dir)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["error_class"], "stdin_oversize")
 
@@ -140,6 +142,65 @@ class TestReadHookInputErrorLogging(_HookTestCase):
         # Capped lines must still be parseable JSON — guards against a future
         # truncation bug producing malformed-but-short output.
         json.loads(line)
+
+
+class TestAppendSafeErrorLogging(_HookTestCase):
+    """append_safe / bulk_append_safe must log suppressed errors to hook_errors.jsonl.
+
+    The original silent-suppress in `contextlib.suppress(LockTimeoutError, ValueError)`
+    dropped events without a trace under flock contention or oversized payloads.
+    These tests pin the loud-failure invariant: the suppressed exception still
+    leaves a structured entry in ``${SMM_DIR}/hook_errors.jsonl`` so future
+    regressions are visible.
+    """
+
+    @contextlib.contextmanager
+    def _hold_events_lock(self):
+        """Hold an exclusive flock on events.lock for the with-block duration."""
+        lock_fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+    def test_append_safe_logs_lock_timeout(self):
+        event = make_event("status", agent_id="main", content="ok", working_on=[])
+        with self._hold_events_lock():
+            _common.append_safe(self.smm_dir, event)
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "LockTimeoutError")
+        # Graceful semantic preserved — events.jsonl unchanged.
+        self.assertEqual(self.events_file.read_text(), "")
+
+    def test_bulk_append_safe_logs_lock_timeout(self):
+        events = [
+            make_event("status", agent_id="main", content="ok", working_on=[]),
+        ]
+        with self._hold_events_lock():
+            _common.bulk_append_safe(self.smm_dir, events)
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "LockTimeoutError")
+        self.assertEqual(self.events_file.read_text(), "")
+
+    def test_bulk_append_safe_logs_value_error_when_serialized_too_large(self):
+        # working_on with a 110 KB string passes content-budget validation
+        # (status content="ok" is 2 chars), but the serialized JSON exceeds the
+        # 100 KB MAX_EVENT_BYTES cap inside _append_impl.bulk_append → ValueError.
+        oversized = make_event(
+            "status",
+            agent_id="main",
+            content="ok",
+            working_on=["x" * 110_000],
+        )
+        _common.bulk_append_safe(self.smm_dir, [oversized])
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "ValueError")
+        self.assertEqual(self.events_file.read_text(), "")
 
 
 class TestHookOutput(unittest.TestCase):

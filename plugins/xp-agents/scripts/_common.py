@@ -5,7 +5,6 @@ DRY module providing SMM resolution, hook I/O, recursion prevention,
 event reading, and watermark management.
 """
 
-import contextlib
 import functools
 import json
 import os
@@ -440,14 +439,22 @@ def _run_duplicate_debt_probe(smm_dir: Path, event: dict) -> None:
 
 
 def append_safe(smm_dir: Path, event: dict) -> None:
-    """Validate and append event, swallowing lock errors."""
+    """Validate and append event. LockTimeoutError is logged + swallowed."""
     import _append_impl
 
     errors = _append_impl.validate_event(event)
     if not errors:
-        with contextlib.suppress(_append_impl.LockTimeoutError):
+        try:
             _append_impl.append_event(smm_dir, event)
-        _run_duplicate_debt_probe(smm_dir, event)
+        except _append_impl.LockTimeoutError as e:
+            _log_hook_error(
+                f"append_safe dropped event: {e}",
+                error_class=type(e).__name__,
+                event_id=event.get("id"),
+                event_type=event.get("type"),
+            )
+        else:
+            _run_duplicate_debt_probe(smm_dir, event)
 
 
 def parse_append_sh_args(command: str) -> dict[str, str]:
@@ -491,13 +498,26 @@ def parse_append_sh_args(command: str) -> dict[str, str]:
 
 
 def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:
-    """Filter invalid events, then bulk-append valid ones atomically."""
+    """Filter invalid events, then bulk-append valid ones atomically.
+
+    LockTimeoutError and ValueError are logged + swallowed: the underlying
+    write is best-effort (the caller is a hook that must not crash) but
+    every dropped batch leaves a structured trace in hook_errors.jsonl.
+    """
     import _append_impl
 
     valid = [e for e in events if not _append_impl.validate_event(e)]
-    if valid:
-        with contextlib.suppress(_append_impl.LockTimeoutError, ValueError):
-            _append_impl.bulk_append(smm_dir, valid)
+    if not valid:
+        return
+    try:
+        _append_impl.bulk_append(smm_dir, valid)
+    except (_append_impl.LockTimeoutError, ValueError) as e:
+        _log_hook_error(
+            f"bulk_append_safe dropped {len(valid)} event(s): {e}",
+            error_class=type(e).__name__,
+            event_types_sample=[ev.get("type") for ev in valid[:5]],
+        )
+    else:
         for event in valid:
             _run_duplicate_debt_probe(smm_dir, event)
 
