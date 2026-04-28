@@ -271,7 +271,7 @@ class TestSprintTieredInjection(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("XP Values", result.stdout)
+        self.assertIn("Extreme Programming", result.stdout)
 
     def test_compact_reinjects_smm_not_sprint(self):
         """SessionStart compact reinjects SMM but not sprint.json."""

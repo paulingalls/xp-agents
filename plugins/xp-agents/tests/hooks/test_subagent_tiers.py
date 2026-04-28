@@ -35,7 +35,7 @@ class TestSubagentStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
     def test_missing_smm_dir_still_gets_values(self):
         import subagent_start
@@ -46,7 +46,7 @@ class TestSubagentStart(_HookTestCase):
             smm_dir=fake_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
     def test_returns_values_without_smm_file(self):
         """Without curated SMM file, non-Explore agent gets values."""
@@ -58,7 +58,7 @@ class TestSubagentStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
     def test_reads_curated_smm_from_disk(self):
         """M5: SubagentStart reads curated SMM from disk."""
@@ -80,7 +80,7 @@ class TestSubagentStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
     def test_default_agent_id(self):
         """Default agent_id is 'subagent'."""
@@ -198,7 +198,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         self.assertIn("Constraints", result)
         self.assertIn("Risks", result)
         self.assertIn("Wisdom", result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertNotIn("EnterPlanMode", result)
 
     def test_plan_agent_gets_full_smm_and_values(self):
@@ -213,7 +213,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         )
         self.assertIsNotNone(result)
         self.assertIn("Intent", result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertNotIn("EnterPlanMode", result)
         self.assertIn("Constraints", result)
         self.assertIn("Risks", result)

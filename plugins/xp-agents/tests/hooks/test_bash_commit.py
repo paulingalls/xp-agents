@@ -54,6 +54,75 @@ class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(self._probes()), 0)
 
 
+class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
+    """Commit events must record even when agent_type leaks an xp- prefix.
+
+    Defensive against subagent identity leak: if a Bash tool call is tagged
+    with `agent_type="xp-security-reviewer"` (or similar) the early-return on
+    `is_xp_agent` would otherwise drop the commit event. Recording is not
+    recursion-inducing — every git commit must leave a trace, regardless of
+    which agent's stack the Bash call originated from.
+
+    Established precedent: `subagent_stop.py:162-182` runs review-cycle flag
+    handling above the same `is_xp_agent` skip with the comment "Review cycle
+    flags must run before is_xp_agent skip because xp-quality-review starts
+    with 'xp-' but still needs flag set." Same shape.
+    """
+
+    _LEAKED_AGENT_TYPE = "xp-leaked"
+
+    def test_xp_agent_type_does_not_block_commit_event(self):
+        with (
+            patch(
+                "commits.get_committed_files",
+                return_value=["plugins/xp-agents/scripts/x.py"],
+            ),
+            patch(
+                "commits.get_commit_message_body",
+                return_value="[story-001] foo",
+            ),
+            patch("commits.get_head_commit_hash", return_value="leakedabc1234"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m '[story-001] foo'",
+                    stdout="[main leakedabc] [story-001] foo\n 1 file changed",
+                    agent_type=self._LEAKED_AGENT_TYPE,
+                ),
+                smm_dir=self.smm_dir,
+            )
+        commit_events = [e for e in self._read_events() if e.get("type") == "commit"]
+        self.assertEqual(len(commit_events), 1)
+
+    def test_xp_agent_type_still_skips_non_commit_bash(self):
+        result = bash_post_tool.run(
+            _make_bash_input(
+                command="echo hello",
+                stdout="hello",
+                agent_type=self._LEAKED_AGENT_TYPE,
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+        self.assertEqual(self._read_events(), [])
+
+    def test_xp_agent_type_failed_commit_records_no_event(self):
+        # parse_commit_message returns None when the response lacks the
+        # [branch hash] msg line (failed pre-commit hook, rejected commit).
+        # _handle_commit must early-return without writing — preserves the
+        # graceful "failed commit doesn't poison state" semantic, even when
+        # entered via an xp- agent_type leak.
+        bash_post_tool.run(
+            _make_bash_input(
+                command="git commit -m 'x'",
+                stdout="pre-commit hook failed: tests-integration",
+                agent_type=self._LEAKED_AGENT_TYPE,
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(self._read_events(), [])
+
+
 class TestBashPostToolReviewCycle(_HookTestCase):
     """Tests for review cycle marker reset after commit."""
 

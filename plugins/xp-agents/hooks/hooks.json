@@ -184,8 +184,7 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/bash_post_tool.py",
             "timeout": 5000,
-            "statusMessage": "Analyzing command output...",
-            "async": true
+            "statusMessage": "Analyzing command output..."
           }
         ]
       },

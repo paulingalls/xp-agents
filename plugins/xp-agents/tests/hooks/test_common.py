@@ -4,6 +4,8 @@
 Split from the monolithic test_hooks.py.
 """
 
+import contextlib
+import fcntl
 import io
 import json
 import os
@@ -22,6 +24,14 @@ from conftest import _HookTestCase, make_event
 # ===========================================================================
 # _common.py tests
 # ===========================================================================
+
+
+def _read_hook_error_log(smm_dir: Path) -> list[dict]:
+    """Parse ${smm_dir}/hook_errors.jsonl, skipping empty lines."""
+    path = smm_dir / "hook_errors.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 class TestResolveSmmDir(unittest.TestCase):
@@ -86,6 +96,114 @@ class TestReadHookInput(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 _common.read_hook_input()
             self.assertEqual(cm.exception.code, 0)
+
+
+class TestReadHookInputErrorLogging(_HookTestCase):
+    """Silent-failure paths in read_hook_input must leave a hook_errors.jsonl trace."""
+
+    def test_invalid_json_logs_to_hook_errors_jsonl(self):
+        with patch("sys.stdin", io.StringIO("not json at all")):
+            with self.assertRaises(SystemExit) as cm:
+                _common.read_hook_input()
+            self.assertEqual(cm.exception.code, 0)
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "JSONDecodeError")
+
+    def test_oversize_stdin_logs_to_hook_errors_jsonl(self):
+        # Shrink the cap so the test allocates ~2 KB instead of 11 MB while
+        # still exercising the oversize branch.
+        with (
+            patch.object(_common, "_MAX_STDIN_SIZE", 1024),
+            patch("sys.stdin", io.StringIO("x" * 2048)),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            _common.read_hook_input()
+        self.assertEqual(cm.exception.code, 0)
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "stdin_oversize")
+
+    def test_oversized_entry_triggers_paranoid_backstop(self):
+        # Per-field truncation alone can't bound total line size if a caller
+        # passes many ctx fields. _log_hook_error's backstop drops the
+        # context dict and re-serializes when the full line still exceeds
+        # 2 KB. Each value is far larger than the per-field truncation cap
+        # so it gets clamped before serialization, but 30 clamped fields +
+        # keys still exceed 2 KB — forcing the backstop deterministically.
+        big_ctx = {f"f{i}": "x" * 1000 for i in range(30)}
+        _common._log_hook_error("oversized test", error_class="probe", **big_ctx)
+        path = self.smm_dir / "hook_errors.jsonl"
+        line = path.read_text().splitlines()[0]
+        self.assertLessEqual(
+            len(line.encode("utf-8")),
+            2048,
+            "hook_errors.jsonl line exceeded 2 KB cap",
+        )
+        # Backstop dropped context; core fields preserved and JSON parseable.
+        entry = json.loads(line)
+        self.assertNotIn("context", entry)
+        self.assertEqual(entry["error_class"], "probe")
+        self.assertEqual(entry["reason"], "oversized test")
+
+
+class TestAppendSafeErrorLogging(_HookTestCase):
+    """append_safe / bulk_append_safe must log suppressed errors to hook_errors.jsonl.
+
+    The original silent-suppress in `contextlib.suppress(LockTimeoutError, ValueError)`
+    dropped events without a trace under flock contention or oversized payloads.
+    These tests pin the loud-failure invariant: the suppressed exception still
+    leaves a structured entry in ``${SMM_DIR}/hook_errors.jsonl`` so future
+    regressions are visible.
+    """
+
+    @contextlib.contextmanager
+    def _hold_events_lock(self):
+        """Hold an exclusive flock on events.lock for the with-block duration."""
+        lock_fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+    def test_append_safe_logs_lock_timeout(self):
+        event = make_event("status", agent_id="main", content="ok", working_on=[])
+        with self._hold_events_lock():
+            _common.append_safe(self.smm_dir, event)
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "LockTimeoutError")
+        # Graceful semantic preserved — events.jsonl unchanged.
+        self.assertEqual(self.events_file.read_text(), "")
+
+    def test_bulk_append_safe_logs_lock_timeout(self):
+        events = [
+            make_event("status", agent_id="main", content="ok", working_on=[]),
+        ]
+        with self._hold_events_lock():
+            _common.bulk_append_safe(self.smm_dir, events)
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "LockTimeoutError")
+        self.assertEqual(self.events_file.read_text(), "")
+
+    def test_bulk_append_safe_logs_value_error_when_serialized_too_large(self):
+        # working_on with a 110 KB string passes content-budget validation
+        # (status content="ok" is 2 chars), but the serialized JSON exceeds the
+        # 100 KB MAX_EVENT_BYTES cap inside _append_impl.bulk_append → ValueError.
+        oversized = make_event(
+            "status",
+            agent_id="main",
+            content="ok",
+            working_on=["x" * 110_000],
+        )
+        _common.bulk_append_safe(self.smm_dir, [oversized])
+        entries = _read_hook_error_log(self.smm_dir)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "ValueError")
+        self.assertEqual(self.events_file.read_text(), "")
 
 
 class TestHookOutput(unittest.TestCase):

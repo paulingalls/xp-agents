@@ -51,7 +51,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         # Should NOT get SMM content (that comes from preload)
         self.assertNotIn("Ship v1", result)
 
@@ -76,7 +76,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                     f"RETRO_INPUT={self.smm_dir}/.retro-input.json",
                     result,
                 )
-                self.assertIn("XP Values", result)
+                self.assertIn("Extreme Programming", result)
                 self.assertNotIn("Ship v1", result)
 
     def test_close_reviewer_has_no_dedicated_handler(self):
@@ -112,7 +112,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertNotIn("Ship v1", result)
 
     def test_custom_agent_type_gets_full_smm(self):
@@ -155,7 +155,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
     def test_code_reviewer_gets_full_smm(self):
         """xp-code-reviewer gets full SMM."""
@@ -179,7 +179,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                 self.assertIn("Python 3.10+", result)
                 self.assertIn("Risks", result)
                 self.assertIn("Wisdom", result)
-                self.assertIn("XP Values", result)
+                self.assertIn("Extreme Programming", result)
 
     def test_other_xp_agents_get_values(self):
         """xp-* agents not in dispatch table get XP values."""
@@ -192,7 +192,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
     def test_explore_unchanged(self):
         """Explore still gets Intent + Constraints only."""
@@ -270,7 +270,7 @@ class TestSubagentStartHousekeeper(_HookTestCase):
                 self.assertIn("new_since_last_curation", data)
                 self.assertIn(f"SMM_DIR={self.smm_dir}", result)
                 self.assertIn(f"CURATION_INPUT={curation_file}", result)
-                self.assertIn("XP Values", result)
+                self.assertIn("Extreme Programming", result)
 
     def test_work_selection_block_when_events_present(self):
         """Session work-selection events produce a block."""

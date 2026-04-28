@@ -309,7 +309,7 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("XP Values", result.stdout)
+        self.assertNotIn("Extreme Programming", result.stdout)
         self.assertNotIn("Shared Mental Model", result.stdout)
 
     def test_preload_creates_review_input_file_via_mktemp(self):

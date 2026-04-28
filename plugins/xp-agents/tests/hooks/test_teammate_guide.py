@@ -48,7 +48,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         result = self._run_teammate()
         self.assertIsNotNone(result)
         self.assertIn("Teammate Guide", result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertNotIn("EnterPlanMode", result)
 
     def test_teammate_guide_has_tdd_and_domain(self):

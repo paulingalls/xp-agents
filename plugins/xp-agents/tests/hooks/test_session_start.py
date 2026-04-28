@@ -352,7 +352,7 @@ class TestSessionStartXPValues(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertIn("Courage", result)
 
     def test_startup_no_process_guide(self):
@@ -376,7 +376,7 @@ class TestSessionStartXPValues(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertIn("EnterPlanMode", result)
 
     def test_session_start_includes_skills(self):

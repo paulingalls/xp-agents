@@ -293,11 +293,14 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         events = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(events), 0)
 
-    def test_xp_agent_skips(self):
+    def test_xp_agent_skips_non_commit_bash(self):
+        # Commit-recording is exempt from the is_xp_agent skip (see
+        # TestCommitRecordingDespiteXpAgentType in test_bash_commit.py).
+        # Non-commit Bash from an xp-agent still skips.
         bash_post_tool.run(
             _make_bash_input(
-                command="git commit -m 'x'",
-                stdout="[main a] x",
+                command="python3 -m pytest tests/",
+                stdout="===== 5 passed in 1.2s =====",
                 agent_type="xp-housekeeper",
             ),
             smm_dir=self.smm_dir,

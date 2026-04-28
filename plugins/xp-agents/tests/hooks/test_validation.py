@@ -4,6 +4,7 @@
 Split from the monolithic test_hooks.py.
 """
 
+import ast
 import json
 import sys
 import unittest
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
 
 # ===========================================================================
 # hooks.json M3.4 registration tests
@@ -85,6 +87,117 @@ class _HooksJsonTestCase(unittest.TestCase):
 # ===========================================================================
 # hooks.json M4 registration tests
 # ===========================================================================
+
+
+_STRUCTURED_OUTPUT_FUNCS = frozenset({"hook_output", "block_output"})
+_ASYNC_OUTPUT_OK_MARKER = "async-output-ok"
+
+
+def _async_hook_scripts(hooks_config: dict) -> list[Path]:
+    """Walk hooks.json and return paths of every script with async: true.
+
+    Scans command tokens for the first `.py` argument (rather than just the
+    last token) so future hooks with trailing flags
+    (e.g. `python3 foo.py --verbose`) still get caught by the integrity check.
+    """
+    scripts: list[Path] = []
+    for entries in hooks_config.values():
+        for entry in entries:
+            for h in entry.get("hooks", []):
+                if not h.get("async"):
+                    continue
+                cmd = h.get("command", "")
+                if not cmd:
+                    continue
+                py_token = next(
+                    (t for t in cmd.split() if t.endswith(".py")),
+                    None,
+                )
+                if py_token is None:
+                    continue
+                scripts.append(Path(_common._expand_plugin_root(py_token)))
+    return scripts
+
+
+def _has_line_anchored_marker(docstring: str, marker: str) -> bool:
+    """True iff `marker` appears as its own (stripped) docstring line."""
+    return any(line.strip() == marker for line in docstring.splitlines())
+
+
+def _calls_any(tree: ast.AST, names: frozenset[str]) -> bool:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr in names:
+            return True
+        if isinstance(func, ast.Name) and func.id in names:
+            return True
+    return False
+
+
+class TestAsyncHookScriptsParser(unittest.TestCase):
+    """_async_hook_scripts must catch scripts even when commands have trailing flags."""
+
+    def test_picks_py_token_with_trailing_flags(self):
+        """A future hook with `python3 foo.py --verbose` must still be checked."""
+        cmd = "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/foo.py --verbose --arg val"
+        config = {
+            "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"command": cmd, "async": True}],
+                }
+            ]
+        }
+        scripts = _async_hook_scripts(config)
+        self.assertEqual(len(scripts), 1)
+        self.assertTrue(str(scripts[0]).endswith("/scripts/foo.py"))
+
+    def test_skips_when_no_py_token(self):
+        """Commands without any .py token are skipped, not errored."""
+        cmd = "/usr/bin/some-binary --flag"
+        config = {
+            "PostToolUse": [
+                {"hooks": [{"command": cmd, "async": True}]},
+            ]
+        }
+        self.assertEqual(_async_hook_scripts(config), [])
+
+
+class TestAsyncHooksHaveNoStructuredReturn(_HooksJsonTestCase):
+    """Async hooks have their return value discarded by Claude Code.
+
+    When `async: true`, the hook runs in the background and `hookSpecificOutput`
+    is dropped — the agent never sees additionalContext, decision blocks, or
+    stderr-via-exit-2 from such a hook. So any async hook script that calls
+    `_common.hook_output` or `_common.block_output` is silently leaking work.
+
+    Escape valve: a script may opt out by including the line `async-output-ok`
+    on its own line in the module docstring. Use only when the structured
+    output is genuinely fire-and-forget (e.g., logged to a sidecar) and
+    document why immediately above the marker.
+    """
+
+    def test_no_async_hook_calls_structured_output_helpers(self):
+        violations: list[str] = []
+        for script in _async_hook_scripts(self.data["hooks"]):
+            if not script.is_file():
+                continue
+            tree = ast.parse(script.read_text(encoding="utf-8"))
+            doc = ast.get_docstring(tree) or ""
+            if _has_line_anchored_marker(doc, _ASYNC_OUTPUT_OK_MARKER):
+                continue
+            if _calls_any(tree, _STRUCTURED_OUTPUT_FUNCS):
+                violations.append(script.name)
+        self.assertEqual(
+            violations,
+            [],
+            (
+                "async:true hooks must not call hook_output / block_output — "
+                f"agent never sees the return. Violations: {violations}"
+            ),
+        )
 
 
 class TestHooksJsonM4(_HooksJsonTestCase):
