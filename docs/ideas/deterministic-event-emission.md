@@ -299,6 +299,38 @@ Establishes the pattern; fixes the active QR + security counting bug.
 
 ---
 
+## Agent_id semantics (ADR — sprint-042)
+
+**Rule.** On every hook-emitted event, `agent_id` is the teammate-resolved
+attribution (the actor who triggered the lifecycle moment). Skill or agent
+identity lives in `metadata.action`, not in `agent_id`. No producer encodes
+a skill name into `agent_id`.
+
+**Implementation.** Every hook producer (`post_tool_use.py`,
+`bash_post_tool.py`, `bash_failure.py`, `subagent_stop.py`, the commit
+emission in `_handle_commit`) already passes the resolved `agent_id` from
+`identity.resolve_agent_id`. `review_cycle_done.py` and `mark_triaged.py`
+were the lone deviations pre-sprint-042: both encoded skill-name strings
+(`"simplify"`, `"xp-quality-review"`, `"xp-security-triage"`, …) into
+`agent_id`. Sprint-042 removes the third tuple element from
+`_TARGET_LIFECYCLE` and switches `mark_triaged` to use
+`identity.resolve_agent_id_from_cwd(...)` so the rule holds uniformly.
+
+**Rationale.** Per-agent retro counters in
+`retro_metrics._compute_session_stats` and `_compute_resolves_link_rate`,
+plus probe-pairing in `_compute_probe_adoption`, all bucket events by
+`agent_id` to attribute work to the teammate who did it. With skill names
+in `agent_id`, those rollups mis-attributed review-cycle events to
+phantom "agents" named after skills. Skill identity is already cleanly
+available via the `metadata.action` discriminator — `"qr_complete"`,
+`"simplify_complete"`, etc. — so consumers that want "QR ran 5 times"
+filter on action; consumers that want "teammate-7 ran 3 reviews" filter
+on `agent_id`. One source of truth per question.
+
+**Resolves:** concern `389ba9e9681d`.
+
+---
+
 ## Risks and mitigations
 
 | Risk | Mitigation |
