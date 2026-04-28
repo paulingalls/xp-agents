@@ -211,7 +211,13 @@ class TestAgentFilesM65(unittest.TestCase):
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""
+        # xp-security-reviewer's only event (security_complete) is emitted
+        # by the PostToolUse:Skill hook (review_cycle_done.py) — the agent
+        # body must NOT instruct the LLM to author it (sprint-041 / story-003).
+        skip = {"xp-security-reviewer"}
         for name in _SUBAGENT_NAMES:
+            if name in skip:
+                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             # Body is after the second ---
             parts = content.split("---", 2)

@@ -81,14 +81,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "What needs fixing and why" --files '["path/to/file.py"]'
 ```
 
-## Step 4: Record Summary
+## Step 4: Report Back
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" --agent "xp-quality-review" \
-  --content "Quality review complete. Fixed: [list]. Debt: [list]. Clean: [list]." \
-  --working-on '[]'
-```
+Briefly summarize what was fixed, what was deferred as debt, and what was already clean. The PostToolUse:Skill hook records the lifecycle event (`metadata.action=qr_complete`); do not append a duplicate status event.
 
 ## Guidelines
 
