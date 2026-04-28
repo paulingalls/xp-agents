@@ -16,7 +16,7 @@ Full docs index: https://code.claude.com/docs/llms.txt — always verify hook I/
 
 ## Coding Standards
 
-**Python 3.11+, stdlib only.** No external packages. No pip. No virtualenv. Every script must run with just `python3` on PATH.
+**Python 3.11+, stdlib only — for plugin code that ships** (`plugins/xp-agents/scripts/`, `smm/`, hooks, agents, skills). No external packages, no pip, no virtualenv at runtime; every shipped script must run with just `python3` on PATH. Tests under `plugins/xp-agents/tests/` are NOT bound by this constraint — they don't ship and can use external runners (e.g., `pytest`, `pytest-xdist`) if it speeds the suite without complicating local setup. Keep the test deps short and well-justified; the spirit is still "simple to run".
 
 Use `match/case` for tool_name routing, event type handling, and hook input parsing. Use type hints. Use `pathlib` over `os.path`.
 
