@@ -333,10 +333,13 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
     would lie about what landed.
     """
 
-    def test_head_mismatch_returns_failure(self) -> None:
-        """Commit exists but HEAD has advanced past it (user added a commit)."""
+    def _seed_with_advanced_head(self) -> str:
+        """Seed a scaffold commit, then advance HEAD with an unrelated commit.
+
+        Returns the scaffold commit's SHA — HEAD now points past it. Drives
+        the head-mismatch leg of the 3-stage gate.
+        """
         scaffold_sha = _seed_scaffold_commit(self.repo)
-        # User adds an unrelated commit on top — HEAD no longer == scaffold_sha.
         (self.repo / "extra.txt").write_text("unrelated\n", encoding="utf-8")
         subprocess.run(
             ["git", "add", "extra.txt"],
@@ -351,6 +354,11 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
             check=True,
             env=GIT_ENV,
         )
+        return scaffold_sha
+
+    def test_head_mismatch_returns_failure(self) -> None:
+        """Commit exists but HEAD has advanced past it (user added a commit)."""
+        scaffold_sha = self._seed_with_advanced_head()
 
         result = record_scaffold(
             self._snap(),
@@ -370,6 +378,35 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
         self.assertEqual(browser["status"], "gap")
         events = _events(self.smm_dir)
         self.assertFalse([e for e in events if e.get("type") == "decision"])
+
+    def test_head_mismatch_reason_uses_git_short_sha(self) -> None:
+        """The HEAD-mismatch diagnostic should use 7-char (git short) SHAs.
+
+        Concerns 2124f5892191 + 4ba371517f90: scaffold_post used [:12] in
+        user-facing reasons while branching.py uses git's standard [:7].
+        Mixed conventions across the same plugin's user-facing strings is
+        confusing — git users expect 7-hex short shas.
+        """
+        scaffold_sha = self._seed_with_advanced_head()
+
+        result = record_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            surface="browser",
+            verify_cmd="npx playwright test",
+            concern_id="abc123def456",
+            agent_id="test-agent",
+            commit_sha=scaffold_sha,
+        )
+
+        self.assertFalse(result.ok)
+        reason = result.reason or ""
+        # Positive: SHA appears at all (guards against a refactor that
+        # silently drops the SHA from the diagnostic). Negative: not the
+        # 12-char form (the actual regression signal — [:7] is a prefix of
+        # [:12], so without this the [:12] form would also pass `[:7] in`).
+        self.assertIn(scaffold_sha[:7], reason)
+        self.assertNotIn(scaffold_sha[:12], reason)
 
     def test_subject_mismatch_returns_failure(self) -> None:
         """HEAD == commit_sha but subject is not '[chore] Scaffold ...'."""

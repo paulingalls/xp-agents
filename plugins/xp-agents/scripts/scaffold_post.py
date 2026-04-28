@@ -234,8 +234,8 @@ def record_scaffold(
         return RecordResult(
             ok=False,
             reason=(
-                f"HEAD ({head_sha[:12]}) does not match scaffold commit "
-                f"({commit_sha[:12]}); refuse to flip surface — the user "
+                f"HEAD ({head_sha[:7]}) does not match scaffold commit "
+                f"({commit_sha[:7]}); refuse to flip surface — the user "
                 "may have added commits since apply-commit, or HEAD has "
                 "moved off the scaffold commit"
             ),
