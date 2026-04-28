@@ -223,7 +223,12 @@ def _check_qr_linkage(events: list[dict], agent_id: str) -> str | None:
 
 
 def _handle_commit(
-    smm_dir: Path, agent_id: str, cwd: str, response_text: str
+    smm_dir: Path,
+    agent_id: str,
+    cwd: str,
+    response_text: str,
+    *,
+    is_xp_agent_leak: bool = False,
 ) -> str | None:
     """Process a git commit response: record events, consume markers, nudge.
 
@@ -231,6 +236,11 @@ def _handle_commit(
     rejection, empty commit, etc.) since git only emits '[branch hash] msg'
     on success. When None, skip all post-commit side effects — otherwise a
     failed commit would wipe the security marker and reset the review cycle.
+
+    is_xp_agent_leak: when True, only the commit event is recorded. Skips lint
+    resolution, security-marker consumption, review-cycle reset, and the
+    QR-warning return so a leaked subagent agent_type can't mutate state
+    under a wrong identity (e.g. consume main's security marker).
     """
     msg = commits.parse_commit_message(response_text)
     if not msg:
@@ -291,6 +301,9 @@ def _handle_commit(
 
     _common.bulk_append_safe(smm_dir, pending)
 
+    if is_xp_agent_leak:
+        return None
+
     _resolve_lint_on_commit(
         smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
     )
@@ -299,9 +312,7 @@ def _handle_commit(
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
-    qr_warning = _check_qr_linkage(events, agent_id)
-
-    return qr_warning
+    return _check_qr_linkage(events, agent_id)
 
 
 # ---------------------------------------------------------------------------
@@ -327,10 +338,18 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     else:
         response_text = str(tool_response)
 
-    # Commit recording runs before the is_xp_agent skip — same shape as
-    # subagent_stop.py:162-182. See TestCommitRecordingDespiteXpAgentType.
+    # Bash commits run through _handle_commit even on xp-agent leaks — the
+    # commit event always lands; side-effect mutations (lint resolution,
+    # security marker, review cycle, QR nudge) are gated by is_xp_agent_leak.
+    # See TestCommitRecordingDespiteXpAgentType.
     if security.is_git_commit(command):
-        return _handle_commit(smm_dir, agent_id, cwd, response_text)
+        return _handle_commit(
+            smm_dir,
+            agent_id,
+            cwd,
+            response_text,
+            is_xp_agent_leak=_common.is_xp_agent(input_data),
+        )
 
     if _common.is_xp_agent(input_data):
         return None
