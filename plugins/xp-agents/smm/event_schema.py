@@ -94,6 +94,22 @@ STATUS_ACTION_SECURITY_TRIAGE_COMPLETE = "security_triage_complete"
 STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
 STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 
+# Tool-action lifecycle vocabulary — sprint-042 M2 of the deterministic-event
+# doctrine. Each constant is emitted by exactly one hook; consumers read
+# metadata.action so structured fields (files, exit_code, framework, etc.)
+# are not parsed back out of LLM-authored content. Producer map:
+#   STATUS_ACTION_FILE_WRITE        — post_tool_use.py (Write/Edit/MultiEdit)
+#   STATUS_ACTION_TEST_RUN_COMPLETE — bash_post_tool.py (test command success)
+#   STATUS_ACTION_LINT_RESOLVED     — bash_post_tool.py (lint resolved on commit)
+#   STATUS_ACTION_BASH_FAILED       — bash_failure.py (Bash exit non-zero)
+#   STATUS_ACTION_COMMIT_SUCCESS    — bash_post_tool.py (git commit, type=commit)
+# Producer/consumer wiring lands in stories 002-004.
+STATUS_ACTION_FILE_WRITE = "file_write"
+STATUS_ACTION_TEST_RUN_COMPLETE = "test_run_complete"
+STATUS_ACTION_LINT_RESOLVED = "lint_resolved"
+STATUS_ACTION_BASH_FAILED = "bash_failed"
+STATUS_ACTION_COMMIT_SUCCESS = "commit_success"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
