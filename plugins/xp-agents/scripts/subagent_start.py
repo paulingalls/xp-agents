@@ -20,6 +20,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import smm_cli
+from event_schema import (
+    DISPOSITION_DEFERRED,
+    DISPOSITION_DROPPED,
+    METADATA_KEY_DISPOSITION,
+)
 
 
 def _inject_explore(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
@@ -78,9 +83,11 @@ def _gather_work_selection_events(smm_dir: Path) -> str | None:
                 _RETRO_TRY_TOPIC_PREFIX
             ):
                 adopted.append(content)
-            case _common.STATUS if ev.get("metadata", {}).get("disposition") in (
-                "deferred",
-                "dropped",
+            case _common.STATUS if ev.get("metadata", {}).get(
+                METADATA_KEY_DISPOSITION
+            ) in (
+                DISPOSITION_DEFERRED,
+                DISPOSITION_DROPPED,
             ):
                 deferred_dropped.append(content)
             case _common.GOAL:

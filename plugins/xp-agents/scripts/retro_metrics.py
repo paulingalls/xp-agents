@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-from event_schema import METADATA_KEY_RESOLVES
+from event_schema import METADATA_KEY_DISPOSITION, METADATA_KEY_RESOLVES
 from honesty_signals import build_honesty_signals
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ def build_resolutions_map(resolutions: dict) -> dict[str, dict]:
                 "resolver_type": resolver.get("type", ""),
                 "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
             }
-            disposition = resolver.get("metadata", {}).get("disposition")
+            disposition = resolver.get("metadata", {}).get(METADATA_KEY_DISPOSITION)
             if disposition:
                 entry["disposition"] = disposition
             result[target_id] = entry

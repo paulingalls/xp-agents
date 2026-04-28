@@ -9,7 +9,12 @@ items that were already honored don't get re-flagged as "not honored".
 
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+
+from event_schema import DISPOSITION_ADOPTED, DISPOSITION_DROPPED
 
 MAX_RETRO_HISTORY = 1
 MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
@@ -106,7 +111,7 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
                 entry["disposition"] = disposition
             elif hit.get("resolver_type") == "decision":
                 # Decisions without explicit disposition are adoptions
-                entry["disposition"] = "adopted"
+                entry["disposition"] = DISPOSITION_ADOPTED
             statuses.append(entry)
         else:
             statuses.append({"resolved_this_session": False})
@@ -115,7 +120,7 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
     kept = [
         (t, s)
         for t, s in zip(latest["try"], statuses, strict=True)
-        if s.get("disposition") != "dropped"
+        if s.get("disposition") != DISPOSITION_DROPPED
     ]
     latest["try"] = [t for t, _ in kept]
     latest["try_status"] = [s for _, s in kept]
