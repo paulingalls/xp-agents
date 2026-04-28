@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
-"""Render retrospective JSON as markdown + drop echo-enforcement marker.
+"""Render retrospective JSON as Keep/Fix/Try markdown.
 
-Reads a retrospective JSON file (as written by scripts/save_retrospective.py),
-emits a Keep/Fix/Try markdown report on stdout, and atomically writes
-.pending-render-retro-{agent_id} at the SMM root via markers.marker_write
-(symlink-safe, per-agent isolated). The marker carries the signature header
-so the echo-gate hook can confirm the assistant echoed the render to the
-user verbatim.
+Reads a retrospective JSON file (as written by scripts/save_retrospective.py)
+and emits a Keep/Fix/Try markdown report on stdout.
 
 Usage:
-    retro_cli.py --smm-dir DIR render <retro-json-path> [--agent-id ID]
+    retro_cli.py --smm-dir DIR render <retro-json-path>
 """
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -22,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import marker_names
-import markers
-from identity import resolve_agent_id_from_cwd
 
 SIGNATURE = marker_names.RENDER_RETRO_SIGNATURE
 
@@ -47,36 +40,19 @@ def render_markdown(retro: dict) -> str:
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
-    agent_id = args.agent_id or resolve_agent_id_from_cwd(os.getcwd())
     try:
         data = json.loads(args.path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"Error rendering {args.path}: {exc}", file=sys.stderr)
         return 1
-    markdown = render_markdown(data)
-    try:
-        markers.marker_write(
-            args.smm_dir,
-            markers.PENDING_RENDER_RETRO,
-            SIGNATURE + "\n",
-            agent_id,
-        )
-    except ValueError as exc:
-        print(f"Error writing render marker: {exc}", file=sys.stderr)
-        return 1
-    print(markdown)
+    print(render_markdown(data))
     return 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Retrospective render CLI",
-        epilog=(
-            "Examples:\n"
-            "  retro_cli.py --smm-dir DIR render path/to/retro.json\n"
-            "  retro_cli.py --smm-dir DIR render path/to/retro.json"
-            " --agent-id main"
-        ),
+        epilog=("Examples:\n  retro_cli.py --smm-dir DIR render path/to/retro.json"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -86,11 +62,6 @@ def main() -> None:
 
     render_p = sub.add_parser("render", help="Render retrospective JSON as markdown")
     render_p.add_argument("path", type=Path, help="Path to retrospective JSON file")
-    render_p.add_argument(
-        "--agent-id",
-        default=None,
-        help="Agent ID for marker scoping (default: derived from CWD)",
-    )
 
     args = parser.parse_args()
     dispatch = {"render": _cmd_render}
