@@ -1,5 +1,7 @@
 # Inline Agent Migration: Kickoff-Path Skills
 
+> **Note (2026-04-28):** The echo-gate mechanism described below was removed in v2.32.0. The marker re-fired after the first signature match (risk `bd4210828adc`) and the noise outweighed the value. This doc is kept as the historical record of the design that was tried.
+
 ## Problem
 
 Two related failures with forked skills on the kickoff path:

@@ -60,12 +60,6 @@ ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
-PENDING_RENDER_RETRO = MarkerDef(
-    marker_names.PENDING_RENDER_RETRO, "text", agent_scoped=True
-)
-PENDING_RENDER_SMM = MarkerDef(
-    marker_names.PENDING_RENDER_SMM, "text", agent_scoped=True
-)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
 
 
@@ -199,8 +193,6 @@ _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
     SECURITY_TRIAGED,
     TDD_TRACKER,
     REVIEW_CYCLE,
-    PENDING_RENDER_RETRO,
-    PENDING_RENDER_SMM,
     QUESTION_NUDGED,
 )
 
