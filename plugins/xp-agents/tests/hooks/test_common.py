@@ -124,14 +124,15 @@ class TestReadHookInputErrorLogging(_HookTestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["error_class"], "stdin_oversize")
 
-    def test_each_log_line_capped_for_concurrent_atomicity(self):
-        # Force a long error message — the helper must still cap each line so
-        # concurrent O_APPEND writers don't interleave.
-        with (
-            patch("sys.stdin", io.StringIO("x" * 5000 + "not-json-tail")),
-            self.assertRaises(SystemExit),
-        ):
-            _common.read_hook_input()
+    def test_oversized_entry_triggers_paranoid_backstop(self):
+        # Per-field truncation alone can't bound total line size if a caller
+        # passes many ctx fields. _log_hook_error's backstop drops the
+        # context dict and re-serializes when the full line still exceeds
+        # 2 KB. Each value is far larger than the per-field truncation cap
+        # so it gets clamped before serialization, but 30 clamped fields +
+        # keys still exceed 2 KB — forcing the backstop deterministically.
+        big_ctx = {f"f{i}": "x" * 1000 for i in range(30)}
+        _common._log_hook_error("oversized test", error_class="probe", **big_ctx)
         path = self.smm_dir / "hook_errors.jsonl"
         line = path.read_text().splitlines()[0]
         self.assertLessEqual(
@@ -139,9 +140,11 @@ class TestReadHookInputErrorLogging(_HookTestCase):
             2048,
             "hook_errors.jsonl line exceeded 2 KB cap",
         )
-        # Capped lines must still be parseable JSON — guards against a future
-        # truncation bug producing malformed-but-short output.
-        json.loads(line)
+        # Backstop dropped context; core fields preserved and JSON parseable.
+        entry = json.loads(line)
+        self.assertNotIn("context", entry)
+        self.assertEqual(entry["error_class"], "probe")
+        self.assertEqual(entry["reason"], "oversized test")
 
 
 class TestAppendSafeErrorLogging(_HookTestCase):

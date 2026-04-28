@@ -169,11 +169,15 @@ def _log_hook_error(reason: str, error_class: str, **ctx: object) -> None:
         line = json.dumps(entry, ensure_ascii=False)
         encoded = line.encode("utf-8")
     print(f"hook_error: {line}", file=sys.stderr)
-    smm_dir = os.environ.get("SMM_DIR")
-    if not smm_dir:
+    # resolve_smm_dir delegates to init.sh when SMM_DIR is unset — without it,
+    # cache-derived hook invocations would lose the diagnostic trace. Returns
+    # None outside a git repo, in which case the stderr mirror is the only
+    # surface.
+    smm_dir = resolve_smm_dir()
+    if smm_dir is None:
         return
     try:
-        path = Path(smm_dir) / _HOOK_ERROR_FILE
+        path = smm_dir / _HOOK_ERROR_FILE
         fd = os.open(
             str(path),
             os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,

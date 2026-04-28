@@ -96,9 +96,9 @@ _ASYNC_OUTPUT_OK_MARKER = "async-output-ok"
 def _async_hook_scripts(hooks_config: dict) -> list[Path]:
     """Walk hooks.json and return paths of every script with async: true.
 
-    Assumes commands are shaped `python3 ${CLAUDE_PLUGIN_ROOT}/path/to/foo.py`
-    — current convention across all registered hooks. A future command with
-    flags after the script path will surface as a path-not-found skip below.
+    Scans command tokens for the first `.py` argument (rather than just the
+    last token) so future hooks with trailing flags
+    (e.g. `python3 foo.py --verbose`) still get caught by the integrity check.
     """
     scripts: list[Path] = []
     for entries in hooks_config.values():
@@ -109,8 +109,13 @@ def _async_hook_scripts(hooks_config: dict) -> list[Path]:
                 cmd = h.get("command", "")
                 if not cmd:
                     continue
-                last = cmd.split()[-1]
-                scripts.append(Path(_common._expand_plugin_root(last)))
+                py_token = next(
+                    (t for t in cmd.split() if t.endswith(".py")),
+                    None,
+                )
+                if py_token is None:
+                    continue
+                scripts.append(Path(_common._expand_plugin_root(py_token)))
     return scripts
 
 
@@ -129,6 +134,35 @@ def _calls_any(tree: ast.AST, names: frozenset[str]) -> bool:
         if isinstance(func, ast.Name) and func.id in names:
             return True
     return False
+
+
+class TestAsyncHookScriptsParser(unittest.TestCase):
+    """_async_hook_scripts must catch scripts even when commands have trailing flags."""
+
+    def test_picks_py_token_with_trailing_flags(self):
+        """A future hook with `python3 foo.py --verbose` must still be checked."""
+        cmd = "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/foo.py --verbose --arg val"
+        config = {
+            "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"command": cmd, "async": True}],
+                }
+            ]
+        }
+        scripts = _async_hook_scripts(config)
+        self.assertEqual(len(scripts), 1)
+        self.assertTrue(str(scripts[0]).endswith("/scripts/foo.py"))
+
+    def test_skips_when_no_py_token(self):
+        """Commands without any .py token are skipped, not errored."""
+        cmd = "/usr/bin/some-binary --flag"
+        config = {
+            "PostToolUse": [
+                {"hooks": [{"command": cmd, "async": True}]},
+            ]
+        }
+        self.assertEqual(_async_hook_scripts(config), [])
 
 
 class TestAsyncHooksHaveNoStructuredReturn(_HooksJsonTestCase):
