@@ -1,0 +1,581 @@
+#!/usr/bin/env python3
+"""Tests for /xp-scaffold-acceptance SKILL.md and the analyzer concern wiring.
+
+Markdown-shape assertions only — no script execution. Verifies that the skill
+file (a) parses as a valid skill manifest, (b) embeds the verbatim doctrine
+refusal text, (c) wires the M-1 detection helpers, and (d) leaves the M-2+
+steps marked as reserved.
+
+Cross-skill structural checks (frontmatter shape, directory layout) live in
+tests/hooks/test_plugin_integrity.py via _ALL_SKILL_NAMES — the new skill
+is registered there and inherits that coverage.
+"""
+
+import re
+import unittest
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_PLUGIN_ROOT = _REPO_ROOT / "plugins" / "xp-agents"
+_SKILL_PATH = _PLUGIN_ROOT / "skills" / "xp-scaffold-acceptance" / "SKILL.md"
+_ANALYZER_PATH = _PLUGIN_ROOT / "agents" / "xp-system-analyzer.md"
+_DOCTRINE_PATH = _REPO_ROOT / "docs" / "completed" / "SCAFFOLDING_DOCTRINE.md"
+
+
+def _frontmatter_body(text: str) -> tuple[str, str]:
+    """Return (frontmatter, body) split on the closing `---` fence."""
+    match = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.DOTALL)
+    if not match:
+        return "", text
+    return match.group(1), match.group(2)
+
+
+def _normalize_blockquote(text: str) -> str:
+    """Strip markdown `>` prefixes and `*"…"*` italic-quote markers, collapse ws.
+
+    Used to compare the doctrine refusal text against the SKILL.md embedding
+    even when one wraps the lines slightly differently.
+    """
+    lines = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(">"):
+            stripped = stripped[1:].lstrip()
+        lines.append(stripped)
+    joined = " ".join(lines)
+    joined = joined.replace('*"', "").replace('"*', "")
+    return re.sub(r"\s+", " ", joined).strip()
+
+
+def _doctrine_refusal_text() -> str:
+    """Extract and normalize the §Teammate Interaction blockquote refusal."""
+    doctrine = _DOCTRINE_PATH.read_text(encoding="utf-8")
+    section = doctrine.split("## Teammate Interaction", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    quote_lines: list[str] = []
+    in_quote = False
+    for line in section.splitlines():
+        if line.lstrip().startswith(">"):
+            in_quote = True
+            quote_lines.append(line)
+        elif in_quote:
+            break
+    return _normalize_blockquote("\n".join(quote_lines))
+
+
+class TestSkillFrontmatter(unittest.TestCase):
+    """Frontmatter shape — directory existence + name/description shape are
+    enforced by tests/hooks/test_plugin_integrity.py via _ALL_SKILL_NAMES.
+    The structured allowed-tools assertions live in
+    TestSkillFrontmatterAllowedTools below."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = _SKILL_PATH.read_text(encoding="utf-8")
+        cls.fm, cls.body = _frontmatter_body(cls.text)
+
+    def test_frontmatter_name(self) -> None:
+        match = re.search(r"^name:\s*(\S+)", self.fm, re.MULTILINE)
+        assert match is not None, "frontmatter must declare name:"
+        self.assertEqual(match.group(1), "xp-scaffold-acceptance")
+
+    def test_frontmatter_description_triggers_on_skill(self) -> None:
+        self.assertIn("xp-scaffold-acceptance", self.fm.lower())
+
+
+class TestSkillBody(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(cls.text)
+
+    def test_step_1a_invokes_teammates_active_subcommand(self) -> None:
+        self.assertIn("scaffold_cli.py", self.body)
+        self.assertIn("teammates-active", self.body)
+        self.assertIn("--agent-id", self.body)
+
+    def test_step_1b_invokes_detect_surfaces_subcommand(self) -> None:
+        self.assertIn("detect-surfaces", self.body)
+        self.assertIn("--repo-root", self.body)
+
+    def test_step_3_mentions_canonical_tools_for(self) -> None:
+        self.assertIn("canonical_tools_for", self.body)
+
+    def test_caveat_still_mentions_detect_existing_tooling_semantics(self) -> None:
+        self.assertIn("detect_existing_tooling", self.body)
+
+    def test_contains_verbatim_doctrine_refusal(self) -> None:
+        doctrine_refusal = _doctrine_refusal_text()
+        skill_normalized = _normalize_blockquote(self.body)
+        self.assertIn(
+            doctrine_refusal,
+            skill_normalized,
+            "SKILL.md must embed the doctrine refusal text verbatim",
+        )
+
+    def test_step_3_uses_askuserquestion(self) -> None:
+        step3_split = re.split(r"^##+\s+Step\s+3\b", self.body, flags=re.MULTILINE)
+        self.assertGreater(len(step3_split), 1, "SKILL.md must have a Step 3 section")
+        step3 = step3_split[1]
+        next_step = re.search(r"^##+\s+Step\s+\d+\b", step3, flags=re.MULTILINE)
+        if next_step:
+            step3 = step3[: next_step.start()]
+        self.assertIn("AskUserQuestion", step3)
+
+    def test_reinvocation_flow_wires_real_three_options(self) -> None:
+        """Step 1c shipped the real flow in M-5: add-complementary / redo /
+        cancel. The M-5 deferral stub is gone."""
+        self.assertNotIn("M-5 deferral", self.body)
+        self.assertNotIn("Full re-invocation flow lands in M-5", self.body)
+        self.assertIn("Add complementary tool", self.body)
+        self.assertIn("Redo from scratch", self.body)
+        self.assertIn("find-introducing-commit", self.body)
+
+    def test_steps_8_9_no_longer_reserved(self) -> None:
+        """M-4 ships Steps 8-9; the placeholder text must be gone."""
+        self.assertNotIn("Reserved for M-4", self.body)
+
+    def test_runtime_order_header_includes_steps_8_9(self) -> None:
+        """Runtime order extends to 8 → 9 once M-4 wires the commit + record."""
+        self.assertIn("1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9", self.body)
+
+    def test_step_8_invokes_apply_commit(self) -> None:
+        """Step 8 calls scaffold_cli.py apply-commit with the doctrine args."""
+        step8 = self.body.split("## Step 8")[1].split("## Step 9")[0]
+        self.assertIn("apply-commit", step8)
+        self.assertIn("--snapshot-id", step8)
+        self.assertIn("--surface", step8)
+        self.assertIn("--tool", step8)
+        self.assertIn("--concern-id", step8)
+
+    def test_step_9_invokes_apply_record(self) -> None:
+        """Step 9 calls scaffold_cli.py apply-record with surface + agent-id."""
+        step9 = self.body.split("## Step 9")[1]
+        self.assertIn("apply-record", step9)
+        self.assertIn("--surface", step9)
+        self.assertIn("--agent-id", step9)
+        self.assertIn("--concern-id", step9)
+
+    def test_step_6_mentions_bdd_runner_conditional(self) -> None:
+        """Step 6 must steer Cucumber/behave/SpecFlow projects to Gherkin
+        bodies + BDD-runner verify_cmd. Resolves concern 64dfc499fd12."""
+        step6 = self.body.split("## Step 6")[1].split("## Step 7")[0]
+        self.assertRegex(step6, r"(?i)Cucumber|behave|SpecFlow")
+
+    def test_step_8_documents_concern_id_lookup(self) -> None:
+        """Step 8 must tell the agent where to obtain --concern-id (the
+        pre-existing missing-acceptance concern from xp-system-analyzer),
+        not silently leave the source ambiguous."""
+        step8 = self.body.split("## Step 8")[1].split("## Step 9")[0]
+        # Should reference the gap-surface concern OR events.jsonl lookup
+        # OR system-analyzer-raised concern.
+        self.assertRegex(
+            step8,
+            r"(?i)events\.jsonl|missing-acceptance|gap.*concern|xp-system-analyzer",
+        )
+
+
+def _gap_concern_block(text: str) -> str:
+    """Return the bash code block that immediately follows the gap-concern
+    raise instruction in xp-system-analyzer.md."""
+    match = re.search(
+        r"Raise concerns for gaps[\s\S]+?```bash\n(?P<body>[\s\S]+?)```",
+        text,
+    )
+    return match.group("body") if match else ""
+
+
+class TestAnalyzerConcernWiring(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = _ANALYZER_PATH.read_text(encoding="utf-8")
+        cls.gap_block = _gap_concern_block(cls.text)
+
+    def test_gap_block_extracted(self) -> None:
+        self.assertNotEqual(
+            self.gap_block, "", "gap-concern bash block not found in analyzer"
+        )
+
+    def test_gap_block_references_skill(self) -> None:
+        self.assertIn(
+            "/xp-scaffold-acceptance",
+            self.gap_block,
+            "gap-concern template must point at /xp-scaffold-acceptance",
+        )
+
+    def test_gap_block_does_not_say_install(self) -> None:
+        self.assertNotIn("install the harness", self.gap_block)
+
+    def test_gap_block_emits_missing_acceptance_topic(self) -> None:
+        """Analyzer must emit --topic missing-acceptance-<surface> on the
+        gap-concern. /xp-scaffold-acceptance Step 8 greps events.jsonl by
+        that exact topic shape to recover the concern_id; without it the
+        resolution cascade silently degrades to Resolves-Event: none and
+        the gap concern never auto-closes."""
+        self.assertIn("missing-acceptance-", self.gap_block)
+        self.assertRegex(self.gap_block, r"--topic[ =\"']+missing-acceptance-")
+
+    def test_skill_step_8_topic_pattern_matches_analyzer_emit(self) -> None:
+        """Step 8's grep pattern must literally match the topic shape the
+        analyzer writes. Catches drift in either direction at test time."""
+        skill_text = _SKILL_PATH.read_text(encoding="utf-8")
+        step8 = skill_text.split("## Step 8")[1].split("## Step 9")[0]
+        # The skill greps for "topic": "missing-acceptance-<surface>" with
+        # escaped quotes inside the bash double-quoted grep argument.
+        self.assertRegex(step8, r'topic\\?":\s*\\?"missing-acceptance-')
+        # Analyzer must write the same prefix verbatim
+        self.assertIn("missing-acceptance-", self.gap_block)
+
+    def test_analyzer_pins_canonical_surface_names(self) -> None:
+        """Analyzer must enumerate the snake_case surface identifiers that
+        scaffold_detect.canonical_tools_for keys off. Drift in either
+        direction silently disables tool lookup in /xp-scaffold-acceptance."""
+        for canonical in (
+            "http_websocket",
+            "browser",
+            "cli",
+            "sdk",
+            "automation",
+            "message_event",
+        ):
+            self.assertIn(
+                f"`{canonical}`",
+                self.text,
+                f"analyzer must pin canonical surface name {canonical!r}",
+            )
+
+
+class TestSkillFrontmatterAllowedTools(unittest.TestCase):
+    """Behavior-level frontmatter parse — replaces text-search-only assertions
+    flagged by concern 355d7d282e30. Parses the YAML allowed-tools list and
+    asserts on the structured set, not the raw string."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        fm, _ = _frontmatter_body(text)
+        cls.allowed_tools = cls._parse_allowed_tools(fm)
+
+    @staticmethod
+    def _parse_allowed_tools(fm: str) -> list[str]:
+        match = re.search(
+            r"^allowed-tools:\s*\n((?:\s+-\s+[^\n]+\n?)+)",
+            fm,
+            flags=re.MULTILINE,
+        )
+        if not match:
+            return []
+        return [
+            line.strip().lstrip("-").strip()
+            for line in match.group(1).splitlines()
+            if line.strip()
+        ]
+
+    def test_includes_websearch(self) -> None:
+        self.assertIn("WebSearch", self.allowed_tools)
+
+    def test_includes_askuserquestion(self) -> None:
+        self.assertIn("AskUserQuestion", self.allowed_tools)
+
+    def test_includes_read(self) -> None:
+        self.assertIn("Read", self.allowed_tools)
+
+    def test_no_edit_or_write_tool(self) -> None:
+        for forbidden in ("Edit", "Write", "MultiEdit"):
+            self.assertNotIn(
+                forbidden,
+                self.allowed_tools,
+                f"M-2 must not declare {forbidden!r} — Steps 6-9 (writes) "
+                "ship in M-3 onward",
+            )
+
+
+def _step_section(body: str, step_number: int) -> str:
+    """Extract the prose for `## Step N` up to the next `## Step` header."""
+    pattern = rf"^##+\s+Step\s+{step_number}\b"
+    splits = re.split(pattern, body, flags=re.MULTILINE)
+    if len(splits) < 2:
+        return ""
+    rest = splits[1]
+    next_step = re.search(r"^##+\s+Step\s+\d+\b", rest, flags=re.MULTILINE)
+    return rest[: next_step.start()] if next_step else rest
+
+
+class TestSkillM2Wiring(unittest.TestCase):
+    """M-2 wiring: Step 2 web-refresh, Step 4 build_plan, Step 5 confirm."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(text)
+
+    def test_step_2_uses_websearch_for_version_refresh(self) -> None:
+        step2 = _step_section(self.body, 2)
+        self.assertNotEqual(step2.strip(), "")
+        self.assertIn("WebSearch", step2)
+        self.assertIn("version", step2.lower())
+
+    def test_step_2_invokes_assess_tool_subcommand(self) -> None:
+        step2 = _step_section(self.body, 2)
+        self.assertIn("scaffold_cli.py", step2)
+        self.assertIn("assess-tool", step2)
+        self.assertIn("--tool", step2)
+
+    def test_step_4_invokes_build_plan_subcommand(self) -> None:
+        step4 = _step_section(self.body, 4)
+        self.assertIn("scaffold_cli.py", step4)
+        self.assertIn("build-plan", step4)
+
+    def test_step_5_invokes_render_preview_subcommand(self) -> None:
+        step5 = _step_section(self.body, 5)
+        self.assertIn("scaffold_cli.py", step5)
+        self.assertIn("render-preview", step5)
+
+    def test_step_5_uses_askuserquestion_with_three_options(self) -> None:
+        step5 = _step_section(self.body, 5)
+        self.assertIn("AskUserQuestion", step5)
+        for option in ("yes", "show files", "no"):
+            self.assertIn(option, step5.lower(), f"Step 5 missing option: {option!r}")
+
+    def test_step_5_show_files_branch_documented(self) -> None:
+        step5 = _step_section(self.body, 5)
+        self.assertIn("show files", step5.lower())
+        self.assertRegex(step5, r"file body|read.*back|Read each file|\.body|Bodies")
+
+    def test_steps_6_through_9_present(self) -> None:
+        for marker in ("Step 6", "Step 7", "Step 8", "Step 9"):
+            section_index = self.body.find(f"## {marker}")
+            self.assertGreater(section_index, -1, f"missing {marker} section")
+
+    def test_step_4_warns_install_cmds_are_argv_shaped(self) -> None:
+        """install_cmds and verify_cmd are run with shell=False after
+        shlex.split. The skill must warn the LLM that pipes/&&/redirects/
+        $VAR expansion don't work as bare commands; sh -c is the escape
+        hatch. Without this warning the LLM authors strings like
+        'npm install && npm test' that fail at runtime."""
+        step4 = _step_section(self.body, 4)
+        self.assertRegex(
+            step4,
+            r"(?i)shlex|argv|shell=False",
+            "Step 4 must explain the argv shape (no shell interpretation)",
+        )
+        self.assertIn(
+            "sh -c",
+            step4,
+            "Step 4 must show `sh -c` as the escape hatch when shell "
+            "features are needed",
+        )
+
+
+class TestSkillSnippetSafety(unittest.TestCase):
+    """SKILL.md must not embed Python code inside `python3 -c "..."` for
+    user-data flows. The CLI refactor (scaffold_cli.py) is the canonical
+    entrypoint; concerns 023cf12c452c and fc505b703d2d were symptoms of
+    the inline-Python pattern they replaced."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(text)
+
+    def test_no_inline_python_dash_c_anywhere(self) -> None:
+        """Catch regressions: any `python3 -c "..."` in the skill is a
+        sign the inline-Python pattern is creeping back. The CLI is the
+        only Python entrypoint."""
+        self.assertNotIn(
+            'python3 -c "',
+            self.body,
+            "SKILL.md must invoke scaffold_cli.py subcommands, not embed "
+            "Python via python3 -c. Use a CLI subcommand or extend it.",
+        )
+
+    def test_step_4_uses_heredoc_for_plan_input(self) -> None:
+        step4 = _step_section(self.body, 4)
+        self.assertRegex(
+            step4,
+            r"<<'?[A-Z_]+'?",
+            "Step 4 must pass plan-input JSON via heredoc on stdin, not "
+            "as inline shell args.",
+        )
+
+    def test_step_4_example_uses_concrete_files_to_create(self) -> None:
+        step4 = _step_section(self.body, 4)
+        self.assertRegex(
+            step4,
+            r"['\"]path['\"]\s*:\s*['\"][^'\"]+['\"]",
+            "Step 4 example must include at least one concrete file dict "
+            "with a real path so the LLM has a copy-paste-runnable shape.",
+        )
+
+    def test_step_2_uses_heredoc_or_printf_for_guidance(self) -> None:
+        """Step 2's assess-tool call must use heredoc (`<<EOF`) or printf
+        for the guidance payload — bare `echo '<guidance>'` breaks if the
+        guidance contains an apostrophe (very common in tool-help text).
+        Heredoc may attach directly to the CLI invocation (suffix form)
+        or pipe in (prefix form via `cat <<EOF | ...`)."""
+        step2 = _step_section(self.body, 2)
+        has_heredoc = bool(re.search(r"<<'?[A-Z_]+'?", step2))
+        has_printf = "printf" in step2
+        invokes_assess = "assess-tool" in step2
+        self.assertTrue(
+            invokes_assess and (has_heredoc or has_printf),
+            "Step 2 must invoke assess-tool with guidance delivered via "
+            "heredoc or printf — apostrophes in guidance text break bare "
+            "`echo '...'`.",
+        )
+
+    def test_step_2_no_bare_echo_for_guidance(self) -> None:
+        """Bare `echo '...'` is exactly the apostrophe-fragility pattern
+        we want to avoid in Step 2."""
+        step2 = _step_section(self.body, 2)
+        self.assertNotRegex(
+            step2,
+            r"echo\s+'[^']*<guidance",
+            "Step 2 must not use bare `echo '<guidance>'` — apostrophes "
+            "in guidance text break the call. Use heredoc.",
+        )
+
+    def test_step_2_no_misleading_separate_stdin_hint(self) -> None:
+        """A 'separate stdin channel' hint is unactionable — there is only
+        one stdin per process. Drop or replace with `--tool=\"$tool\"`."""
+        step2 = _step_section(self.body, 2)
+        self.assertNotIn(
+            "separate stdin channel",
+            step2,
+            "Step 2 must not suggest piping the tool name on a separate "
+            'stdin channel — there is only one stdin. Use --tool="$tool".',
+        )
+
+
+class TestSkillNoConfigFileSignalCaveat(unittest.TestCase):
+    """Debt 8f2ca34871e1: SKILL.md must propagate NO_CONFIG_FILE_SIGNAL
+    semantics — has_tooling=False for sdk/message_event surfaces means
+    'no config-file signal,' not 'no tooling exists.'"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(text)
+
+    def test_caveat_mentions_no_config_file_signal(self) -> None:
+        self.assertIn("NO_CONFIG_FILE_SIGNAL", self.body)
+
+    def test_caveat_names_sdk_and_message_event(self) -> None:
+        self.assertIn("sdk", self.body)
+        self.assertIn("message_event", self.body)
+
+    def test_caveat_explains_signal_semantics(self) -> None:
+        match = re.search(
+            r"NO_CONFIG_FILE_SIGNAL[\s\S]{0,400}",
+            self.body,
+        )
+        assert match is not None, "NO_CONFIG_FILE_SIGNAL caveat not found"
+        caveat = match.group(0).lower()
+        self.assertTrue(
+            "config-file" in caveat or "no config" in caveat,
+            "Caveat must mention the config-file-signal distinction",
+        )
+
+
+class TestSkillM3Wiring(unittest.TestCase):
+    """M-3 wiring: Step 6 apply-write, Step 7 apply-install + apply-verify;
+    runtime-order header; show-files uses plan bodies; manifest full-body
+    responsibility documented."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        text = _SKILL_PATH.read_text(encoding="utf-8")
+        _, cls.body = _frontmatter_body(text)
+
+    def test_runtime_order_line_present_near_top(self) -> None:
+        first_step_idx = self.body.find("## Step 1")
+        self.assertGreater(first_step_idx, 0, "Step 1 section missing")
+        prologue = self.body[:first_step_idx]
+        self.assertRegex(
+            prologue,
+            r"1\s*[→-]>?\s*3\s*[→-]>?\s*2",
+            "Prologue must name actual runtime order 1→3→2→4→5",
+        )
+
+    def test_step_5_show_files_uses_plan_bodies(self) -> None:
+        step5 = _step_section(self.body, 5)
+        self.assertRegex(
+            step5,
+            r"(?i)\$?PLAN_JSON|render-preview\s+--show-files|files_to_create\[\]\.body",
+            "Step 5 show-files branch must read bodies from the plan, not "
+            "from working memory",
+        )
+
+    def test_step_6_invokes_apply_write_subcommand(self) -> None:
+        step6 = _step_section(self.body, 6)
+        self.assertIn("scaffold_cli.py", step6)
+        self.assertIn("apply-write", step6)
+
+    def test_step_6_documents_full_body_manifest_responsibility(self) -> None:
+        step6 = _step_section(self.body, 6)
+        self.assertRegex(
+            step6,
+            r"(?i)full[- ]body|complete\s+(?:manifest\s+)?body|deep[- ]merge",
+            "Step 6 must document that files_to_modify entries carry the full "
+            "merged manifest body — apply.py is format-agnostic",
+        )
+
+    def test_step_7_invokes_apply_install_and_apply_verify(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertIn("apply-install", step7)
+        self.assertIn("apply-verify", step7)
+
+    def test_step_7_references_apply_revert_for_cancel_path(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertIn("apply-revert", step7)
+
+    def test_step_7_surfaces_failure_reason_verbatim(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertRegex(
+            step7,
+            r"(?i)reason|stderr|verbatim",
+            "Step 7 must surface phase failure reason to the customer",
+        )
+
+    def test_step_6_uses_repo_root_flag(self) -> None:
+        step6 = _step_section(self.body, 6)
+        self.assertIn("--repo-root", step6)
+
+    def test_step_7_uses_snapshot_id_flag(self) -> None:
+        step7 = _step_section(self.body, 7)
+        self.assertIn("--snapshot-id", step7)
+
+    def test_runtime_order_section_shows_repo_root_assignment(self) -> None:
+        """$REPO_ROOT is referenced in Steps 6-7 examples; the prologue
+        must show a concrete assignment so the LLM doesn't have to invent
+        one. Use the canonical `${REPO_ROOT:-$(pwd)}` form so an
+        out-of-band override survives."""
+        first_step_idx = self.body.find("## Step 1")
+        prologue = self.body[:first_step_idx]
+        self.assertRegex(
+            prologue,
+            r"REPO_ROOT=.*\$\{REPO_ROOT:-\$\(pwd\)\}",
+            "Prologue must show the canonical "
+            "REPO_ROOT=${REPO_ROOT:-$(pwd)} assignment so an out-of-band "
+            "override survives the fallback",
+        )
+
+    def test_step_7_warns_against_orphan_install_state(self) -> None:
+        """Customer must run apply-install → apply-verify-or-apply-revert as a
+        contiguous pair. Leaving install state without verify or revert
+        leaks the snapshot dir under TMPDIR (since apply-install does not
+        cleanup; cleanup only happens at apply-verify ok or apply-revert)."""
+        step7 = _step_section(self.body, 7)
+        self.assertRegex(
+            step7,
+            r"(?i)must|never abandon|always (?:run|follow)",
+            "Step 7 must instruct the customer that apply-install requires "
+            "a follow-up apply-verify or apply-revert",
+        )
+        self.assertIn("apply-install", step7)
+        self.assertIn("apply-verify", step7)
+        self.assertIn("apply-revert", step7)
+
+
+if __name__ == "__main__":
+    unittest.main()

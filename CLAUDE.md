@@ -16,7 +16,7 @@ Full docs index: https://code.claude.com/docs/llms.txt — always verify hook I/
 
 ## Coding Standards
 
-**Python 3.10+, stdlib only.** No external packages. No pip. No virtualenv. Every script must run with just `python3` on PATH.
+**Python 3.11+, stdlib only.** No external packages. No pip. No virtualenv. Every script must run with just `python3` on PATH.
 
 Use `match/case` for tool_name routing, event type handling, and hook input parsing. Use type hints. Use `pathlib` over `os.path`.
 
@@ -84,7 +84,7 @@ Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), 
 - Keep/Fix/Try framework with XP values as analytical lenses
 - `customer_input` events from UserPromptSubmit
 - Plan subagent output reviewed by SubagentStop hook
-- Python 3.10+, stdlib only, zero dependencies
+- Python 3.11+, stdlib only, zero dependencies
 - Four-file architecture: events.jsonl + system_context.json + execution_plan.json + sprint.json (all JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked

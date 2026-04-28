@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from _probe import probe_config_file
 from smm_schema import SOURCE_SEED, empty_smm
 from smm_store import SMM_FILENAME, save_smm
 
@@ -209,32 +210,22 @@ def _find_git_root() -> Path | None:
 def has_linter(root: Path) -> bool:
     """Check if any linter config exists."""
     for config in _LINTER_CONFIGS:
-        if (root / config).exists():
+        if probe_config_file(root, config) is not None:
             return True
     for config, content in _LINTER_CONTENT_CHECKS.items():
-        path = root / config
-        if path.exists():
-            try:
-                if content in path.read_text(encoding="utf-8"):
-                    return True
-            except (OSError, UnicodeDecodeError):
-                continue
+        if probe_config_file(root, config, content) is not None:
+            return True
     return False
 
 
 def has_formatter(root: Path) -> bool:
     """Check if any code formatter config exists or language has built-in formatter."""
     for config in _FORMATTER_CONFIGS:
-        if (root / config).exists():
+        if probe_config_file(root, config) is not None:
             return True
     for config, content in _FORMATTER_CONTENT_CHECKS.items():
-        path = root / config
-        if path.exists():
-            try:
-                if content in path.read_text(encoding="utf-8"):
-                    return True
-            except (OSError, UnicodeDecodeError):
-                continue
+        if probe_config_file(root, config, content) is not None:
+            return True
     # Languages with built-in formatters — check for source files
     for pattern in _BUILTIN_FORMATTER_GLOBS:
         if list(root.glob(pattern)) or list(root.glob(f"*/{pattern}")):

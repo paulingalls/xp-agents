@@ -90,14 +90,16 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 
 **Six surfaces to detect:**
 
-| Surface | Detection signals | Acceptance harness signals |
-|---------|-------------------|---------------------------|
-| HTTP/WebSocket | `express`, `fastify`, `flask`, `django`, `actix-web`, `gin`, `koa`, `hono`, `graphql`, `grpc`, `tonic`, `connectrpc` in package manifest; `server.py`, `app.py`, `main.go` entry points | `supertest`, `httpx`, `k6`, `hurl`, `bruno`, `dredd`, `pact`, `grpcurl`, `postman`, `newman`, API test directories |
-| Browser | `next`, `react`, `vue`, `angular`, `svelte`, `solid`, `electron`, `tauri` in package manifest; browser extension manifests | `playwright`, `cypress`, `puppeteer`, `selenium`, `webdriverio`, `testcafe`, `nightwatch` configs or test directories |
-| CLI | `bin/` entries in package.json, `__main__.py`, `cli.py`, `[[bin]]` in Cargo.toml, Go `main` packages | `bats`, `aruba`, `cram`, `pytest-console-scripts`, CLI test directories, subprocess-based test patterns |
-| SDK | Library package with public API exports, `lib/` or `src/` without entry points | `examples/` directory, integration test directories, consumer test projects, `doctest`, property-based test patterns (`hypothesis`, `fast-check`) |
-| Automation | `react-native`, `flutter`, `expo`, mobile platform configs; `selenium`, `webdriver`, `taiko` in dependencies | `detox`, `maestro`, `appium`, `xcuitest`, `selenium`, `webdriverio`, `taiko`, `espresso`, `earl-grey`, `calabash` configs |
-| Message/event | `kafka`, `rabbitmq`, `sqs`, `celery`, `bull`, `nats`, `pulsar`, `redis` streams in dependencies; queue consumer patterns | `testcontainers`, `localstack`, `wiremock`, `mockserver`, `pact`, publish-and-observe test harnesses |
+| Surface | Detection signals |
+|---------|-------------------|
+| HTTP/WebSocket | `express`, `fastify`, `flask`, `django`, `actix-web`, `gin`, `koa`, `hono`, `graphql`, `grpc`, `tonic`, `connectrpc` in package manifest; `server.py`, `app.py`, `main.go` entry points |
+| Browser | `next`, `react`, `vue`, `angular`, `svelte`, `solid`, `electron`, `tauri` in package manifest; browser extension manifests |
+| CLI | `bin/` entries in package.json, `__main__.py`, `cli.py`, `[[bin]]` in Cargo.toml, Go `main` packages |
+| SDK | Library package with public API exports, `lib/` or `src/` without entry points |
+| Automation | `react-native`, `flutter`, `expo`, mobile platform configs; `selenium`, `webdriver`, `taiko` in dependencies |
+| Message/event | `kafka`, `rabbitmq`, `sqs`, `celery`, `bull`, `nats`, `pulsar`, `redis` streams in dependencies; queue consumer patterns |
+
+Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_CANONICAL_TOOLS` — read from there rather than re-listing tool names here. The detection signals above identify *what surface a project presents*; the scaffold-detect map enumerates *which harnesses are canonical for that surface*.
 
 **Detection steps:**
 
@@ -124,7 +126,10 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 ]
 ```
 
-- `name`: surface type from the table above (lowercase)
+- `name`: surface type — use exactly one of these canonical identifiers:
+  `http_websocket`, `browser`, `cli`, `sdk`, `automation`, `message_event`.
+  Downstream tooling (e.g. `/xp-scaffold-acceptance`) keys off these strings;
+  any other spelling silently disables tool lookup.
 - `signals`: what you detected that indicates this surface exists
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
@@ -136,11 +141,13 @@ Scan the project to identify which acceptance surfaces it presents and whether a
 echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-acceptance-surfaces
 ```
 
-**Raise concerns for gaps.** For each surface with `status: "gap"`, raise an actionable concern:
+**Raise concerns for gaps.** For each surface with `status: "gap"`, raise an actionable concern. The `--topic` value is load-bearing — `/xp-scaffold-acceptance` Step 8 greps `events.jsonl` for `"topic": "missing-acceptance-<surface>"` to discover the concern_id and pass it to `apply-record` so the concern cascades closed when the scaffold lands. Use the surface's canonical snake_case name (the same string written into `acceptance_surfaces[].name`):
+
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-system-analyzer" --severity "medium" \
-  --content "<Surface> surface detected (<signals>), no acceptance harness found. Options: <specific install/setup commands>. If acceptance testing is not needed for this surface, dismiss this concern."
+  --topic "missing-acceptance-<surface>" \
+  --content "<Surface> surface detected (<signals>), no acceptance harness found. Run /xp-scaffold-acceptance to begin acceptance setup. If acceptance testing is not needed for this surface, dismiss this concern."
 ```
 
 Concerns must be **actionable**: state what surface was detected, what is missing, what specific commands to run, and the consequence of inaction. Never scaffold — that is a separate skill.

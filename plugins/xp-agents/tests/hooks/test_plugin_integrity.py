@@ -30,6 +30,7 @@ _ALL_SKILL_NAMES = (
     "xp-plan",
     "xp-quality-review",
     "xp-review-plan",
+    "xp-scaffold-acceptance",
     "xp-security-triage",
     "xp-assign",
     "xp-sprint-review",

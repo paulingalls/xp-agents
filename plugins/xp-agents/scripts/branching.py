@@ -41,6 +41,10 @@ def plan_branch_name(user_ns: str, slug: str) -> str:
     return f"{user_ns}/plan-{_slugify(slug)}"
 
 
+def free_branch_name(user_ns: str, slug: str) -> str:
+    return f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
+
+
 _SPRINT_BRANCH_RE = re.compile(r"^[^/]+/sprint-\d{3}-[a-z0-9-]+$")
 
 
@@ -178,10 +182,25 @@ def branch_exists(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
-def _checkout_or_exit(cwd: str, branch: str) -> None:
+def _try_checkout(cwd: str, branch: str) -> bool:
+    """Attempt to check out ``branch``. Return True on success, False on failure.
+
+    On failure, the git stderr is forwarded to the caller's stderr so the user
+    sees the same diagnostic ``_checkout_or_exit`` previously printed before
+    its sys.exit. Callers decide whether to escalate to sys.exit (legacy
+    story/sprint/free helpers) or surface the failure as a structured ``None``
+    return (scaffold helper, which feeds ``commit_scaffold``'s
+    ``CommitResult(ok=False, reason=...)`` contract).
+    """
     r = _git(["git", "checkout", branch], cwd)
     if r.returncode != 0:
         print(f"Failed to checkout {branch}: {r.stderr}", file=sys.stderr)
+        return False
+    return True
+
+
+def _checkout_or_exit(cwd: str, branch: str) -> None:
+    if not _try_checkout(cwd, branch):
         sys.exit(1)
 
 
@@ -220,6 +239,8 @@ def _create_or_resume_branch(
     min_stage: int,
     *,
     base: str | None = None,
+    allow_dirty: bool = False,
+    honest_errors: bool = False,
 ) -> str | None:
     """Create `name` or resume it if it already exists locally.
 
@@ -229,17 +250,34 @@ def _create_or_resume_branch(
     fast-forwards to `base` when its tip is an ancestor of `base` so
     sprint-start scaffolds don't snap to a stale base mid-sprint.
     Branches with unique commits ahead of base are left alone.
+
+    ``allow_dirty=True`` skips the worktree-clean precondition for cases
+    where the dirty state IS the work being branched (e.g., scaffold-
+    acceptance has just written files and now needs to land them on a
+    fresh branch). git checkout -b preserves uncommitted changes when
+    the new branch starts at the same commit.
+
+    ``honest_errors=True`` surfaces checkout/create failures as ``None``
+    instead of ``sys.exit(1)``, so callers wrapping this in a structured
+    error contract (scaffold-acceptance's ``CommitResult``) can map the
+    failure to ``ok=False`` rather than have the process die mid-pipeline.
+    Worktree-dirty failures still ``sys.exit`` — the user must clean up
+    before retrying. Stage gating still returns ``None`` regardless.
     """
     if get_branching_stage(smm_dir) < min_stage:
         return None
 
     if branch_exists(cwd, name):
-        _checkout_or_exit(cwd, name)
+        if honest_errors:
+            if not _try_checkout(cwd, name):
+                return None
+        else:
+            _checkout_or_exit(cwd, name)
         if base is not None:
             _fast_forward_if_safe(cwd, name, base)
         return name
 
-    if not is_worktree_clean(cwd):
+    if not allow_dirty and not is_worktree_clean(cwd):
         print("Working tree is dirty — commit or stash changes first", file=sys.stderr)
         sys.exit(1)
 
@@ -249,6 +287,8 @@ def _create_or_resume_branch(
     r = _git(cmd, cwd)
     if r.returncode != 0:
         print(f"Failed to create branch {name}: {r.stderr}", file=sys.stderr)
+        if honest_errors:
+            return None
         sys.exit(1)
 
     return name
@@ -263,6 +303,7 @@ BRANCH_MIN_STAGE: dict[str, int] = {
     "sprint": 2,
     "plan": 2,
     "free": 1,
+    "scaffold": 1,
 }
 
 
@@ -311,6 +352,33 @@ def _utc_today_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
+    """Create or resume ``<user>/scaffold-<surface>`` off the primary branch.
+
+    Scaffold branches host the M-4 commit landed by /xp-scaffold-acceptance
+    Step 8 at stage 1+. Returns None at stage 0 (no branch discipline).
+    Passes ``allow_dirty=True`` because the scaffold flow has already
+    written files to disk before this call — the dirty state is the
+    work being branched, not stale uncommitted changes.
+
+    Pairs with ``commit_scaffold``'s ``CommitResult`` error contract:
+    ``honest_errors=True`` returns ``None`` on git checkout/create failure
+    instead of ``sys.exit(1)``, so the scaffold pipeline can fold the
+    failure into ``CommitResult(ok=False, reason=...)`` rather than die.
+    """
+    user_ns = identity.user_namespace(cwd)
+    name = branch_name(user_ns, "scaffold", surface)
+    return _create_or_resume_branch(
+        cwd,
+        name,
+        smm_dir,
+        min_stage=BRANCH_MIN_STAGE["scaffold"],
+        base=get_primary_branch(smm_dir),
+        allow_dirty=True,
+        honest_errors=True,
+    )
+
+
 def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     """Create or resume <user>/free-YYYY-MM-DD-<slug> off the primary branch.
 
@@ -320,7 +388,7 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     activates at Stage 1+ to keep exploratory work off protected branches.
     """
     user_ns = identity.user_namespace(cwd)
-    name = f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
+    name = free_branch_name(user_ns, slug)
     return _create_or_resume_branch(
         cwd,
         name,

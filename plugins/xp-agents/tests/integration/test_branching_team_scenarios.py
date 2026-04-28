@@ -17,6 +17,9 @@ _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _BRANCHING = _PLUGIN_ROOT / "scripts" / "branching.py"
 _PLAN_CLI = _PLUGIN_ROOT / "smm" / "plan_cli.py"
 
+sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+import branching  # noqa: E402
+
 _GIT_ENV = {
     "GIT_AUTHOR_NAME": "Test User",
     "GIT_AUTHOR_EMAIL": "test@test.com",
@@ -182,6 +185,101 @@ class TestPreExistingPlanBranch(unittest.TestCase):
             r = _run_branching(
                 smm_dir,
                 "create-plan",
+                "--cwd",
+                td,
+                "--slug",
+                "existing",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(r.stdout.strip().startswith("resumed:"))
+
+
+class TestPreExistingStoryBranch(unittest.TestCase):
+    """CLI create reports created/resumed prefix for story branches."""
+
+    def test_new_story_branch_reports_created(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            r = _run_branching(
+                smm_dir,
+                "create",
+                "--cwd",
+                td,
+                "--story",
+                "story-099",
+                "--slug",
+                "new-story",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(r.stdout.strip().startswith("created:"))
+            self.assertIn("story-099", r.stdout)
+
+    def test_existing_story_branch_reports_resumed(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            subprocess.run(
+                ["git", "branch", "test/story-099-existing"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            r = _run_branching(
+                smm_dir,
+                "create",
+                "--cwd",
+                td,
+                "--story",
+                "story-099",
+                "--slug",
+                "existing",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(r.stdout.strip().startswith("resumed:"))
+
+
+class TestPreExistingFreeBranch(unittest.TestCase):
+    """CLI create-free reports created/resumed prefix."""
+
+    def test_new_free_branch_reports_created(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            r = _run_branching(
+                smm_dir,
+                "create-free",
+                "--cwd",
+                td,
+                "--slug",
+                "new-free",
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(r.stdout.strip().startswith("created:"))
+            self.assertIn("free-", r.stdout)
+
+    def test_existing_free_branch_reports_resumed(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            existing_name = branching.free_branch_name("test", "existing")
+            subprocess.run(
+                ["git", "branch", existing_name],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            r = _run_branching(
+                smm_dir,
+                "create-free",
                 "--cwd",
                 td,
                 "--slug",

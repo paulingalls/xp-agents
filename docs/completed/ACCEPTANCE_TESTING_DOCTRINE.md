@@ -63,10 +63,10 @@ a concern.
 
 | Surface          | What "acceptance" looks like                                                            | Example tooling                                            |
 | ---------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| HTTP / WebSocket | Real server up, drive it over the wire, assert on responses (includes REST, GraphQL, gRPC, WebSocket) | curl, supertest, Postman/Newman, k6, wscat, httpx, Hurl, Bruno, Dredd, Pact, grpcurl, Insomnia, REST Client |
+| HTTP / WebSocket | Real server up, drive it over the wire, assert on responses (includes REST, GraphQL, gRPC, WebSocket) | curl, supertest, Postman/Newman, k6, wscat, httpx, Hurl, Bruno, Dredd, Pact, grpcurl, Insomnia, REST Client, Bun (`bun test`) |
 | Browser          | Real browser loads the real page, drive the UI, assert on DOM (includes extensions, Electron/Tauri apps) | Playwright, Cypress, Puppeteer, Selenium, WebdriverIO, TestCafe, Nightwatch.js, `playwright --load-extension` |
-| CLI              | Spawn the binary with args/stdin, assert on stdout / stderr / exit code | Bats, pytest + subprocess, expect, aruba, cram, shelltestrunner, pytest-console-scripts, oclif testing |
-| SDK              | **Both** integration tests exercising the public API **and** an example consumer app that uses the SDK in its target environment | pytest `tests/integration/` + `examples/`; `cargo run --example`; `example/` consumer for JS/TS; doctest; Hypothesis/fast-check (property-based) |
+| CLI              | Spawn the binary with args/stdin, assert on stdout / stderr / exit code | Bats, pytest + subprocess, expect, aruba, cram, shelltestrunner, pytest-console-scripts, oclif testing, Bun (`bun test`) |
+| SDK              | **Both** integration tests exercising the public API **and** an example consumer app that uses the SDK in its target environment | pytest `tests/integration/` + `examples/`; `cargo run --example`; `example/` consumer for JS/TS; doctest; Hypothesis/fast-check (property-based); Bun (`bun test`) |
 | Automation       | Drive a real or emulated device/browser via automation framework, assert on what the user sees | Detox, Maestro, Appium, XCUITest, Selenium, WebdriverIO, Taiko, Espresso, Earl Grey, Calabash |
 | Message / event  | Publish input (queue message, file drop, cron tick), assert on side effect (DB row, outbound call, emitted file) | LocalStack, Testcontainers, WireMock, MockServer, Pact (async), step-functions-local, harness that publishes + polls downstream |
 

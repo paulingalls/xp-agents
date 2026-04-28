@@ -236,6 +236,14 @@ def _render_section(data: dict, name: str) -> str | None:
 # ── CLI commands ────────────────────────────────────────────────
 
 
+_OPTIONAL_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "branching_strategy",
+        "acceptance_surfaces",
+    }
+)
+
+
 def _cmd_exists(args: argparse.Namespace) -> int:
     return 0 if store.system_context_exists(args.smm_dir) else 1
 
@@ -269,6 +277,15 @@ def _cmd_create(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
+    if isinstance(data, dict) and any(
+        f not in data or data[f] is None for f in _OPTIONAL_TOP_LEVEL_FIELDS
+    ):
+        existing = store.load_system_context(args.smm_dir) or {}
+        for field in _OPTIONAL_TOP_LEVEL_FIELDS:
+            if field in data and data[field] is None:
+                del data[field]
+            elif field not in data and field in existing:
+                data[field] = existing[field]
     try:
         store.save_system_context(args.smm_dir, data)
     except ValueError as exc:
@@ -288,14 +305,6 @@ def _cmd_section(args: argparse.Namespace) -> int:
         return 1
     print(result)
     return 0
-
-
-_OPTIONAL_TOP_LEVEL_FIELDS = frozenset(
-    {
-        "branching_strategy",
-        "acceptance_surfaces",
-    }
-)
 
 
 def _cmd_edit_field(args: argparse.Namespace) -> int:
@@ -322,7 +331,12 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
 
-    if name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
+    # edit-field is single-field; only the null-wipe half of _cmd_create's
+    # optional-field contract applies — preservation isn't relevant when
+    # the caller is targeting one specific field.
+    if name in _OPTIONAL_TOP_LEVEL_FIELDS and value is None:
+        data.pop(name, None)
+    elif name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
         data[name] = value
     else:
         for entry in data.get("project_specific", []):
