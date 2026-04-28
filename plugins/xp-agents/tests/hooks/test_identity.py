@@ -60,6 +60,22 @@ class TestResolveAgentId(unittest.TestCase):
         self.assertEqual(result, "subagent-abc")
 
 
+class TestIsTeammateAgentId(unittest.TestCase):
+    """is_teammate_agent_id classifies an agent_id string by 'teammate-' prefix."""
+
+    def test_teammate_prefix_detected(self):
+        self.assertTrue(identity.is_teammate_agent_id("teammate-story-001"))
+
+    def test_main_not_detected(self):
+        self.assertFalse(identity.is_teammate_agent_id("main"))
+
+    def test_xp_agent_not_detected(self):
+        self.assertFalse(identity.is_teammate_agent_id("xp-kickoff"))
+
+    def test_empty_string_not_detected(self):
+        self.assertFalse(identity.is_teammate_agent_id(""))
+
+
 class TestIsWorktreeTeammate(unittest.TestCase):
     """is_worktree_teammate detects CLI teammates by cwd path or env var."""
 

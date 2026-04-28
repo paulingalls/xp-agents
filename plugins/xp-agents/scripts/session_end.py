@@ -19,19 +19,61 @@ import coordination
 import identity
 import markers
 from event_builder import generate_id
-from event_schema import CONTENT_BUDGETS
+from event_schema import CONTENT_BUDGETS, METADATA_KEY_RESOLVES
 
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
 
 
-def _compute_summary(events: list[dict], resolutions: dict) -> dict:
-    """Compute session summary from events."""
-    event_count = len(events)
+def _owns_goal(goal: dict, *, is_teammate: bool, agent_id: str) -> bool:
+    """Return True if this session_end (running under agent_id) should
+    take ownership of the goal event for resolution.
 
-    # Duration: time from first event after last session_end to now
+    Multi-teammate worktrees share one SMM. Goals from teammate-*
+    agents belong to that specific teammate; everything else
+    (xp-kickoff, xp-work-selection, main) belongs to the main session.
+    """
+    goal_agent = goal.get("agent_id", "")
+    if identity.is_teammate_agent_id(goal_agent):
+        return is_teammate and goal_agent == agent_id
+    return not is_teammate
+
+
+def _compute_summary(
+    events: list[dict],
+    resolutions: dict,
+    *,
+    owns_goal,
+) -> dict:
+    """Compute session summary from events.
+
+    `owns_goal(event) -> bool` decides which goal events this session_end
+    takes responsibility for resolving (cross-teammate isolation).
+    """
     session_start_idx = _common.current_session_start_index(events)
+
+    # Single pass over events: collect questions, concerns, status-by-agent,
+    # and goal IDs this session owns. Goals are not bounded to the current
+    # session window — once a goal is owned and unresolved, this session_end
+    # resolves it (lets compaction clean up backlog from earlier sessions
+    # that ran before this fix shipped).
+    resolved_goal_ids = resolutions["resolved_goal_ids"]
+    question_ids: set[str] = set()
+    concern_ids: set[str] = set()
+    session_goal_ids: list[str] = []
+    latest_status: dict[str, dict] = {}
+    for e in events:
+        eid = e.get("id", "")
+        match e.get("type"):
+            case _common.QUESTION if eid:
+                question_ids.add(eid)
+            case _common.CONCERN if eid:
+                concern_ids.add(eid)
+            case _common.STATUS:
+                latest_status[e.get("agent_id", "")] = e
+            case _common.GOAL if eid and eid not in resolved_goal_ids and owns_goal(e):
+                session_goal_ids.append(eid)
 
     duration_seconds: float = 0
     now = datetime.now(timezone.utc)
@@ -44,24 +86,10 @@ def _compute_summary(events: list[dict], resolutions: dict) -> dict:
             except (ValueError, TypeError):
                 pass
 
-    # Unresolved: questions with no answer, concerns with no resolution
-    question_ids = {
-        e["id"] for e in events if e.get("type") == _common.QUESTION and e.get("id")
-    }
-    concern_ids = {
-        e["id"] for e in events if e.get("type") == _common.CONCERN and e.get("id")
-    }
-
     unresolved = sorted(
         (question_ids - resolutions["answered_question_ids"])
         | (concern_ids - resolutions["resolved_concern_ids"])
     )
-
-    # Active working_on: latest status per agent
-    latest_status: dict[str, dict] = {}
-    for e in events:
-        if e.get("type") == _common.STATUS:
-            latest_status[e.get("agent_id", "")] = e
 
     all_working_on: list[str] = []
     for agent_id in sorted(latest_status):
@@ -70,9 +98,10 @@ def _compute_summary(events: list[dict], resolutions: dict) -> dict:
 
     return {
         "duration_seconds": duration_seconds,
-        "event_count": event_count,
+        "event_count": len(events),
         "unresolved_items": unresolved,
         "working_on": all_working_on,
+        "resolved_goal_ids": sorted(session_goal_ids),
     }
 
 
@@ -89,9 +118,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Read events and compute summary
     events, resolutions = _common.load_events_with_resolutions(smm_dir)
-    summary = _compute_summary(events, resolutions)
-
     agent_id = identity.resolve_agent_id(input_data)
+    is_teammate = identity.is_worktree_teammate(input_data)
+    summary = _compute_summary(
+        events,
+        resolutions,
+        owns_goal=lambda g: _owns_goal(g, is_teammate=is_teammate, agent_id=agent_id),
+    )
 
     # Build session_end event directly (avoids subprocess + shell escaping)
     prefix = "Session ended: "
@@ -111,6 +144,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         "unresolved_items": summary["unresolved_items"],
         "working_on": summary["working_on"],
     }
+    if summary["resolved_goal_ids"]:
+        event["metadata"] = {METADATA_KEY_RESOLVES: summary["resolved_goal_ids"]}
 
     # Validate
     errors = _append_impl.validate_event(event)
@@ -125,7 +160,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     except _append_impl.LockTimeoutError as e:
         print(f"session_end lock error: {e}", file=sys.stderr)
 
-    if identity.is_worktree_teammate(input_data):
+    if is_teammate:
         branch = identity.get_current_branch(input_data.get("cwd", ".")) or "unknown"
         completion = {
             "id": generate_id(),

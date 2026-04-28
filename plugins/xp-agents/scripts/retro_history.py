@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import marker_names
 from event_schema import DISPOSITION_ADOPTED, DISPOSITION_DROPPED
 
 MAX_RETRO_HISTORY = 1
@@ -43,7 +44,7 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
     is preserved when present (carries cross-session trends). Legacy retros
     with list-of-strings `try` are migrated to the new shape on read.
     """
-    retro_dir = smm_dir / "retrospectives"
+    retro_dir = smm_dir / marker_names.RETROSPECTIVES_DIR
     if not retro_dir.is_dir():
         return []
 

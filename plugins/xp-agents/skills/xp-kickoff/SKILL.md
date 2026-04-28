@@ -24,9 +24,9 @@ The session status above was preloaded automatically.
 
 If the preload shows **RETRO_NEEDED**, invoke the `xp-retrospective` agent directly via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). The SubagentStart hook injects `SMM_DIR` and `RETRO_INPUT` into the agent's context; the agent reads `${SMM_DIR}/.retro-input.json`, analyzes it, and writes a timestamped file under `${SMM_DIR}/retrospectives/`. The session retro handles both regular sessions and sprint completions — when a sprint just ended, the retro input includes sprint sizing metrics automatically.
 
-After the agent completes, locate the newly written retrospective JSON and render it:
+After the agent completes, render the latest retrospective:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/retro_cli.py --smm-dir <SMM_DIR> render <retro-json-path>
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/retro_cli.py --smm-dir <SMM_DIR> render
 ```
 
 Output the render CLI's stdout to the user before continuing.
