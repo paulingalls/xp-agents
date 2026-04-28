@@ -23,6 +23,8 @@ import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_QR_COMPLETE,
+    event_action,
 )
 from test_parsing import is_test_run, parse_test_results
 
@@ -211,8 +213,9 @@ def _check_qr_linkage(events: list[dict], agent_id: str) -> str | None:
     search_start = (prev_commit_idx + 1) if prev_commit_idx is not None else 0
     for i in range(search_start, len(events)):
         e = events[i]
-        if e.get("type") == _common.STATUS and _common.QUALITY_REVIEW_RE.search(
-            e.get("content", "")
+        if (
+            e.get("type") == _common.STATUS
+            and event_action(e) == STATUS_ACTION_QR_COMPLETE
         ):
             return None
 

@@ -87,13 +87,14 @@ def current_session_start_index(events: list[dict]) -> int:
     return 0
 
 
-# Shared status content patterns (used by retrospective and work_signals)
+# Shared status content patterns (used by retrospective and work_signals).
+# QR/security regexes were deleted in sprint-041 / story-004B — those
+# lifecycle moments are now detected via metadata.action discriminators
+# (see event_action() in event_schema.py and STATUS_ACTION_QR_COMPLETE etc.).
+# TEST_RUN_RE and LEGACY_COMMIT_RE are still regex-based until M2/M3 ships
+# their canonical actions.
 TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
 LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
-SECURITY_CHECK_RE = re.compile(
-    r"Security (?:triage|review) (?:complete|started)", re.IGNORECASE
-)
-QUALITY_REVIEW_RE = re.compile(r"(?:Quality review|QR) complete", re.IGNORECASE)
 
 
 def subagent_started_content(agent_id: str) -> str:

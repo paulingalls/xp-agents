@@ -81,6 +81,34 @@ VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
+# Review-cycle lifecycle actions — vocabulary for the deterministic-event
+# doctrine (sprint-041). Producers (review_cycle_done.py, mark_triaged.py)
+# will set metadata.action to these values so consumers (retro_metrics,
+# bash_post_tool) can detect skill completions without regex-matching
+# LLM-authored content. Producer/consumer wiring lands in story-004.
+STATUS_ACTION_SIMPLIFY_COMPLETE = "simplify_complete"
+STATUS_ACTION_QR_COMPLETE = "qr_complete"
+STATUS_ACTION_SECURITY_COMPLETE = "security_complete"
+STATUS_ACTION_SECURITY_TRIAGE_STARTED = "security_triage_started"
+STATUS_ACTION_SECURITY_TRIAGE_COMPLETE = "security_triage_complete"
+STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
+STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
+
+
+def event_action(event: dict) -> str | None:
+    """Return event.metadata.action, or None when absent.
+
+    Centralized accessor so consumers don't repeat the
+    `e.get("metadata", {}).get("action")` pattern (which also allocates a
+    fresh empty dict on every miss). Returns None for legacy events without
+    metadata or without the action discriminator.
+    """
+    metadata = event.get("metadata")
+    if not metadata:
+        return None
+    return metadata.get("action")
+
+
 # Cross-module metadata keys. Centralized here so producer and consumer
 # cannot drift on the spelling.
 #   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this
