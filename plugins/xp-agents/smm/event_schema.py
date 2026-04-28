@@ -94,6 +94,21 @@ STATUS_ACTION_SECURITY_TRIAGE_COMPLETE = "security_triage_complete"
 STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
 STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 
+
+def event_action(event: dict) -> str | None:
+    """Return event.metadata.action, or None when absent.
+
+    Centralized accessor so consumers don't repeat the
+    `e.get("metadata", {}).get("action")` pattern (which also allocates a
+    fresh empty dict on every miss). Returns None for legacy events without
+    metadata or without the action discriminator.
+    """
+    metadata = event.get("metadata")
+    if not metadata:
+        return None
+    return metadata.get("action")
+
+
 # Cross-module metadata keys. Centralized here so producer and consumer
 # cannot drift on the spelling.
 #   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this

@@ -264,22 +264,89 @@ class TestProbeAdoptionRate(unittest.TestCase):
         self.assertEqual(result["probe_escape"], 0)
 
 
-class TestClassifyStatusQR(unittest.TestCase):
-    """_classify_status_events counts quality reviews with varied phrasings."""
+class TestClassifyStatusActions(unittest.TestCase):
+    """_classify_status_events dispatches on metadata.action for review-cycle
+    lifecycle moments (sprint-041 / story-004 — replaces content-regex match)."""
 
-    def test_standard_phrasing_counted(self):
+    def test_qr_complete_action_increments_quality_reviews(self):
         import retro_metrics
 
-        events = [make_event("status", content="Quality review complete. Clean.")]
+        events = [
+            make_event(
+                "status",
+                content="ignored content",
+                metadata={"action": "qr_complete"},
+            )
+        ]
         counts = retro_metrics._classify_status_events(events)
         self.assertEqual(counts["quality_reviews"], 1)
 
-    def test_qr_abbreviation_counted(self):
+    def test_security_complete_action_increments_security_checks(self):
         import retro_metrics
 
-        events = [make_event("status", content="QR complete. Fixed: chrome.ts")]
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": "security_complete"},
+            )
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["security_checks"], 1)
+
+    def test_security_triage_actions_increment_security_checks(self):
+        """Both started and complete triage actions count toward security_checks
+        (preserves legacy regex semantics; double-counts a single triage run)."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": "security_triage_started"},
+            ),
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": "security_triage_complete"},
+            ),
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["security_checks"], 2)
+
+    def test_simplify_complete_action_increments_simplifies(self):
+        """New counter — no equivalent existed in the regex era."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": "simplify_complete"},
+            )
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["simplifies"], 1)
+
+    def test_action_dispatch_wins_over_content_regex(self):
+        """Doctrine invariant: when metadata.action is present and recognized,
+        consumers must NOT also content-match. A status event whose content
+        would otherwise hit a regex bucket (e.g. 'Wrote to foo.py') but whose
+        action is qr_complete must count as a quality_review only — not a
+        file_write — and must NOT be double-counted."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to scripts/foo.py",
+                metadata={"action": "qr_complete"},
+            )
+        ]
         counts = retro_metrics._classify_status_events(events)
         self.assertEqual(counts["quality_reviews"], 1)
+        self.assertEqual(counts["file_writes"], 0)
+        self.assertEqual(counts["other"], 0)
 
 
 if __name__ == "__main__":

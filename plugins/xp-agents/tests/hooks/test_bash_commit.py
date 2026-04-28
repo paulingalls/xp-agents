@@ -41,7 +41,11 @@ class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
         self._seed_auth_concern()
         _common.append_safe(
             self.smm_dir,
-            make_event("status", content="Quality review complete."),
+            make_event(
+                "status",
+                content="Quality review complete.",
+                metadata={"action": "qr_complete"},
+            ),
         )
         result = self._run_auth_commit()
         self.assertIsNone(result)
@@ -447,6 +451,7 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
             "status",
             agent_id=agent_id,
             content="Quality review complete. No issues: [].",
+            metadata={"action": "qr_complete"},
         )
         _common.append_safe(self.smm_dir, ev)
         return ev["id"]
@@ -558,7 +563,11 @@ class TestCheckQRLinkagePhrasings(unittest.TestCase):
     def test_qr_abbreviation_satisfies_nudge(self):
         events = [
             make_event("commit", content="prior commit", agent_id="main"),
-            make_event("status", content="QR complete. Fixed: chrome.ts"),
+            make_event(
+                "status",
+                content="QR complete. Fixed: chrome.ts",
+                metadata={"action": "qr_complete"},
+            ),
         ]
         result = bash_post_tool._check_qr_linkage(events, "main")
         self.assertIsNone(result)

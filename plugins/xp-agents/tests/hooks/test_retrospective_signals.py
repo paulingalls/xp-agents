@@ -122,6 +122,7 @@ class TestSecurityCheckCounting(unittest.TestCase):
             make_event(
                 "status",
                 content="Security triage started \u2014 reviewing staged changes",
+                metadata={"action": "security_triage_started"},
             ),
             make_event(
                 "commit",
@@ -140,6 +141,7 @@ class TestSecurityCheckCounting(unittest.TestCase):
             make_event(
                 "status",
                 content="Security review complete \u2014 full review performed",
+                metadata={"action": "security_complete"},
             ),
             make_event(
                 "commit",
