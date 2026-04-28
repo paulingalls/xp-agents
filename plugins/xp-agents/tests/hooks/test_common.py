@@ -88,6 +88,60 @@ class TestReadHookInput(unittest.TestCase):
             self.assertEqual(cm.exception.code, 0)
 
 
+class TestReadHookInputErrorLogging(_HookTestCase):
+    """Silent-failure paths in read_hook_input must leave a hook_errors.jsonl trace."""
+
+    def _read_error_log(self) -> list[dict]:
+        path = self.smm_dir / "hook_errors.jsonl"
+        if not path.exists():
+            return []
+        return [
+            json.loads(line) for line in path.read_text().splitlines() if line.strip()
+        ]
+
+    def test_invalid_json_logs_to_hook_errors_jsonl(self):
+        with patch("sys.stdin", io.StringIO("not json at all")):
+            with self.assertRaises(SystemExit) as cm:
+                _common.read_hook_input()
+            self.assertEqual(cm.exception.code, 0)
+        entries = self._read_error_log()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "JSONDecodeError")
+
+    def test_oversize_stdin_logs_to_hook_errors_jsonl(self):
+        # Shrink the cap so the test allocates ~2 KB instead of 11 MB while
+        # still exercising the oversize branch.
+        with (
+            patch.object(_common, "_MAX_STDIN_SIZE", 1024),
+            patch("sys.stdin", io.StringIO("x" * 2048)),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            _common.read_hook_input()
+        self.assertEqual(cm.exception.code, 0)
+        entries = self._read_error_log()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["error_class"], "stdin_oversize")
+
+    def test_each_log_line_capped_for_concurrent_atomicity(self):
+        # Force a long error message — the helper must still cap each line so
+        # concurrent O_APPEND writers don't interleave.
+        with (
+            patch("sys.stdin", io.StringIO("x" * 5000 + "not-json-tail")),
+            self.assertRaises(SystemExit),
+        ):
+            _common.read_hook_input()
+        path = self.smm_dir / "hook_errors.jsonl"
+        line = path.read_text().splitlines()[0]
+        self.assertLessEqual(
+            len(line.encode("utf-8")),
+            2048,
+            "hook_errors.jsonl line exceeded 2 KB cap",
+        )
+        # Capped lines must still be parseable JSON — guards against a future
+        # truncation bug producing malformed-but-short output.
+        json.loads(line)
+
+
 class TestHookOutput(unittest.TestCase):
     def test_outputs_correct_json(self):
         with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:

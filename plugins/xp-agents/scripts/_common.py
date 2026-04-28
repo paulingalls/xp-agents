@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import sys
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 # Make smm/ importable so we can use _append_impl as the foundational module
@@ -134,17 +135,78 @@ def resolve_smm_dir() -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-_MAX_STDIN_SIZE = 1_048_576  # 1 MB
+_MAX_STDIN_SIZE = 10_485_760  # 10 MB — large enough to absorb lefthook output
+_HOOK_ERROR_LINE_MAX = 2048  # cap each line so a single O_APPEND write stays atomic
+_HOOK_ERROR_FILE = "hook_errors.jsonl"
+
+
+def _truncate_for_log(value: object, max_len: int = 200) -> str:
+    s = str(value)
+    return s if len(s) <= max_len else s[:max_len] + "...[truncated]"
+
+
+def _log_hook_error(reason: str, error_class: str, **ctx: object) -> None:
+    """Best-effort diagnostic log for silent-failure paths.
+
+    Mirrors to stderr always; appends a JSON line to ``${SMM_DIR}/hook_errors.jsonl``
+    when SMM_DIR is set. Each line is capped at 2 KB and written via a single
+    ``os.write`` to a file opened with O_APPEND, so concurrent writers do not
+    interleave their output. Never raises — silent failures get a trace, not a
+    crash.
+    """
+    entry: dict = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "script": Path(sys.argv[0]).name if sys.argv else "<unknown>",
+        "reason": _truncate_for_log(reason, 500),
+        "error_class": error_class,
+    }
+    if ctx:
+        entry["context"] = {k: _truncate_for_log(v) for k, v in ctx.items()}
+    line = json.dumps(entry, ensure_ascii=False)
+    encoded = line.encode("utf-8")
+    if len(encoded) > _HOOK_ERROR_LINE_MAX:
+        # Paranoid backstop: drop context, keep core fields.
+        entry.pop("context", None)
+        line = json.dumps(entry, ensure_ascii=False)
+        encoded = line.encode("utf-8")
+    print(f"hook_error: {line}", file=sys.stderr)
+    smm_dir = os.environ.get("SMM_DIR")
+    if not smm_dir:
+        return
+    try:
+        path = Path(smm_dir) / _HOOK_ERROR_FILE
+        fd = os.open(
+            str(path),
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            os.write(fd, encoded + b"\n")
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
 
 
 def read_hook_input() -> dict:
-    """Read JSON from stdin with size limit. On error: exit 0 (graceful)."""
+    """Read JSON from stdin with size limit. On error: log + exit 0 (graceful)."""
+    raw = ""
     try:
         raw = sys.stdin.read(_MAX_STDIN_SIZE + 1)
         if len(raw) > _MAX_STDIN_SIZE:
+            _log_hook_error(
+                f"stdin exceeded {_MAX_STDIN_SIZE} bytes",
+                error_class="stdin_oversize",
+                size=len(raw),
+            )
             sys.exit(0)
         return json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as e:
+        _log_hook_error(
+            f"stdin parse failed: {e}",
+            error_class=type(e).__name__,
+            head=raw[:200],
+        )
         sys.exit(0)
 
 
@@ -323,8 +385,6 @@ def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
 
 def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     """Build a minimal SMM event dict with standard fields."""
-    from datetime import datetime, timezone
-
     from event_builder import generate_id
 
     event = {
