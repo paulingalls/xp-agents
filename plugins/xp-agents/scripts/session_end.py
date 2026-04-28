@@ -19,7 +19,7 @@ import coordination
 import identity
 import markers
 from event_builder import generate_id
-from event_schema import CONTENT_BUDGETS
+from event_schema import CONTENT_BUDGETS, METADATA_KEY_RESOLVES
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -28,10 +28,27 @@ from event_schema import CONTENT_BUDGETS
 
 def _compute_summary(events: list[dict], resolutions: dict) -> dict:
     """Compute session summary from events."""
-    event_count = len(events)
-
-    # Duration: time from first event after last session_end to now
     session_start_idx = _common.current_session_start_index(events)
+
+    # Single pass over events: collect questions, concerns, status-by-agent,
+    # and current-session goal IDs. Goals are session-scoped (emitted by
+    # /xp-kickoff and /xp-work-selection); resolving them on the session_end
+    # event lets compaction archive them instead of letting them accumulate.
+    question_ids: set[str] = set()
+    concern_ids: set[str] = set()
+    session_goal_ids: list[str] = []
+    latest_status: dict[str, dict] = {}
+    for i, e in enumerate(events):
+        eid = e.get("id", "")
+        match e.get("type"):
+            case _common.QUESTION if eid:
+                question_ids.add(eid)
+            case _common.CONCERN if eid:
+                concern_ids.add(eid)
+            case _common.STATUS:
+                latest_status[e.get("agent_id", "")] = e
+            case _common.GOAL if eid and i >= session_start_idx:
+                session_goal_ids.append(eid)
 
     duration_seconds: float = 0
     now = datetime.now(timezone.utc)
@@ -44,24 +61,10 @@ def _compute_summary(events: list[dict], resolutions: dict) -> dict:
             except (ValueError, TypeError):
                 pass
 
-    # Unresolved: questions with no answer, concerns with no resolution
-    question_ids = {
-        e["id"] for e in events if e.get("type") == _common.QUESTION and e.get("id")
-    }
-    concern_ids = {
-        e["id"] for e in events if e.get("type") == _common.CONCERN and e.get("id")
-    }
-
     unresolved = sorted(
         (question_ids - resolutions["answered_question_ids"])
         | (concern_ids - resolutions["resolved_concern_ids"])
     )
-
-    # Active working_on: latest status per agent
-    latest_status: dict[str, dict] = {}
-    for e in events:
-        if e.get("type") == _common.STATUS:
-            latest_status[e.get("agent_id", "")] = e
 
     all_working_on: list[str] = []
     for agent_id in sorted(latest_status):
@@ -70,9 +73,10 @@ def _compute_summary(events: list[dict], resolutions: dict) -> dict:
 
     return {
         "duration_seconds": duration_seconds,
-        "event_count": event_count,
+        "event_count": len(events),
         "unresolved_items": unresolved,
         "working_on": all_working_on,
+        "resolved_goal_ids": sorted(session_goal_ids),
     }
 
 
@@ -111,6 +115,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         "unresolved_items": summary["unresolved_items"],
         "working_on": summary["working_on"],
     }
+    if summary["resolved_goal_ids"]:
+        event["metadata"] = {METADATA_KEY_RESOLVES: summary["resolved_goal_ids"]}
 
     # Validate
     errors = _append_impl.validate_event(event)
