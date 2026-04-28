@@ -329,7 +329,11 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         """Seed a quality-review status event to suppress QR-linkage warning."""
         _common.append_safe(
             self.smm_dir,
-            make_event("status", content="Quality review complete. No issues."),
+            make_event(
+                "status",
+                content="Quality review complete. No issues.",
+                metadata={"action": "qr_complete"},
+            ),
         )
 
     def test_commit_no_nudge_when_concern_resolved_by_trailer(self):
