@@ -28,7 +28,7 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` — skill provides preload + cleanup. Kickoff retro and housekeeping are inline Agent-tool calls; after each, render and echo the signature line verbatim.
+**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-system-context` — skill provides preload + cleanup. Kickoff retro and housekeeping are inline Agent-tool calls; render and show the result after each.
 
 **Work assignment:** `/xp-assign` reads plan steps, decides solo vs CLI teammates in git worktrees with full TDD + review cycle.
 
@@ -42,7 +42,7 @@ Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `ex
 
 ## CLI Tools
 
-All CLIs require `--smm-dir DIR`. Run `--help` for subcommands.
+CLIs accept `--smm-dir DIR`. Run `--help` for subcommands.
 
 - **sprint_cli.py** — sprint operations
 - **plan_cli.py** — execution plan

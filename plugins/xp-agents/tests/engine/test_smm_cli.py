@@ -2,13 +2,8 @@
 """Tests for smm_cli.py CLI behaviors.
 
 Contract:
-- `dump` prints render_markdown(smm) to stdout with no side effects.
-- `render` prints render_markdown(smm) AND drops an agent-scoped marker
-  .pending-render-smm-{agent_id} with signature content.
-- `--agent-id` overrides CWD-based agent_id resolution on `render`.
-- `section`, `has-section`, `save` do NOT drop the marker.
-- Marker writes go through markers.marker_write → symlink-safe,
-  per-agent isolated.
+- `render` prints render_markdown(smm) to stdout.
+- `section`, `has-section`, `save`, `get-event` behave as documented.
 """
 
 import json
@@ -24,7 +19,6 @@ from conftest import _SMMTestCase, make_event, run_cli
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
 _SMM_SIGNATURE = "# Shared Mental Model \u2014 Curated View"
-_MARKER_PREFIX = ".pending-render-smm-"
 
 
 def _seed_smm(smm_dir: Path) -> None:
@@ -36,110 +30,19 @@ def _seed_smm(smm_dir: Path) -> None:
     smm_store.save_smm(smm_dir, data)
 
 
-class TestDumpPureOutput(_SMMTestCase):
-    """dump is side-effect-free — prints markdown, drops NO marker."""
-
-    def test_dump_prints_signature_header(self):
-        _seed_smm(self.smm_dir)
-        result = run_cli(_CLI, ["dump"], self.smm_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(_SMM_SIGNATURE, result.stdout)
-
-    def test_dump_does_not_drop_marker(self):
-        _seed_smm(self.smm_dir)
-        result = run_cli(_CLI, ["dump"], self.smm_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
-        self.assertEqual(
-            leaked, [], f"dump must not drop marker; found {[p.name for p in leaked]}"
-        )
-
-    def test_dump_without_seeded_smm_still_pure(self):
-        result = run_cli(_CLI, ["dump"], self.smm_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(_SMM_SIGNATURE, result.stdout)
-        leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
-        self.assertEqual(leaked, [])
-
-
-class TestRenderDropsMarker(_SMMTestCase):
-    """render produces the same output as dump AND drops an agent-scoped marker."""
+class TestRenderOutput(_SMMTestCase):
+    """render prints markdown to stdout."""
 
     def test_render_prints_signature_header(self):
         _seed_smm(self.smm_dir)
-        result = run_cli(_CLI, ["render", "--agent-id", "main"], self.smm_dir)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(_SMM_SIGNATURE, result.stdout)
 
-    def test_render_drops_agent_scoped_marker(self):
-        _seed_smm(self.smm_dir)
-        result = run_cli(_CLI, ["render", "--agent-id", "main"], self.smm_dir)
+    def test_render_without_seeded_smm(self):
+        result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
-        marker = self.smm_dir / f"{_MARKER_PREFIX}main"
-        self.assertTrue(
-            marker.is_file(),
-            f"marker missing; files: {[p.name for p in self.smm_dir.iterdir()]}",
-        )
-        self.assertEqual(marker.read_text().strip(), _SMM_SIGNATURE)
-
-    def test_render_marker_name_from_constants(self):
-        import marker_names
-
-        # Template uses {agent_id} placeholder now.
-        self.assertIn("{agent_id}", marker_names.PENDING_RENDER_SMM)
-        self.assertTrue(marker_names.PENDING_RENDER_SMM.startswith(_MARKER_PREFIX))
-
-    def test_render_per_agent_isolation(self):
-        _seed_smm(self.smm_dir)
-        r1 = run_cli(_CLI, ["render", "--agent-id", "teammate-a"], self.smm_dir)
-        r2 = run_cli(_CLI, ["render", "--agent-id", "teammate-b"], self.smm_dir)
-        self.assertEqual(r1.returncode, 0, r1.stderr)
-        self.assertEqual(r2.returncode, 0, r2.stderr)
-        self.assertTrue((self.smm_dir / f"{_MARKER_PREFIX}teammate-a").is_file())
-        self.assertTrue((self.smm_dir / f"{_MARKER_PREFIX}teammate-b").is_file())
-
-    def test_render_rejects_symlink(self):
-        _seed_smm(self.smm_dir)
-        real = self.smm_dir / ".real-file"
-        real.write_text("old")
-        link = self.smm_dir / f"{_MARKER_PREFIX}main"
-        link.symlink_to(real)
-        result = run_cli(_CLI, ["render", "--agent-id", "main"], self.smm_dir)
-        # Non-zero exit: marker_write must refuse symlinks.
-        self.assertNotEqual(
-            result.returncode, 0, f"expected failure; stderr={result.stderr}"
-        )
-        # The symlink must remain untouched (not replaced via tempfile+rename).
-        self.assertTrue(link.is_symlink())
-        # Marker-first contract: on enforcement failure, no signature line
-        # must leak to stdout, because the echo-gate has nothing to check.
-        self.assertNotIn(_SMM_SIGNATURE, result.stdout)
-
-
-class TestOtherCommandsDoNotDrop(_SMMTestCase):
-    """section, has-section, save must NOT drop the echo marker."""
-
-    def test_section_does_not_drop_marker(self):
-        _seed_smm(self.smm_dir)
-        result = run_cli(_CLI, ["section", "intent"], self.smm_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
-        self.assertEqual(leaked, [])
-
-    def test_has_section_does_not_drop_marker(self):
-        _seed_smm(self.smm_dir)
-        run_cli(_CLI, ["has-section", "intent"], self.smm_dir)
-        leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
-        self.assertEqual(leaked, [])
-
-    def test_save_does_not_drop_marker(self):
-        import smm_schema
-
-        payload = json.dumps(smm_schema.empty_smm())
-        result = run_cli(_CLI, ["save"], self.smm_dir, stdin_data=payload)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        leaked = list(self.smm_dir.glob(f"{_MARKER_PREFIX}*"))
-        self.assertEqual(leaked, [])
+        self.assertIn(_SMM_SIGNATURE, result.stdout)
 
 
 class TestGetEvent(_SMMTestCase):
@@ -220,7 +123,7 @@ class TestRiskIdRendering(_SMMTestCase):
             }
         ]
         smm_store.save_smm(self.smm_dir, data)
-        result = run_cli(_CLI, ["dump"], self.smm_dir)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertIn("Quality gate broken [aaa111bbb222]", result.stdout)
 
     def test_constraint_entries_no_id(self):
@@ -239,7 +142,7 @@ class TestRiskIdRendering(_SMMTestCase):
             }
         ]
         smm_store.save_smm(self.smm_dir, data)
-        result = run_cli(_CLI, ["dump"], self.smm_dir)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertIn("- Use Postgres", result.stdout)
         self.assertNotIn("ccc333ddd444", result.stdout)
 

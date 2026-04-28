@@ -505,58 +505,5 @@ class TestHooksJsonM65(_HooksJsonTestCase):
         self.assertEqual(len(prompt_hooks), 0, "No prompt hooks should remain")
 
 
-# ===========================================================================
-# Story-003: Echo-gate hook registration
-# ===========================================================================
-
-
-class TestEchoGateHookRegistration(_HooksJsonTestCase):
-    """Verify pre_tool_echo_gate.py is registered on PreToolUse only."""
-
-    def _all_commands(self, event_name: str) -> list[str]:
-        commands: list[str] = []
-        for entry in self.data["hooks"].get(event_name, []):
-            for hook in entry.get("hooks", []):
-                cmd = hook.get("command", "")
-                if cmd:
-                    commands.append(cmd)
-        return commands
-
-    def test_echo_gate_registered_for_pretooluse(self):
-        """Echo-gate must fire before Agent/Write/Edit/MultiEdit/Bash/Skill."""
-        cmds = self._all_commands("PreToolUse")
-        self.assertTrue(
-            any("pre_tool_echo_gate.py" in c for c in cmds),
-            f"pre_tool_echo_gate.py missing from PreToolUse; got: {cmds}",
-        )
-
-    def test_echo_gate_pretooluse_matcher_covers_required_tools(self):
-        """The entry registering echo-gate must target Agent, Write, Edit,
-        MultiEdit, Bash, and Skill so kickoff renders are enforced before
-        the next agent invocation, write, edit, bash run, or skill call."""
-        required = {"Agent", "Write", "Edit", "MultiEdit", "Bash", "Skill"}
-        for entry in self.data["hooks"].get("PreToolUse", []):
-            matcher = entry.get("matcher", "")
-            hook_cmds = [h.get("command", "") for h in entry.get("hooks", [])]
-            if any("pre_tool_echo_gate.py" in c for c in hook_cmds):
-                matcher_tokens = set(matcher.split("|"))
-                missing = required - matcher_tokens
-                self.assertEqual(
-                    missing,
-                    set(),
-                    f"echo-gate PreToolUse matcher '{matcher}' missing {missing}",
-                )
-                return
-        self.fail("No PreToolUse entry registers pre_tool_echo_gate.py")
-
-    def test_echo_gate_not_registered_for_user_prompt_submit(self):
-        """Echo-gate enforces agent discipline; blocking the user is the wrong actor."""
-        cmds = self._all_commands("UserPromptSubmit")
-        self.assertFalse(
-            any("pre_tool_echo_gate.py" in c for c in cmds),
-            f"pre_tool_echo_gate.py must not appear in UserPromptSubmit; got: {cmds}",
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

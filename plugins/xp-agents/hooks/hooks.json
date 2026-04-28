@@ -2,16 +2,6 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Agent|Write|Edit|MultiEdit|Bash|Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_echo_gate.py",
-            "statusMessage": "Checking render echo..."
-          }
-        ]
-      },
-      {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {

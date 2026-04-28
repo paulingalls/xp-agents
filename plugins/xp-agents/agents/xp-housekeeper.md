@@ -198,16 +198,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> complete-curati
 
 ### 3. Return SMM + summary
 
-After saving, dump the full curated SMM and return it along with a change summary. The main agent will display both to the user.
+After saving, render the full curated SMM and return it along with a change summary. The main agent will display both to the user.
 
-Use `dump` (pure output, no side effects). The echo-enforcement marker is
-dropped by the main agent when it re-renders in kickoff step 7 — the
-housekeeper is a non-echo caller and must not flood a stale marker:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> dump
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> render
 ```
 
-Then return the dumped SMM output followed by:
+Then return the rendered SMM output followed by:
 
 ```
 **Housekeeping Summary**

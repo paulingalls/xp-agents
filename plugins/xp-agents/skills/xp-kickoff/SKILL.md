@@ -24,12 +24,12 @@ The session status above was preloaded automatically.
 
 If the preload shows **RETRO_NEEDED**, invoke the `xp-retrospective` agent directly via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). The SubagentStart hook injects `SMM_DIR` and `RETRO_INPUT` into the agent's context; the agent reads `${SMM_DIR}/.retro-input.json`, analyzes it, and writes a timestamped file under `${SMM_DIR}/retrospectives/`. The session retro handles both regular sessions and sprint completions — when a sprint just ended, the retro input includes sprint sizing metrics automatically.
 
-After the agent completes, locate the newly written retrospective JSON and render it — this drops the `.pending-render-retro-<agent_id>` marker:
+After the agent completes, locate the newly written retrospective JSON and render it:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/retro_cli.py --smm-dir <SMM_DIR> render <retro-json-path>
 ```
 
-**Terminal action of this step: output the render CLI's stdout verbatim before calling any other tool.** The echo-gate hook blocks the next tool call unless the exact signature line `# XP Retrospective — Keep / Fix / Try` (em-dash U+2014) appears in your assistant text. Do not summarize or paraphrase.
+Output the render CLI's stdout to the user before continuing.
 
 ## Step 2: Session mode (ALWAYS)
 
@@ -113,12 +113,12 @@ If the user says "skip" at any earlier step, still run housekeeping.
 
 ## Step 7: Render the curated SMM
 
-After the housekeeper completes, render the curated SMM — this drops the `.pending-render-smm-<agent_id>` marker:
+After the housekeeper completes, render the curated SMM:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> render
 ```
 
-**Output the render CLI's stdout verbatim before calling any other tool, followed by the change summary the housekeeper agent returned** (items added/removed/promoted/resolved, health warnings). The echo-gate hook blocks the next tool call unless the exact signature line `# Shared Mental Model — Curated View` (em-dash U+2014) appears in your assistant text. The process guide is injected separately into your context via a PostToolUse hook — you do not need to display it.
+Output the render CLI's stdout to the user, followed by the change summary the housekeeper agent returned (items added/removed/promoted/resolved, health warnings). The process guide is injected separately into your context via a PostToolUse hook — you do not need to display it.
 
 Kickoff is complete. **Do NOT stop.**
 

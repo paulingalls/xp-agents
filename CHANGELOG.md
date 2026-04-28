@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.32.0 — Remove echo-gate mechanism
+
+Four commits on `paulingalls/free-2026-04-28-remove-echo-gates` deleting the `pre_tool_echo_gate` hook, its `.pending-render-{retro,smm}-<agent_id>` marker side effects, and the `RENDER_*_PHRASES` constants the gate used to match assistant text. Resolves SMM risk `bd4210828adc` (the gate re-fired after the first signature match because the marker was not consumed reliably; user-reported).
+
+The render CLIs (`smm_cli.py render`, `retro_cli.py render`) still emit the same H1-headed markdown to stdout — only the side effect goes away. The kickoff SKILL.md still instructs the agent to render and show output to the user; the missing piece is the hook that nagged after the fact.
+
+- **CLI marker writes removed.** `smm_cli.py _cmd_render` now reduces to `print(render_markdown(smm))`; the now-redundant `_cmd_dump` is deleted (three internal callers — `xp-housekeeper.md`, `_preload_base.sh` ×2 — migrated to `render`). `retro_cli.py _cmd_render` drops the `markers.marker_write` block; `--agent-id` is removed; `--smm-dir` flips to optional with honest help text ("accepted for caller symmetry; not read") because the shared `run_cli` test helper passes it uniformly. Test suites pruned: `TestRenderDropsMarker`, `TestMarkerDrop`, `TestDumpPureOutput`, `TestOtherCommandsDoNotDrop`. The integration test `tests/integration/test_kickoff_flow.py` is deleted — it was structured around the echo-gate chain; surviving CLI tests cover the markdown contract.
+- **Kickoff prose tightened.** `xp-kickoff/SKILL.md` Step 1 and Step 7 lose the "Terminal action of this step" / "echo-gate hook blocks the next tool call" / "drops the .pending-render-* marker" paragraphs. Replaced with a single sentence per step: "Output the render CLI's stdout to the user." `PROCESS_GUIDE.md` likewise scrubbed: "render and echo the signature line verbatim" → "render and show the result"; "All CLIs require `--smm-dir DIR`" → "CLIs accept `--smm-dir DIR`" (now factually true after retro_cli flipped to optional).
+- **Hook + tests deleted.** `scripts/pre_tool_echo_gate.py` (160 lines) gone. `tests/hooks/test_echo_gate.py` (457 lines) gone. The `PreToolUse(Agent|Write|Edit|MultiEdit|Bash|Skill)` entry registering the hook removed from `hooks/hooks.json`. `TestEchoGateHookRegistration` class removed from `test_validation.py`. Resolves `bd4210828adc`.
+- **Marker registry trimmed.** `PENDING_RENDER_RETRO` and `PENDING_RENDER_SMM` `MarkerDef`s removed from `scripts/markers.py` (and from `_AGENT_SCOPED_MARKERS`). `PENDING_RENDER_*` filename constants and `RENDER_RETRO_PHRASES` / `RENDER_SMM_PHRASES` tuples removed from `smm/marker_names.py`. `RENDER_*_SIGNATURE` constants retained — still consumed by the render CLIs as the rendered markdown's H1 heading. The `TestPendingRenderMarkers` class in `test_markers_review.py` deleted alongside.
+
+Net: ~700 lines deleted across the chain, all tests green at every commit, the noisy advisory is gone.
+
 ## v2.31.4 — Carry-over debt cleanup: helper extractions
 
 Four commits on `paulingalls/free-2026-04-28-carry-over-debt-cleanup` closing seven helper-extraction debts that had been carried over from the M-5 handoff. No behavior changes; 3326 tests green at every commit.
