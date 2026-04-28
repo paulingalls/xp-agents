@@ -70,6 +70,32 @@ class _RecordTestBase(unittest.TestCase):
             (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
         )
 
+    def _seed_commit(self) -> str:
+        """Seed a [chore] Scaffold commit in self.repo and return its SHA.
+
+        Tests that don't directly exercise the gate still need to pass
+        ``commit_sha`` (now required) to drive past the 3-stage check —
+        any flip / decision / save-error scenario downstream needs a
+        real seeded commit so the gate clears.
+        """
+        return _seed_scaffold_commit(self.repo)
+
+
+class TestRecordScaffoldRequiresCommitSha(_RecordTestBase):
+    """commit_sha is required so future entry points cannot silently bypass
+    the HEAD-advancement gate. Concern 7e8e6fd50730."""
+
+    def test_record_scaffold_without_commit_sha_raises(self) -> None:
+        with self.assertRaises(TypeError):
+            record_scaffold(  # type: ignore[call-arg]
+                self._snap(),
+                smm_dir=self.smm_dir,
+                surface="browser",
+                verify_cmd="npx playwright test",
+                concern_id=None,
+                agent_id="test-agent",
+            )
+
 
 class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
     def test_flips_matching_surface_to_covered(self) -> None:
@@ -80,6 +106,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test tests/acceptance",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok, result.reason)
         ctx = self._ctx()
@@ -98,6 +125,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         ctx = self._ctx()
         api = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "api")
@@ -112,6 +140,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         ctx = self._ctx()
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
@@ -126,6 +155,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="any cmd",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         self.assertFalse(result.ok)
         self.assertIn("nonexistent", result.reason or "")
@@ -144,6 +174,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="test-agent",
+            commit_sha=self._seed_commit(),
         )
         self.assertFalse(result.ok)
         # Caller should be steered to /xp-system-context, not silent no-op.
@@ -171,6 +202,7 @@ class TestRecordScaffoldSaveFailure(_RecordTestBase):
                 verify_cmd="npx playwright test",
                 concern_id=None,
                 agent_id="test-agent",
+                commit_sha=self._seed_commit(),
             )
         self.assertFalse(result.ok)
         self.assertIn("disk full", result.reason or "")
@@ -198,6 +230,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id="abc123def456",
             agent_id="xp-scaffold-acceptance",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok, result.reason)
         self.assertIsNotNone(result.decision_event_id)
@@ -218,6 +251,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id=None,
             agent_id="xp-scaffold-acceptance",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok)
         self.assertIsNone(result.decision_event_id)
@@ -234,6 +268,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
             verify_cmd="npx playwright test",
             concern_id="none",
             agent_id="xp-scaffold-acceptance",
+            commit_sha=self._seed_commit(),
         )
         self.assertTrue(result.ok)
         self.assertIsNone(result.decision_event_id)

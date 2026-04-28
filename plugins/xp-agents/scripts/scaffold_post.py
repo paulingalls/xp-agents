@@ -182,7 +182,7 @@ def record_scaffold(
     verify_cmd: str,
     concern_id: str | None,
     agent_id: str,
-    commit_sha: str | None = None,
+    commit_sha: str,
 ) -> RecordResult:
     """Flip ``acceptance_surfaces[<surface>].status`` to ``"covered"``.
 
@@ -193,10 +193,10 @@ def record_scaffold(
     schema validation). Other surface entries and their fields are
     untouched.
 
-    When ``commit_sha`` is supplied, runs a 3-stage HEAD-advancement gate
-    BEFORE the surface flip — closes the atomicity gap where ``apply-record``
-    could flip a surface to covered even when ``apply-commit`` produced no
-    commit (or the user has since moved HEAD elsewhere):
+    Runs a 3-stage HEAD-advancement gate BEFORE the surface flip — closes
+    the atomicity gap where ``apply-record`` could flip a surface to covered
+    even when ``apply-commit`` produced no commit (or the user has since
+    moved HEAD elsewhere):
 
     1. ``git cat-file -e <sha>`` — sha exists in ``snap.repo_root``.
     2. ``git rev-parse HEAD`` == ``commit_sha`` — HEAD points at the scaffold
@@ -205,55 +205,54 @@ def record_scaffold(
        immediately after the scaffold commit, not over arbitrary HEAD state.
 
     ``RecordResult(ok=False, reason=...)`` short-circuits on any failure;
-    state would lie about what landed if the gate didn't run.
+    state would lie about what landed if the gate didn't run. ``commit_sha``
+    is required (no default) so callers can't silently bypass the gate.
 
     When ``concern_id`` is a 12-hex event ID (not None and not the
     sentinel ``"none"``), also appends a ``decision`` event with
     ``metadata.resolves=[concern_id]``, ``metadata.snapshot_id`` (from
-    ``snap.snapshot_id``) and (when supplied) ``metadata.commit_sha`` for
-    provenance. The new event's id is returned in
-    ``RecordResult.decision_event_id``.
+    ``snap.snapshot_id``) and ``metadata.commit_sha`` for provenance.
+    The new event's id is returned in ``RecordResult.decision_event_id``.
 
     Returns ``RecordResult(ok=False, reason=...)`` when the system_context
     document is missing, when the named surface is missing, when the
     expected commit_sha is absent from the repo, or when the post-mutation
     save fails schema validation.
     """
-    if commit_sha:
-        check = _git(["git", "cat-file", "-e", commit_sha], snap.repo_root)
-        if check.returncode != 0:
-            return RecordResult(
-                ok=False,
-                reason=(
-                    f"expected scaffold commit {commit_sha!r} not found in "
-                    f"{snap.repo_root}; refuse to flip surface to covered "
-                    "without the commit landed"
-                ),
-            )
-        head_sha = _git(["git", "rev-parse", "HEAD"], snap.repo_root).stdout.strip()
-        if head_sha != commit_sha:
-            return RecordResult(
-                ok=False,
-                reason=(
-                    f"HEAD ({head_sha[:12]}) does not match scaffold commit "
-                    f"({commit_sha[:12]}); refuse to flip surface — the user "
-                    "may have added commits since apply-commit, or HEAD has "
-                    "moved off the scaffold commit"
-                ),
-            )
-        head_subject = _git(
-            ["git", "log", "-1", "--format=%s", "HEAD"], snap.repo_root
-        ).stdout.strip()
-        if not head_subject.startswith(SCAFFOLD_COMMIT_PREFIX):
-            return RecordResult(
-                ok=False,
-                reason=(
-                    f"HEAD subject {head_subject!r} does not start with "
-                    f"{SCAFFOLD_COMMIT_PREFIX!r}; refuse to flip surface — "
-                    "record should only run immediately after apply-commit's "
-                    "scaffold commit, not arbitrary HEAD"
-                ),
-            )
+    check = _git(["git", "cat-file", "-e", commit_sha], snap.repo_root)
+    if check.returncode != 0:
+        return RecordResult(
+            ok=False,
+            reason=(
+                f"expected scaffold commit {commit_sha!r} not found in "
+                f"{snap.repo_root}; refuse to flip surface to covered "
+                "without the commit landed"
+            ),
+        )
+    head_sha = _git(["git", "rev-parse", "HEAD"], snap.repo_root).stdout.strip()
+    if head_sha != commit_sha:
+        return RecordResult(
+            ok=False,
+            reason=(
+                f"HEAD ({head_sha[:12]}) does not match scaffold commit "
+                f"({commit_sha[:12]}); refuse to flip surface — the user "
+                "may have added commits since apply-commit, or HEAD has "
+                "moved off the scaffold commit"
+            ),
+        )
+    head_subject = _git(
+        ["git", "log", "-1", "--format=%s", "HEAD"], snap.repo_root
+    ).stdout.strip()
+    if not head_subject.startswith(SCAFFOLD_COMMIT_PREFIX):
+        return RecordResult(
+            ok=False,
+            reason=(
+                f"HEAD subject {head_subject!r} does not start with "
+                f"{SCAFFOLD_COMMIT_PREFIX!r}; refuse to flip surface — "
+                "record should only run immediately after apply-commit's "
+                "scaffold commit, not arbitrary HEAD"
+            ),
+        )
     ctx = system_context_store.load_system_context(smm_dir)
     if ctx is None:
         return RecordResult(
@@ -285,9 +284,11 @@ def record_scaffold(
 
     decision_event_id: str | None = None
     if concern_id and concern_id != "none":
-        metadata: dict = {"resolves": [concern_id], "snapshot_id": snap.snapshot_id}
-        if commit_sha:
-            metadata["commit_sha"] = commit_sha
+        metadata: dict = {
+            "resolves": [concern_id],
+            "snapshot_id": snap.snapshot_id,
+            "commit_sha": commit_sha,
+        }
         event = _common.make_event(
             "decision",
             agent_id,
