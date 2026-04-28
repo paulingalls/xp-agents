@@ -7,7 +7,6 @@ Split from test_bash.py to keep files under 500 lines.
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -15,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _s, _sprint_json
 
 
@@ -168,14 +168,7 @@ class TestResolveStoryId(_HookTestCase):
         assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
         assignment.write_text("story-003")
 
-        with (
-            patch("commits.get_committed_files", return_value=["a.py"]),
-            patch(
-                "commits.get_commit_message_body",
-                return_value="Add feature",
-            ),
-            patch("commits.get_head_commit_hash", return_value="def456"),
-        ):
+        with patch_commits(files=["a.py"], body="Add feature", head_sha="def456"):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Add feature'",
@@ -191,14 +184,7 @@ class TestResolveStoryId(_HookTestCase):
 
     def test_commit_metadata_no_story_id_when_not_resolved(self):
         """Commit event metadata omits story_id when not resolved."""
-        with (
-            patch("commits.get_committed_files", return_value=["a.py"]),
-            patch(
-                "commits.get_commit_message_body",
-                return_value="Fix bug",
-            ),
-            patch("commits.get_head_commit_hash", return_value="aaa111"),
-        ):
+        with patch_commits(files=["a.py"], body="Fix bug", head_sha="aaa111"):
             bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix bug'",

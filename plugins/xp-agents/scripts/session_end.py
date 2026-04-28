@@ -101,7 +101,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     reason = input_data.get("reason", "unknown")[:max_reason]
     event = {
         "id": generate_id(),
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": _common.now_iso(),
         "type": _common.SESSION_END,
         "agent_id": agent_id,
         "content": f"{prefix}{reason}",
@@ -129,7 +129,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         branch = identity.get_current_branch(input_data.get("cwd", ".")) or "unknown"
         completion = {
             "id": generate_id(),
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": _common.now_iso(),
             "type": _common.STATUS,
             "agent_id": agent_id,
             "content": f"Teammate {agent_id} completed on branch {branch}",

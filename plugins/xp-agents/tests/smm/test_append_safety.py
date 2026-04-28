@@ -7,14 +7,12 @@ TestSymlinkProtection, TestJsonSizeLimit.
 """
 
 import concurrent.futures
-import fcntl
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -22,6 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
+from _lock_helpers import briefly_held_lock, held_events_lock
 from conftest import _SMMTestCase, _TempRepoTestCase, make_event
 
 
@@ -78,21 +77,12 @@ class TestLockTimeout(_SMMTestCase):
             "customer_input", agent_id="main", content="test", id="abc123abc123"
         )
 
-        # Hold an exclusive lock so append_event can't acquire it.
-        # Patch the budget down so the test fires fast — the assertion is
-        # "LockTimeoutError raised", not "lock waited a specific duration".
-        lock_fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        try:
-            with (
-                mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1),
-                self.assertRaises(_append_impl.LockTimeoutError),
-            ):
-                _append_impl.append_event(self.smm_dir, event)
-            self.assertEqual(self.events_file.read_text(), "")
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+        with (
+            held_events_lock(self.smm_dir),
+            self.assertRaises(_append_impl.LockTimeoutError),
+        ):
+            _append_impl.append_event(self.smm_dir, event)
+        self.assertEqual(self.events_file.read_text(), "")
 
 
 class TestConcurrentWrites(_TempRepoTestCase):
@@ -156,32 +146,12 @@ class TestLockBudgetTolerance(_SMMTestCase):
 
     def test_append_event_succeeds_when_lock_released_within_budget(self):
         """A flock held briefly should clear the configured budget without
-        raising LockTimeoutError. Patches the budget so the test runs fast —
-        the assertion is "budget outlasts hold", not "wait 3 s"."""
-        release_lock = threading.Event()
-        lock_acquired = threading.Event()
-
-        def hold_lock_briefly() -> None:
-            fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            lock_acquired.set()
-            try:
-                # Hold ~0.3 s — under the patched 2 s budget.
-                release_lock.wait(timeout=0.3)
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-                fd.close()
-
-        holder = threading.Thread(target=hold_lock_briefly)
-        holder.start()
-        self.addCleanup(holder.join, 5.0)
-        self.addCleanup(release_lock.set)
-        self.assertTrue(lock_acquired.wait(timeout=2.0))
-
+        raising LockTimeoutError. The assertion is "budget outlasts hold",
+        not "wait the full hold"."""
         event = make_event(
             "customer_input", agent_id="main", content="test", id="def456def456"
         )
-        with mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 2):
+        with briefly_held_lock(self.smm_dir):
             _append_impl.append_event(self.smm_dir, event)
         self.assertIn("def456def456", self.events_file.read_text())
 

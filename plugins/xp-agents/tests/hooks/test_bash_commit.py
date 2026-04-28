@@ -19,6 +19,7 @@ import _common
 import bash_post_tool
 import markers
 import security
+from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 
 
@@ -26,11 +27,7 @@ class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
     """Post-commit no longer emits probe status events (moved to pre-commit)."""
 
     def _run_auth_commit(self):
-        with (
-            patch("commits.get_committed_files", return_value=["scripts/auth.py"]),
-            patch("commits.get_commit_message_body", return_value="Fix auth"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
-        ):
+        with patch_commits(files=["scripts/auth.py"], body="Fix auth"):
             return bash_post_tool.run(
                 _make_bash_input(
                     command="git commit -m 'Fix auth'",
@@ -81,14 +78,14 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
     ):
         """Patch the commits.* lookups _handle_commit calls into git.
 
-        Three patches travel together at every leak-path test site; the only
-        knobs are the committed-files list, body, and head SHA.
+        Class-local wrapper that pins leak-path-specific defaults
+        (`[story-001] foo` body, `leakedabc1234` SHA, scripts/x.py path)
+        on top of the shared ``patch_commits`` helper.
         """
-        committed_files = files or ["plugins/xp-agents/scripts/x.py"]
-        with (
-            patch("commits.get_committed_files", return_value=committed_files),
-            patch("commits.get_commit_message_body", return_value=body),
-            patch("commits.get_head_commit_hash", return_value=head_sha),
+        with patch_commits(
+            files=files or ["plugins/xp-agents/scripts/x.py"],
+            body=body,
+            head_sha=head_sha,
         ):
             yield
 
@@ -459,11 +456,10 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
         agent_id: str = "main",
         committed_files: list[str] | None = None,
     ) -> str | None:
-        files = committed_files or ["src/app.py"]
-        with (
-            patch("commits.get_committed_files", return_value=files),
-            patch("commits.get_commit_message_body", return_value="Fix stuff"),
-            patch("commits.get_head_commit_hash", return_value="def456"),
+        with patch_commits(
+            files=committed_files or ["src/app.py"],
+            body="Fix stuff",
+            head_sha="def456",
         ):
             return bash_post_tool.run(
                 _make_bash_input(
@@ -534,12 +530,10 @@ class TestResolutionComputationCount(_HookTestCase):
         self._write_events([c1, c2])
 
         with (
-            patch(
-                "commits.get_committed_files",
-                return_value=["scripts/auth.py", "scripts/routes.py"],
+            patch_commits(
+                files=["scripts/auth.py", "scripts/routes.py"],
+                body="Fix lint",
             ),
-            patch("commits.get_commit_message_body", return_value="Fix lint"),
-            patch("commits.get_head_commit_hash", return_value="abc123"),
             patch("lint_check.detect_linter_config", return_value=("ruff", None)),
             patch("lint_check.run_linter", return_value=None),
             patch(

@@ -14,7 +14,28 @@ import signal
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+
+
+def now_iso() -> str:
+    """Current UTC time as an ISO 8601 string.
+
+    Canonical source for the ``datetime.now(timezone.utc).isoformat()``
+    pattern. ``event_builder.build_event`` keeps its own inline call:
+    ``_append_impl`` imports ``event_builder`` at module top level (see
+    the ``from event_builder import ...`` block below), so adding a
+    top-level ``from _append_impl import now_iso`` in ``event_builder``
+    would close the cycle. When a caller imports ``event_builder``
+    first (e.g. ``smm_store``, ``session_end``, ``duplicate_debt_probe``),
+    Python would re-enter ``_append_impl`` mid-init and raise
+    ``ImportError: cannot import name 'build_event' from partially
+    initialized module``. All other call sites route through
+    ``now_iso``, so a future timestamp policy change is a near-one-line
+    edit.
+    """
+    return datetime.now(timezone.utc).isoformat()
+
 
 # ---------------------------------------------------------------------------
 # SMM path resolution

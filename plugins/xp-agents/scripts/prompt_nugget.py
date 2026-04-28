@@ -40,11 +40,7 @@ _NOISY_CONCERN_PREFIXES = (
 )
 
 
-def _truncate(text: str, max_len: int = 120) -> str:
-    """Truncate text with ellipsis if too long."""
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 3] + "..."
+_NUGGET_CONTENT_MAX = 120
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -99,7 +95,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     lines = []
     for e in signals[:_MAX_NUGGETS]:
         etype = e.get("type", "")
-        content = _truncate(e.get("content", ""))
+        content = _common.truncate(e.get("content", ""), _NUGGET_CONTENT_MAX)
         lines.append(f"- [{etype}] {content}")
 
     return "New since last prompt:\n" + "\n".join(lines)

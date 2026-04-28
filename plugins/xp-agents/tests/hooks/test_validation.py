@@ -115,7 +115,7 @@ def _async_hook_scripts(hooks_config: dict) -> list[Path]:
                 )
                 if py_token is None:
                     continue
-                scripts.append(Path(_common._expand_plugin_root(py_token)))
+                scripts.append(Path(_common.expand_plugin_root(py_token)))
     return scripts
 
 
