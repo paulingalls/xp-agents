@@ -311,9 +311,6 @@ def _handle_commit(
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core bash_post_tool logic. Appends events, returns nudge or None."""
-    if _common.is_xp_agent(input_data):
-        return None
-
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
@@ -330,9 +327,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     else:
         response_text = str(tool_response)
 
-    # Git commit detection
+    # Commit recording runs before the is_xp_agent skip — same shape as
+    # subagent_stop.py:162-182. See TestCommitRecordingDespiteXpAgentType.
     if security.is_git_commit(command):
         return _handle_commit(smm_dir, agent_id, cwd, response_text)
+
+    if _common.is_xp_agent(input_data):
+        return None
 
     # Git push detection — nudge session-end checklist
     if _is_git_push(command):
