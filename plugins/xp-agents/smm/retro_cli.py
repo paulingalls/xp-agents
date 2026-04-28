@@ -56,7 +56,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--smm-dir", type=Path, required=True, help="SMM directory path"
+        "--smm-dir",
+        type=Path,
+        default=None,
+        help="SMM directory path (accepted for caller symmetry; not read)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
