@@ -879,10 +879,13 @@ class TestApplyCommitStageOneProtected(_ApplyCliCommitTestBase):
 
 
 class _ApplyCliRecordTestBase(_ApplyCliTestBase):
-    """_ApplyCliTestBase + system_context.json with browser:gap surface.
+    """_ApplyCliTestBase + system_context.json with browser:gap surface +
+    a seeded ``[chore] Scaffold ...`` commit at HEAD.
 
-    apply-record needs an existing surface to flip. Sets stage 0 since
-    record is unaffected by branching stage.
+    apply-record now requires ``--commit-sha`` (atomicity gate); the seeded
+    commit's sha is exposed via ``self._scaffold_sha`` so happy-path tests
+    can pass a valid sha without driving the full apply-commit pipeline.
+    Stage 0 since record is unaffected by branching stage.
     """
 
     def setUp(self) -> None:
@@ -901,6 +904,13 @@ class _ApplyCliRecordTestBase(_ApplyCliTestBase):
         (self.smm_dir / "system_context.json").write_text(
             json.dumps(ctx), encoding="utf-8"
         )
+        init_git_identity(self._repo)
+        run_git(["git", "add", "package.json"], self._repo)
+        scaffold_subject = "[chore] Scaffold acceptance browser via playwright"
+        run_git(["git", "commit", "-m", scaffold_subject], self._repo)
+        self._scaffold_sha = run_git(
+            ["git", "rev-parse", "HEAD"], self._repo
+        ).stdout.strip()
 
 
 class TestApplyRecord(_ApplyCliRecordTestBase):
@@ -918,6 +928,8 @@ class TestApplyRecord(_ApplyCliRecordTestBase):
                 "browser",
                 "--agent-id",
                 "test-agent",
+                "--commit-sha",
+                self._scaffold_sha,
             ],
             self.smm_dir,
         )
@@ -947,6 +959,8 @@ class TestApplyRecord(_ApplyCliRecordTestBase):
                 "abc123def456",
                 "--agent-id",
                 "test-agent",
+                "--commit-sha",
+                self._scaffold_sha,
             ],
             self.smm_dir,
         )

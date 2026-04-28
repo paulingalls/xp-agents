@@ -19,7 +19,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLUGIN_ROOT = _REPO_ROOT / "plugins" / "xp-agents"
 _SKILL_PATH = _PLUGIN_ROOT / "skills" / "xp-scaffold-acceptance" / "SKILL.md"
 _ANALYZER_PATH = _PLUGIN_ROOT / "agents" / "xp-system-analyzer.md"
-_DOCTRINE_PATH = _REPO_ROOT / "docs" / "ideas" / "SCAFFOLDING_DOCTRINE.md"
+_DOCTRINE_PATH = _REPO_ROOT / "docs" / "completed" / "SCAFFOLDING_DOCTRINE.md"
 
 
 def _frontmatter_body(text: str) -> tuple[str, str]:

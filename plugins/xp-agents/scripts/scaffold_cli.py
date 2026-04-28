@@ -390,8 +390,8 @@ def main() -> None:
     apply_write.add_argument(
         "--repo-root",
         type=Path,
-        default=Path.cwd(),
-        help="Repository root (default: cwd)",
+        required=True,
+        help="Repository root",
     )
 
     for name, helptext in [
@@ -418,7 +418,7 @@ def main() -> None:
         "--snapshot-id", required=True, help="Snapshot ID from apply-write"
     )
     apply_commit.add_argument(
-        "--repo-root", type=Path, default=Path.cwd(), help="Repository root"
+        "--repo-root", type=Path, required=True, help="Repository root"
     )
     apply_commit.add_argument("--surface", required=True, help="Acceptance surface")
     apply_commit.add_argument("--tool", required=True, help="Scaffolded tool name")
@@ -436,7 +436,7 @@ def main() -> None:
         "--snapshot-id", required=True, help="Snapshot ID from apply-write"
     )
     apply_record.add_argument(
-        "--repo-root", type=Path, default=Path.cwd(), help="Repository root"
+        "--repo-root", type=Path, required=True, help="Repository root"
     )
     apply_record.add_argument("--surface", required=True, help="Acceptance surface")
     apply_record.add_argument(
@@ -451,10 +451,11 @@ def main() -> None:
     )
     apply_record.add_argument(
         "--commit-sha",
-        default=None,
+        required=True,
         help=(
-            "Scaffold commit SHA from apply-commit; if supplied, "
-            "apply-record verifies the commit exists before flipping the surface"
+            "Scaffold commit SHA from apply-commit; required so apply-record "
+            "can verify the commit landed and HEAD has not advanced past it "
+            "before flipping the surface to covered (atomicity gate)"
         ),
     )
 

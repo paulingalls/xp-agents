@@ -113,18 +113,6 @@ If the array is empty, `system_context.json` is missing or has no `acceptance_su
 
 If any surface reports `has_tooling=true`, route to the **re-invocation flow** (Step 1d). Otherwise proceed to Step 3.
 
-#### Detection caveat: NO_CONFIG_FILE_SIGNAL
-
-The `sdk` and `message_event` surfaces are listed in
-`scaffold_detect.NO_CONFIG_FILE_SIGNAL`. For those surfaces,
-`detect_existing_tooling` returning `has_tooling=False` means **"no
-config-file signal,"** not **"no tooling exists"** — sdk libraries use
-inline doctest/hypothesis patterns, message/event harnesses wire in via
-test-runner code without dedicated config files. If the chosen surface
-is `sdk` or `message_event`, treat the absence of a config file as
-inconclusive and ask the customer whether tooling already exists before
-proceeding to Step 4. Do not silently scaffold over hidden coverage.
-
 ### 1d. Re-invocation flow
 
 When Step 1c detected existing tooling for the chosen surface, use `AskUserQuestion`:
@@ -235,6 +223,19 @@ AskUserQuestion(
 ```
 
 If the customer picks "Other," ask a follow-up free-text question for the tool name. Record both selections in working memory and proceed to Step 2 (web-refresh) followed by Step 4 (plan).
+
+#### NO_CONFIG_FILE_SIGNAL caveat (sdk, message_event)
+
+The `sdk` and `message_event` surfaces are listed in
+`scaffold_detect.NO_CONFIG_FILE_SIGNAL`. For those surfaces,
+`detect_existing_tooling` returning `has_tooling=False` in Step 1c
+means **"no config-file signal,"** not **"no tooling exists"** — sdk
+libraries use inline doctest/hypothesis patterns, message/event harnesses
+wire in via test-runner code without dedicated config files. If the
+customer just picked `sdk` or `message_event` here in Step 3, treat
+Step 1c's `has_tooling=False` as inconclusive and ask the customer
+whether tooling already exists before proceeding to Step 4. Do not
+silently scaffold over hidden coverage.
 
 ## Step 4: Plan
 
