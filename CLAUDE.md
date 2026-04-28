@@ -65,14 +65,22 @@ See PROCESS_GUIDE.md for event types, required fields, and common patterns.
 
 All tests run on every commit via lefthook. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`) stripped via `env -u` in lefthook.yml and at import time in `conftest.py`. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's pre-commit fails.
 
+**Setup** (one-time): `pipx install pytest && pipx inject pytest pytest-xdist`. See README "Development setup" for details.
+
 ```bash
-# Run everything:
-python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
+# Run everything in parallel (~13s on 16 cores):
+pytest -n auto
 # Run a single file:
-python3 -m unittest plugins/xp-agents/tests/hooks/test_session.py -v
+pytest plugins/xp-agents/tests/hooks/test_session_start.py
+# Run a single test:
+pytest plugins/xp-agents/tests/hooks/test_session_start.py::TestSessionStart::test_clear_source_returns_context
+# Sequential fallback (no pytest installed):
+python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 ```
 
 Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), `tests/engine/` (SMM engine), `tests/smm/` (foundation). Hook tests extend `_HookTestCase`, integration tests extend `_IntegrationTestCase`, engine tests extend `_SMMTestCase`, SMM tests extend `_TempRepoTestCase` — all from `tests/conftest.py`. Follow TDD: write the test first, watch it fail, then implement.
+
+**Test isolation gotcha**: production code that depends on `os.environ` (e.g., `_common.resolve_plugin_root` reads `CLAUDE_PLUGIN_ROOT`) must NOT cache results — `@functools.lru_cache` on env-dependent loaders breaks isolation in source-order test runners (pytest), and the bug hides under unittest's alphabetical-by-class ordering. If you need memoization for a hot path, key the cache on the env var explicitly, or invalidate per-test.
 
 ## Key Decisions (Don't Revisit)
 

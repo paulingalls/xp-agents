@@ -7,7 +7,6 @@ and validation are in event_builder.py and event_schema.py respectively.
 
 import contextlib
 import fcntl
-import functools
 import json
 import os
 import re
@@ -30,12 +29,14 @@ def resolve_smm_dir() -> Path | None:
 
     Honors $SMM_DIR env var as the single canonical handle — lets teammate
     spawners propagate the lead's SMM across process boundaries. When unset,
-    delegates to a cached `_derive_smm_dir` that owns all derivation logic
-    via init.sh AND creates/seeds the SMM on first run.
+    delegates to ``_derive_smm_dir`` which runs init.sh.
 
     The env-var read happens on every call (cheap), so test isolation that
-    pins SMM_DIR per test takes effect immediately — no cache bust needed.
-    Only the slow init.sh subprocess is memoized.
+    pins SMM_DIR per test takes effect immediately. ``_derive_smm_dir`` is
+    not cached: caching across calls in a single process is unsafe when the
+    derivation depends on cwd/env that tests may mutate, and in production
+    each hook is a fresh `python3` invocation so a process-local cache
+    never had a hit anyway.
     """
     env_smm = os.environ.get("SMM_DIR", "").strip()
     if env_smm:
@@ -43,9 +44,8 @@ def resolve_smm_dir() -> Path | None:
     return _derive_smm_dir()
 
 
-@functools.lru_cache(maxsize=1)
 def _derive_smm_dir() -> Path | None:
-    """Run init.sh to derive SMM dir from project state. Cached per process."""
+    """Run init.sh to derive SMM dir from project state."""
     try:
         out = subprocess.check_output(
             ["bash", str(_INIT_SH)],
