@@ -270,6 +270,36 @@ class TestSessionStart(_HookTestCase):
         marker = self.smm_dir / ".needs-kickoff"
         self.assertFalse(marker.exists())
 
+    def test_system_message_nudges_kickoff_on_startup(self):
+        """startup is a new session — systemMessage should mention /xp-kickoff."""
+        import session_start
+
+        msg = session_start._system_message("startup", "9.9.9")
+        self.assertIn("xp-kickoff", msg)
+
+    def test_system_message_nudges_kickoff_on_clear(self):
+        """clear resets state mid-session — systemMessage should mention /xp-kickoff."""
+        import session_start
+
+        msg = session_start._system_message("clear", "9.9.9")
+        self.assertIn("xp-kickoff", msg)
+
+    def test_system_message_skips_kickoff_on_compact(self):
+        """compact is a continuation — kickoff would re-do work that was just done."""
+        import session_start
+
+        msg = session_start._system_message("compact", "9.9.9")
+        self.assertNotIn("xp-kickoff", msg)
+        self.assertIn("9.9.9", msg)
+
+    def test_system_message_skips_kickoff_on_resume(self):
+        """resume is a continuation — same continuation semantics as compact."""
+        import session_start
+
+        msg = session_start._system_message("resume", "9.9.9")
+        self.assertNotIn("xp-kickoff", msg)
+        self.assertIn("9.9.9", msg)
+
     def test_no_smm_in_context(self):
         """session_start should NOT inject SMM content into context."""
         import session_start

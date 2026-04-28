@@ -14,17 +14,15 @@ pre-commit:
       glob: "plugins/xp-agents/{scripts,smm}/*.py"
       root: "plugins/xp-agents/"
       run: pyright
-    tests-smm:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME python3 -m unittest discover -s plugins/xp-agents/tests/smm -p "test_*.py"
-    tests-engine:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME python3 -m unittest discover -s plugins/xp-agents/tests/engine -p "test_*.py"
-    tests-hooks:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME python3 -m unittest discover -s plugins/xp-agents/tests/hooks -p "test_*.py"
-    tests-integration:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME python3 -m unittest discover -s plugins/xp-agents/tests/integration -p "test_*.py"
+    # All tests in one pytest -n auto run (~13s on 16 cores). Replaces four
+    # separate unittest discover commands; pytest-xdist parallelism is finer-
+    # grained than lefthook's per-command parallelism. See README "Development
+    # setup" for pipx install + pytest-xdist injection.
+    tests:
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME pytest -n auto -q
 
 pre-push:
   parallel: true
   commands:
     integration:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME python3 -m unittest discover -s plugins/xp-agents/tests/integration -p "test_*.py"
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME pytest plugins/xp-agents/tests/integration -n auto -q

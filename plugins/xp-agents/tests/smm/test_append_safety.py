@@ -150,12 +150,14 @@ class TestLockBudgetTolerance(_SMMTestCase):
     The original 2-second budget caused silent drops in sprint-040 — a single
     slow writer could starve every parallel async PostToolUse hook racing for
     events.lock. The bumped 10-second budget absorbs realistic contention
-    while still bounding hang time.
+    while still bounding hang time. Tests patch the budget down (1-2 s) for
+    speed; the production setting remains 10 s.
     """
 
     def test_append_event_succeeds_when_lock_released_within_budget(self):
-        """A flock held for ~3 s should clear the configured budget without
-        raising LockTimeoutError."""
+        """A flock held briefly should clear the configured budget without
+        raising LockTimeoutError. Patches the budget so the test runs fast —
+        the assertion is "budget outlasts hold", not "wait 3 s"."""
         release_lock = threading.Event()
         lock_acquired = threading.Event()
 
@@ -164,8 +166,8 @@ class TestLockBudgetTolerance(_SMMTestCase):
             fcntl.flock(fd, fcntl.LOCK_EX)
             lock_acquired.set()
             try:
-                # Hold ~3 s — under the configured budget.
-                release_lock.wait(timeout=3.0)
+                # Hold ~0.3 s — under the patched 2 s budget.
+                release_lock.wait(timeout=0.3)
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 fd.close()
@@ -179,7 +181,8 @@ class TestLockBudgetTolerance(_SMMTestCase):
         event = make_event(
             "customer_input", agent_id="main", content="test", id="def456def456"
         )
-        _append_impl.append_event(self.smm_dir, event)
+        with mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 2):
+            _append_impl.append_event(self.smm_dir, event)
         self.assertIn("def456def456", self.events_file.read_text())
 
 
@@ -325,13 +328,9 @@ class TestResolveSmmDir(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = Path(tempfile.mkdtemp())
-        # Each test patches CLAUDE_PLUGIN_DATA differently; clear the cache
-        # so derivation reruns init.sh under the new env.
-        _append_impl._derive_smm_dir.cache_clear()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
-        _append_impl._derive_smm_dir.cache_clear()
 
     def test_honors_smm_dir_env_var(self):
         """When $SMM_DIR is set, resolve_smm_dir returns that exact path."""

@@ -5,7 +5,6 @@ DRY module providing SMM resolution, hook I/O, recursion prevention,
 event reading, and watermark management.
 """
 
-import functools
 import json
 import os
 import re
@@ -305,17 +304,14 @@ def _load_plugin_file(filename: str) -> str:
     return ""
 
 
-@functools.lru_cache(maxsize=1)
 def load_xp_values() -> str:
     return _load_plugin_file("XP_VALUES.md")
 
 
-@functools.lru_cache(maxsize=1)
 def load_process_guide() -> str:
     return _load_plugin_file("PROCESS_GUIDE.md")
 
 
-@functools.lru_cache(maxsize=1)
 def load_teammate_guide() -> str:
     return _load_plugin_file("TEAMMATE_GUIDE.md")
 

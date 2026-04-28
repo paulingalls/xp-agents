@@ -41,6 +41,16 @@ GUPP_STARTUP = (
 )
 
 
+def _is_fresh_start(source: str) -> bool:
+    """True when the SessionStart source represents a fresh start.
+
+    ``startup`` is a brand-new session; ``clear`` is a mid-session reset.
+    Both warrant a kickoff nudge. ``resume`` and ``compact`` are continuations
+    of an in-flight session — re-running kickoff would redo work just done.
+    """
+    return source in ("startup", "clear")
+
+
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
@@ -102,11 +112,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return "SMM init failed — xp-agents disabled."
 
-    # Write .needs-kickoff marker on fresh starts.
-    # "startup" = new session (block until kickoff), "clear" = mid-session
-    # reset (nudge only — work may be in progress).
-    # "resume" and "compact" fire mid-session — no marker needed.
-    if source in ("startup", "clear"):
+    # Write .needs-kickoff marker on fresh starts. "startup" blocks until
+    # kickoff; "clear" nudges only (mid-session reset, work may be in
+    # progress). "resume"/"compact" fire mid-session — no marker needed.
+    if _is_fresh_start(source):
         markers.marker_write(smm_dir, markers.KICKOFF, source)
         markers.marker_consume(smm_dir, markers.ACCEPT)
         if not sprint_state.has_remaining_work(smm_dir):
@@ -119,7 +128,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             markers.marker_write(smm_dir, markers.NEEDS_SPRINT, source)
 
     # Build context: GUPP (source-dependent) + skills + XP values.
-    gupp = GUPP_STARTUP if source in ("startup", "clear") else GUPP_RESUME
+    gupp = GUPP_STARTUP if _is_fresh_start(source) else GUPP_RESUME
     parts: list[str] = []
     parts.append(gupp)
     # XP values are always available from the first prompt.
@@ -159,12 +168,24 @@ def _get_version() -> str:
         return "?"
 
 
+def _system_message(source: str, version: str) -> str:
+    """Build the SessionStart systemMessage.
+
+    The kickoff nudge fires only on fresh starts (``startup``/``clear``).
+    Continuations (``resume``/``compact``) drop it — re-running kickoff
+    would redo work already done in this session.
+    """
+    base = f"XP agents (v{version}) active."
+    if _is_fresh_start(source):
+        return f"{base} Run /xp-kickoff."
+    return base
+
+
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
     context = run(input_data)
     if context is not None:
         version = _get_version()
-        _common.hook_output(
-            "SessionStart", context, f"XP agents (v{version}) active. Run /xp-kickoff."
-        )
+        source = input_data.get("source", "")
+        _common.hook_output("SessionStart", context, _system_message(source, version))
     sys.exit(0)

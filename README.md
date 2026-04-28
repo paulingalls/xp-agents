@@ -295,6 +295,30 @@ xp-agents works out of the box with zero configuration. It is opinionated — al
 
 ---
 
+## Development setup
+
+The shipping plugin code is **stdlib-only** — every script under `plugins/xp-agents/` runs on Python 3.11+ with no `pip install`. The test suite is allowed external runners (it doesn't ship), and the recommended setup is `pipx`:
+
+```bash
+# One-time tooling install (isolated venv, on PATH, no Homebrew conflict):
+brew install pipx                    # if not already installed
+pipx install pytest
+pipx inject pytest pytest-xdist      # parallel test execution
+
+# Run all 3326 tests in parallel (~13s on 16 cores):
+pytest -n auto
+
+# Or sequentially via unittest (no pytest required, ~89s):
+python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
+```
+
+`lefthook` runs `pytest -n auto` on every commit. If `pytest` isn't on PATH, lefthook will fail loud — install it via the steps above, or set `LEFTHOOK=0 git commit ...` to bypass for an emergency.
+
+Run a single file: `pytest plugins/xp-agents/tests/hooks/test_session_start.py`.
+Run a single test: `pytest plugins/xp-agents/tests/hooks/test_session_start.py::TestSessionStart::test_clear_source_returns_context`.
+
+---
+
 ## Why This Exists
 
 Multi-agent systems fail for reasons that have nothing to do with individual capability. The research is consistent:

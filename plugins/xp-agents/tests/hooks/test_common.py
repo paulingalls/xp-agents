@@ -35,14 +35,6 @@ def _read_hook_error_log(smm_dir: Path) -> list[dict]:
 
 
 class TestResolveSmmDir(unittest.TestCase):
-    def setUp(self):
-        # Cache lives on the slow derivation step now, not the public function.
-        # Clear so each test sees a fresh init.sh result under whatever env it
-        # patches.
-        import _append_impl
-
-        _append_impl._derive_smm_dir.cache_clear()
-
     def test_returns_path_in_git_repo(self):
         result = _common.resolve_smm_dir()
         # We're running tests from within a git repo
@@ -156,6 +148,17 @@ class TestAppendSafeErrorLogging(_HookTestCase):
     leaves a structured entry in ``${SMM_DIR}/hook_errors.jsonl`` so future
     regressions are visible.
     """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Patch the budget to 1s for the lock-timeout tests — the assertion is
+        # "LockTimeoutError logged", not "lock waited 10 s". Saves ~18s/run.
+        # Same pattern as TestLockTimeout in tests/smm/test_append_safety.py.
+        import _append_impl
+
+        patcher = patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     @contextlib.contextmanager
     def _hold_events_lock(self):
@@ -287,16 +290,6 @@ class TestGuideSubstitution(unittest.TestCase):
     Bash in claude -p does not see this env var, so the literal would
     break the documented `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` pattern."""
 
-    def setUp(self):
-        _common.load_process_guide.cache_clear()
-        _common.load_teammate_guide.cache_clear()
-        _common.load_xp_values.cache_clear()
-
-    def tearDown(self):
-        _common.load_process_guide.cache_clear()
-        _common.load_teammate_guide.cache_clear()
-        _common.load_xp_values.cache_clear()
-
     def _real_root(self) -> str:
         return str(Path(_common.__file__).parent.parent)
 
@@ -326,6 +319,18 @@ class TestGuideSubstitution(unittest.TestCase):
         self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", text)
         # Must be non-empty (file exists) and recognizable as XP_VALUES.
         self.assertIn("XP", text)
+
+    def test_loader_re_reads_after_env_changes(self):
+        """load_xp_values must reflect the current CLAUDE_PLUGIN_ROOT, not a
+        cached value from a previous call. Caching across env mutations was
+        a real footgun: a test that called the loader with a bad env would
+        poison the result for every subsequent in-process caller.
+        """
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/nonexistent/path"}):
+            self.assertEqual(_common.load_xp_values(), "")
+
+        text = _common.load_xp_values()
+        self.assertIn("Extreme Programming", text)
 
 
 class TestStdlibOnly(unittest.TestCase):
