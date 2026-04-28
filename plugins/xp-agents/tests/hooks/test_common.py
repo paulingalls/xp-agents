@@ -4,8 +4,6 @@
 Split from the monolithic test_hooks.py.
 """
 
-import contextlib
-import fcntl
 import io
 import json
 import os
@@ -19,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+from _lock_helpers import held_events_lock
 from conftest import _HookTestCase, make_event
 
 # ===========================================================================
@@ -149,31 +148,9 @@ class TestAppendSafeErrorLogging(_HookTestCase):
     regressions are visible.
     """
 
-    def setUp(self) -> None:
-        super().setUp()
-        # Patch the budget to 1s for the lock-timeout tests — the assertion is
-        # "LockTimeoutError logged", not "lock waited 10 s". Saves ~18s/run.
-        # Same pattern as TestLockTimeout in tests/smm/test_append_safety.py.
-        import _append_impl
-
-        patcher = patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    @contextlib.contextmanager
-    def _hold_events_lock(self):
-        """Hold an exclusive flock on events.lock for the with-block duration."""
-        lock_fd = open(self.smm_dir / "events.lock", "a")  # noqa: SIM115
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
-
     def test_append_safe_logs_lock_timeout(self):
         event = make_event("status", agent_id="main", content="ok", working_on=[])
-        with self._hold_events_lock():
+        with held_events_lock(self.smm_dir):
             _common.append_safe(self.smm_dir, event)
         entries = _read_hook_error_log(self.smm_dir)
         self.assertEqual(len(entries), 1)
@@ -185,7 +162,7 @@ class TestAppendSafeErrorLogging(_HookTestCase):
         events = [
             make_event("status", agent_id="main", content="ok", working_on=[]),
         ]
-        with self._hold_events_lock():
+        with held_events_lock(self.smm_dir):
             _common.bulk_append_safe(self.smm_dir, events)
         entries = _read_hook_error_log(self.smm_dir)
         self.assertEqual(len(entries), 1)

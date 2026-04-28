@@ -11,9 +11,7 @@ short a flock budget under high parallel-hook contention. This guard
 ensures regressions in the write chain become visible at test time.
 """
 
-import fcntl
 import sys
-import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -22,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _append_impl
 import bash_post_tool
+from _lock_helpers import briefly_held_lock
 from conftest import _HookTestCase, _make_bash_input
 
 
@@ -34,41 +32,14 @@ class TestAttributionRegression(_HookTestCase):
         """A commit event must land in events.jsonl despite a brief
         external flock hold of events.lock.
 
-        Holds the lock briefly in a background thread, then invokes
-        `bash_post_tool.run()` with a valid git-commit input. The flock
-        budget in `_append_impl.LOCK_TIMEOUT_SECONDS` must outlast the
-        contention so `bulk_append_safe` lands the commit event without
-        raising LockTimeoutError. The budget is patched down to keep the
-        test fast — the assertion is "budget outlasts hold", not
-        "wait 10 s".
+        ``briefly_held_lock`` holds the lock for 0.3 s in a background
+        thread and patches ``LOCK_TIMEOUT_SECONDS`` to 2 s, so
+        ``bulk_append_safe`` clears contention and lands the commit
+        event. The assertion is "budget outlasts hold", not
+        "wait the full hold".
         """
-        lock_file = self.smm_dir / "events.lock"
-        lock_acquired = threading.Event()
-        release_lock = threading.Event()
-
-        def hold_lock() -> None:
-            with open(lock_file, "a") as fd:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-                lock_acquired.set()
-                # Held window stays under the patched 2 s budget so
-                # bulk_append_safe completes successfully, but clears
-                # well before the test runner's join() timeout.
-                release_lock.wait(timeout=0.3)
-                fcntl.flock(fd, fcntl.LOCK_UN)
-
-        holder = threading.Thread(target=hold_lock)
-        # Register cleanup before start() so a flock-acquire failure on
-        # the holder still gets the thread joined and signaled.
-        self.addCleanup(holder.join, 5.0)
-        self.addCleanup(release_lock.set)
-        holder.start()
-        self.assertTrue(
-            lock_acquired.wait(timeout=2.0),
-            "holder thread failed to acquire events.lock",
-        )
-
         with (
-            patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 2),
+            briefly_held_lock(self.smm_dir),
             patch(
                 "commits.get_committed_files",
                 return_value=["plugins/xp-agents/scripts/x.py"],

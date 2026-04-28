@@ -8,12 +8,12 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 import materialize
+from _lock_helpers import held_events_lock
 from conftest import _SMMTestCase, make_event
 from event_schema import sessions_since_event
 
@@ -81,22 +81,12 @@ class TestParseEvents(_SMMTestCase):
 
     def test_raises_on_lock_timeout(self):
         """parse_events should raise LockTimeoutError, not silently degrade."""
-        import fcntl
-
         self._write_events([make_event()])
-        lock_file = self.smm_dir / "events.lock"
-        lock_fd = open(lock_file, "a")  # noqa: SIM115
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        try:
-            # Patch the budget to 1s — the assertion is "raises", not "waits 10s".
-            with (
-                mock.patch.object(_append_impl, "LOCK_TIMEOUT_SECONDS", 1),
-                self.assertRaises(_append_impl.LockTimeoutError),
-            ):
-                materialize.parse_events(self.smm_dir)
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+        with (
+            held_events_lock(self.smm_dir),
+            self.assertRaises(_append_impl.LockTimeoutError),
+        ):
+            materialize.parse_events(self.smm_dir)
 
     def test_single_event(self):
         self._write_events([make_event()])
