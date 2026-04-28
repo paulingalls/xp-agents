@@ -9,17 +9,50 @@ Extracted from _append_impl.py for module size management.
 
 import argparse
 import json
+import re
 import secrets
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from event_schema import CONTENT_BUDGETS, MAX_JSON_ARG_SIZE, VALID_TYPES
+from smm_schema import EVENT_ID_RE
+
+_REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
+_REFS_SPLIT_RE = re.compile(r"[,\s]+")
 
 
 def generate_id() -> str:
     """12-char hex ID for events and SMM entries."""
     return secrets.token_hex(6)
+
+
+def extract_refs_suffix(event: dict) -> None:
+    """Strip a trailing `[refs: id1, id2]` suffix from event["content"] and
+    union extracted 12-hex IDs into event["metadata"]["resolves"].
+
+    Mutates the event in place. No-op when no suffix is present so callers
+    can apply this unconditionally. Malformed tokens (not 12-hex) are
+    silently dropped — typos shouldn't break adoption. Existing IDs in
+    metadata.resolves are preserved; duplicates are de-duped.
+    """
+    content = event.get("content", "")
+    match = _REFS_SUFFIX_RE.search(content)
+    if not match:
+        return
+    cleaned = content[: match.start()].rstrip()
+    tokens = _REFS_SPLIT_RE.split(match.group(1).strip())
+    new_ids = [t for t in tokens if EVENT_ID_RE.match(t)]
+    if not new_ids:
+        event["content"] = cleaned
+        return
+    metadata = event.setdefault("metadata", {})
+    existing = metadata.get("resolves", [])
+    for tid in new_ids:
+        if tid not in existing:
+            existing.append(tid)
+    metadata["resolves"] = existing
+    event["content"] = cleaned
 
 
 def parse_json_arg(value: str, name: str) -> list | dict:
@@ -105,6 +138,7 @@ def build_event(args: argparse.Namespace) -> dict:
             if args.try_items:
                 event["try"] = parse_json_arg(args.try_items, "try-items")
 
+    extract_refs_suffix(event)
     return event
 
 
