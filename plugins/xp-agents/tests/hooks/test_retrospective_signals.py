@@ -95,6 +95,44 @@ class TestHonestySignals(unittest.TestCase):
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
 
+    def test_uses_metadata_files_when_action_present(self):
+        """sprint-042 M2: when metadata.action=file_write, the path is sourced
+        from metadata.files[0] — not parsed from content. Content is opaque."""
+        import honesty_signals
+
+        events = [
+            make_event(
+                "status",
+                content="x",  # deliberately non-matching for the regex path
+                working_on=["src/app.py"],
+                metadata={"action": "file_write", "files": ["src/app.py"]},
+            ),
+            _make_test_status(),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["code_file_writes"], 1)
+        self.assertEqual(signals["max_unique_files_without_test"], 1)
+
+    def test_test_run_action_resets_window(self):
+        """sprint-042 M2: action=test_run_complete resets unique_files_since_test
+        identically to the legacy regex branch."""
+        import honesty_signals
+
+        events = [
+            _make_write_status("src/a.py"),
+            _make_write_status("src/b.py"),
+            make_event(
+                "status",
+                content="opaque",
+                metadata={"action": "test_run_complete", "test_passed": True},
+            ),
+            _make_write_status("src/c.py"),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        # Window resets after the action event, so the post-test write
+        # is counted in a fresh window.
+        self.assertEqual(signals["max_unique_files_without_test"], 2)
+
 
 class TestSecurityCheckCounting(unittest.TestCase):
     """Tests for commits_without_security_check counting in _build_honesty_signals."""
