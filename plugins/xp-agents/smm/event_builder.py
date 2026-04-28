@@ -47,11 +47,12 @@ def extract_refs_suffix(event: dict) -> None:
         event["content"] = cleaned
         return
     metadata = event.setdefault("metadata", {})
-    existing = metadata.get("resolves", [])
+    # Defensive copy: avoid mutating a list the caller may share across events.
+    resolves = list(metadata.get("resolves", []))
     for tid in new_ids:
-        if tid not in existing:
-            existing.append(tid)
-    metadata["resolves"] = existing
+        if tid not in resolves:
+            resolves.append(tid)
+    metadata["resolves"] = resolves
     event["content"] = cleaned
 
 
