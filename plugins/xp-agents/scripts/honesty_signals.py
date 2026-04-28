@@ -17,12 +17,16 @@ import _common
 import security
 from commits import REVIEW_CYCLE_THRESHOLD
 from event_schema import (
+    STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_SECURITY_COMPLETE,
     STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
     STATUS_ACTION_SECURITY_TRIAGE_STARTED,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
 
+# TODO M3: drop _FILE_WRITE_RE / _TEST_RUN_RE once dual-emit window proves
+# action-match comprehensive across producers.
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
 _TEST_RUN_RE = _common.TEST_RUN_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
@@ -85,6 +89,25 @@ def build_honesty_signals(events: list[dict]) -> dict:
             action = event_action(e)
             if action in _SECURITY_CHECK_ACTIONS:
                 last_security_check_seen = True
+            elif action == STATUS_ACTION_FILE_WRITE:
+                # Path comes from metadata.files[0] — content is opaque.
+                files = (e.get("metadata") or {}).get("files") or []
+                path = files[0] if files else None
+                if path and security.is_code_file(path):
+                    file_write_count += 1
+                    if not is_test_file(path):
+                        target = (
+                            refactor_mode_excluded
+                            if in_refactor_mode
+                            else unique_files_since_test
+                        )
+                        target.add(path)
+            elif action == STATUS_ACTION_TEST_RUN_COMPLETE:
+                max_unique_files_without_test = max(
+                    max_unique_files_without_test,
+                    len(unique_files_since_test),
+                )
+                unique_files_since_test = set()
             elif _FILE_WRITE_RE.search(content):
                 path = content.replace("Wrote to ", "").strip()
                 if security.is_code_file(path):

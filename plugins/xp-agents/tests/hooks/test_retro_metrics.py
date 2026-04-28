@@ -349,5 +349,92 @@ class TestClassifyStatusActions(unittest.TestCase):
         self.assertEqual(counts["other"], 0)
 
 
+class TestClassifyM2ToolActions(unittest.TestCase):
+    """sprint-042 M2: tool-action discriminators dispatch via metadata.action;
+    legacy content regexes stay as fallback; commit counter reads type=commit."""
+
+    def test_file_write_action_increments_file_writes_once(self):
+        """metadata.action=file_write increments file_writes — and the regex
+        branch must NOT also fire (no double-count even if content matches)."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to scripts/foo.py",
+                metadata={"action": "file_write", "files": ["scripts/foo.py"]},
+            )
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["file_writes"], 1)
+        self.assertEqual(counts["other"], 0)
+
+    def test_legacy_wrote_to_content_falls_back_to_regex(self):
+        """Status event with no metadata.action still increments via regex."""
+        import retro_metrics
+
+        events = [make_event("status", content="Wrote to scripts/foo.py", metadata={})]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["file_writes"], 1)
+
+    def test_test_run_complete_action_counts(self):
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": "test_run_complete"},
+            )
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["test_runs"], 1)
+
+    def test_lint_resolved_action_counts(self):
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": "lint_resolved"},
+            )
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["lint_events"], 1)
+
+    def test_commit_counter_reads_type_commit_events(self):
+        """Real commits emit type=commit (not status). The retro commit
+        counter must read those directly — closes the meta-irony where a
+        doctrine session couldn't count its own commits."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "commit",
+                content="msg",
+                files=["scripts/x.py"],
+                metadata={"commit_hash": "abc", "code_commit": True},
+            ),
+            make_event(
+                "commit",
+                content="msg2",
+                files=["scripts/y.py"],
+                metadata={"commit_hash": "def", "code_commit": True},
+            ),
+        ]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["commits"], 2)
+
+    def test_legacy_committed_status_falls_back_to_regex(self):
+        """A stray type=status event with content 'Committed: ...' and no
+        metadata.action still counts via the regex fallback (preserved for M2)."""
+        import retro_metrics
+
+        events = [make_event("status", content="Committed: anything", metadata={})]
+        counts = retro_metrics._classify_status_events(events)
+        self.assertEqual(counts["commits"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
