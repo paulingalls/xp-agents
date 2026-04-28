@@ -399,7 +399,7 @@ def extract_file_path(tool_name: str, tool_input: dict) -> str | None:
 
 def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
     """Build a minimal SMM event dict with standard fields."""
-    from event_builder import generate_id
+    from event_builder import extract_refs_suffix, generate_id
 
     event = {
         "id": generate_id(),
@@ -410,6 +410,7 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
         "schema_version": 1,
     }
     event.update(extra)
+    extract_refs_suffix(event)
     return event
 
 

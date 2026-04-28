@@ -96,6 +96,14 @@ STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
+METADATA_KEY_DISPOSITION = "disposition"
+
+# Retro Try disposition values written to metadata.disposition by
+# work_selection_decide (adopt/defer/drop) and read by retro_history,
+# subagent_start. Centralized to prevent producer/consumer drift.
+DISPOSITION_ADOPTED = "adopted"
+DISPOSITION_DEFERRED = "deferred"
+DISPOSITION_DROPPED = "dropped"
 
 # Resolves-trailer probe status event contract.
 # Producer (resolves_probe.emit_probe_status, called from pre_tool_bash)

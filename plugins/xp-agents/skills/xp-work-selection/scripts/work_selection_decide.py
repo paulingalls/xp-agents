@@ -13,7 +13,6 @@ Subcommands:
 """
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -22,37 +21,15 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
-from event_schema import METADATA_KEY_RESOLVES, validate_event  # noqa: E402
+from event_schema import (  # noqa: E402
+    DISPOSITION_ADOPTED,
+    DISPOSITION_DEFERRED,
+    DISPOSITION_DROPPED,
+    METADATA_KEY_DISPOSITION,
+    METADATA_KEY_RESOLVES,
+    validate_event,
+)
 from smm_schema import EVENT_ID_RE  # noqa: E402
-
-_REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
-_SPLIT_RE = re.compile(r"[,\s]+")
-
-
-def _extract_refs(content: str) -> tuple[str, list[str]]:
-    """Return (cleaned_content, valid_event_ids).
-
-    Strips any trailing `[refs: ...]` block and returns the 12-hex ids
-    (matching `smm_schema.EVENT_ID_RE`). Malformed tokens are silently
-    dropped so typos don't break adoption.
-    """
-    match = _REFS_SUFFIX_RE.search(content)
-    if not match:
-        return content, []
-    cleaned = content[: match.start()].rstrip()
-    tokens = _SPLIT_RE.split(match.group(1).strip())
-    ids = [t for t in tokens if EVENT_ID_RE.match(t)]
-    return cleaned, ids
-
-
-def _build_metadata(ids: list[str], disposition: str | None) -> dict | None:
-    """Build metadata dict, or None if nothing to set."""
-    meta: dict = {}
-    if ids:
-        meta[METADATA_KEY_RESOLVES] = ids
-    if disposition:
-        meta["disposition"] = disposition
-    return meta or None
 
 
 def run(
@@ -64,32 +41,30 @@ def run(
 ) -> str:
     """Append the event and return its id.
 
-    Retro Try actions: "adopt" | "defer" | "drop" (content-based).
+    Retro Try actions: "adopt" | "defer" | "drop" (content-based — the
+    `[refs: id1, id2]` suffix is consumed by event_builder.extract_refs_suffix
+    inside _common.make_event).
     Triage actions: "triage-adopt" | "triage-defer" | "triage-drop"
     (event-id-based).
     """
-    clean_content, ids = _extract_refs(content)
-
     match action:
         case "adopt":
-            metadata = _build_metadata(ids, None)
-            kwargs: dict = {"topic": topic}
-            if metadata:
-                kwargs["metadata"] = metadata
             event = _common.make_event(
                 "decision",
                 "xp-work-selection",
-                clean_content,
-                **kwargs,
+                content,
+                topic=topic,
             )
         case "defer" | "drop":
-            disposition = "deferred" if action == "defer" else "dropped"
+            disposition = (
+                DISPOSITION_DEFERRED if action == "defer" else DISPOSITION_DROPPED
+            )
             event = _common.make_event(
                 "status",
                 "xp-work-selection",
-                clean_content,
+                content,
                 working_on=[],
-                metadata=_build_metadata(ids, disposition),
+                metadata={METADATA_KEY_DISPOSITION: disposition},
             )
         case "triage-adopt" | "triage-defer" | "triage-drop":
             if event_id is None:
@@ -97,18 +72,20 @@ def run(
             if not EVENT_ID_RE.match(event_id):
                 raise ValueError(f"Invalid event ID format: {event_id}")
             _triage_dispositions = {
-                "triage-adopt": "adopted",
-                "triage-defer": "deferred",
-                "triage-drop": "dropped",
+                "triage-adopt": DISPOSITION_ADOPTED,
+                "triage-defer": DISPOSITION_DEFERRED,
+                "triage-drop": DISPOSITION_DROPPED,
             }
             disposition = _triage_dispositions[action]
-            resolve_ids = [event_id] if disposition != "deferred" else []
+            metadata: dict = {METADATA_KEY_DISPOSITION: disposition}
+            if disposition != DISPOSITION_DEFERRED:
+                metadata[METADATA_KEY_RESOLVES] = [event_id]
             event = _common.make_event(
                 "status",
                 "xp-work-selection",
                 f"Triage: {disposition} {event_id[:8]}",
                 working_on=[],
-                metadata=_build_metadata(resolve_ids, disposition),
+                metadata=metadata,
             )
         case _:
             raise ValueError(f"Unknown action: {action}")

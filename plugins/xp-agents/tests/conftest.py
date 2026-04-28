@@ -77,6 +77,7 @@ from _event_fixtures import (  # noqa: E402, F401
     commit_event,
     failing_tests_concern,
     make_event,
+    make_retrospective_with_try,
     passing_tests_status,
     write_smm_fixture,
 )

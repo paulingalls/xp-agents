@@ -92,6 +92,28 @@ def compute_resolutions(events: list[dict]) -> dict:
         if event_id:
             by_id[event_id] = event
 
+        # Index nested retrospective.try[] ids so disposition events
+        # (adopt/defer/drop) can resolve them via metadata.resolves.
+        # Top-level event IDs (set unconditionally above) take precedence
+        # on collision — setdefault preserves them.
+        if event.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE:
+            for item in event.get("try", []):
+                if not isinstance(item, dict):
+                    continue
+                try_id = item.get("id")
+                if not try_id:
+                    continue
+                by_id.setdefault(
+                    try_id,
+                    {
+                        "id": try_id,
+                        "type": "retro_try",
+                        "content": item.get("content", ""),
+                        "ts": event.get("ts", ""),
+                        "parent_retro_id": event_id,
+                    },
+                )
+
         # Question-answer linking: answer events reference questions
         if event.get("type") == event_schema.EVENT_TYPE_ANSWER:
             for ref_id in event.get("references", []):

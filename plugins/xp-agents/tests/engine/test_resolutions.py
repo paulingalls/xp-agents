@@ -15,7 +15,7 @@ import _append_impl
 import read_delta
 import resolution
 from _lock_helpers import held_events_lock
-from conftest import _SMMTestCase, make_event
+from conftest import _SMMTestCase, make_event, make_retrospective_with_try
 
 
 class TestMetadataResolves(unittest.TestCase):
@@ -244,6 +244,70 @@ class TestMetadataResolves(unittest.TestCase):
         result = resolution.compute_resolutions([c1, c2, resolver])
         # Ambiguous — neither should be resolved
         self.assertEqual(len(result["concern_resolutions"]), 0)
+
+
+class TestRetroTryResolution(unittest.TestCase):
+    """Try items live nested inside retrospective.try[]. compute_resolutions
+    must index those nested IDs so disposition events (adopt/defer/drop)
+    that target a Try via metadata.resolves resolve correctly. Without this,
+    every drop/defer is silently dropped and the retro analyst re-proposes
+    Tries that the user already acted on.
+    """
+
+    def test_compute_resolutions_resolves_try_id_nested_in_retrospective(self):
+        retro = make_retrospective_with_try("a1b2c3d4e5f6", "Adopt commit-after-green")
+        dropper = make_event(
+            "status",
+            content="Dropped retro Try",
+            working_on=[],
+            metadata={"resolves": ["a1b2c3d4e5f6"], "disposition": "dropped"},
+        )
+        result = resolution.compute_resolutions([retro, dropper])
+        self.assertIn("a1b2c3d4e5f6", result["other_resolutions"])
+        self.assertEqual(result["other_resolutions"]["a1b2c3d4e5f6"], dropper)
+        self.assertIn("a1b2c3d4e5f6", result["resolved_other_ids"])
+
+    def test_compute_resolutions_resolves_try_id_via_decision_adopt(self):
+        retro = make_retrospective_with_try("b2c3d4e5f6a1", "Adopt fairness batch")
+        adopter = make_event(
+            "decision",
+            content="Adopting retro Try fairness batch",
+            topic="retro-try-fairness",
+            metadata={"resolves": ["b2c3d4e5f6a1"]},
+        )
+        result = resolution.compute_resolutions([retro, adopter])
+        self.assertIn("b2c3d4e5f6a1", result["other_resolutions"])
+
+    def test_top_level_event_id_takes_precedence_over_try_id_collision(self):
+        """If a Try id collides with a real top-level event id (extremely rare),
+        the top-level event wins. Resolution targets the real event."""
+        shared_id = "c3d4e5f6a1b2"
+        # Top-level concern with the colliding ID
+        concern = make_event("concern", content="Real concern")
+        concern["id"] = shared_id
+        # Retro with a try whose id collides
+        retro = make_event(
+            "retrospective",
+            content="Session retrospective",
+            **{"try": [{"id": shared_id, "content": "Phantom try", "event_refs": []}]},
+        )
+        resolver = make_event(
+            "status",
+            content="Resolved",
+            working_on=[],
+            metadata={"resolves": [shared_id]},
+        )
+        result = resolution.compute_resolutions([concern, retro, resolver])
+        # Top-level concern bucket gets it; "other" does not
+        self.assertIn(shared_id, result["concern_resolutions"])
+        self.assertNotIn(shared_id, result["other_resolutions"])
+
+    def test_unresolved_try_id_not_in_results(self):
+        """A retro with a Try and no resolver leaves the Try unresolved."""
+        retro = make_retrospective_with_try("d4e5f6a1b2c3", "Untouched try")
+        result = resolution.compute_resolutions([retro])
+        self.assertNotIn("d4e5f6a1b2c3", result["other_resolutions"])
+        self.assertNotIn("d4e5f6a1b2c3", result["resolved_other_ids"])
 
 
 class TestCascadeResolution(unittest.TestCase):
