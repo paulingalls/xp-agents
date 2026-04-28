@@ -41,9 +41,11 @@ else:
     markers.set_review_flag(smm_dir, agent_id, "security_review_done")
     # Record triage in the event log so the retro can see it happened.
     # Content is neutral — the agent decides next steps after seeing the diff.
+    # agent_id is teammate-resolved attribution per the agent-id-semantics
+    # ADR; skill identity lives in metadata.action.
     event = _common.make_event(
         _common.STATUS,
-        "xp-security-triage",
+        agent_id,
         "Security triage started — reviewing staged changes",
         working_on=[],
         metadata={"action": event_schema.STATUS_ACTION_SECURITY_TRIAGE_STARTED},

@@ -54,40 +54,36 @@ def _detect_target(target_name: str) -> str | None:
     return None
 
 
-# Single dispatch table — target → (action, content, agent_id) for the
-# canonical lifecycle event. Hook is the single producer; consumers match
+# Single dispatch table — target → (action, content) for the canonical
+# lifecycle event. Hook is the single producer; consumers match
 # metadata.action exactly so LLM-authored content drift cannot zero the
-# counters. See docs/ideas/deterministic-event-emission.md.
-_TARGET_LIFECYCLE: dict[str, tuple[str, str, str]] = {
+# counters. The event's agent_id is the teammate-resolved attribution
+# (see agent-id-semantics ADR): skill identity lives in metadata.action.
+# See docs/ideas/deterministic-event-emission.md.
+_TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
     _TARGET_SIMPLIFY: (
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,
         "Simplify complete",
-        "simplify",
     ),
     _TARGET_QUALITY_REVIEW: (
         event_schema.STATUS_ACTION_QR_COMPLETE,
         "Quality review complete",
-        "xp-quality-review",
     ),
     _TARGET_SECURITY_REVIEW: (
         event_schema.STATUS_ACTION_SECURITY_COMPLETE,
         "Security review complete — full review performed",
-        "security-review",
     ),
     _TARGET_SECURITY_TRIAGE: (
         event_schema.STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
         "Security triage complete",
-        "xp-security-triage",
     ),
     _TARGET_PLAN_REVIEW: (
         event_schema.STATUS_ACTION_PLAN_REVIEWED,
         "Plan reviewed",
-        "xp-review-plan",
     ),
     _TARGET_HOUSEKEEPING: (
         event_schema.STATUS_ACTION_HOUSEKEEPING_COMPLETE,
         "Housekeeping complete",
-        "xp-housekeeper",
     ),
 }
 
@@ -158,8 +154,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         security.write_security_triaged(smm_dir, agent_id)
 
     # Emit canonical lifecycle event (single dispatch — producer determinism).
-    action, content, event_agent_id = _TARGET_LIFECYCLE[target]
-    _emit_action_event(smm_dir, action, content, event_agent_id)
+    # agent_id is the teammate-resolved attribution; skill identity lives
+    # in metadata.action per the agent-id-semantics ADR.
+    action, content = _TARGET_LIFECYCLE[target]
+    _emit_action_event(smm_dir, action, content, agent_id)
 
     # Return appropriate context.
     if target == _TARGET_HOUSEKEEPING:
