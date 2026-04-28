@@ -9,13 +9,13 @@ import ast
 import json
 import logging
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 
 import event_schema
 import resolution
 import smm_store
 from _append_impl import (
+    now_iso,
     parse_jsonl,
     write_json_atomic,
 )
@@ -41,7 +41,7 @@ def write_curation_watermark(smm_dir: Path, event_count: int, agent_id: str) -> 
 
     data = {
         "event_count": event_count,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
         "agent_id": agent_id,
     }
     write_json_atomic(wm_file, data)

@@ -10,11 +10,10 @@ and CLI). This module is stateful — it touches the filesystem.
 """
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import materialize
-from _append_impl import write_text_atomic
+from _append_impl import now_iso, write_text_atomic
 from event_builder import generate_id
 from resolution import resolve_prefix
 from smm_schema import PILLARS, empty_smm, validate_entry, validate_smm
@@ -90,7 +89,7 @@ def add_item(
         raise ValueError(f"Unknown pillar: {pillar!r}")
 
     item_id = generate_id()
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = now_iso()
 
     entry: dict = {"id": item_id, "content": content, "source": source, "ts": ts}
     if type is not None:

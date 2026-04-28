@@ -9,9 +9,9 @@ bulk_append_safe, and _append_impl.main after a successful debt write.
 import contextlib
 import json
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 
+from _append_impl import now_iso
 from event_builder import generate_id
 
 STOPWORDS = frozenset(
@@ -123,7 +123,7 @@ def build_advisory_concern(
     best = max(matches, key=lambda m: m["similarity"])
     return {
         "id": generate_id(),
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": now_iso(),
         "type": "concern",
         "severity": "low",
         "agent_id": agent_id,

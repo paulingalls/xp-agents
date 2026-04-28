@@ -52,11 +52,11 @@ def update_coordination(smm_dir: Path, agent_id: str, working_on: list[str]) -> 
                 data = {}
 
         # Update agent entry
-        from datetime import datetime, timezone
+        from _common import now_iso
 
         data[agent_id] = {
             "working_on": working_on,
-            "updated": datetime.now(timezone.utc).isoformat(),
+            "updated": now_iso(),
         }
 
         write_json_atomic(coord_path, data)

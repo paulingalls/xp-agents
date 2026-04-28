@@ -10,7 +10,6 @@ import os
 import re
 import shlex
 import sys
-from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 # Make smm/ importable so we can use _append_impl as the foundational module
@@ -21,6 +20,7 @@ from _append_impl import (
     PRIORITY_BLOCKING,  # noqa: F401
     PRIORITY_INFO,  # noqa: F401
     _validate_agent_id,  # noqa: F401
+    now_iso,
     parse_jsonl,
     write_watermark,  # noqa: F401
 )
@@ -153,7 +153,7 @@ def _log_hook_error(reason: str, error_class: str, **ctx: object) -> None:
     crash.
     """
     entry: dict = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": now_iso(),
         "script": Path(sys.argv[0]).name if sys.argv else "<unknown>",
         "reason": _truncate_for_log(reason, 500),
         "error_class": error_class,
@@ -280,7 +280,7 @@ def resolve_plugin_root() -> Path:
     return Path(__file__).parent.parent
 
 
-def _expand_plugin_root(text: str) -> str:
+def expand_plugin_root(text: str) -> str:
     """Substitute ${CLAUDE_PLUGIN_ROOT} with the resolved plugin root.
 
     Mirrors Claude Code's own substitution for SKILL.md content. Without
@@ -298,7 +298,7 @@ def _load_plugin_file(filename: str) -> str:
     try:
         path = resolve_plugin_root() / filename
         if path.is_file():
-            return _expand_plugin_root(path.read_text(encoding="utf-8"))
+            return expand_plugin_root(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
     return ""
@@ -388,7 +388,7 @@ def make_event(event_type: str, agent_id: str, content: str, **extra) -> dict:
 
     event = {
         "id": generate_id(),
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": now_iso(),
         "type": event_type,
         "agent_id": agent_id,
         "content": content,

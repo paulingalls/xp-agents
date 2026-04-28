@@ -153,9 +153,9 @@ def write_security_triaged(
     exempt_reason: str | None = None,
 ) -> None:
     """Atomic write of this agent's triage marker with timestamp."""
-    from datetime import datetime, timezone
+    from _common import now_iso
 
-    data = {"ts": datetime.now(timezone.utc).isoformat()}
+    data = {"ts": now_iso()}
     if exempt_reason is not None:
         data["exempt_reason"] = exempt_reason
     markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data, agent_id)
