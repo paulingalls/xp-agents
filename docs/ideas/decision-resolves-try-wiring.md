@@ -78,3 +78,12 @@ Working examples (already correct, regression-test against these):
 Counter-examples (should be wired but aren't):
 
 - `393865f17dd1`, `52543ba3c8e7`, `baa4d2cb9b52`, `3ab1b301eef0` — sprint-007 decisions whose content references prior-retro Tries but `metadata.resolves` is empty.
+
+Reproduce the wiring gap with one jq pipe (replace `$SMM_DIR` with the value from your `init.sh` output):
+
+```bash
+jq -c 'select(.id=="393865f17dd1" or .id=="52543ba3c8e7" or .id=="baa4d2cb9b52" or .id=="3ab1b301eef0") | {id, type, resolves: (.metadata.resolves // null)}' \
+  "$SMM_DIR/events.jsonl"
+```
+
+Expected output: 4 lines, each with `"resolves": null`. Each `content` field clearly references a Try (verify by re-running with `, content` on the projected object), but the link is missing.
