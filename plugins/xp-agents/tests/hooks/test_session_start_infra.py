@@ -251,7 +251,7 @@ class TestTeammateSessionStart(_HookTestCase):
         """Teammate gets XP Values + Teammate Guide."""
         result = self._run_teammate()
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertIn("Teammate Guide", result)
 
     def test_teammate_gets_smm(self):
@@ -292,7 +292,7 @@ class TestTeammateSessionStart(_HookTestCase):
         """Compact source for teammates reinjects full context."""
         result = self._run_teammate(source="compact")
         self.assertIsNotNone(result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
         self.assertIn("Teammate Guide", result)
         self.assertIn("Ship v1", result)
 
@@ -317,7 +317,7 @@ class TestTeammateSessionStart(_HookTestCase):
         """Teammate works without system_context.json."""
         result = self._run_teammate()
         self.assertNotIn("System Context", result)
-        self.assertIn("XP Values", result)
+        self.assertIn("Extreme Programming", result)
 
 
 # ===========================================================================

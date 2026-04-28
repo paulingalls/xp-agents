@@ -51,7 +51,7 @@ class TestSecurityTriagePreload(_IntegrationTestCase):
         """XP values injected via SubagentStart, not preload."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("XP Values", result.stdout)
+        self.assertNotIn("Extreme Programming", result.stdout)
 
     def test_preload_exits_ok_with_no_changes(self):
         """No staged changes -> exits 0."""

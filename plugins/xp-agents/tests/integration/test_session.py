@@ -199,7 +199,7 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("XP Values", result.stdout)
+        self.assertIn("Extreme Programming", result.stdout)
 
 
 class TestMilestone6Integration(_IntegrationTestCase):
