@@ -7,8 +7,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 
 import _common
+import event_schema
 import identity
 import markers
 import security
@@ -44,6 +46,7 @@ else:
         "xp-security-triage",
         "Security triage started — reviewing staged changes",
         working_on=[],
+        metadata={"action": event_schema.STATUS_ACTION_SECURITY_TRIAGE_STARTED},
     )
     _common.append_safe(smm_dir, event)
     print("Security triage marker written. Commit gate cleared.")
