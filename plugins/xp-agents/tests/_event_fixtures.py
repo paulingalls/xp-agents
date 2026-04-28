@@ -40,6 +40,19 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
     return event
 
 
+def make_retrospective_with_try(
+    try_id: str, try_content: str = "A retro try item"
+) -> dict:
+    """Build a retrospective event carrying one nested try item with the
+    given id. Helper for tests that exercise the
+    compute_resolutions/annotate_try_status pipeline."""
+    return make_event(
+        "retrospective",
+        content="Session retrospective",
+        **{"try": [{"id": try_id, "content": try_content, "event_refs": []}]},
+    )
+
+
 # Canonical test-signal factories shared across integration tests that
 # exercise tdd_check.find_last_test_signal. Content strings match
 # scripts/concerns.py::TEST_CONCERN_RE and scripts/tdd_check.py::TEST_PASS_RE.

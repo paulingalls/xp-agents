@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import retro_history
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, make_retrospective_with_try
 
 
 class TestAnnotateTryDisposition(_HookTestCase):
@@ -19,8 +19,9 @@ class TestAnnotateTryDisposition(_HookTestCase):
 
     def _make_resolutions_map(self, target_id, resolver_id, content, disposition=None):
         entry = {
-            "type": "decision",
+            "type": "other",
             "resolver_id": resolver_id,
+            "resolver_type": "decision",
             "resolver_content": content,
         }
         if disposition is not None:
@@ -116,14 +117,16 @@ class TestAnnotateTryDisposition(_HookTestCase):
         adopt_id = "aa0022222222"
         resolutions_map = {
             drop_id: {
-                "type": "status",
+                "type": "other",
                 "resolver_id": "r1",
+                "resolver_type": "status",
                 "resolver_content": "Dropped",
                 "disposition": "dropped",
             },
             adopt_id: {
-                "type": "decision",
+                "type": "other",
                 "resolver_id": "r2",
+                "resolver_type": "decision",
                 "resolver_content": "Adopted",
             },
         }
@@ -374,8 +377,9 @@ class TestTryItemIdResolution(unittest.TestCase):
     def _make_resolutions_map(self, target_id, resolver_id):
         return {
             target_id: {
-                "type": "decision",
+                "type": "other",
                 "resolver_id": resolver_id,
+                "resolver_type": "decision",
                 "resolver_content": "Adopted",
             }
         }
@@ -414,6 +418,147 @@ class TestTryItemIdResolution(unittest.TestCase):
         retro_history.annotate_try_status(retros, {})
         status = retros[0]["try_status"][0]
         self.assertFalse(status["resolved_this_session"])
+
+
+class TestEndToEndTryDispositionPipeline(unittest.TestCase):
+    """Pin the full compute_resolutions → build_resolutions_map →
+    annotate_try_status pipeline. After A1 (resolution.py indexes nested
+    try ids), a status event with metadata.resolves=[try_id]
+    disposition=dropped must propagate to the latest retro's try_status
+    AND strip the try from latest.try.
+
+    Pre-A1, this only worked when the try happened to also share an
+    event_ref with a top-level event. This test pins the direct path.
+    """
+
+    def test_drop_via_metadata_resolves_strips_try_end_to_end(self):
+        import resolution
+        from retro_metrics import build_resolutions_map
+
+        try_id = "ee11ff2233aa"
+        retro_event = make_retrospective_with_try(try_id, "Try to be dropped")
+        dropper = make_event(
+            "status",
+            content="User dropped the try",
+            working_on=[],
+            metadata={"resolves": [try_id], "disposition": "dropped"},
+        )
+        events = [retro_event, dropper]
+
+        resolutions = resolution.compute_resolutions(events)
+        rmap = build_resolutions_map(resolutions)
+
+        # Simulate the previous_retros list shape annotate_try_status expects.
+        retros = [
+            {
+                "try": [
+                    {"id": try_id, "content": "Try to be dropped", "event_refs": []}
+                ],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        retro_history.annotate_try_status(retros, rmap)
+
+        # Dropped tries are stripped from latest.try
+        self.assertEqual(retros[0]["try"], [])
+        self.assertEqual(retros[0]["try_status"], [])
+
+    def test_adopt_via_metadata_resolves_marks_resolved_and_keeps_try(self):
+        """When a decision adopts a try via metadata.resolves, the try is
+        kept (not stripped — only dropped tries are stripped), marked
+        resolved_this_session, and gets disposition='adopted' from the
+        resolver_type fallback in annotate_try_status.
+        """
+        import resolution
+        from retro_metrics import build_resolutions_map
+
+        try_id = "aa22bb3344cc"
+        retro_event = make_retrospective_with_try(try_id, "Try to adopt")
+        adopter = make_event(
+            "decision",
+            content="Adopt the try",
+            topic="retro-try-adopt",
+            metadata={"resolves": [try_id]},
+        )
+        events = [retro_event, adopter]
+
+        resolutions = resolution.compute_resolutions(events)
+        rmap = build_resolutions_map(resolutions)
+
+        retros = [
+            {
+                "try": [{"id": try_id, "content": "Try to adopt", "event_refs": []}],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        retro_history.annotate_try_status(retros, rmap)
+
+        self.assertEqual(len(retros[0]["try"]), 1)  # adopted, not stripped
+        self.assertTrue(retros[0]["try_status"][0]["resolved_this_session"])
+        self.assertEqual(retros[0]["try_status"][0]["disposition"], "adopted")
+
+    def test_cascade_does_not_close_unrelated_event_referencing_retro_try(self):
+        """Concern ade2305a435a: synthetic retro_try entries are visible to
+        the cascade pass. A real event whose top-level references list
+        contains a try-id should NOT be cascade-closed off the synthetic
+        target — synthetics never appear as resolved targets to cascade
+        because compute_resolutions only iterates the events list (not
+        by_id) for the cascade pass. Pin this so future refactors don't
+        regress it.
+        """
+        import resolution
+
+        try_id = "bb33cc4455dd"
+        retro_event = make_retrospective_with_try(try_id, "Try referenced by a concern")
+
+        # Real concern event references the try-id but the try is unresolved.
+        concern_referencing_try = make_event(
+            "concern",
+            content="Concern that references a try-id (no resolver in events)",
+            references=[try_id],
+        )
+        events = [retro_event, concern_referencing_try]
+
+        resolutions = resolution.compute_resolutions(events)
+
+        # The concern is NOT cascade-closed because nothing resolved the try.
+        self.assertNotIn(
+            concern_referencing_try["id"], resolutions["resolved_concern_ids"]
+        )
+        # The try itself is also unresolved (no resolver in events).
+        self.assertNotIn(try_id, resolutions["resolved_other_ids"])
+
+    def test_cascade_closes_event_referencing_resolved_retro_try(self):
+        """When the try IS resolved (by adopt/drop), an event whose
+        references list contains the try-id IS cascade-closed. This is
+        the intended STRONG→WEAK cascade behavior — same semantics as
+        any other resolved target, applied uniformly.
+        """
+        import resolution
+
+        try_id = "cc44dd5566ee"
+        retro_event = make_retrospective_with_try(try_id, "Try to drop")
+        dropper = make_event(
+            "status",
+            content="Drop the try",
+            working_on=[],
+            metadata={"resolves": [try_id], "disposition": "dropped"},
+        )
+        # An unrelated debt that references the try; cascade should close it.
+        debt_referencing_try = make_event(
+            "debt",
+            content="Debt that depends on the try outcome",
+            files=["scripts/x.py"],
+            references=[try_id],
+        )
+        events = [retro_event, dropper, debt_referencing_try]
+
+        resolutions = resolution.compute_resolutions(events)
+
+        # The debt cascade-closes off the dropper (the resolver of the try).
+        self.assertIn(debt_referencing_try["id"], resolutions["resolved_debt_ids"])
 
 
 class TestSaveRetroStampsTryIds(unittest.TestCase):

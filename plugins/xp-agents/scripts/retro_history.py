@@ -104,7 +104,7 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
             disposition = hit.get("disposition")
             if disposition:
                 entry["disposition"] = disposition
-            elif hit.get("type") == "decision":
+            elif hit.get("resolver_type") == "decision":
                 # Decisions without explicit disposition are adoptions
                 entry["disposition"] = "adopted"
             statuses.append(entry)

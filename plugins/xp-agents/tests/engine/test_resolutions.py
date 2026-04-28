@@ -15,7 +15,7 @@ import _append_impl
 import read_delta
 import resolution
 from _lock_helpers import held_events_lock
-from conftest import _SMMTestCase, make_event
+from conftest import _SMMTestCase, make_event, make_retrospective_with_try
 
 
 class TestMetadataResolves(unittest.TestCase):
@@ -254,15 +254,8 @@ class TestRetroTryResolution(unittest.TestCase):
     Tries that the user already acted on.
     """
 
-    def _retro_with_try(self, try_id: str, try_content: str) -> dict:
-        return make_event(
-            "retrospective",
-            content="Session retrospective",
-            **{"try": [{"id": try_id, "content": try_content, "event_refs": []}]},
-        )
-
     def test_compute_resolutions_resolves_try_id_nested_in_retrospective(self):
-        retro = self._retro_with_try("a1b2c3d4e5f6", "Adopt commit-after-green")
+        retro = make_retrospective_with_try("a1b2c3d4e5f6", "Adopt commit-after-green")
         dropper = make_event(
             "status",
             content="Dropped retro Try",
@@ -275,7 +268,7 @@ class TestRetroTryResolution(unittest.TestCase):
         self.assertIn("a1b2c3d4e5f6", result["resolved_other_ids"])
 
     def test_compute_resolutions_resolves_try_id_via_decision_adopt(self):
-        retro = self._retro_with_try("b2c3d4e5f6a1", "Adopt fairness batch")
+        retro = make_retrospective_with_try("b2c3d4e5f6a1", "Adopt fairness batch")
         adopter = make_event(
             "decision",
             content="Adopting retro Try fairness batch",
@@ -311,7 +304,7 @@ class TestRetroTryResolution(unittest.TestCase):
 
     def test_unresolved_try_id_not_in_results(self):
         """A retro with a Try and no resolver leaves the Try unresolved."""
-        retro = self._retro_with_try("d4e5f6a1b2c3", "Untouched try")
+        retro = make_retrospective_with_try("d4e5f6a1b2c3", "Untouched try")
         result = resolution.compute_resolutions([retro])
         self.assertNotIn("d4e5f6a1b2c3", result["other_resolutions"])
         self.assertNotIn("d4e5f6a1b2c3", result["resolved_other_ids"])

@@ -136,6 +136,7 @@ def build_resolutions_map(resolutions: dict) -> dict[str, dict]:
             entry: dict = {
                 "type": type_name,
                 "resolver_id": resolver.get("id", ""),
+                "resolver_type": resolver.get("type", ""),
                 "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
             }
             disposition = resolver.get("metadata", {}).get("disposition")
