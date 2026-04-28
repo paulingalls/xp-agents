@@ -13,7 +13,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-from event_schema import METADATA_KEY_DISPOSITION, METADATA_KEY_RESOLVES
+from event_schema import (
+    METADATA_KEY_DISPOSITION,
+    METADATA_KEY_RESOLVES,
+    STATUS_ACTION_ITERATION_COMPLETE,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_SECURITY_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
+    STATUS_ACTION_SIMPLIFY_COMPLETE,
+    event_action,
+)
 from honesty_signals import build_honesty_signals
 
 # ---------------------------------------------------------------------------
@@ -42,10 +52,21 @@ _SIGNAL_TYPES = frozenset(
 
 _FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
 _TEST_RUN_RE = _common.TEST_RUN_RE
-_SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
-_QUALITY_REVIEW_RE = _common.QUALITY_REVIEW_RE
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
+
+# Action-based dispatch for review-cycle lifecycle events (sprint-041 / story-004).
+# Hook is the canonical producer; consumers read metadata.action exactly so
+# LLM-authored content drift cannot zero the counters. Started+complete triage
+# both increment security_checks (preserves legacy regex semantics — double-counts
+# a single triage run; M2 may revisit by counting only *_complete actions).
+_ACTION_TO_COUNTER: dict[str, str] = {
+    STATUS_ACTION_SIMPLIFY_COMPLETE: "simplifies",
+    STATUS_ACTION_QR_COMPLETE: "quality_reviews",
+    STATUS_ACTION_SECURITY_COMPLETE: "security_checks",
+    STATUS_ACTION_SECURITY_TRIAGE_STARTED: "security_checks",
+    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE: "security_checks",
+}
 
 
 def _normalize_concern_content(content: str) -> str:
@@ -58,29 +79,37 @@ def _normalize_concern_content(content: str) -> str:
 def _classify_status_events(
     events: list[dict],
 ) -> dict:
-    """Classify status events into file_writes, test_runs, other."""
+    """Classify status events into action-based and content-regex buckets."""
     counts = {
         "file_writes": 0,
         "test_runs": 0,
         "security_checks": 0,
         "commits": 0,
         "quality_reviews": 0,
+        "simplifies": 0,
         "lint_events": 0,
         "other": 0,
     }
 
+    # Content regex remains for not-yet-converted lifecycle moments
+    # (file_writes/test_runs/commits/lint — M2/M3 scope).
     patterns = [
         (_FILE_WRITE_RE, "file_writes"),
         (_TEST_RUN_RE, "test_runs"),
-        (_SECURITY_CHECK_RE, "security_checks"),
         (_COMMIT_RE, "commits"),
-        (_QUALITY_REVIEW_RE, "quality_reviews"),
         (_LINT_RE, "lint_events"),
     ]
 
     for e in events:
         if e.get("type") != _common.STATUS:
             continue
+
+        action = event_action(e)
+        action_counter = _ACTION_TO_COUNTER.get(action) if action else None
+        if action_counter:
+            counts[action_counter] += 1
+            continue
+
         content = e.get("content", "")
         matched = False
         for pattern, key in patterns:
@@ -215,7 +244,7 @@ def _compute_session_stats(events: list[dict]) -> dict:
             case _common.STATUS:
                 stats["status_count"] += 1
                 agent["status_count"] += 1
-                if e.get("metadata", {}).get("action") == "iteration_complete":
+                if event_action(e) == STATUS_ACTION_ITERATION_COMPLETE:
                     stats["iterations_completed"] += 1
             case _common.CONCERN:
                 stats["concerns_raised"] += 1

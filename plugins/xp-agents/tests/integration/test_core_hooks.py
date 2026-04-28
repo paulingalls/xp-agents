@@ -240,6 +240,7 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
                 make_event(
                     "status",
                     content="Quality review complete. No issues.",
+                    metadata={"action": "qr_complete"},
                 )
             ]
         )
