@@ -28,7 +28,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
     name = branching.branch_name(user_ns, args.story, args.slug)
     existed = branching.branch_exists(args.cwd, name)
     result = branching.create_story_branch(
-        args.cwd, args.story, args.slug, Path(args.smm_dir)
+        args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
     )
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
@@ -121,6 +121,7 @@ def main() -> int:
     p_create.add_argument("--cwd", required=True)
     p_create.add_argument("--story", required=True)
     p_create.add_argument("--slug", required=True)
+    p_create.add_argument("--base", default=None, help="Fork from this ref")
     p_create.set_defaults(func=_cmd_create)
 
     p_delete = sub.add_parser("delete", help="Delete a branch")

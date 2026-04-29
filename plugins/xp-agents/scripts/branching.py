@@ -308,20 +308,24 @@ BRANCH_MIN_STAGE: dict[str, int] = {
 
 
 def create_story_branch(
-    cwd: str, story_id: str, slug: str, smm_dir: Path
+    cwd: str, story_id: str, slug: str, smm_dir: Path, *, base: str | None = None
 ) -> str | None:
     """Returns branch name or None if below story min stage.
 
-    Passes the resolved story base (sprint branch at stage 2+, otherwise
-    primary) so resume can fast-forward a stale scaffold to the current
-    base when safe — see _fast_forward_if_safe.
+    When base is provided, the story branch forks from that ref (for
+    chaining dependent stories). When omitted, uses the resolved story
+    base (sprint branch at stage 2+, otherwise primary).
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
-    base = get_story_base_branch(smm_dir, cwd)
-    return _create_or_resume_branch(
+    if base is None:
+        base = get_story_base_branch(smm_dir, cwd)
+    result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["story"], base=base
     )
+    if result is not None and sprint_store.sprint_exists(smm_dir):
+        sprint_store.set_story_branch(smm_dir, story_id, result)
+    return result
 
 
 def create_sprint_branch(

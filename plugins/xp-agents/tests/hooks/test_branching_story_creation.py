@@ -209,5 +209,147 @@ class TestCreateStoryBranch(unittest.TestCase):
                 branching.create_story_branch(td, "story-001", "conflict", smm_dir)
 
 
+class TestCreateStoryBranchWithBase(unittest.TestCase):
+    def test_forks_from_explicit_base(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            _make_feature_commit(td, "first.txt")
+            base_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=td,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            _make_feature_commit(td, "second.txt")
+
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_story_branch(
+                    td, "story-002", "chained", smm_dir, base=base_sha
+                )
+
+            self.assertEqual(result, "paul/story-002-chained")
+            parent_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=td,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(parent_sha, base_sha)
+
+    def test_default_base_uses_story_base_branch(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_story_branch(
+                    td, "story-001", "default", smm_dir
+                )
+
+            self.assertEqual(result, "paul/story-001-default")
+            self.assertEqual(_get_current_branch(td), "paul/story-001-default")
+
+    def test_cli_base_flag_passthrough(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            _make_feature_commit(td, "first.txt")
+            base_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=td,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            _make_feature_commit(td, "second.txt")
+
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+
+            cli = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+            env = {**_bf.GIT_ENV, "USER": "paul"}
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    cli,
+                    "--smm-dir",
+                    str(smm_dir),
+                    "create",
+                    "--cwd",
+                    td,
+                    "--story",
+                    "story-002",
+                    "--slug",
+                    "cli-base",
+                    "--base",
+                    base_sha,
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("story-002-cli-base", result.stdout)
+            branch = result.stdout.strip().split(": ", 1)[1]
+            head_sha = subprocess.run(
+                ["git", "rev-parse", branch],
+                cwd=td,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(head_sha, base_sha)
+
+
+class TestCreateStoryBranchAutoRecords(unittest.TestCase):
+    def test_records_branch_name_in_sprint(self):
+        import json
+
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+            sprint = {
+                "sprint_id": "sprint-044",
+                "goal": "test",
+                "started": "2026-04-29",
+                "stories": [
+                    {
+                        "id": "story-001",
+                        "title": "Test",
+                        "status": "in-progress",
+                        "dependencies": [],
+                        "milestone_ref": "",
+                        "design_sources": "",
+                        "context": "",
+                        "file_domain": [],
+                        "interface_contracts": [],
+                        "acceptance_criteria": [],
+                    }
+                ],
+            }
+            (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_story_branch(
+                    td, "story-001", "auto-record", smm_dir
+                )
+
+            self.assertEqual(result, "paul/story-001-auto-record")
+            loaded = sprint_store.load_sprint(smm_dir)
+            self.assertEqual(
+                loaded["stories"][0].get("branch_name"),
+                "paul/story-001-auto-record",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

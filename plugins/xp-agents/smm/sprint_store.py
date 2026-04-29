@@ -117,6 +117,13 @@ def set_branch(smm_dir: Path, branch_name: str) -> None:
     save_sprint(smm_dir, sprint, enforce_budget=False)
 
 
+def set_story_branch(smm_dir: Path, story_id: str, branch_name: str) -> None:
+    """Record a story's git branch name."""
+    sprint, story = _load_story(smm_dir, story_id)
+    story["branch_name"] = branch_name
+    save_sprint(smm_dir, sprint, enforce_budget=False)
+
+
 _IMMUTABLE_STORY_FIELDS = frozenset({"id"})
 
 
