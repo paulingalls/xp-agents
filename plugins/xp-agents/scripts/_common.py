@@ -7,7 +7,6 @@ event reading, and watermark management.
 
 import json
 import os
-import re
 import shlex
 import sys
 from pathlib import Path, PurePosixPath
@@ -85,15 +84,6 @@ def current_session_start_index(events: list[dict]) -> int:
         if events[i].get("type") == SESSION_END:
             return i + 1
     return 0
-
-
-# Shared status content patterns (used by retrospective and work_signals)
-TEST_RUN_RE = re.compile(r"Tests?(?::.*\d+\s+passed|\s+passed|\s+ran\b)", re.IGNORECASE)
-LEGACY_COMMIT_RE = re.compile(r"^Committed:", re.IGNORECASE)
-SECURITY_CHECK_RE = re.compile(
-    r"Security (?:triage|review) (?:complete|started)", re.IGNORECASE
-)
-QUALITY_REVIEW_RE = re.compile(r"(?:Quality review|QR) complete", re.IGNORECASE)
 
 
 def subagent_started_content(agent_id: str) -> str:

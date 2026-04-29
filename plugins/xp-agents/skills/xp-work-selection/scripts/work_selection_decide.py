@@ -13,6 +13,7 @@ Subcommands:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +22,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
+import identity  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
@@ -47,11 +49,14 @@ def run(
     Triage actions: "triage-adopt" | "triage-defer" | "triage-drop"
     (event-id-based).
     """
+    # agent_id is teammate-resolved attribution per the agent-id-semantics
+    # ADR; the skill that produced the event lives in metadata or content.
+    agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
     match action:
         case "adopt":
             event = _common.make_event(
                 "decision",
-                "xp-work-selection",
+                agent_id,
                 content,
                 topic=topic,
             )
@@ -61,7 +66,7 @@ def run(
             )
             event = _common.make_event(
                 "status",
-                "xp-work-selection",
+                agent_id,
                 content,
                 working_on=[],
                 metadata={METADATA_KEY_DISPOSITION: disposition},
@@ -82,7 +87,7 @@ def run(
                 metadata[METADATA_KEY_RESOLVES] = [event_id]
             event = _common.make_event(
                 "status",
-                "xp-work-selection",
+                agent_id,
                 f"Triage: {disposition} {event_id[:8]}",
                 working_on=[],
                 metadata=metadata,

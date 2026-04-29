@@ -26,20 +26,9 @@ Skill(skill: "security-review", args: "only uncommitted changes: staged, unstage
 
 This is a **built-in Claude Code command**. Invoke it as `security-review`, NOT as `xp-agents:security-review`. The args scope the review to the current working tree — do NOT review the entire branch history.
 
-## Step 2: Record the Result
+## Step 2: Report Back
 
-Record the result to the event log using the `SMM_DIR` value from the preload output above:
+The PostToolUse:Skill hook records the lifecycle event (`metadata.action=security_complete`) once `/security-review` finishes; do not append a duplicate status event. Return a clear summary:
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "status" \
-  --agent "xp-security-reviewer" \
-  --content "Security review complete: <summary of findings or 'no vulnerabilities found'>" \
-  --working-on '[]'
-```
-
-## Step 3: Report Back
-
-Return a clear summary:
 - **Vulnerabilities found** — describe each with severity and affected file
 - **No vulnerabilities** — state this explicitly so the main agent knows the review ran and passed

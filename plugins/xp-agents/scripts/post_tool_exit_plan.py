@@ -10,10 +10,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import identity
 import markers
+from event_schema import STATUS_ACTION_PLAN_EXITED
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -42,6 +44,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         agent_id,
         "plan_awaiting_review: Plan completed, run /xp-review-plan",
         working_on=[],
+        metadata={"action": STATUS_ACTION_PLAN_EXITED},
     )
     _common.append_safe(smm_dir, gate_event)
 

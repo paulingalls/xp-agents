@@ -13,7 +13,20 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-from event_schema import METADATA_KEY_DISPOSITION, METADATA_KEY_RESOLVES
+from event_schema import (
+    METADATA_KEY_DISPOSITION,
+    METADATA_KEY_RESOLVES,
+    STATUS_ACTION_FILE_WRITE,
+    STATUS_ACTION_ITERATION_COMPLETE,
+    STATUS_ACTION_LINT_RESOLVED,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_SECURITY_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
+    STATUS_ACTION_SIMPLIFY_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+    event_action,
+)
 from honesty_signals import build_honesty_signals
 
 # ---------------------------------------------------------------------------
@@ -40,12 +53,22 @@ _SIGNAL_TYPES = frozenset(
 # Status classification
 # ---------------------------------------------------------------------------
 
-_FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = _common.TEST_RUN_RE
-_SECURITY_CHECK_RE = _common.SECURITY_CHECK_RE
-_COMMIT_RE = _common.LEGACY_COMMIT_RE
-_QUALITY_REVIEW_RE = _common.QUALITY_REVIEW_RE
-_LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
+# Action-based dispatch for lifecycle events. Hook is the canonical producer;
+# consumers read metadata.action exactly so LLM-authored content drift cannot
+# zero the counters. Started + complete triage both increment security_checks
+# (one triage run = two ticks). STATUS_ACTION_BASH_FAILED has no counter —
+# failures surface via concerns. Commits are counted via type=commit (handled
+# by the early branch in the loop), not by STATUS_ACTION_COMMIT_SUCCESS.
+_ACTION_TO_COUNTER: dict[str, str] = {
+    STATUS_ACTION_SIMPLIFY_COMPLETE: "simplifies",
+    STATUS_ACTION_QR_COMPLETE: "quality_reviews",
+    STATUS_ACTION_SECURITY_COMPLETE: "security_checks",
+    STATUS_ACTION_SECURITY_TRIAGE_STARTED: "security_checks",
+    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE: "security_checks",
+    STATUS_ACTION_FILE_WRITE: "file_writes",
+    STATUS_ACTION_TEST_RUN_COMPLETE: "test_runs",
+    STATUS_ACTION_LINT_RESOLVED: "lint_events",
+}
 
 
 def _normalize_concern_content(content: str) -> str:
@@ -55,40 +78,41 @@ def _normalize_concern_content(content: str) -> str:
     return normalized.strip()
 
 
-def _classify_status_events(
+def _classify_lifecycle_events(
     events: list[dict],
 ) -> dict:
-    """Classify status events into file_writes, test_runs, other."""
+    """Classify lifecycle events (status + commit) into counter buckets.
+
+    Commit events tick the commits counter via the early type=commit branch;
+    status events dispatch on metadata.action via _ACTION_TO_COUNTER.
+    Unactioned status events → 'other'.
+    """
     counts = {
         "file_writes": 0,
         "test_runs": 0,
         "security_checks": 0,
         "commits": 0,
         "quality_reviews": 0,
+        "simplifies": 0,
         "lint_events": 0,
         "other": 0,
     }
 
-    patterns = [
-        (_FILE_WRITE_RE, "file_writes"),
-        (_TEST_RUN_RE, "test_runs"),
-        (_SECURITY_CHECK_RE, "security_checks"),
-        (_COMMIT_RE, "commits"),
-        (_QUALITY_REVIEW_RE, "quality_reviews"),
-        (_LINT_RE, "lint_events"),
-    ]
-
     for e in events:
-        if e.get("type") != _common.STATUS:
+        etype = e.get("type", "")
+        # type=commit is the canonical commit signal; counted before the
+        # status guard so a real commit always ticks the commits counter.
+        if etype == _common.COMMIT:
+            counts["commits"] += 1
             continue
-        content = e.get("content", "")
-        matched = False
-        for pattern, key in patterns:
-            if pattern.search(content):
-                counts[key] += 1
-                matched = True
-                break
-        if not matched:
+        if etype != _common.STATUS:
+            continue
+
+        action = event_action(e)
+        action_counter = _ACTION_TO_COUNTER.get(action) if action else None
+        if action_counter:
+            counts[action_counter] += 1
+        else:
             counts["other"] += 1
 
     counts["total"] = sum(counts.values())
@@ -159,7 +183,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
             e.get("type") == _common.CONCERN and e.get("id", "") in resolved_concern_ids
         )
     ]
-    status_summary = _classify_status_events(unanalyzed)
+    status_summary = _classify_lifecycle_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = build_honesty_signals(unanalyzed)
 
@@ -215,7 +239,7 @@ def _compute_session_stats(events: list[dict]) -> dict:
             case _common.STATUS:
                 stats["status_count"] += 1
                 agent["status_count"] += 1
-                if e.get("metadata", {}).get("action") == "iteration_complete":
+                if event_action(e) == STATUS_ACTION_ITERATION_COMPLETE:
                     stats["iterations_completed"] += 1
             case _common.CONCERN:
                 stats["concerns_raised"] += 1

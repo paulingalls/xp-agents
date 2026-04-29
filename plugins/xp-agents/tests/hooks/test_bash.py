@@ -21,6 +21,8 @@ import bash_post_tool
 import commits
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from event_schema import STATUS_ACTION_QR_COMPLETE, STATUS_ACTION_TEST_RUN_COMPLETE
+from test_parsing import PARSER_STATUS_FAILED, PARSER_STATUS_PARSED, PARSER_STATUS_ZERO
 
 
 class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
@@ -329,7 +331,11 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         """Seed a quality-review status event to suppress QR-linkage warning."""
         _common.append_safe(
             self.smm_dir,
-            make_event("status", content="Quality review complete. No issues."),
+            make_event(
+                "status",
+                content="Quality review complete. No issues.",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            ),
         )
 
     def test_commit_no_nudge_when_concern_resolved_by_trailer(self):
@@ -363,6 +369,69 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         self._seed_auth_concern()
         self._run_auth_fix()
         self.assertEqual(self._probes(), [])
+
+
+class TestM2TestRunActions(_HookTestCase):
+    """sprint-042 M2: bash_post_tool emits metadata.action=test_run_complete
+    with structured test_passed/test_count/framework fields. Content stays
+    as the legacy 'Tests: ...' digest for the dual-emit window."""
+
+    def _status(self, command: str, stdout: str) -> dict:
+        bash_post_tool.run(
+            _make_bash_input(command=command, stdout=stdout),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1, f"expected 1 status, got {len(statuses)}")
+        return statuses[0]
+
+    def test_passing_pytest_carries_structured_metadata(self):
+        status = self._status("pytest", "===== 3 passed in 0.3s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
+        self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_PARSED)
+        self.assertTrue(metadata.get("test_passed"))
+        self.assertEqual(metadata.get("test_count"), 3)
+        self.assertEqual(metadata.get("framework"), "pytest")
+        # Content keeps the legacy digest.
+        self.assertIn("3 passed", status["content"])
+
+    def test_failing_pytest_carries_test_passed_false(self):
+        status = self._status("pytest", "===== 1 passed, 2 failed in 0.5s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
+        self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_PARSED)
+        self.assertFalse(metadata.get("test_passed"))
+        self.assertEqual(metadata.get("test_count"), 3)
+        self.assertEqual(metadata.get("framework"), "pytest")
+
+    def test_garbled_emits_parser_failed_status(self):
+        status = self._status("pytest", "garbled output with no counts")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
+        self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_FAILED)
+        self.assertNotIn("test_count", metadata)
+        self.assertNotIn("test_passed", metadata)
+        self.assertEqual(metadata.get("framework"), "pytest")
+
+    def test_zero_tests_emits_zero_status_with_count_zero(self):
+        status = self._status("pytest", "===== no tests ran in 0.1s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
+        self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_ZERO)
+        self.assertEqual(metadata.get("test_count"), 0)
+        self.assertIs(metadata.get("test_passed"), True)
+        self.assertEqual(metadata.get("framework"), "pytest")
+
+    def test_errors_only_pytest_emits_test_passed_false(self):
+        # Collection-only errors must NOT report as a green zero-test run.
+        status = self._status("pytest", "===== 2 errors in 0.5s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_PARSED)
+        self.assertIs(metadata.get("test_passed"), False)
+        self.assertEqual(metadata.get("test_count"), 2)
+        self.assertEqual(metadata.get("test_errors"), 2)
 
 
 if __name__ == "__main__":

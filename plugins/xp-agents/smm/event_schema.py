@@ -81,6 +81,62 @@ VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
+# Review-cycle lifecycle actions — vocabulary for the deterministic-event
+# doctrine (sprint-041). Producers (review_cycle_done.py, mark_triaged.py)
+# will set metadata.action to these values so consumers (retro_metrics,
+# bash_post_tool) can detect skill completions without regex-matching
+# LLM-authored content. Producer/consumer wiring lands in story-004.
+STATUS_ACTION_SIMPLIFY_COMPLETE = "simplify_complete"
+STATUS_ACTION_QR_COMPLETE = "qr_complete"
+STATUS_ACTION_SECURITY_COMPLETE = "security_complete"
+STATUS_ACTION_SECURITY_TRIAGE_STARTED = "security_triage_started"
+STATUS_ACTION_SECURITY_TRIAGE_COMPLETE = "security_triage_complete"
+STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
+STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
+
+# Tool-action lifecycle vocabulary — sprint-042 M2 of the deterministic-event
+# doctrine. Each constant is emitted by exactly one hook; consumers read
+# metadata.action so structured fields (files, exit_code, framework, etc.)
+# are not parsed back out of LLM-authored content. Producer map:
+#   STATUS_ACTION_FILE_WRITE        — post_tool_use.py (Write/Edit/MultiEdit)
+#   STATUS_ACTION_TEST_RUN_COMPLETE — bash_post_tool.py (test command success)
+#   STATUS_ACTION_LINT_RESOLVED     — bash_post_tool.py (lint resolved on commit)
+#   STATUS_ACTION_BASH_FAILED       — bash_failure.py (Bash exit non-zero)
+#   STATUS_ACTION_COMMIT_SUCCESS    — bash_post_tool.py (git commit, type=commit)
+# Producer/consumer wiring lands in stories 002-004.
+STATUS_ACTION_FILE_WRITE = "file_write"
+STATUS_ACTION_TEST_RUN_COMPLETE = "test_run_complete"
+STATUS_ACTION_LINT_RESOLVED = "lint_resolved"
+STATUS_ACTION_BASH_FAILED = "bash_failed"
+STATUS_ACTION_COMMIT_SUCCESS = "commit_success"
+
+# Subagent + plan lifecycle vocabulary — sprint-043 M3 of the deterministic-event
+# doctrine. Closes the cleanup window opened in M2. Producer map:
+#   STATUS_ACTION_SUBAGENT_COMPLETE     — subagent_stop.py (every subagent)
+#   STATUS_ACTION_PLAN_COMPLETED        — subagent_stop.py (Plan subagent stop)
+#   STATUS_ACTION_PLAN_AWAITING_REVIEW  — subagent_stop.py (Plan subagent gate)
+#   STATUS_ACTION_PLAN_EXITED           — post_tool_exit_plan.py (ExitPlanMode)
+# Producer/consumer wiring lands in stories 003-006.
+STATUS_ACTION_SUBAGENT_COMPLETE = "subagent_complete"
+STATUS_ACTION_PLAN_COMPLETED = "plan_completed"
+STATUS_ACTION_PLAN_AWAITING_REVIEW = "plan_awaiting_review"
+STATUS_ACTION_PLAN_EXITED = "plan_exited"
+
+
+def event_action(event: dict) -> str | None:
+    """Return event.metadata.action, or None when absent.
+
+    Centralized accessor so consumers don't repeat the
+    `e.get("metadata", {}).get("action")` pattern (which also allocates a
+    fresh empty dict on every miss). Returns None for legacy events without
+    metadata or without the action discriminator.
+    """
+    metadata = event.get("metadata")
+    if not metadata:
+        return None
+    return metadata.get("action")
+
+
 # Cross-module metadata keys. Centralized here so producer and consumer
 # cannot drift on the spelling.
 #   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this

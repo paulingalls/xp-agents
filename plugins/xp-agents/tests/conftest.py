@@ -83,6 +83,7 @@ from _event_fixtures import (  # noqa: E402, F401
 )
 from _hook_inputs import (  # noqa: E402, F401
     _make_agent_input,
+    _make_bash_failure_input,
     _make_bash_input,
     _make_skill_input,
     _make_stop_input,

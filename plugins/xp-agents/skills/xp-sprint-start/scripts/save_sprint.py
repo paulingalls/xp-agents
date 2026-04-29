@@ -17,6 +17,7 @@ Usage:
 import argparse
 import contextlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 import _common  # noqa: E402
 import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
+import identity  # noqa: E402
 import marker_names  # noqa: E402
 import sprint_store  # noqa: E402
 from event_schema import (  # noqa: E402
@@ -46,11 +48,14 @@ _SPRINT_REVIEW_NUDGE = (
 
 def _record_concern(smm_dir: Path, content: str) -> None:
     """Append a low-severity concern event. Never raises — recording a
-    concern must not cascade into a sprint-save failure."""
+    concern must not cascade into a sprint-save failure.
+
+    agent_id is teammate-resolved attribution per the agent-id-semantics
+    ADR; skill identity is not encoded into agent_id.
+    """
+    agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
     with contextlib.suppress(OSError, ValueError):
-        _common.append_safe(
-            smm_dir, concerns.make_concern(content, "low", "save-sprint")
-        )
+        _common.append_safe(smm_dir, concerns.make_concern(content, "low", agent_id))
 
 
 def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
@@ -131,9 +136,12 @@ def run(data: dict, smm_dir: Path) -> None:
     if accept_marker_existed and not has_ip:
         accept_marker.unlink(missing_ok=True)
 
+        # agent_id is teammate-resolved attribution per the agent-id-semantics
+        # ADR; skill identity lives in metadata.action.
+        agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
         event = _common.make_event(
             EVENT_TYPE_STATUS,
-            "save-sprint",
+            agent_id,
             "Iteration complete — accept verification done.",
             working_on=[],
             metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},

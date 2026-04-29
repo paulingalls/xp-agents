@@ -10,6 +10,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
+from event_schema import STATUS_ACTION_COMMIT_SUCCESS, STATUS_ACTION_TEST_RUN_COMPLETE
+from test_parsing import PARSER_STATUS_FAILED
+
+
+def _test_status(passed: bool, count: int = 1) -> dict:
+    return make_event(
+        "status",
+        content=f"Tests: {count} passed, {0 if passed else 1} failed (unittest)",
+        metadata={
+            "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+            "test_passed": passed,
+            "test_count": count,
+            "framework": "unittest",
+        },
+    )
 
 
 class TestWorkSignals(unittest.TestCase):
@@ -66,10 +81,10 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", content="Tests: 10 passed, 2 failed (unittest)"),
-            make_event("status", content="Tests: 11 passed, 1 failed (unittest)"),
-            make_event("status", content="Tests: 10 passed, 3 failed (unittest)"),
-            make_event("status", content="Tests: 13 passed, 0 failed (unittest)"),
+            _test_status(passed=False),
+            _test_status(passed=False),
+            _test_status(passed=False),
+            _test_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 3)
@@ -79,8 +94,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", content="Tests: 10 passed, 1 failed (unittest)"),
-            make_event("status", content="Tests: 11 passed, 0 failed (unittest)"),
+            _test_status(passed=False),
+            _test_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 1)
@@ -90,8 +105,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", content="Tests: 10 passed, 0 failed (unittest)"),
-            make_event("status", content="Tests: 11 passed, 0 failed (unittest)"),
+            _test_status(passed=True),
+            _test_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 0)
@@ -194,6 +209,101 @@ class TestWorkSignals(unittest.TestCase):
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_events_to_commit"], 3)
+
+
+class TestWorkSignalsM2Actions(unittest.TestCase):
+    """sprint-042 M2: action-aware classification with regex fallback."""
+
+    def test_test_run_action_failure_increments_consecutive_failures(self):
+        """metadata.action=test_run_complete with test_passed=false counts
+        as a failed test run, exactly like the legacy regex path."""
+        import work_signals
+
+        events = [
+            make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "test_passed": False,
+                    "test_count": 1,
+                    "framework": "pytest",
+                },
+            ),
+            make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "test_passed": False,
+                    "test_count": 1,
+                    "framework": "pytest",
+                },
+            ),
+            make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "test_passed": True,
+                    "test_count": 5,
+                    "framework": "pytest",
+                },
+            ),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_consecutive_test_failures"], 2)
+
+    def test_parser_failed_run_does_not_reset_consecutive_failures(self):
+        """A test_run_complete with parser_status=parser_failed carries no
+        signal — must not break a red streak by green-washing 'don't know'."""
+        import work_signals
+
+        def fail() -> dict:
+            return make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "test_passed": False,
+                    "test_count": 1,
+                    "framework": "pytest",
+                },
+            )
+
+        def parser_failed() -> dict:
+            return make_event(
+                "status",
+                content="Tests ran (pytest) — counts not extracted",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "parser_status": PARSER_STATUS_FAILED,
+                    "framework": "pytest",
+                },
+            )
+
+        events = [fail(), fail(), parser_failed(), fail()]
+        result = work_signals.build_work_signals(events)
+        # Streak survives the parser_failed event: 3 reds in a row, not 2.
+        self.assertEqual(result["max_consecutive_test_failures"], 3)
+
+    def test_concern_then_type_commit_counts_addressed(self):
+        """Real type=commit events (with metadata.action=commit_success) close
+        pending concerns the same way legacy 'Committed:' status events did."""
+        import work_signals
+
+        events = [
+            make_event("concern", content="Missing tests"),
+            make_event(
+                "commit",
+                content="Add tests",
+                files=["tests/foo.py"],
+                metadata={"action": STATUS_ACTION_COMMIT_SUCCESS, "commit_hash": "abc"},
+            ),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["concerns_addressed_by_commits"], 1)
+        self.assertEqual(result["unaddressed_concerns"], 0)
 
 
 if __name__ == "__main__":

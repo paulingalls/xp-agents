@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
+from event_schema import STATUS_ACTION_QR_COMPLETE
 
 
 class TestPreToolWriteIntegration(_IntegrationTestCase):
@@ -240,6 +241,7 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
                 make_event(
                     "status",
                     content="Quality review complete. No issues.",
+                    metadata={"action": STATUS_ACTION_QR_COMPLETE},
                 )
             ]
         )

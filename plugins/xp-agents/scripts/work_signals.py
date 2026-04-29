@@ -14,10 +14,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import security
+from event_schema import (
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+    event_action,
+)
+from test_parsing import PARSER_STATUS_FAILED
 
-_TEST_RUN_RE = _common.TEST_RUN_RE
+# Parses failed-count from content when metadata.test_passed is absent and
+# parser_status didn't flag the run as parser_failed. NOT a status-event
+# content fallback for test-run detection (action dispatch handles that).
 _TEST_FAIL_RE = re.compile(r"(\d+)\s+failed", re.IGNORECASE)
-_COMMIT_RE = _common.LEGACY_COMMIT_RE
 
 
 def _has_code_changes(event: dict) -> bool:
@@ -48,10 +55,11 @@ def build_work_signals(events: list[dict]) -> dict:
     for e in events:
         etype = e.get("type", "")
         content = e.get("content", "")
+        action = event_action(e)
 
-        is_commit = etype == _common.COMMIT or (
-            etype == _common.STATUS and _COMMIT_RE.search(content)
-        )
+        # Real commits are type=commit; the action branch is forward-compat
+        # for any future status-typed commit emission.
+        is_commit = etype == _common.COMMIT or action == STATUS_ACTION_COMMIT_SUCCESS
 
         if is_commit:
             # Concerns before this commit are now addressed
@@ -72,11 +80,23 @@ def build_work_signals(events: list[dict]) -> dict:
             elif editing:
                 events_since_first_edit += 1
 
+            is_test_run = action == STATUS_ACTION_TEST_RUN_COMPLETE
+
             if etype == _common.CONCERN:
                 pending_concerns += 1
-            elif etype == _common.STATUS and _TEST_RUN_RE.search(content):
-                fail_match = _TEST_FAIL_RE.search(content)
-                failed_count = int(fail_match.group(1)) if fail_match else 0
+            elif is_test_run:
+                # parser_failed carries no signal — skip so a "don't know"
+                # outcome doesn't green-wash an in-flight red streak.
+                metadata = e.get("metadata") or {}
+                if metadata.get("parser_status") == PARSER_STATUS_FAILED:
+                    continue
+                # Prefer structured metadata.test_passed when present;
+                # otherwise fall back to parsing failed-count from content.
+                if "test_passed" in metadata:
+                    failed_count = 0 if metadata["test_passed"] else 1
+                else:
+                    fail_match = _TEST_FAIL_RE.search(content)
+                    failed_count = int(fail_match.group(1)) if fail_match else 0
                 if failed_count > 0:
                     consecutive_failures += 1
                 else:

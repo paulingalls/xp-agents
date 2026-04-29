@@ -13,6 +13,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
+from event_schema import (
+    STATUS_ACTION_FILE_WRITE,
+    STATUS_ACTION_LINT_RESOLVED,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_SECURITY_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
+    STATUS_ACTION_SIMPLIFY_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+)
 
 
 class TestDirectTrailerCount(unittest.TestCase):
@@ -264,22 +274,162 @@ class TestProbeAdoptionRate(unittest.TestCase):
         self.assertEqual(result["probe_escape"], 0)
 
 
-class TestClassifyStatusQR(unittest.TestCase):
-    """_classify_status_events counts quality reviews with varied phrasings."""
+class TestClassifyLifecycleEvents(unittest.TestCase):
+    """_classify_lifecycle_events dispatches on metadata.action for review-cycle
+    lifecycle moments — replaces the deleted content-regex fallback."""
 
-    def test_standard_phrasing_counted(self):
+    def test_qr_complete_action_increments_quality_reviews(self):
         import retro_metrics
 
-        events = [make_event("status", content="Quality review complete. Clean.")]
-        counts = retro_metrics._classify_status_events(events)
+        events = [
+            make_event(
+                "status",
+                content="ignored content",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["quality_reviews"], 1)
 
-    def test_qr_abbreviation_counted(self):
+    def test_security_complete_action_increments_security_checks(self):
         import retro_metrics
 
-        events = [make_event("status", content="QR complete. Fixed: chrome.ts")]
-        counts = retro_metrics._classify_status_events(events)
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": STATUS_ACTION_SECURITY_COMPLETE},
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["security_checks"], 1)
+
+    def test_security_triage_actions_increment_security_checks(self):
+        """Both started and complete triage actions count toward security_checks
+        (preserves legacy regex semantics; double-counts a single triage run)."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_STARTED},
+            ),
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_COMPLETE},
+            ),
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["security_checks"], 2)
+
+    def test_simplify_complete_action_increments_simplifies(self):
+        """New counter — no equivalent existed in the regex era."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": STATUS_ACTION_SIMPLIFY_COMPLETE},
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["simplifies"], 1)
+
+    def test_action_dispatch_wins_over_content_regex(self):
+        """Doctrine invariant: when metadata.action is present and recognized,
+        consumers must NOT also content-match. A status event whose content
+        would otherwise hit a regex bucket (e.g. 'Wrote to foo.py') but whose
+        action is qr_complete must count as a quality_review only — not a
+        file_write — and must NOT be double-counted."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to scripts/foo.py",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["quality_reviews"], 1)
+        self.assertEqual(counts["file_writes"], 0)
+        self.assertEqual(counts["other"], 0)
+
+
+class TestClassifyM2ToolActions(unittest.TestCase):
+    """sprint-042 M2: tool-action discriminators dispatch via metadata.action;
+    legacy content regexes stay as fallback; commit counter reads type=commit."""
+
+    def test_file_write_action_increments_file_writes_once(self):
+        """metadata.action=file_write increments file_writes — and the regex
+        branch must NOT also fire (no double-count even if content matches)."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="Wrote to scripts/foo.py",
+                metadata={
+                    "action": STATUS_ACTION_FILE_WRITE,
+                    "files": ["scripts/foo.py"],
+                },
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["file_writes"], 1)
+        self.assertEqual(counts["other"], 0)
+
+    def test_test_run_complete_action_counts(self):
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": STATUS_ACTION_TEST_RUN_COMPLETE},
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["test_runs"], 1)
+
+    def test_lint_resolved_action_counts(self):
+        import retro_metrics
+
+        events = [
+            make_event(
+                "status",
+                content="ignored",
+                metadata={"action": STATUS_ACTION_LINT_RESOLVED},
+            )
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["lint_events"], 1)
+
+    def test_commit_counter_reads_type_commit_events(self):
+        """Real commits emit type=commit (not status). The retro commit
+        counter must read those directly — closes the meta-irony where a
+        doctrine session couldn't count its own commits."""
+        import retro_metrics
+
+        events = [
+            make_event(
+                "commit",
+                content="msg",
+                files=["scripts/x.py"],
+                metadata={"commit_hash": "abc", "code_commit": True},
+            ),
+            make_event(
+                "commit",
+                content="msg2",
+                files=["scripts/y.py"],
+                metadata={"commit_hash": "def", "code_commit": True},
+            ),
+        ]
+        counts = retro_metrics._classify_lifecycle_events(events)
+        self.assertEqual(counts["commits"], 2)
 
 
 if __name__ == "__main__":

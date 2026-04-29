@@ -6,6 +6,7 @@ or status event with metadata.resolves populated automatically. Replaces
 LLM-crafted --metadata JSON discipline with code.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -28,6 +29,13 @@ class _DecideTestCase(_HookTestCase):
     def setUp(self):
         super().setUp()
         self.mod = work_selection_decide
+        # Chdir out of any worktree path so agent_id resolves to "main".
+        self._prev_cwd = os.getcwd()
+        os.chdir(self.smm_dir)
+
+    def tearDown(self):
+        os.chdir(self._prev_cwd)
+        super().tearDown()
 
     def _last_event(self) -> dict:
         events = self._read_events()
@@ -96,14 +104,16 @@ class TestAdopt(_DecideTestCase):
         )
         self.assertEqual(self._last_event()["type"], "decision")
 
-    def test_adopt_agent_id_is_xp_work_selection(self):
+    def test_adopt_agent_id_is_resolved(self):
+        """agent_id is teammate-resolved attribution per the agent-id-semantics
+        ADR; the test cwd is a non-worktree tmpdir so it resolves to 'main'."""
         self.mod.run(
             action="adopt",
             smm_dir=self.smm_dir,
             content="A try",
             topic="retro-try-foo",
         )
-        self.assertEqual(self._last_event()["agent_id"], "xp-work-selection")
+        self.assertEqual(self._last_event()["agent_id"], "main")
 
 
 class TestDefer(_DecideTestCase):

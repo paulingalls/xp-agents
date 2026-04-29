@@ -23,8 +23,18 @@ import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_LINT_RESOLVED,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+    event_action,
 )
-from test_parsing import is_test_run, parse_test_results
+from test_parsing import (
+    PARSER_STATUS_PARSED,
+    PARSER_STATUS_ZERO,
+    is_test_run,
+    parse_test_results,
+)
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -62,6 +72,7 @@ def _resolve_lint_on_commit(
                 "Lint concern resolved on commit",
                 events=events,
                 resolutions=resolutions,
+                extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
             )
 
 
@@ -211,8 +222,9 @@ def _check_qr_linkage(events: list[dict], agent_id: str) -> str | None:
     search_start = (prev_commit_idx + 1) if prev_commit_idx is not None else 0
     for i in range(search_start, len(events)):
         e = events[i]
-        if e.get("type") == _common.STATUS and _common.QUALITY_REVIEW_RE.search(
-            e.get("content", "")
+        if (
+            e.get("type") == _common.STATUS
+            and event_action(e) == STATUS_ACTION_QR_COMPLETE
         ):
             return None
 
@@ -255,7 +267,11 @@ def _handle_commit(
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
-    metadata: dict = {"code_commit": has_code, "code_file_count": code_file_count}
+    metadata: dict = {
+        "action": STATUS_ACTION_COMMIT_SUCCESS,
+        "code_commit": has_code,
+        "code_file_count": code_file_count,
+    }
     if commit_hash:
         metadata[METADATA_KEY_COMMIT_HASH] = commit_hash
     if resolves:
@@ -362,21 +378,42 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     framework = is_test_run(command)
     if framework:
         results = parse_test_results(response_text, framework)
+        parser_status = results["status"]
         passed = results["passed"]
         failed = results["failed"]
+        errors = results["errors"]
 
-        # If parser couldn't extract numbers (truncated output, wrong dir, etc.),
-        # record a neutral status — we don't know if tests passed or failed
-        if passed == 0 and failed == 0:
-            content = f"Tests ran ({framework}) — counts not extracted"
-        else:
+        # Structured metadata.action+companion fields are the canonical signal;
+        # content stays as a human-readable digest for log readers.
+        # parser_status disambiguates "framework ran 0 tests" (ZERO) from
+        # "parser couldn't extract counts" (FAILED). On FAILED, test_passed
+        # and test_count are omitted — producers don't invent numbers they
+        # don't have. parsers fold errors into failed, so failed is the
+        # disjoint "did-not-pass" count; metadata.test_errors is informational.
+        metadata: dict = {
+            "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+            "framework": framework,
+            "parser_status": parser_status,
+        }
+        if parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
+            metadata["test_passed"] = failed == 0
+            metadata["test_count"] = passed + failed
+            if errors > 0:
+                metadata["test_errors"] = errors
+        elif parser_status == PARSER_STATUS_ZERO:
+            content = f"Tests ran ({framework}) — 0 tests"
+            metadata["test_passed"] = True
+            metadata["test_count"] = 0
+        else:
+            content = f"Tests ran ({framework}) — counts not extracted"
 
         status = _common.make_event(
             _common.STATUS,
             agent_id,
             content,
             working_on=[],
+            metadata=metadata,
         )
         _common.append_safe(smm_dir, status)
 

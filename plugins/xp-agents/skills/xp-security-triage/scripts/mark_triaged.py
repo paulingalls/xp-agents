@@ -7,8 +7,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 
 import _common
+import event_schema
 import identity
 import markers
 import security
@@ -39,11 +41,14 @@ else:
     markers.set_review_flag(smm_dir, agent_id, "security_review_done")
     # Record triage in the event log so the retro can see it happened.
     # Content is neutral — the agent decides next steps after seeing the diff.
+    # agent_id is teammate-resolved attribution per the agent-id-semantics
+    # ADR; skill identity lives in metadata.action.
     event = _common.make_event(
         _common.STATUS,
-        "xp-security-triage",
+        agent_id,
         "Security triage started — reviewing staged changes",
         working_on=[],
+        metadata={"action": event_schema.STATUS_ACTION_SECURITY_TRIAGE_STARTED},
     )
     _common.append_safe(smm_dir, event)
     print("Security triage marker written. Commit gate cleared.")

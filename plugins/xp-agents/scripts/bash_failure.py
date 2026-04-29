@@ -19,7 +19,7 @@ import _common
 import bash_post_tool
 import concerns
 import identity
-from event_schema import CONTENT_BUDGETS
+from event_schema import CONTENT_BUDGETS, STATUS_ACTION_BASH_FAILED
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -48,16 +48,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
     error = input_data.get("error", "")
 
-    # Record failure as status + concern
+    # Record failure as status + concern. M2 dual-emit: metadata.action +
+    # exit_code (when provided by the hook input) are the canonical signal;
+    # content stays as the legacy human-readable digest.
     prefix = f"Test run failed ({framework}): "
     budget = CONTENT_BUDGETS[_common.STATUS]
     assert budget is not None
     max_error = budget - len(prefix)
+    metadata: dict = {"action": STATUS_ACTION_BASH_FAILED}
+    exit_code = input_data.get("exit_code")
+    if exit_code is not None:
+        metadata["exit_code"] = exit_code
     status = _common.make_event(
         _common.STATUS,
         agent_id,
         f"{prefix}{error[:max_error]}",
         working_on=[],
+        metadata=metadata,
     )
     _common.append_safe(smm_dir, status)
 

@@ -21,6 +21,7 @@ import markers
 import security
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from event_schema import STATUS_ACTION_QR_COMPLETE
 
 
 class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
@@ -41,7 +42,11 @@ class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
         self._seed_auth_concern()
         _common.append_safe(
             self.smm_dir,
-            make_event("status", content="Quality review complete."),
+            make_event(
+                "status",
+                content="Quality review complete.",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            ),
         )
         result = self._run_auth_commit()
         self.assertIsNone(result)
@@ -447,6 +452,7 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
             "status",
             agent_id=agent_id,
             content="Quality review complete. No issues: [].",
+            metadata={"action": STATUS_ACTION_QR_COMPLETE},
         )
         _common.append_safe(self.smm_dir, ev)
         return ev["id"]
@@ -558,10 +564,84 @@ class TestCheckQRLinkagePhrasings(unittest.TestCase):
     def test_qr_abbreviation_satisfies_nudge(self):
         events = [
             make_event("commit", content="prior commit", agent_id="main"),
-            make_event("status", content="QR complete. Fixed: chrome.ts"),
+            make_event(
+                "status",
+                content="QR complete. Fixed: chrome.ts",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            ),
         ]
         result = bash_post_tool._check_qr_linkage(events, "main")
         self.assertIsNone(result)
+
+
+class TestM2CommitSuccessAction(_HookTestCase):
+    """sprint-042 M2: type=commit events carry metadata.action=commit_success
+    alongside the existing commit_hash/code_commit/code_file_count fields."""
+
+    def test_commit_event_carries_commit_success_action(self):
+        with patch_commits(files=["scripts/foo.py"], body="Add foo"):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Add foo'",
+                    stdout="[main abc1234] Add foo\n 1 file changed",
+                    cwd=str(self.smm_dir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        commits = [e for e in events if e.get("type") == "commit"]
+        self.assertEqual(len(commits), 1)
+        metadata = commits[0].get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "commit_success")
+        # Existing metadata fields stay populated.
+        self.assertIn("commit_hash", metadata)
+        self.assertTrue(metadata.get("code_commit"))
+
+
+class TestM2LintResolvedAction(_HookTestCase):
+    """sprint-042 M2: lint resolver event carries metadata.action=lint_resolved."""
+
+    def test_lint_resolved_event_carries_action(self):
+        # Seed an unresolved lint concern that matches the file we'll commit.
+        from concerns import LINT_CONCERN_PREFIX
+
+        seeded = make_event(
+            "concern",
+            content=f"{LINT_CONCERN_PREFIX}scripts/foo.py: 1 error (X)",
+            files=["scripts/foo.py"],
+        )
+        _common.append_safe(self.smm_dir, seeded)
+
+        # Force the linter to report no errors so the concern resolves.
+        # Patch normalize_path to identity so the seeded relative path matches
+        # the committed file path exactly (no cwd-prefixing).
+        with (
+            patch_commits(files=["scripts/foo.py"], body="Fix lint"),
+            patch("worktree.normalize_path", side_effect=lambda p, _cwd: p),
+            patch(
+                "lint_check.detect_linter_config",
+                return_value=("ruff", "ruff.toml"),
+            ),
+            patch("lint_check.run_linter", return_value=None),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix lint'",
+                    stdout="[main abc1234] Fix lint\n 1 file changed",
+                    cwd=str(self.smm_dir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        resolvers = [
+            e
+            for e in events
+            if e.get("type") == "status"
+            and "Lint concern resolved" in e.get("content", "")
+        ]
+        self.assertEqual(len(resolvers), 1)
+        metadata = resolvers[0].get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "lint_resolved")
 
 
 if __name__ == "__main__":

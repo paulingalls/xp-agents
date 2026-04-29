@@ -18,6 +18,7 @@ import review_cycle_done
 import security
 import subagent_stop
 from conftest import _HookTestCase, _make_agent_input, _make_skill_input
+from event_schema import event_action
 
 
 class TestReviewCycleDone(_HookTestCase):
@@ -53,28 +54,58 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertTrue(cycle["security_review_done"])
         self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
-    def test_triage_does_not_record_review_complete(self):
-        """Triage-only should not claim a full review happened."""
-        review_cycle_done.run(
-            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
-        )
+    def _action_events(self, action: str) -> list[dict]:
         events = _common.read_events_raw(self.smm_dir)
-        review_events = [
-            e for e in events if "Security review complete" in e.get("content", "")
-        ]
-        self.assertEqual(len(review_events), 0)
+        return [e for e in events if event_action(e) == action]
 
-    def test_security_review_records_review_complete(self):
-        """/security-review should record the review complete event."""
+    def test_simplify_emits_action_event(self):
+        """/simplify completion appends a status event with action=simplify_complete."""
+        review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
+        emitted = self._action_events("simplify_complete")
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["type"], "status")
+
+    def test_quality_review_emits_action_event(self):
+        """/xp-quality-review completion appends action=qr_complete."""
+        review_cycle_done.run(
+            _make_skill_input("xp-quality-review"), smm_dir=self.smm_dir
+        )
+        emitted = self._action_events("qr_complete")
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["type"], "status")
+
+    def test_security_review_emits_action_event(self):
+        """/security-review records exactly one event with action=security_complete."""
         review_cycle_done.run(
             _make_skill_input("security-review"), smm_dir=self.smm_dir
         )
-        events = _common.read_events_raw(self.smm_dir)
-        review_events = [
-            e for e in events if "Security review complete" in e.get("content", "")
-        ]
-        self.assertEqual(len(review_events), 1)
-        self.assertEqual(review_events[0]["agent_id"], "security-review")
+        emitted = self._action_events("security_complete")
+        self.assertEqual(len(emitted), 1)
+        # agent_id is attribution (teammate-resolved); skill identity lives
+        # in metadata.action. _make_skill_input defaults agent_id to "main".
+        self.assertEqual(emitted[0]["agent_id"], "main")
+
+    def test_security_triage_emits_complete_action(self):
+        """Triage emits security_triage_complete and NEVER security_complete."""
+        review_cycle_done.run(
+            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
+        )
+        triage = self._action_events("security_triage_complete")
+        review = self._action_events("security_complete")
+        self.assertEqual(len(triage), 1, "expected one security_triage_complete")
+        self.assertEqual(len(review), 0, "triage must not emit security_complete")
+
+    def test_plan_review_emits_action_event(self):
+        """/xp-review-plan completion appends action=plan_reviewed."""
+        review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)
+        emitted = self._action_events("plan_reviewed")
+        self.assertEqual(len(emitted), 1)
+
+    def test_housekeeping_emits_action_event(self):
+        """xp-housekeeper agent completion appends action=housekeeping_complete."""
+        review_cycle_done.run(_make_agent_input("xp-housekeeper"), smm_dir=self.smm_dir)
+        emitted = self._action_events("housekeeping_complete")
+        self.assertEqual(len(emitted), 1)
 
     def test_qualified_simplify_name(self):
         """Plugin-qualified skill names also match."""
@@ -181,6 +212,37 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertTrue(cycle["simplify_done"])
         main_cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(main_cycle.get("simplify_done", False))
+
+
+class TestAgentIdSemantics(_HookTestCase):
+    """agent_id is teammate attribution; metadata.action carries skill identity.
+
+    review_cycle_done previously emitted lifecycle events with agent_id set
+    to a skill-name string (e.g. "xp-quality-review"), drawn from a third
+    tuple element in _TARGET_LIFECYCLE. Per the agent-id-semantics ADR
+    (sprint-042), every hook producer writes the resolved teammate agent_id;
+    skill identity lives in metadata.action.
+    """
+
+    def test_simplify_event_uses_resolved_agent_id(self):
+        review_cycle_done.run(
+            _make_skill_input("simplify", agent_id="teammate-7"),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        emitted = [e for e in events if event_action(e) == "simplify_complete"]
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["agent_id"], "teammate-7")
+
+    def test_quality_review_event_uses_resolved_agent_id(self):
+        review_cycle_done.run(
+            _make_skill_input("xp-quality-review", agent_id="teammate-9"),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        emitted = [e for e in events if event_action(e) == "qr_complete"]
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["agent_id"], "teammate-9")
 
 
 class TestSubagentStopReviewFlags(_HookTestCase):
