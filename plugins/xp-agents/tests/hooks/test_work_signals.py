@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
-from event_schema import STATUS_ACTION_TEST_RUN_COMPLETE
+from event_schema import STATUS_ACTION_COMMIT_SUCCESS, STATUS_ACTION_TEST_RUN_COMPLETE
 
 
 def _test_status(passed: bool, count: int = 1) -> dict:
@@ -223,7 +223,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "status",
                 content="opaque",
                 metadata={
-                    "action": "test_run_complete",
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
                     "test_passed": False,
                     "test_count": 1,
                     "framework": "pytest",
@@ -233,7 +233,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "status",
                 content="opaque",
                 metadata={
-                    "action": "test_run_complete",
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
                     "test_passed": False,
                     "test_count": 1,
                     "framework": "pytest",
@@ -243,7 +243,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "status",
                 content="opaque",
                 metadata={
-                    "action": "test_run_complete",
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
                     "test_passed": True,
                     "test_count": 5,
                     "framework": "pytest",
@@ -264,7 +264,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "commit",
                 content="Add tests",
                 files=["tests/foo.py"],
-                metadata={"action": "commit_success", "commit_hash": "abc"},
+                metadata={"action": STATUS_ACTION_COMMIT_SUCCESS, "commit_hash": "abc"},
             ),
         ]
         result = work_signals.build_work_signals(events)

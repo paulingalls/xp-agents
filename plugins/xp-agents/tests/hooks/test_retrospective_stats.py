@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import STATUS_ACTION_ITERATION_COMPLETE
 
 
 class TestSessionStats(_HookTestCase):
@@ -122,14 +123,14 @@ class TestSessionStats(_HookTestCase):
                 "status",
                 content="Iteration complete \u2014 accept verification done.",
                 working_on=[],
-                metadata={"action": "iteration_complete"},
+                metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},
             ),
             make_event("status", content="more work", working_on=["b.py"]),
             make_event(
                 "status",
                 content="Iteration complete \u2014 accept verification done.",
                 working_on=[],
-                metadata={"action": "iteration_complete"},
+                metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},
             ),
             make_event(content="filler"),
         ]

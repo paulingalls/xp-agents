@@ -21,6 +21,7 @@ import markers
 import security
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from event_schema import STATUS_ACTION_QR_COMPLETE
 
 
 class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
@@ -44,7 +45,7 @@ class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
             make_event(
                 "status",
                 content="Quality review complete.",
-                metadata={"action": "qr_complete"},
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
         )
         result = self._run_auth_commit()
@@ -451,7 +452,7 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
             "status",
             agent_id=agent_id,
             content="Quality review complete. No issues: [].",
-            metadata={"action": "qr_complete"},
+            metadata={"action": STATUS_ACTION_QR_COMPLETE},
         )
         _common.append_safe(self.smm_dir, ev)
         return ev["id"]
@@ -566,7 +567,7 @@ class TestCheckQRLinkagePhrasings(unittest.TestCase):
             make_event(
                 "status",
                 content="QR complete. Fixed: chrome.ts",
-                metadata={"action": "qr_complete"},
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
         ]
         result = bash_post_tool._check_qr_linkage(events, "main")

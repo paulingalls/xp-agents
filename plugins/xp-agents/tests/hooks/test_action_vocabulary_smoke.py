@@ -160,15 +160,8 @@ def _drive_subagent_complete(smm_dir: Path) -> list[dict]:
 
 
 def _drive_plan_completed(smm_dir: Path) -> list[dict]:
-    subagent_stop.run(
-        _make_stop_input(agent_type="Plan"),
-        smm_dir=smm_dir,
-    )
-    return _events(smm_dir)
-
-
-def _drive_plan_awaiting_review(smm_dir: Path) -> list[dict]:
-    # Plan subagent stop emits BOTH plan_completed and plan_awaiting_review.
+    # Plan subagent stop emits BOTH plan_completed (completion event) and
+    # plan_awaiting_review (gate event) — one driver covers both action assertions.
     subagent_stop.run(
         _make_stop_input(agent_type="Plan"),
         smm_dir=smm_dir,
@@ -244,7 +237,7 @@ _PRODUCER_CASES: dict[str, Driver] = {
     event_schema.STATUS_ACTION_COMMIT_SUCCESS: _drive_commit_success,
     event_schema.STATUS_ACTION_SUBAGENT_COMPLETE: _drive_subagent_complete,
     event_schema.STATUS_ACTION_PLAN_COMPLETED: _drive_plan_completed,
-    event_schema.STATUS_ACTION_PLAN_AWAITING_REVIEW: _drive_plan_awaiting_review,
+    event_schema.STATUS_ACTION_PLAN_AWAITING_REVIEW: _drive_plan_completed,
     event_schema.STATUS_ACTION_PLAN_EXITED: _drive_plan_exited,
     event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE: _drive_review_cycle("simplify"),
     event_schema.STATUS_ACTION_QR_COMPLETE: _drive_review_cycle("xp-quality-review"),

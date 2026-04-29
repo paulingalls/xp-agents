@@ -13,6 +13,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
+from event_schema import (
+    STATUS_ACTION_FILE_WRITE,
+    STATUS_ACTION_LINT_RESOLVED,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_SECURITY_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
+    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
+    STATUS_ACTION_SIMPLIFY_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+)
 
 
 class TestDirectTrailerCount(unittest.TestCase):
@@ -275,7 +285,7 @@ class TestClassifyStatusActions(unittest.TestCase):
             make_event(
                 "status",
                 content="ignored content",
-                metadata={"action": "qr_complete"},
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
             )
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -288,7 +298,7 @@ class TestClassifyStatusActions(unittest.TestCase):
             make_event(
                 "status",
                 content="ignored",
-                metadata={"action": "security_complete"},
+                metadata={"action": STATUS_ACTION_SECURITY_COMPLETE},
             )
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -303,12 +313,12 @@ class TestClassifyStatusActions(unittest.TestCase):
             make_event(
                 "status",
                 content="ignored",
-                metadata={"action": "security_triage_started"},
+                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_STARTED},
             ),
             make_event(
                 "status",
                 content="ignored",
-                metadata={"action": "security_triage_complete"},
+                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_COMPLETE},
             ),
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -322,7 +332,7 @@ class TestClassifyStatusActions(unittest.TestCase):
             make_event(
                 "status",
                 content="ignored",
-                metadata={"action": "simplify_complete"},
+                metadata={"action": STATUS_ACTION_SIMPLIFY_COMPLETE},
             )
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -340,7 +350,7 @@ class TestClassifyStatusActions(unittest.TestCase):
             make_event(
                 "status",
                 content="Wrote to scripts/foo.py",
-                metadata={"action": "qr_complete"},
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
             )
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -362,7 +372,10 @@ class TestClassifyM2ToolActions(unittest.TestCase):
             make_event(
                 "status",
                 content="Wrote to scripts/foo.py",
-                metadata={"action": "file_write", "files": ["scripts/foo.py"]},
+                metadata={
+                    "action": STATUS_ACTION_FILE_WRITE,
+                    "files": ["scripts/foo.py"],
+                },
             )
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -376,7 +389,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
             make_event(
                 "status",
                 content="ignored",
-                metadata={"action": "test_run_complete"},
+                metadata={"action": STATUS_ACTION_TEST_RUN_COMPLETE},
             )
         ]
         counts = retro_metrics._classify_status_events(events)
@@ -389,7 +402,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
             make_event(
                 "status",
                 content="ignored",
-                metadata={"action": "lint_resolved"},
+                metadata={"action": STATUS_ACTION_LINT_RESOLVED},
             )
         ]
         counts = retro_metrics._classify_status_events(events)

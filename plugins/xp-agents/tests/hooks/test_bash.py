@@ -21,6 +21,7 @@ import bash_post_tool
 import commits
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from event_schema import STATUS_ACTION_QR_COMPLETE, STATUS_ACTION_TEST_RUN_COMPLETE
 from test_parsing import PARSER_STATUS_FAILED, PARSER_STATUS_PARSED, PARSER_STATUS_ZERO
 
 
@@ -333,7 +334,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             make_event(
                 "status",
                 content="Quality review complete. No issues.",
-                metadata={"action": "qr_complete"},
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
         )
 
@@ -388,7 +389,7 @@ class TestM2TestRunActions(_HookTestCase):
     def test_passing_pytest_carries_structured_metadata(self):
         status = self._status("pytest", "===== 3 passed in 0.3s =====")
         metadata = status.get("metadata") or {}
-        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
         self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_PARSED)
         self.assertTrue(metadata.get("test_passed"))
         self.assertEqual(metadata.get("test_count"), 3)
@@ -399,7 +400,7 @@ class TestM2TestRunActions(_HookTestCase):
     def test_failing_pytest_carries_test_passed_false(self):
         status = self._status("pytest", "===== 1 passed, 2 failed in 0.5s =====")
         metadata = status.get("metadata") or {}
-        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
         self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_PARSED)
         self.assertFalse(metadata.get("test_passed"))
         self.assertEqual(metadata.get("test_count"), 3)
@@ -408,7 +409,7 @@ class TestM2TestRunActions(_HookTestCase):
     def test_garbled_emits_parser_failed_status(self):
         status = self._status("pytest", "garbled output with no counts")
         metadata = status.get("metadata") or {}
-        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
         self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_FAILED)
         self.assertNotIn("test_count", metadata)
         self.assertNotIn("test_passed", metadata)
@@ -417,7 +418,7 @@ class TestM2TestRunActions(_HookTestCase):
     def test_zero_tests_emits_zero_status_with_count_zero(self):
         status = self._status("pytest", "===== no tests ran in 0.1s =====")
         metadata = status.get("metadata") or {}
-        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_TEST_RUN_COMPLETE)
         self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_ZERO)
         self.assertEqual(metadata.get("test_count"), 0)
         self.assertIs(metadata.get("test_passed"), True)

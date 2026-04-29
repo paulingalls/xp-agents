@@ -382,8 +382,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         passed = results["passed"]
         failed = results["failed"]
 
-        # M2 dual-emit: structured metadata.action+companion fields are the
-        # canonical signal; content stays as the legacy human-readable digest.
+        # Structured metadata.action+companion fields are the canonical signal;
+        # content stays as a human-readable digest for log readers.
         # parser_status disambiguates "framework ran 0 tests" (ZERO) from
         # "parser couldn't extract counts" (FAILED). On FAILED, test_passed
         # and test_count are omitted — producers don't invent numbers they
