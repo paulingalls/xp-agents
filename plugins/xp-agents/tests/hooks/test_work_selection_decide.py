@@ -6,6 +6,7 @@ or status event with metadata.resolves populated automatically. Replaces
 LLM-crafted --metadata JSON discipline with code.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -28,6 +29,16 @@ class _DecideTestCase(_HookTestCase):
     def setUp(self):
         super().setUp()
         self.mod = work_selection_decide
+        # Chdir into the SMM tmpdir so identity.resolve_agent_id_from_cwd
+        # sees a non-worktree path. Without this, tests run inside a teammate
+        # worktree (e.g. .claude/worktrees/teammate-story-001) inherit that
+        # cwd and resolve agent_id to the teammate name instead of "main".
+        self._prev_cwd = os.getcwd()
+        os.chdir(self.smm_dir)
+
+    def tearDown(self):
+        os.chdir(self._prev_cwd)
+        super().tearDown()
 
     def _last_event(self) -> dict:
         events = self._read_events()
