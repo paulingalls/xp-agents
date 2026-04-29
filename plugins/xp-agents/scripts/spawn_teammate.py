@@ -10,7 +10,8 @@ Usage:
         --name teammate-step-1 \
         --smm-dir /path/to/smm \
         --prompt-file /tmp/prompt.txt \
-        [--story-id story-001]
+        [--story-id story-001] \
+        [--branch paulingalls/story-001-foo]
 """
 
 import argparse
