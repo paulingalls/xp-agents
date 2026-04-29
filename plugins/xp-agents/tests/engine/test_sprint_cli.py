@@ -238,5 +238,36 @@ class TestEditStoryCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestUpdateStoryBranch(_SMMTestCase):
+    def test_sets_branch_name(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["update-story-branch", "story-001", "paul/story-001-foo"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["branch_name"], "paul/story-001-foo")
+
+    def test_invalid_story_fails(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(
+            _CLI,
+            ["update-story-branch", "story-999", "paul/story-999-foo"],
+            self.smm_dir,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("error", result.stderr.lower())
+
+    def test_no_sprint_fails(self):
+        result = run_cli(
+            _CLI,
+            ["update-story-branch", "story-001", "paul/story-001-foo"],
+            self.smm_dir,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
