@@ -369,5 +369,49 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(self._probes(), [])
 
 
+class TestM2TestRunActions(_HookTestCase):
+    """sprint-042 M2: bash_post_tool emits metadata.action=test_run_complete
+    with structured test_passed/test_count/framework fields. Content stays
+    as the legacy 'Tests: ...' digest for the dual-emit window."""
+
+    def _status(self, command: str, stdout: str) -> dict:
+        bash_post_tool.run(
+            _make_bash_input(command=command, stdout=stdout),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1, f"expected 1 status, got {len(statuses)}")
+        return statuses[0]
+
+    def test_passing_pytest_carries_structured_metadata(self):
+        status = self._status("pytest", "===== 3 passed in 0.3s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertTrue(metadata.get("test_passed"))
+        self.assertEqual(metadata.get("test_count"), 3)
+        self.assertEqual(metadata.get("framework"), "pytest")
+        # Content keeps the legacy digest.
+        self.assertIn("3 passed", status["content"])
+
+    def test_failing_pytest_carries_test_passed_false(self):
+        status = self._status("pytest", "===== 1 passed, 2 failed in 0.5s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertFalse(metadata.get("test_passed"))
+        self.assertEqual(metadata.get("test_count"), 3)
+        self.assertEqual(metadata.get("framework"), "pytest")
+
+    def test_unparsed_counts_still_carries_action_without_count(self):
+        """When parser can't extract counts (truncated/wrong dir output),
+        metadata.action is still set but test_count is omitted."""
+        status = self._status("pytest", "garbled output with no counts")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertNotIn("test_count", metadata)
+        self.assertNotIn("test_passed", metadata)
+        self.assertEqual(metadata.get("framework"), "pytest")
+
+
 if __name__ == "__main__":
     unittest.main()

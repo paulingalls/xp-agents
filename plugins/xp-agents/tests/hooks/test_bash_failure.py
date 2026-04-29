@@ -262,5 +262,37 @@ class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(result), 1)
 
 
+class TestM2BashFailedAction(_HookTestCase):
+    """sprint-042 M2: bash_failure status carries metadata.action=bash_failed
+    + metadata.exit_code when the hook input provides one."""
+
+    def test_status_carries_bash_failed_action(self):
+        inp = _make_bash_failure_input(
+            command="pytest",
+            error="Command exited with non-zero status code 1",
+            exit_code=1,
+        )
+        bash_failure.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        metadata = statuses[0].get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "bash_failed")
+        self.assertEqual(metadata.get("exit_code"), 1)
+
+    def test_exit_code_omitted_when_input_lacks_it(self):
+        """When the hook input does not provide exit_code, metadata still
+        carries the action discriminator without inventing a fake code."""
+        inp = _make_bash_failure_input(command="pytest", error="Command failed")
+        # Drop exit_code if any default added it (none in _make_bash_failure_input).
+        inp.pop("exit_code", None)
+        bash_failure.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        metadata = statuses[0].get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "bash_failed")
+        self.assertNotIn("exit_code", metadata)
+
+
 if __name__ == "__main__":
     unittest.main()

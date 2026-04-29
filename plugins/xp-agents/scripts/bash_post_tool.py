@@ -23,7 +23,10 @@ import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
 from test_parsing import is_test_run, parse_test_results
@@ -64,6 +67,7 @@ def _resolve_lint_on_commit(
                 "Lint concern resolved on commit",
                 events=events,
                 resolutions=resolutions,
+                extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
             )
 
 
@@ -258,7 +262,11 @@ def _handle_commit(
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
-    metadata: dict = {"code_commit": has_code, "code_file_count": code_file_count}
+    metadata: dict = {
+        "action": STATUS_ACTION_COMMIT_SUCCESS,
+        "code_commit": has_code,
+        "code_file_count": code_file_count,
+    }
     if commit_hash:
         metadata[METADATA_KEY_COMMIT_HASH] = commit_hash
     if resolves:
@@ -368,18 +376,28 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         passed = results["passed"]
         failed = results["failed"]
 
-        # If parser couldn't extract numbers (truncated output, wrong dir, etc.),
-        # record a neutral status — we don't know if tests passed or failed
+        # M2 dual-emit: structured metadata.action+companion fields are the
+        # canonical signal; content stays as the legacy human-readable digest.
+        # When parser can't extract counts (truncated output, wrong dir, etc.),
+        # the action is still set but test_passed/test_count are omitted —
+        # producers don't invent numbers they don't have.
+        metadata: dict = {
+            "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+            "framework": framework,
+        }
         if passed == 0 and failed == 0:
             content = f"Tests ran ({framework}) — counts not extracted"
         else:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
+            metadata["test_passed"] = failed == 0
+            metadata["test_count"] = passed + failed
 
         status = _common.make_event(
             _common.STATUS,
             agent_id,
             content,
             working_on=[],
+            metadata=metadata,
         )
         _common.append_safe(smm_dir, status)
 
