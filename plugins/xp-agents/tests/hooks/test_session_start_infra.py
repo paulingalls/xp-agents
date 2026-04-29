@@ -225,7 +225,7 @@ class TestPluginConfig(unittest.TestCase):
 class TestTeammateSessionStart(_HookTestCase):
     """CLI teammate SessionStart: inject Values + Guide + SMM, skip markers."""
 
-    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
 
     def setUp(self):
         super().setUp()
