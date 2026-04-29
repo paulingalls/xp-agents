@@ -39,7 +39,7 @@ class TestDeterministicReviewLifecycle(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         events = self._read_events()
-        return events, retro_metrics._classify_status_events(events)
+        return events, retro_metrics._classify_lifecycle_events(events)
 
     @staticmethod
     def _action_count(events: list[dict], action: str) -> int:
@@ -68,7 +68,7 @@ class TestDeterministicReviewLifecycle(_IntegrationTestCase):
                 "review_cycle_done.py", _make_skill_input(skill, cwd=str(self.tmpdir))
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-        counts = retro_metrics._classify_status_events(self._read_events())
+        counts = retro_metrics._classify_lifecycle_events(self._read_events())
         self.assertGreaterEqual(counts["simplifies"], 1)
         self.assertGreaterEqual(counts["quality_reviews"], 1)
         self.assertGreaterEqual(counts["security_checks"], 1)

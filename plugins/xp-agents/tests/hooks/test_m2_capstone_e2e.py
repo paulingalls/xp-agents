@@ -151,7 +151,7 @@ class TestM2CapstonePipelineRoundTrip(_HookTestCase):
         )
 
         events = _common.read_events_raw(self.smm_dir)
-        status_summary = retro_metrics._classify_status_events(events)
+        status_summary = retro_metrics._classify_lifecycle_events(events)
 
         # Counters increment via the action path. Each lifecycle moment counts
         # exactly once — the regex fallback would only fire if action were

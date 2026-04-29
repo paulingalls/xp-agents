@@ -274,9 +274,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
         self.assertEqual(result["probe_escape"], 0)
 
 
-class TestClassifyStatusActions(unittest.TestCase):
-    """_classify_status_events dispatches on metadata.action for review-cycle
-    lifecycle moments (sprint-041 / story-004 — replaces content-regex match)."""
+class TestClassifyLifecycleEvents(unittest.TestCase):
+    """_classify_lifecycle_events dispatches on metadata.action for review-cycle
+    lifecycle moments — replaces the deleted content-regex fallback."""
 
     def test_qr_complete_action_increments_quality_reviews(self):
         import retro_metrics
@@ -288,7 +288,7 @@ class TestClassifyStatusActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["quality_reviews"], 1)
 
     def test_security_complete_action_increments_security_checks(self):
@@ -301,7 +301,7 @@ class TestClassifyStatusActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_SECURITY_COMPLETE},
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["security_checks"], 1)
 
     def test_security_triage_actions_increment_security_checks(self):
@@ -321,7 +321,7 @@ class TestClassifyStatusActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_COMPLETE},
             ),
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["security_checks"], 2)
 
     def test_simplify_complete_action_increments_simplifies(self):
@@ -335,7 +335,7 @@ class TestClassifyStatusActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_SIMPLIFY_COMPLETE},
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["simplifies"], 1)
 
     def test_action_dispatch_wins_over_content_regex(self):
@@ -353,7 +353,7 @@ class TestClassifyStatusActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["quality_reviews"], 1)
         self.assertEqual(counts["file_writes"], 0)
         self.assertEqual(counts["other"], 0)
@@ -378,7 +378,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
                 },
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["file_writes"], 1)
         self.assertEqual(counts["other"], 0)
 
@@ -392,7 +392,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_TEST_RUN_COMPLETE},
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["test_runs"], 1)
 
     def test_lint_resolved_action_counts(self):
@@ -405,7 +405,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_LINT_RESOLVED},
             )
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["lint_events"], 1)
 
     def test_commit_counter_reads_type_commit_events(self):
@@ -428,7 +428,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
                 metadata={"commit_hash": "def", "code_commit": True},
             ),
         ]
-        counts = retro_metrics._classify_status_events(events)
+        counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["commits"], 2)
 
 

@@ -16,7 +16,6 @@ import _common
 from event_schema import (
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
-    STATUS_ACTION_COMMIT_SUCCESS,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_ITERATION_COMPLETE,
     STATUS_ACTION_LINT_RESOLVED,
@@ -58,10 +57,8 @@ _SIGNAL_TYPES = frozenset(
 # consumers read metadata.action exactly so LLM-authored content drift cannot
 # zero the counters. Started + complete triage both increment security_checks
 # (one triage run = two ticks). STATUS_ACTION_BASH_FAILED has no counter —
-# failures surface via concerns. STATUS_ACTION_COMMIT_SUCCESS is forward-compat:
-# bash_post_tool currently emits commits as type=commit (handled by the early
-# branch in the loop); this entry keeps the action contract symmetric for any
-# future status-typed commit_success emitter.
+# failures surface via concerns. Commits are counted via type=commit (handled
+# by the early branch in the loop), not by STATUS_ACTION_COMMIT_SUCCESS.
 _ACTION_TO_COUNTER: dict[str, str] = {
     STATUS_ACTION_SIMPLIFY_COMPLETE: "simplifies",
     STATUS_ACTION_QR_COMPLETE: "quality_reviews",
@@ -71,7 +68,6 @@ _ACTION_TO_COUNTER: dict[str, str] = {
     STATUS_ACTION_FILE_WRITE: "file_writes",
     STATUS_ACTION_TEST_RUN_COMPLETE: "test_runs",
     STATUS_ACTION_LINT_RESOLVED: "lint_events",
-    STATUS_ACTION_COMMIT_SUCCESS: "commits",
 }
 
 
@@ -82,10 +78,15 @@ def _normalize_concern_content(content: str) -> str:
     return normalized.strip()
 
 
-def _classify_status_events(
+def _classify_lifecycle_events(
     events: list[dict],
 ) -> dict:
-    """Classify status events by metadata.action; unactioned events → 'other'."""
+    """Classify lifecycle events (status + commit) into counter buckets.
+
+    Commit events tick the commits counter via the early type=commit branch;
+    status events dispatch on metadata.action via _ACTION_TO_COUNTER.
+    Unactioned status events → 'other'.
+    """
     counts = {
         "file_writes": 0,
         "test_runs": 0,
@@ -182,7 +183,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
             e.get("type") == _common.CONCERN and e.get("id", "") in resolved_concern_ids
         )
     ]
-    status_summary = _classify_status_events(unanalyzed)
+    status_summary = _classify_lifecycle_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = build_honesty_signals(unanalyzed)
 
