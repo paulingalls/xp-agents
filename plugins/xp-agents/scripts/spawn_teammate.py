@@ -81,6 +81,68 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     worktree.write_story_assignment(smm_dir, name, story_id)
 
 
+_DEFAULT_LOG_DIR = Path("/tmp")
+
+
+def run_with_tee(
+    cmd: list[str],
+    cwd: str,
+    env: dict,
+    stdin,
+    name: str,
+    log_dir: Path = _DEFAULT_LOG_DIR,
+) -> None:
+    """Run *cmd*, mirroring stdout (and merged stderr) to both this process'
+    stdout and ``<log_dir>/<name>.log``. Caller passes an already-prefixed
+    teammate name (e.g. ``teammate-astro``) so the log file lands at
+    ``<log_dir>/teammate-astro.log``.
+
+    The on-disk log preserves output up to a hang point so a stuck teammate
+    can be inspected forensically. Note: while the teammate is producing no
+    output (the hang case), the log will not grow — ``tail -f`` shows prior
+    state, not live progress. If the log file can't be opened, the spawn
+    proceeds without teeing — investigation aid is best-effort, not
+    load-bearing.
+
+    Raises ``subprocess.CalledProcessError`` on non-zero exit so callers
+    keep the prior ``check=True`` failure semantics.
+    """
+    log_path = log_dir / f"{name}.log"
+    log_file = None
+    try:
+        log_file = log_path.open("w")
+    except OSError as exc:
+        sys.stderr.write(
+            f"WARN: tee log {log_path} unavailable ({exc}); spawning without tee\n"
+        )
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=stdin,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        text=True,
+    )
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            if log_file is not None:
+                log_file.write(line)
+                log_file.flush()
+    finally:
+        if log_file is not None:
+            log_file.close()
+        proc.wait()
+
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+
 def ensure_teammate_prefix(name: str) -> str:
     """Auto-prefix teammate- if not already present."""
     if name.startswith(identity._TEAMMATE_PREFIX):
@@ -115,7 +177,7 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         with open(args.prompt_file) as prompt_stdin:
-            subprocess.run(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, check=True)
+            run_with_tee(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, name=name)
     finally:
         Path(args.prompt_file).unlink(missing_ok=True)
 
