@@ -29,10 +29,7 @@ class _DecideTestCase(_HookTestCase):
     def setUp(self):
         super().setUp()
         self.mod = work_selection_decide
-        # Chdir into the SMM tmpdir so identity.resolve_agent_id_from_cwd
-        # sees a non-worktree path. Without this, tests run inside a teammate
-        # worktree (e.g. .claude/worktrees/teammate-story-001) inherit that
-        # cwd and resolve agent_id to the teammate name instead of "main".
+        # Chdir out of any worktree path so agent_id resolves to "main".
         self._prev_cwd = os.getcwd()
         os.chdir(self.smm_dir)
 

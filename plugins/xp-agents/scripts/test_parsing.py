@@ -95,45 +95,98 @@ def is_test_run(command: str) -> str | None:
 # Test result parsing
 # ---------------------------------------------------------------------------
 
+# Tristate values for parse_test_results()["status"] and the matching
+# metadata.parser_status field on test_run_complete events. Imported by
+# bash_post_tool to avoid stringly-typed coupling between producer and
+# consumer.
+PARSER_STATUS_PARSED = "parsed"
+PARSER_STATUS_ZERO = "zero"
+PARSER_STATUS_FAILED = "parser_failed"
 
-def _parse_n_passed_n_failed(tool_response: str) -> tuple[int, int]:
-    """Shared helper: extract `N passed` and `N failed` counts.
+# Shared "N <token>" regexes — used by pytest, jest/vitest/playwright (passed/
+# failed) and parameterized for cargo, dotnet, bun.
+_RE_N_PASSED = r"(\d+)\s+passed"
+_RE_N_FAILED = r"(\d+)\s+failed"
 
-    Used by frameworks whose summaries match jest/vitest/playwright format.
-    """
+
+def _parse_two_counts(
+    tool_response: str, pass_re: str, fail_re: str
+) -> tuple[int, int, bool]:
+    """Extract two named numeric counts. Returns (passed, failed, matched)."""
     passed = 0
     failed = 0
-    m = re.search(r"(\d+)\s+passed", tool_response)
+    matched = False
+    m = re.search(pass_re, tool_response)
     if m:
         passed = int(m.group(1))
-    m = re.search(r"(\d+)\s+failed", tool_response)
+        matched = True
+    m = re.search(fail_re, tool_response)
     if m:
         failed = int(m.group(1))
-    return passed, failed
+        matched = True
+    return passed, failed, matched
+
+
+def _apply_two_counts(
+    result: dict, tool_response: str, pass_re: str, fail_re: str
+) -> None:
+    """Parse counts into result and set status=PARSED on match."""
+    passed, failed, matched = _parse_two_counts(tool_response, pass_re, fail_re)
+    result["passed"] = passed
+    result["failed"] = failed
+    if matched:
+        result["status"] = PARSER_STATUS_PARSED
 
 
 def parse_test_results(tool_response: str, framework: str) -> dict:
-    """Parse test output. Returns {passed, failed, errors}."""
-    result = {"passed": 0, "failed": 0, "errors": 0}
+    """Parse test output. Returns {status, passed, failed, errors}.
+
+    status is one of PARSER_STATUS_PARSED / _ZERO / _FAILED:
+      - PARSED        — count regex(es) matched
+      - ZERO          — framework-specific zero-tests marker matched
+      - FAILED        — nothing recognized
+
+    Precedence: zero markers first, then numeric regexes, else parser_failed.
+    Long-tail frameworks (cargo, maven, dotnet, dart, rspec, minitest, phpunit,
+    elixir, ctest, bun, xcodebuild/swift) lack reliable zero-tests markers; for
+    those, parsed-with-zero-counts maps to PARSED, not ZERO. The distinction
+    only narrows the "framework ran but reported 0 tests" case for the few
+    frameworks (pytest, unittest, jest/vitest/playwright) where zero-tests
+    output is unambiguous.
+    """
+    result = {
+        "status": PARSER_STATUS_FAILED,
+        "passed": 0,
+        "failed": 0,
+        "errors": 0,
+    }
 
     match framework:
         case "pytest":
-            m = re.search(r"(\d+)\s+passed", tool_response)
-            if m:
-                result["passed"] = int(m.group(1))
-            m = re.search(r"(\d+)\s+failed", tool_response)
-            if m:
-                result["failed"] = int(m.group(1))
+            if re.search(r"\bno tests ran\b|\bcollected 0 items\b", tool_response):
+                result["status"] = PARSER_STATUS_ZERO
+                return result
+            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
             m = re.search(r"(\d+)\s+error", tool_response)
             if m:
                 result["errors"] = int(m.group(1))
+                result["status"] = PARSER_STATUS_PARSED
 
-        case "jest":
+        case "jest" | "vitest" | "playwright":
             # "Tests:  2 failed, 3 passed, 5 total" or "Tests:  5 passed, 5 total"
-            result["passed"], result["failed"] = _parse_n_passed_n_failed(tool_response)
+            # Zero markers: "Tests: ... 0 passed, 0 total" or "No tests found".
+            if re.search(
+                r"Tests:\s*0\s+passed,\s*0\s+total|\bNo tests found\b",
+                tool_response,
+            ):
+                result["status"] = PARSER_STATUS_ZERO
+                return result
+            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
 
         case "go":
-            # Count ok lines (passes) and FAIL lines
+            # Count ok lines (passes) and FAIL lines. Go has no distinct
+            # "no tests" output — `ok` with empty package looks identical to
+            # truly empty input — so we never claim ZERO here.
             result["passed"] = len(re.findall(r"^ok\s+", tool_response, re.MULTILINE))
             result["failed"] = len(
                 re.findall(r"^---\s+FAIL:", tool_response, re.MULTILINE)
@@ -144,18 +197,26 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 and re.search(r"^FAIL\s+", tool_response, re.MULTILINE)
             ):
                 result["failed"] = 1
+            if result["passed"] > 0 or result["failed"] > 0:
+                result["status"] = PARSER_STATUS_PARSED
 
         case "unittest":
             # "Ran 821 tests in 32.346s\n\nOK" or "FAILED (failures=2, errors=1)"
             m = re.search(r"Ran\s+(\d+)\s+tests?", tool_response)
-            total = int(m.group(1)) if m else 0
-            m = re.search(r"failures=(\d+)", tool_response)
-            failures = int(m.group(1)) if m else 0
-            m = re.search(r"errors=(\d+)", tool_response)
-            errors = int(m.group(1)) if m else 0
+            if not m:
+                return result
+            total = int(m.group(1))
+            if total == 0:
+                result["status"] = PARSER_STATUS_ZERO
+                return result
+            m_f = re.search(r"failures=(\d+)", tool_response)
+            failures = int(m_f.group(1)) if m_f else 0
+            m_e = re.search(r"errors=(\d+)", tool_response)
+            errors = int(m_e.group(1)) if m_e else 0
             result["failed"] = failures + errors
             result["errors"] = errors
             result["passed"] = max(0, total - result["failed"])
+            result["status"] = PARSER_STATUS_PARSED
 
         case "xcodebuild" | "swift":
             # "Executed 5 tests, with 2 failures ..."
@@ -168,15 +229,11 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 failures = int(m.group(2))
                 result["failed"] = failures
                 result["passed"] = max(0, total - failures)
+                result["status"] = PARSER_STATUS_PARSED
 
         case "cargo":
             # "test result: ok. 15 passed; 0 failed; 0 ignored"
-            m = re.search(r"(\d+)\s+passed", tool_response)
-            if m:
-                result["passed"] = int(m.group(1))
-            m = re.search(r"(\d+)\s+failed", tool_response)
-            if m:
-                result["failed"] = int(m.group(1))
+            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
 
         case "maven" | "gradle":
             # Maven: "Tests run: 10, Failures: 2, Errors: 1"
@@ -191,6 +248,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 result["failed"] = failures + errors
                 result["errors"] = errors
                 result["passed"] = max(0, total - result["failed"])
+                result["status"] = PARSER_STATUS_PARSED
 
         case "rspec":
             # "10 examples, 2 failures"
@@ -201,6 +259,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             if m:
                 result["passed"] = max(0, int(m.group(1)) - int(m.group(2)))
                 result["failed"] = int(m.group(2))
+                result["status"] = PARSER_STATUS_PARSED
 
         case "minitest":
             # "5 runs, 10 assertions, 1 failures, 0 errors"
@@ -215,6 +274,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 result["failed"] = failures + errors
                 result["errors"] = errors
                 result["passed"] = max(0, total - result["failed"])
+                result["status"] = PARSER_STATUS_PARSED
 
         case "phpunit":
             # "OK (10 tests, 20 assertions)" or
@@ -222,6 +282,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             m = re.search(r"OK\s+\((\d+)\s+tests?", tool_response)
             if m:
                 result["passed"] = int(m.group(1))
+                result["status"] = PARSER_STATUS_PARSED
             else:
                 m = re.search(
                     r"Tests:\s*(\d+).*?Failures:\s*(\d+)",
@@ -232,26 +293,26 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                     failures = int(m.group(2))
                     result["failed"] = failures
                     result["passed"] = max(0, total - failures)
+                    result["status"] = PARSER_STATUS_PARSED
 
         case "dotnet":
             # "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5"
-            m = re.search(r"Passed:\s*(\d+)", tool_response)
-            if m:
-                result["passed"] = int(m.group(1))
-            m = re.search(r"Failed:\s*(\d+)", tool_response)
-            if m:
-                result["failed"] = int(m.group(1))
+            _apply_two_counts(
+                result, tool_response, r"Passed:\s*(\d+)", r"Failed:\s*(\d+)"
+            )
 
         case "dart":
             # "+5: All tests passed!" or "+3 -2: Some tests failed"
             m = re.search(r"\+(\d+):.*All tests passed", tool_response)
             if m:
                 result["passed"] = int(m.group(1))
+                result["status"] = PARSER_STATUS_PARSED
             else:
                 m = re.search(r"\+(\d+)\s+-(\d+)", tool_response)
                 if m:
                     result["passed"] = int(m.group(1))
                     result["failed"] = int(m.group(2))
+                    result["status"] = PARSER_STATUS_PARSED
 
         case "elixir":
             # "10 tests, 2 failures"
@@ -264,6 +325,7 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 failures = int(m.group(2))
                 result["failed"] = failures
                 result["passed"] = max(0, total - failures)
+                result["status"] = PARSER_STATUS_PARSED
 
         case "ctest":
             # "100% tests passed, 0 tests failed out of 10"
@@ -275,22 +337,10 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
                 result["failed"] = int(m.group(1))
                 total = int(m.group(2))
                 result["passed"] = max(0, total - result["failed"])
-
-        case "vitest":
-            # Same format as Jest
-            result["passed"], result["failed"] = _parse_n_passed_n_failed(tool_response)
+                result["status"] = PARSER_STATUS_PARSED
 
         case "bun":
             # "130 pass\n 0 fail" or "130 pass, 0 fail"
-            m = re.search(r"(\d+)\s+pass", tool_response)
-            if m:
-                result["passed"] = int(m.group(1))
-            m = re.search(r"(\d+)\s+fail", tool_response)
-            if m:
-                result["failed"] = int(m.group(1))
-
-        case "playwright":
-            # "  5 passed (12.3s)" or "  2 failed\n  3 passed (12.3s)"
-            result["passed"], result["failed"] = _parse_n_passed_n_failed(tool_response)
+            _apply_two_counts(result, tool_response, r"(\d+)\s+pass", r"(\d+)\s+fail")
 
     return result
