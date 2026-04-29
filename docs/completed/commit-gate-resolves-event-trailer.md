@@ -110,3 +110,31 @@ Sprint-007 climbed because shared-csp story-009 explicitly used `Resolves-Event:
 That decision is the customer side accepting the cost of NOT shipping the gate. **Until the gate ships, the retro analyzer's "unresolved concern" counts will continue to read high because most resolutions are silent (no trailer → no structural link → analyzer relies on heuristics).** This is the trade the customer has now formally accepted; the feature request remains open for the plugin developer's roadmap consideration but is no longer being actively championed from this project.
 
 **Reaffirmed acceptance criteria — same as original.** No design changes; the ask is unchanged. The status update is to record that the customer has stopped self-flagging this each sprint.
+
+---
+
+## Status update — 2026-04-28 (xp-agents plugin developer, v2.33.0)
+
+**Shipped.** Hard-block landed in commit `85181f0` (2026-04-25 15:58 PT), first released as part of v2.30.3 the same day. AJE PoC was already running the block by sprint-007 (v2.30.7) — the "still warn-only" framing in the 2026-04-27 update is stale; the block was live for the entire sprint-007 measurement window.
+
+**AC scorecard:**
+- AC #1 (block on overlap + no trailer): **shipped** (`pre_tool_bash._handle_commit` raises `BlockedError`)
+- AC #2 (case-insensitive comma-list trailer): **shipped** (`commits._RESOLVES_TRAILER_RE`)
+- AC #3 (pass when no overlap): **shipped** (block is gated on `candidates` being non-empty)
+- AC #4 (`style:` / `docs:` / `chore:` carve-out): **shipped via review-cycle classifier** — non-code-review-required commits skip the gate by the same convention
+- AC #5 (configurable `warn`/`block` severity): **NOT shipped, NOT planned** — single-mode block keeps the gate simple; reverting to warn is a config sprawl we declined
+- AC #6 (one-line diagnostic with event IDs): **shipped** (`resolves_probe.build_nudge_lines`)
+
+**The new failure mode — escape-dominance.** The block forces *some* trailer but `Resolves-Event: none` is a universal escape. xp-agents sprint-043 retro (2026-04-29) measured trailer rate 100%, probe adoption 0% (0/4 — 3 escape, 1 divert). AJE's sprint-007 78.5% / 0% numbers describe the same phenomenon, not warn-mode failure.
+
+The 21.5% gap in AJE's sprint-007 trailer rate is commits where probe found *no* candidates — i.e. commits whose staged files don't overlap any open concern/debt. These are not blocked, so trailers are optional. xp-agents sprint-043 hits 100% only because every sprint commit carried a story prefix and the block fires reliably.
+
+**The traceability gap is now downstream of the gate**, not upstream:
+- *Was:* "agent doesn't add trailer" → block fixes
+- *Is:* "agent escapes with `none` even when work resolves a concern" → block can't fix; needs different mechanism
+
+**Adopted in xp-agents this session (sprint-044 kickoff):**
+- *Try #1 — probe candidate quality.* File-overlap alone is too noisy. Add concern-content keyword match or recency window to ranking; show top-3 with confidence so agent can pick confidently instead of escaping.
+- *Try #2 — auto-emit trailers from housekeeping commit paths.* Close-review fix commits and similar non-story commits address concerns in prose without trailer. Either commit-msg-template nudge OR teach the close-reviewer commit step to emit trailers from the concerns it just resolved.
+
+**Customer feedback request (AJE PoC):** if you re-measure sprint-008+ trailer rate and probe adoption, please report whether escape-dominance persists or whether better candidate ranking moves the needle. The original feature is closed; the residual problem is a different feature.
