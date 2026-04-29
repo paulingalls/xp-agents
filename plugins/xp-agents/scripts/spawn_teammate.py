@@ -31,18 +31,26 @@ def cleanup_existing(name: str, cwd: str) -> None:
     worktree.remove_worktree(name, cwd, force_branch=True)
 
 
-def create_worktree(name: str, cwd: str) -> str:
-    """Create a git worktree for a teammate. Returns worktree path."""
+def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
+    """Create a git worktree for a teammate. Returns worktree path.
+
+    When branch is provided, checks out that existing branch in the
+    worktree instead of creating a new teammate-* branch. Used by
+    /xp-assign to place teammates on story branches.
+    """
     cleanup_existing(name, cwd)
 
     wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)
     wt_path = str(wt)
 
-    cmd = ["git", "worktree", "add", "-b", name, wt_path]
-    current = identity.get_current_branch(cwd)
-    if current:
-        cmd.append(current)
+    if branch is not None:
+        cmd = ["git", "worktree", "add", wt_path, branch]
+    else:
+        cmd = ["git", "worktree", "add", "-b", name, wt_path]
+        current = identity.get_current_branch(cwd)
+        if current:
+            cmd.append(current)
 
     subprocess.run(
         cmd,
@@ -165,6 +173,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--story-id", default=None)
+    parser.add_argument("--branch", default=None)
     return parser.parse_args(argv)
 
 
@@ -174,7 +183,7 @@ def main(argv: list[str] | None = None) -> None:
     name = ensure_teammate_prefix(args.name)
 
     cwd = os.getcwd()
-    wt_path = create_worktree(name, cwd)
+    wt_path = create_worktree(name, cwd, branch=args.branch)
     cmd = build_command(name)
 
     write_story_assignment(Path(args.smm_dir), name, args.story_id)
