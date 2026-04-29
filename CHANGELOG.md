@@ -1,6 +1,40 @@
 # Changelog
 
-## v2.32.2 — Deterministic event emission doctrine + session_end goal resolution + retro_cli encapsulation
+## v2.33.0 — Deterministic event emission doctrine fully shipped (M2 + M3) + teammate tee log + plan-close hardening
+
+Two sprints (sprint-042 M2 tool-action vocabulary, sprint-043 M3 subagent + plan lifecycle and regex deletion) plus a free branch (teammate tee log) plus four plan-close concern fixes. After this release, every hook-emitted lifecycle event carries `metadata.action`; consumers classify only via that discriminator; the regex-content-matching fallback that v2.32.2 documented as the bug class is gone. 3382 tests green at every commit.
+
+### M2 — Tool-action metadata vocabulary (sprint-042)
+
+- **5 new `STATUS_ACTION_*` constants in `event_schema.py`**: `FILE_WRITE` (post_tool_use.py), `TEST_RUN_COMPLETE` / `LINT_RESOLVED` / `COMMIT_SUCCESS` (bash_post_tool.py), `BASH_FAILED` (bash_failure.py). Each constant annotated on a single comment-line with its emitting hook so the doc-block test catches mis-attribution.
+- **Producers wired uniformly.** `post_tool_use.py` emits `metadata.action=file_write` + `metadata.files=[normalized_path]` on Write/Edit/MultiEdit; `bash_post_tool.py` emits `test_run_complete` + structured `test_passed`/`test_count`/`framework`/`parser_status` on test commands and `commit_success` + `commit_hash` on commits; `bash_failure.py` emits `bash_failed` + `exit_code`.
+- **Action-aware consumers + commit counter.** `retro_metrics.py`, `honesty_signals.py`, `work_signals.py` switched to `metadata.action` dispatch (fallback regex deferred to M3). New `type=commit` event type counted directly, fixing the meta-irony where the doctrine session couldn't count its own commits.
+- **agent_id semantics ADR (`docs/adrs/agent-id-semantics.md`)**: hook events use teammate-resolved `agent_id` (attribution); skill identity lives in `metadata.action` (lifecycle). `mark_triaged.py`, `save_sprint.py`, `work_selection_decide.py` migrated to `identity.resolve_agent_id_from_cwd`. Per-teammate retro counters now bucket correctly.
+- **Capstone E2E** (`test_m2_capstone_e2e.py`): drives Write → pytest → commit → bash failure as a sequence and asserts exact-equality counters (any regex+action double-emit fails).
+
+### Free branch — Teammate tee log (`spawn_teammate.run_with_tee`)
+
+- `claude -p` stdout/stderr is teed to `/tmp/<teammate-name>.log` so a hung teammate can be inspected via `tail -f` without aborting the run. Falls back gracefully to no-tee if the log dir is unwritable. Documented limit: while the teammate produces no output (the hang case), the log doesn't grow live — preserves pre-hang state for forensics.
+- Follow-up debt filed (`0049bd3eeeb3`): no wall-clock or idle-stdout timeout. A truly silent hang still blocks the parent indefinitely. Tee captures forensics, not termination.
+
+### M3 — Subagent + plan lifecycle vocabulary, regex deletion, capstone smoke (sprint-043)
+
+- **4 new constants**: `SUBAGENT_COMPLETE`, `PLAN_COMPLETED`, `PLAN_AWAITING_REVIEW` (subagent_stop.py); `PLAN_EXITED` (post_tool_exit_plan.py).
+- **`subagent_stop.py` emits `metadata.action` for every dispatch path.** xp-housekeeper / xp-sprint-reviewer / xp-plan-reviewer keep their specific events and additionally emit a `subagent_complete` event so the generic counter holds. Plain Plan-type non-xp subagents emit `plan_completed` (replaces generic on this path) + `plan_awaiting_review` on the gate event. Generic subagents emit `subagent_complete` with `metadata.agent_type`.
+- **`post_tool_exit_plan.py`** tags its existing gate event with `metadata.action=plan_exited`.
+- **`parse_test_results` tristate** (`scripts/test_parsing.py`): `status` field returns `parsed` / `zero` / `parser_failed`. Resolves the conflation that v2.32.2 framed as a sprint-040 retro Try — "parser couldn't extract counts" no longer masquerades as "framework reported zero tests". Per-framework zero markers (pytest `no tests ran`, jest `Tests: 0 passed, 0 total`, unittest `Ran 0 tests`) detected explicitly; long-tail frameworks (cargo, dotnet, bun, dart, etc.) get bistate-fallback in `_apply_two_counts` (matched-but-zero → ZERO). pytest collection-only errors fold into `failed` so `test_passed=False` and `test_count=N` when collection blows up — closes the false-green that an earlier draft of the consumer wiring would have introduced. Optional `metadata.test_errors` surfaces error count when non-zero.
+- **M2 regex fallbacks deleted.** `_common.TEST_RUN_RE` and `LEGACY_COMMIT_RE` gone; `_FILE_WRITE_RE`, `_TEST_RUN_RE`, `_COMMIT_RE`, `_LINT_RE` deleted from `retro_metrics.py`, `honesty_signals.py`, `work_signals.py` along with their fallback branches. `_TEST_FAIL_RE` survives in `work_signals.py` (parses content of commit/concern events, not status events). Test helpers updated to emit `metadata.action`-tagged events.
+- **Capstone smoke test** (`tests/hooks/test_action_vocabulary_smoke.py`): parametrized over every `STATUS_ACTION_*` constant in `event_schema.py`. The missing-coverage canary keys on constant **name** (not value) so a future name collision can't silently pass. Each constant is either driven by a producer-driver invocation that asserts `metadata.action` emission, or registered in `_DOCTRINE_GAPS` with a debt event ID. One honest gap filed (`ef03cbc32f1e`): `STATUS_ACTION_SPRINT_RETRO_DONE` is consumed against status-type events but `save_retrospective.py` emits the same string on a retrospective-type event — separate story to wire or remove.
+- **Sweep of raw `STATUS_ACTION_*` string literals → constants** across 8 test files (~27 sites) so producer/consumer/test all reference the same single source of truth.
+
+### Plan-close concern fixes (post-merge)
+
+- **`work_signals.py` skips `parser_failed` test runs.** The fallback `_TEST_FAIL_RE` searched "Tests ran (pytest) — counts not extracted" content, found nothing, and reset `consecutive_test_failures` as if green. A "don't know" outcome silently masqueraded as a green tick. Now: if `metadata.parser_status == PARSER_STATUS_FAILED`, the test-run branch `continue`s — no signal, no streak reset. Honest treatment of partial information.
+- **`spawn_teammate.run_with_tee` opens log in append mode** with a UTC-timestamped session header. Previously truncated on every respawn — destroyed the prior-hang forensics that motivated the feature. Re-spawns of the same name now preserve all sessions in one log file with `===== spawn <name> <iso-utc> =====` boundaries. Unbounded growth (no rotation) flagged as debt.
+- **`retro_metrics._classify_status_events` renamed to `_classify_lifecycle_events`.** It also counts `type=commit` via the early branch, so the old name was misleading. Docstring updated to describe both paths. Callers across 4 test files renamed.
+- **`STATUS_ACTION_COMMIT_SUCCESS: "commits"` deleted from `_ACTION_TO_COUNTER`.** Real commits hit the `etype == _common.COMMIT` early branch first; the action dispatch never fired. Dead forward-compat entry gone; vocabulary table reflects what actually dispatches.
+
+
 
 Four commits on `paulingalls/free-2026-04-28-retro-counting-and-goal-cleanup` addressing a downstream-reported retro counting bug, an unbounded-event-accumulation bug, and a CLI dead-arg cleanup. 3316 tests green at every commit.
 
