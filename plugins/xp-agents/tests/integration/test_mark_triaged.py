@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase
+from event_schema import event_action
 
 _MARK_TRIAGED = (
     Path(__file__).parent.parent.parent
@@ -43,13 +44,14 @@ class TestMarkTriagedAction(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         events = self._read_events()
         triage_started = [
-            e
-            for e in events
-            if e.get("metadata", {}).get("action") == "security_triage_started"
+            e for e in events if event_action(e) == "security_triage_started"
         ]
         self.assertEqual(len(triage_started), 1)
         self.assertEqual(triage_started[0]["type"], "status")
-        self.assertEqual(triage_started[0]["agent_id"], "xp-security-triage")
+        # agent_id is teammate-resolved attribution per the agent-id-semantics
+        # ADR; in this integration harness the cwd is a non-worktree tmpdir
+        # so resolve_agent_id_from_cwd returns "main".
+        self.assertEqual(triage_started[0]["agent_id"], "main")
 
 
 if __name__ == "__main__":

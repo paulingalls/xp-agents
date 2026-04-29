@@ -92,6 +92,36 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=fake_dir,
         )
 
+    def test_auto_status_carries_file_write_action(self):
+        """sprint-042 M2: auto-status carries metadata.action=file_write
+        + metadata.files=[normalized] so consumers can read structured
+        fields without parsing 'Wrote to ...' content."""
+        post_tool_use.run(
+            _make_write_input(tool_response={"success": True}),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 1)
+        metadata = statuses[0].get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "file_write")
+        self.assertEqual(metadata.get("files"), ["/tmp/src/app.ts"])
+
+    def test_metadata_files_uses_normalized_path(self):
+        """metadata.files[0] must equal the same normalized path that the
+        content string uses — single source of truth, no drift."""
+        post_tool_use.run(
+            _make_write_input(tool_response={"success": True}, cwd="/home/user"),
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        normalized = "/home/user/src/app.ts"
+        self.assertEqual(statuses[0]["working_on"], [normalized])
+        metadata = statuses[0].get("metadata") or {}
+        self.assertEqual(metadata.get("files"), [normalized])
+        self.assertIn(normalized, statuses[0].get("content", ""))
+
     def test_conflict_working_on_overlap(self):
         # Another agent claims the same file
         self._write_events(

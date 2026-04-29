@@ -279,7 +279,7 @@ class TestTeammateNameEnvVar(unittest.TestCase):
 
         captured_env = {}
 
-        def capture_run(cmd, *, cwd=None, env=None, stdin=None, check=False, **kw):
+        def capture_tee(cmd, *, cwd=None, env=None, stdin=None, name=None, **kw):
             if env and "XP_TEAMMATE_NAME" in env:
                 captured_env.update(env)
 
@@ -290,7 +290,7 @@ class TestTeammateNameEnvVar(unittest.TestCase):
         try:
             with (
                 patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch("subprocess.run", side_effect=capture_run),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_tee),
             ):
                 spawn_teammate.main(
                     [
@@ -330,6 +330,91 @@ class TestNameAutoPrefix(unittest.TestCase):
 
         result = spawn_teammate.ensure_teammate_prefix("")
         self.assertEqual(result, "teammate-")
+
+
+class TestRunWithTee(unittest.TestCase):
+    """run_with_tee mirrors claude -p stdout to <log_dir>/teammate-<name>.log
+    so a hung teammate can be inspected without aborting the run.
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.log_dir = Path(tempfile.mkdtemp())
+
+    def _fake_popen(self, lines: list[str], returncode: int = 0):
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        fake.stdout = iter(lines)
+        fake.returncode = returncode
+        return fake
+
+    def test_tees_stdout_to_log_file(self):
+        """Each line streamed from the subprocess is mirrored to the log file."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with patch(
+            "spawn_teammate.subprocess.Popen",
+            return_value=self._fake_popen(["line1\n", "line2\n"]),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-foo",
+                log_dir=self.log_dir,
+            )
+        log = (self.log_dir / "teammate-foo.log").read_text()
+        self.assertEqual(log, "line1\nline2\n")
+
+    def test_proceeds_without_log_when_dir_unwritable(self):
+        """Unwritable log dir does NOT abort the spawn — degrades gracefully."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        bad_dir = Path("/proc/no-such-dir-here-x")  # unwritable
+        with patch(
+            "spawn_teammate.subprocess.Popen",
+            return_value=self._fake_popen(["x\n"]),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-foo",
+                log_dir=bad_dir,
+            )
+        # No exception raised; that's the contract.
+
+    def test_nonzero_exit_raises_called_process_error(self):
+        """Subprocess returncode != 0 surfaces as CalledProcessError so the
+        spawn caller sees a real failure (matches the prior subprocess.run
+        check=True semantics)."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with (
+            patch(
+                "spawn_teammate.subprocess.Popen",
+                return_value=self._fake_popen(["x\n"], returncode=2),
+            ),
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-foo",
+                log_dir=self.log_dir,
+            )
 
 
 if __name__ == "__main__":

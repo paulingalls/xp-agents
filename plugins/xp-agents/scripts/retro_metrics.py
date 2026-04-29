@@ -16,12 +16,16 @@ import _common
 from event_schema import (
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_ITERATION_COMPLETE,
+    STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_SECURITY_COMPLETE,
     STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
     STATUS_ACTION_SECURITY_TRIAGE_STARTED,
     STATUS_ACTION_SIMPLIFY_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
 from honesty_signals import build_honesty_signals
@@ -55,17 +59,26 @@ _TEST_RUN_RE = _common.TEST_RUN_RE
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
 _LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
 
-# Action-based dispatch for review-cycle lifecycle events (sprint-041 / story-004).
-# Hook is the canonical producer; consumers read metadata.action exactly so
-# LLM-authored content drift cannot zero the counters. Started+complete triage
-# both increment security_checks (preserves legacy regex semantics — double-counts
-# a single triage run; M2 may revisit by counting only *_complete actions).
+# Action-based dispatch for lifecycle events (sprint-041 review-cycle vocabulary
+# + sprint-042 M2 tool-action vocabulary). Hook is the canonical producer;
+# consumers read metadata.action exactly so LLM-authored content drift cannot
+# zero the counters. Started+complete triage both increment security_checks
+# (preserves legacy regex semantics — double-counts a single triage run).
+# STATUS_ACTION_BASH_FAILED has no counter — failures surface via concerns.
+# STATUS_ACTION_COMMIT_SUCCESS is forward-compat: bash_post_tool currently
+# emits commits as type=commit (handled by the early branch in the loop), so
+# this entry only fires if a future producer emits a status-typed
+# commit_success. Kept to keep the action contract symmetric.
 _ACTION_TO_COUNTER: dict[str, str] = {
     STATUS_ACTION_SIMPLIFY_COMPLETE: "simplifies",
     STATUS_ACTION_QR_COMPLETE: "quality_reviews",
     STATUS_ACTION_SECURITY_COMPLETE: "security_checks",
     STATUS_ACTION_SECURITY_TRIAGE_STARTED: "security_checks",
     STATUS_ACTION_SECURITY_TRIAGE_COMPLETE: "security_checks",
+    STATUS_ACTION_FILE_WRITE: "file_writes",
+    STATUS_ACTION_TEST_RUN_COMPLETE: "test_runs",
+    STATUS_ACTION_LINT_RESOLVED: "lint_events",
+    STATUS_ACTION_COMMIT_SUCCESS: "commits",
 }
 
 
@@ -91,8 +104,8 @@ def _classify_status_events(
         "other": 0,
     }
 
-    # Content regex remains for not-yet-converted lifecycle moments
-    # (file_writes/test_runs/commits/lint — M2/M3 scope).
+    # TODO M3: drop _FILE_WRITE_RE / _TEST_RUN_RE / _COMMIT_RE / _LINT_RE once
+    # one full session of M2 dual-emit confirms action-match is comprehensive.
     patterns = [
         (_FILE_WRITE_RE, "file_writes"),
         (_TEST_RUN_RE, "test_runs"),
@@ -101,7 +114,14 @@ def _classify_status_events(
     ]
 
     for e in events:
-        if e.get("type") != _common.STATUS:
+        etype = e.get("type", "")
+        # type=commit is the canonical commit signal (closes the meta-irony
+        # where doctrine sessions couldn't count their own commits via the
+        # legacy "Committed:" status regex). Counted before the status guard.
+        if etype == _common.COMMIT:
+            counts["commits"] += 1
+            continue
+        if etype != _common.STATUS:
             continue
 
         action = event_action(e)

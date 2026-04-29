@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_milestone_dict
+from event_schema import event_action
 
 # ===========================================================================
 # save_sprint.py -- Atomic writer for sprint.json
@@ -150,11 +151,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         """Without .accept marker, no iteration_complete event."""
         self._run_save(_local_sprint(status="done"))
         events = self._read_events()
-        iter_events = [
-            e
-            for e in events
-            if e.get("metadata", {}).get("action") == "iteration_complete"
-        ]
+        iter_events = [e for e in events if event_action(e) == "iteration_complete"]
         self.assertEqual(len(iter_events), 0)
 
     def test_iteration_complete_recorded_on_accept_flow(self):
@@ -162,11 +159,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
         (self.smm_dir / ".accept").write_text("done")
         self._run_save(_local_sprint(status="done"))
         events = self._read_events()
-        iter_events = [
-            e
-            for e in events
-            if e.get("metadata", {}).get("action") == "iteration_complete"
-        ]
+        iter_events = [e for e in events if event_action(e) == "iteration_complete"]
         self.assertEqual(len(iter_events), 1)
 
     def test_sprint_complete_nudge_printed(self):

@@ -14,7 +14,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import security
+from event_schema import (
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+    event_action,
+)
 
+# TODO M3: drop _TEST_RUN_RE / _COMMIT_RE once dual-emit window proves the
+# action-match path is comprehensive.
 _TEST_RUN_RE = _common.TEST_RUN_RE
 _TEST_FAIL_RE = re.compile(r"(\d+)\s+failed", re.IGNORECASE)
 _COMMIT_RE = _common.LEGACY_COMMIT_RE
@@ -48,9 +55,14 @@ def build_work_signals(events: list[dict]) -> dict:
     for e in events:
         etype = e.get("type", "")
         content = e.get("content", "")
+        action = event_action(e)
 
-        is_commit = etype == _common.COMMIT or (
-            etype == _common.STATUS and _COMMIT_RE.search(content)
+        # Real commits are type=commit; the action branch is forward-compat
+        # for any future status-typed commit emission. Regex is M2 fallback.
+        is_commit = (
+            etype == _common.COMMIT
+            or action == STATUS_ACTION_COMMIT_SUCCESS
+            or (etype == _common.STATUS and _COMMIT_RE.search(content))
         )
 
         if is_commit:
@@ -72,11 +84,21 @@ def build_work_signals(events: list[dict]) -> dict:
             elif editing:
                 events_since_first_edit += 1
 
+            is_test_run = action == STATUS_ACTION_TEST_RUN_COMPLETE or (
+                etype == _common.STATUS and _TEST_RUN_RE.search(content)
+            )
+
             if etype == _common.CONCERN:
                 pending_concerns += 1
-            elif etype == _common.STATUS and _TEST_RUN_RE.search(content):
-                fail_match = _TEST_FAIL_RE.search(content)
-                failed_count = int(fail_match.group(1)) if fail_match else 0
+            elif is_test_run:
+                # Prefer structured metadata.test_passed when present;
+                # otherwise fall back to parsing failed-count from content.
+                metadata = e.get("metadata") or {}
+                if "test_passed" in metadata:
+                    failed_count = 0 if metadata["test_passed"] else 1
+                else:
+                    fail_match = _TEST_FAIL_RE.search(content)
+                    failed_count = int(fail_match.group(1)) if fail_match else 0
                 if failed_count > 0:
                     consecutive_failures += 1
                 else:

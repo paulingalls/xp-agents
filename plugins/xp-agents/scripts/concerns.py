@@ -105,11 +105,16 @@ def resolve_concerns(
     label: str,
     events: list[dict] | None = None,
     resolutions: dict | None = None,
+    extra_metadata: dict | None = None,
 ) -> bool:
     """Auto-resolve unresolved concerns whose content matches *matcher*.
 
     *matcher* receives the event's ``content`` string; any truthy return
     means it matches (works with both ``re.search`` and ``str.startswith``).
+
+    *extra_metadata* is merged into each resolver event's metadata — used
+    by callers (e.g. lint resolution) to attach an action discriminator
+    alongside the resolves link.
 
     Returns True if any concerns were resolved.
     """
@@ -120,6 +125,7 @@ def resolve_concerns(
     if not unresolved:
         return False
 
+    base_metadata = extra_metadata or {}
     bulk_append_safe(
         smm_dir,
         [
@@ -128,7 +134,7 @@ def resolve_concerns(
                 agent_id,
                 f"{label}: {c['content'][:60]}",
                 working_on=[],
-                metadata={METADATA_KEY_RESOLVES: [c["id"]]},
+                metadata={**base_metadata, METADATA_KEY_RESOLVES: [c["id"]]},
             )
             for c in unresolved
         ],

@@ -26,16 +26,16 @@ _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 
 
-def _claude_subprocess_mock(*, raise_error: bool = False):
-    """Stub claude calls but pass git calls through to real subprocess."""
-    original_run = subprocess.run
+def _run_with_tee_mock(*, raise_error: bool = False):
+    """Stub run_with_tee so we don't actually launch claude in tests.
+
+    Mirrors the success / CalledProcessError contract of the prior
+    subprocess.run mock so existing test assertions hold.
+    """
 
     def side_effect(cmd, **kwargs):
-        if cmd and cmd[0] == "claude":
-            if raise_error:
-                raise subprocess.CalledProcessError(1, cmd)
-            return subprocess.CompletedProcess(cmd, 0)
-        return original_run(cmd, **kwargs)
+        if raise_error:
+            raise subprocess.CalledProcessError(1, cmd)
 
     return side_effect
 
@@ -99,9 +99,9 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
                 return_value=str(self.tmpdir),
             ),
             unittest.mock.patch.object(
-                subprocess,
-                "run",
-                side_effect=_claude_subprocess_mock(),
+                spawn_teammate,
+                "run_with_tee",
+                side_effect=_run_with_tee_mock(),
             ),
         ):
             spawn_teammate.main(
@@ -130,9 +130,9 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
                 return_value=str(self.tmpdir),
             ),
             unittest.mock.patch.object(
-                subprocess,
-                "run",
-                side_effect=_claude_subprocess_mock(raise_error=True),
+                spawn_teammate,
+                "run_with_tee",
+                side_effect=_run_with_tee_mock(raise_error=True),
             ),
             self.assertRaises(subprocess.CalledProcessError),
         ):

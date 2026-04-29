@@ -196,5 +196,67 @@ class TestWorkSignals(unittest.TestCase):
         self.assertEqual(result["max_events_to_commit"], 3)
 
 
+class TestWorkSignalsM2Actions(unittest.TestCase):
+    """sprint-042 M2: action-aware classification with regex fallback."""
+
+    def test_test_run_action_failure_increments_consecutive_failures(self):
+        """metadata.action=test_run_complete with test_passed=false counts
+        as a failed test run, exactly like the legacy regex path."""
+        import work_signals
+
+        events = [
+            make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": "test_run_complete",
+                    "test_passed": False,
+                    "test_count": 1,
+                    "framework": "pytest",
+                },
+            ),
+            make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": "test_run_complete",
+                    "test_passed": False,
+                    "test_count": 1,
+                    "framework": "pytest",
+                },
+            ),
+            make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": "test_run_complete",
+                    "test_passed": True,
+                    "test_count": 5,
+                    "framework": "pytest",
+                },
+            ),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_consecutive_test_failures"], 2)
+
+    def test_concern_then_type_commit_counts_addressed(self):
+        """Real type=commit events (with metadata.action=commit_success) close
+        pending concerns the same way legacy 'Committed:' status events did."""
+        import work_signals
+
+        events = [
+            make_event("concern", content="Missing tests"),
+            make_event(
+                "commit",
+                content="Add tests",
+                files=["tests/foo.py"],
+                metadata={"action": "commit_success", "commit_hash": "abc"},
+            ),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["concerns_addressed_by_commits"], 1)
+        self.assertEqual(result["unaddressed_concerns"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

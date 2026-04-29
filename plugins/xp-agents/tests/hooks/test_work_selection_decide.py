@@ -96,14 +96,16 @@ class TestAdopt(_DecideTestCase):
         )
         self.assertEqual(self._last_event()["type"], "decision")
 
-    def test_adopt_agent_id_is_xp_work_selection(self):
+    def test_adopt_agent_id_is_resolved(self):
+        """agent_id is teammate-resolved attribution per the agent-id-semantics
+        ADR; the test cwd is a non-worktree tmpdir so it resolves to 'main'."""
         self.mod.run(
             action="adopt",
             smm_dir=self.smm_dir,
             content="A try",
             topic="retro-try-foo",
         )
-        self.assertEqual(self._last_event()["agent_id"], "xp-work-selection")
+        self.assertEqual(self._last_event()["agent_id"], "main")
 
 
 class TestDefer(_DecideTestCase):

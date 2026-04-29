@@ -57,6 +57,23 @@ def _make_agent_input(subagent_type: str = "general-purpose", **overrides) -> di
     return data
 
 
+def _make_bash_failure_input(
+    command: str = "pytest", error: str = "exit 1", **overrides
+) -> dict:
+    """Build a canonical PostToolUseFailure Bash input dict."""
+    data = {
+        "session_id": "t",
+        "hook_event_name": "PostToolUseFailure",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "error": error,
+        "is_interrupt": False,
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
 def _make_stop_input(**overrides) -> dict:
     """Build a canonical Stop hook input dict."""
     data = {"session_id": "t", "agent_id": "main"}
