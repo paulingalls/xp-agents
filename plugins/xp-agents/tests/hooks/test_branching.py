@@ -2,8 +2,10 @@
 """Tests for branching.py — pure-function unit tests.
 
 Covers: branch_name, sprint_branch_name, get_branching_stage,
-is_protected_branch, is_sprint_branch, extract_commit_message,
-is_escape_hatch_commit.
+is_protected_branch, is_sprint_branch.
+
+Commit message parsing tests (extract_commit_message,
+is_escape_hatch_commit) are in test_commits.py.
 
 Git-operation lifecycle tests (create, merge, delete, CLI) are in
 test_branching_lifecycle.py.
@@ -229,74 +231,6 @@ class TestGetMergeTarget(unittest.TestCase):
             (smm / "system_context.json").write_text(json.dumps(ctx))
             result = branching.get_merge_target(smm, cwd=td)
             self.assertEqual(result, "develop")
-
-
-class TestExtractCommitMessage(unittest.TestCase):
-    def test_double_quoted(self):
-        self.assertEqual(
-            branching.extract_commit_message('git commit -m "fix bug"'),
-            "fix bug",
-        )
-
-    def test_single_quoted(self):
-        self.assertEqual(
-            branching.extract_commit_message("git commit -m 'add feature'"),
-            "add feature",
-        )
-
-    def test_no_m_flag(self):
-        self.assertIsNone(branching.extract_commit_message("git commit"))
-
-    def test_heredoc_style(self):
-        cmd = """git commit -m "$(cat <<'EOF'
-[release] bump version
-
-Co-Authored-By: Claude
-EOF
-)" """
-        result = branching.extract_commit_message(cmd)
-        self.assertIsNotNone(result)
-        self.assertTrue(result.startswith("[release]"))
-
-    def test_empty_message(self):
-        self.assertEqual(
-            branching.extract_commit_message('git commit -m ""'),
-            "",
-        )
-
-    def test_message_with_special_chars(self):
-        self.assertEqual(
-            branching.extract_commit_message('git commit -m "[chore] update deps"'),
-            "[chore] update deps",
-        )
-
-
-class TestIsEscapeHatchCommit(unittest.TestCase):
-    def test_release_prefix(self):
-        self.assertTrue(
-            branching.is_escape_hatch_commit('git commit -m "[release] v1.0"')
-        )
-
-    def test_chore_prefix(self):
-        self.assertTrue(
-            branching.is_escape_hatch_commit('git commit -m "[chore] cleanup"')
-        )
-
-    def test_case_insensitive(self):
-        self.assertTrue(
-            branching.is_escape_hatch_commit('git commit -m "[Release] v2.0"')
-        )
-
-    def test_no_prefix(self):
-        self.assertFalse(branching.is_escape_hatch_commit('git commit -m "fix bug"'))
-
-    def test_no_m_flag(self):
-        self.assertFalse(branching.is_escape_hatch_commit("git commit"))
-
-    def test_prefix_not_at_start(self):
-        self.assertFalse(
-            branching.is_escape_hatch_commit('git commit -m "fix [release] tag"')
-        )
 
 
 if __name__ == "__main__":

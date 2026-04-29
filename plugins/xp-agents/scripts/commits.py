@@ -272,3 +272,33 @@ def get_uncommitted_code_files(cwd: str) -> list[str]:
     return [
         f for f in sorted(all_files) if security.is_code_file(f) and not is_test_file(f)
     ]
+
+
+_HEREDOC_MSG_RE = re.compile(
+    r"-m\s+\"\$\(cat\s+<<'?\w+'?\n(.*?)\n\w+\n\)\"",
+    re.DOTALL,
+)
+_SIMPLE_MSG_RE = re.compile(
+    r"""-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')""",
+)
+
+
+def extract_commit_message(command: str) -> str | None:
+    """Extract the -m argument value from a git commit command."""
+    heredoc = _HEREDOC_MSG_RE.search(command)
+    if heredoc:
+        return heredoc.group(1)
+    m = _SIMPLE_MSG_RE.search(command)
+    if m:
+        return m.group(1) if m.group(1) is not None else m.group(2)
+    return None
+
+
+_ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore)\]", re.IGNORECASE)
+
+
+def is_escape_hatch_commit(command: str) -> bool:
+    msg = extract_commit_message(command)
+    if msg is None:
+        return False
+    return bool(_ESCAPE_HATCH_RE.match(msg))
