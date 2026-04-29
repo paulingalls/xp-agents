@@ -18,24 +18,13 @@ import _common
 import bash_failure
 import bash_post_tool
 from _commit_helpers import patch_commits
-from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
-
-
-def _make_bash_failure_input(
-    command: str = "echo hi", error: str = "exit code 1", **overrides
-) -> dict:
-    """Build a canonical PostToolUseFailure Bash input dict."""
-    data = {
-        "session_id": "t",
-        "hook_event_name": "PostToolUseFailure",
-        "tool_name": "Bash",
-        "tool_input": {"command": command},
-        "error": error,
-        "is_interrupt": False,
-        "agent_id": "main",
-    }
-    data.update(overrides)
-    return data
+from conftest import (
+    _HookTestCase,
+    _make_bash_failure_input,
+    _make_bash_input,
+    _ProbeTestHelpers,
+    make_event,
+)
 
 
 class TestBashFailure(_HookTestCase):
