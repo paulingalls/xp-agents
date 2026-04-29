@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import commits
+import worktree
 from duplicate_debt_probe import STOPWORDS
 from event_schema import (
     METADATA_KEY_CLOSE_MODE,
@@ -86,12 +87,16 @@ def _score_candidate(
     candidate: dict,
     haystack_keywords: set[str],
     commit_file_set: set[str],
+    cwd: str,
     now_ts: str,
 ) -> int:
     """Rank score: keyword match + file overlap + recency + close-review boost.
 
     haystack_keywords and commit_file_set are pre-computed once per commit by
-    the caller — _score_candidate runs per candidate.
+    the caller — _score_candidate runs per candidate. commit_file_set members
+    are normalized via worktree.normalize_path; candidate files are normalized
+    here to match (mirrors commits.open_issues_matching_commit's intersection
+    semantics so abs/rel/./ path forms all match).
     """
     keywords = _extract_keywords(candidate.get("content") or "")
     overlap = keywords & haystack_keywords
@@ -100,11 +105,14 @@ def _score_candidate(
     cand_files = candidate.get("files") or []
     file_overlap = 0
     if isinstance(cand_files, list):
-        file_overlap = sum(
-            1
-            for f in cand_files
-            if isinstance(f, str) and Path(f).as_posix() in commit_file_set
-        )
+        for f in cand_files:
+            if not isinstance(f, str):
+                continue
+            try:
+                if worktree.normalize_path(f, cwd) in commit_file_set:
+                    file_overlap += 1
+            except (ValueError, OSError):
+                continue
 
     recency = 1 if _is_recent(candidate.get("ts") or "", now_ts) else 0
     provenance = 1 if _close_mode(candidate) else 0
@@ -148,9 +156,14 @@ def find_probe_candidates(
     resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
     haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
     haystack_keywords = _extract_keywords(" ".join(haystack_parts))
-    commit_file_set = {Path(f).as_posix() for f in commit_files}
+    commit_file_set: set[str] = set()
+    for f in commit_files:
+        try:
+            commit_file_set.add(worktree.normalize_path(f, cwd))
+        except (ValueError, OSError):
+            continue
     scored = [
-        (_score_candidate(c, haystack_keywords, commit_file_set, resolved_now), c)
+        (_score_candidate(c, haystack_keywords, commit_file_set, cwd, resolved_now), c)
         for c in unresolved
     ]
     scored.sort(key=lambda pair: (-pair[0], -_ts_sort_key(pair[1])))

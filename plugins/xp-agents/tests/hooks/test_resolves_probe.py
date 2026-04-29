@@ -12,6 +12,7 @@ import unittest
 
 import _common
 import resolves_probe
+import worktree
 from conftest import _HookTestCase, _ProbeTestHelpers, make_event
 from event_schema import (
     METADATA_KEY_PROBE_CANDIDATES,
@@ -181,13 +182,20 @@ class TestScoreCandidate(unittest.TestCase):
         return base
 
     def _score(self, candidate, *, commit_message="", commit_files=None, now_ts=None):
-        """Convenience: compute haystack/file_set as find_probe_candidates does."""
+        """Convenience: compute haystack/file_set as find_probe_candidates does.
+
+        Mirrors the production code path: commit_file_set is built via
+        worktree.normalize_path so candidate files (also normalized inside
+        _score_candidate) intersect on the same key shape regardless of
+        whether the source path was absolute, relative, or `./`-prefixed.
+        """
         commit_files = commit_files or []
         haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
         haystack_keywords = resolves_probe._extract_keywords(" ".join(haystack_parts))
-        commit_file_set = {Path(f).as_posix() for f in commit_files}
+        cwd = "/"
+        commit_file_set = {worktree.normalize_path(f, cwd) for f in commit_files}
         return resolves_probe._score_candidate(
-            candidate, haystack_keywords, commit_file_set, now_ts or self.NOW
+            candidate, haystack_keywords, commit_file_set, cwd, now_ts or self.NOW
         )
 
     def test_keyword_match_in_commit_message_adds_two(self):
@@ -235,6 +243,27 @@ class TestScoreCandidate(unittest.TestCase):
         s_two = self._score(cand, commit_files=["scripts/auth.py", "scripts/foo.py"])
         s_one = self._score(cand, commit_files=["scripts/auth.py"])
         self.assertEqual(s_two - s_one, 1)
+
+    def test_file_overlap_uses_worktree_normalize_path(self):
+        """Both candidate.files and commit_file_set are routed through
+        worktree.normalize_path so abs/rel/`./`-prefixed forms intersect
+        on the git-root-relative key (matches commits.open_issues_matching
+        _commit's intersection semantics). Pinned via patch so the test
+        asserts the contract without needing a real git repo."""
+        from unittest.mock import patch as patch_
+
+        cand = self._candidate(content="zzz", files=["/abs/repo/scripts/auth.py"])
+        baseline = self._score(self._candidate(content="zzz", files=[]))
+
+        # Stub normalize_path to map both forms to the same git-relative key,
+        # reproducing what the production path delivers inside a real repo.
+        def _stub(path, _cwd):
+            return path.split("/abs/repo/", 1)[-1].lstrip("/")
+
+        with patch_("worktree.normalize_path", side_effect=_stub):
+            score = self._score(cand, commit_files=["scripts/auth.py"])
+        # +1 for file overlap on top of baseline.
+        self.assertEqual(score - baseline, 1)
 
     def test_stopwords_do_not_score(self):
         cand = self._candidate(content="the and with for that", files=[])
