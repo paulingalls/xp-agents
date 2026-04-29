@@ -197,7 +197,7 @@ class TestTeammateNameEnvVar(unittest.TestCase):
     """spawn_teammate sets XP_TEAMMATE_NAME env var for teammate detection."""
 
     def test_env_includes_xp_teammate_name(self):
-        """XP_TEAMMATE_NAME is set to the prefixed name in subprocess env."""
+        """XP_TEAMMATE_NAME is set to the name passed via --name."""
         import tempfile
         from unittest.mock import patch
 
@@ -221,45 +221,62 @@ class TestTeammateNameEnvVar(unittest.TestCase):
                 spawn_teammate.main(
                     [
                         "--name",
-                        "astro",
+                        "worktree-story-001",
                         "--smm-dir",
                         "/tmp/smm",
                         "--prompt-file",
                         prompt_path,
                     ]
                 )
-            self.assertEqual(captured_env.get("XP_TEAMMATE_NAME"), "teammate-astro")
+            self.assertEqual(captured_env.get("XP_TEAMMATE_NAME"), "worktree-story-001")
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
 
-class TestNameAutoPrefix(unittest.TestCase):
-    """spawn_teammate auto-prefixes teammate- when missing."""
+class TestNamePassThrough(unittest.TestCase):
+    """spawn_teammate uses --name as-is (no prefix transformation)."""
 
-    def test_name_without_prefix_gets_prefixed(self):
-        """--name astro becomes teammate-astro."""
+    def test_name_used_directly_in_main(self):
+        """--name worktree-story-001 flows through without transformation."""
+        import tempfile
+        from unittest.mock import patch
+
         import spawn_teammate
 
-        result = spawn_teammate.ensure_teammate_prefix("astro")
-        self.assertEqual(result, "teammate-astro")
+        captured_name = {}
 
-    def test_name_with_prefix_unchanged(self):
-        """--name teammate-step-1 stays teammate-step-1."""
-        import spawn_teammate
+        def capture_create(name, cwd, *, branch=None):
+            captured_name["value"] = name
+            return "/tmp/wt"
 
-        result = spawn_teammate.ensure_teammate_prefix("teammate-step-1")
-        self.assertEqual(result, "teammate-step-1")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
 
-    def test_empty_name_gets_prefixed(self):
-        """Empty name gets teammate- prefix."""
-        import spawn_teammate
-
-        result = spawn_teammate.ensure_teammate_prefix("")
-        self.assertEqual(result, "teammate-")
+        try:
+            with (
+                patch.object(
+                    spawn_teammate, "create_worktree", side_effect=capture_create
+                ),
+                patch.object(spawn_teammate, "run_with_tee"),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-001",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+            self.assertEqual(captured_name["value"], "worktree-story-001")
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
 
 
 class TestRunWithTee(unittest.TestCase):
-    """run_with_tee mirrors claude -p stdout to <log_dir>/teammate-<name>.log
+    """run_with_tee mirrors claude -p stdout to <log_dir>/<name>.log
     so a hung teammate can be inspected without aborting the run.
     """
 
