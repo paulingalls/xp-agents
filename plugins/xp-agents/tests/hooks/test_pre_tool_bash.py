@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for pre_tool_bash.py: commit security gate, file-modification heuristic."""
 
+import contextlib
 import sys
 import tempfile
 import unittest
@@ -18,8 +19,10 @@ import security
 from conftest import (
     _HookTestCase,
     _make_bash_input,
+    _ProbeTestHelpers,
     make_event,
 )
+from event_schema import METADATA_KEY_PROBE_CANDIDATES
 
 
 class TestPreToolBashNoDelta(_HookTestCase):
@@ -303,6 +306,32 @@ class TestResolvesTrailerReminder(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
+
+
+class TestPreToolBashPassesCommitMessage(_ProbeTestHelpers, _HookTestCase):
+    """Pre-commit probe scoring uses commit_message for keyword ranking."""
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    def test_keyword_in_commit_message_ranks_matching_concern_first(self, _mock):
+        cid_no_keyword = self._seed_auth_concern("zzz cleanup")
+        cid_keyword = self._seed_auth_concern("tokens leak")
+        security.write_security_triaged(self.smm_dir)
+
+        with contextlib.suppress(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(command="git commit -m 'fix tokens issue'"),
+                smm_dir=self.smm_dir,
+            )
+
+        probes = self._probes()
+        self.assertEqual(len(probes), 1)
+        candidates = probes[0]["metadata"][METADATA_KEY_PROBE_CANDIDATES]
+        self.assertLess(
+            candidates.index(cid_keyword),
+            candidates.index(cid_no_keyword),
+            "keyword-matching concern should rank higher when commit_message"
+            " carries the keyword",
+        )
 
 
 if __name__ == "__main__":

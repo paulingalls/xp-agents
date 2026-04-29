@@ -153,6 +153,7 @@ METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
+METADATA_KEY_CLOSE_MODE = "close_mode"
 
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
