@@ -130,12 +130,20 @@ def _parse_two_counts(
 def _apply_two_counts(
     result: dict, tool_response: str, pass_re: str, fail_re: str
 ) -> None:
-    """Parse counts into result and set status=PARSED on match."""
+    """Parse counts into result and set status from match outcome.
+
+    matched + non-zero counts → PARSED; matched + zero counts → ZERO
+    (the framework's summary line proves it ran with zero tests, even when
+    a framework-specific zero marker isn't recognized). Unmatched leaves
+    status at the caller's default (PARSER_FAILED).
+    """
     passed, failed, matched = _parse_two_counts(tool_response, pass_re, fail_re)
     result["passed"] = passed
     result["failed"] = failed
     if matched:
-        result["status"] = PARSER_STATUS_PARSED
+        result["status"] = (
+            PARSER_STATUS_ZERO if (passed + failed == 0) else PARSER_STATUS_PARSED
+        )
 
 
 def parse_test_results(tool_response: str, framework: str) -> dict:
@@ -146,13 +154,12 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
       - ZERO          — framework-specific zero-tests marker matched
       - FAILED        — nothing recognized
 
-    Precedence: zero markers first, then numeric regexes, else parser_failed.
-    Long-tail frameworks (cargo, maven, dotnet, dart, rspec, minitest, phpunit,
-    elixir, ctest, bun, xcodebuild/swift) lack reliable zero-tests markers; for
-    those, parsed-with-zero-counts maps to PARSED, not ZERO. The distinction
-    only narrows the "framework ran but reported 0 tests" case for the few
-    frameworks (pytest, unittest, jest/vitest/playwright) where zero-tests
-    output is unambiguous.
+    Precedence: framework-specific zero markers first (pytest/jest/vitest/
+    playwright/unittest), then numeric regexes via `_apply_two_counts` which
+    treats matched-but-zero counts as ZERO (long-tail bistate fallback);
+    unmatched leaves status at PARSER_FAILED. `errors` is folded into `failed`
+    in every framework so consumers see a single disjoint "did-not-pass"
+    count.
     """
     result = {
         "status": PARSER_STATUS_FAILED,
@@ -169,7 +176,11 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
             _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
             m = re.search(r"(\d+)\s+error", tool_response)
             if m:
-                result["errors"] = int(m.group(1))
+                errors = int(m.group(1))
+                result["errors"] = errors
+                # Fold errors into failed so consumers see one disjoint
+                # "did-not-pass" count — matches unittest/maven/minitest convention.
+                result["failed"] += errors
                 result["status"] = PARSER_STATUS_PARSED
 
         case "jest" | "vitest" | "playwright":

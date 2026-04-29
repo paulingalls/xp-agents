@@ -431,6 +431,24 @@ class TestParseTestResults(unittest.TestCase):
         result = test_parsing.parse_test_results(output, "pytest")
         self.assertEqual(result["status"], "parser_failed")
 
+    def test_pytest_errors_only_folds_into_failed(self):
+        # Collection-only errors (no passed/failed line). Errors fold into
+        # failed so test_passed=False and test_count=N at the consumer.
+        output = "===== 2 errors in 0.5s ====="
+        result = test_parsing.parse_test_results(output, "pytest")
+        self.assertEqual(result["status"], "parsed")
+        self.assertEqual(result["passed"], 0)
+        self.assertEqual(result["failed"], 2)
+        self.assertEqual(result["errors"], 2)
+
+    def test_cargo_zero_counts_returns_zero(self):
+        # Long-tail framework: matched-but-zero → ZERO via bistate fallback.
+        output = "test result: ok. 0 passed; 0 failed; 0 ignored"
+        result = test_parsing.parse_test_results(output, "cargo")
+        self.assertEqual(result["status"], "zero")
+        self.assertEqual(result["passed"], 0)
+        self.assertEqual(result["failed"], 0)
+
     def test_unittest_zero_returns_zero(self):
         output = "Ran 0 tests in 0.0s\n\nOK"
         result = test_parsing.parse_test_results(output, "unittest")

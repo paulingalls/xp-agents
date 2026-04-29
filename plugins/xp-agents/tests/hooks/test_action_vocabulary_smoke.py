@@ -224,35 +224,29 @@ def _drive_security_triage_started(smm_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Producer-case map: action_value -> driver callable.
-# Keyed by the constant's *value* so the missing-coverage canary checks
-# membership directly against ``getattr(event_schema, name)``.
+# Producer-case map: constant *name* -> driver callable.
+# Keyed by name (not value) so the missing-coverage canary cannot be silenced
+# by a duplicated value across two distinct constants.
 # ---------------------------------------------------------------------------
 
 _PRODUCER_CASES: dict[str, Driver] = {
-    event_schema.STATUS_ACTION_FILE_WRITE: _drive_file_write,
-    event_schema.STATUS_ACTION_TEST_RUN_COMPLETE: _drive_test_run_complete,
-    event_schema.STATUS_ACTION_LINT_RESOLVED: _drive_lint_resolved,
-    event_schema.STATUS_ACTION_BASH_FAILED: _drive_bash_failed,
-    event_schema.STATUS_ACTION_COMMIT_SUCCESS: _drive_commit_success,
-    event_schema.STATUS_ACTION_SUBAGENT_COMPLETE: _drive_subagent_complete,
-    event_schema.STATUS_ACTION_PLAN_COMPLETED: _drive_plan_completed,
-    event_schema.STATUS_ACTION_PLAN_AWAITING_REVIEW: _drive_plan_completed,
-    event_schema.STATUS_ACTION_PLAN_EXITED: _drive_plan_exited,
-    event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE: _drive_review_cycle("simplify"),
-    event_schema.STATUS_ACTION_QR_COMPLETE: _drive_review_cycle("xp-quality-review"),
-    event_schema.STATUS_ACTION_SECURITY_COMPLETE: _drive_review_cycle(
-        "security-review"
-    ),
-    event_schema.STATUS_ACTION_SECURITY_TRIAGE_COMPLETE: _drive_review_cycle(
-        "xp-security-triage"
-    ),
-    event_schema.STATUS_ACTION_PLAN_REVIEWED: _drive_review_cycle("xp-review-plan"),
-    event_schema.STATUS_ACTION_HOUSEKEEPING_COMPLETE: _drive_review_cycle(
-        "xp-housekeeper"
-    ),
-    event_schema.STATUS_ACTION_ITERATION_COMPLETE: _drive_iteration_complete,
-    event_schema.STATUS_ACTION_SECURITY_TRIAGE_STARTED: _drive_security_triage_started,
+    "STATUS_ACTION_FILE_WRITE": _drive_file_write,
+    "STATUS_ACTION_TEST_RUN_COMPLETE": _drive_test_run_complete,
+    "STATUS_ACTION_LINT_RESOLVED": _drive_lint_resolved,
+    "STATUS_ACTION_BASH_FAILED": _drive_bash_failed,
+    "STATUS_ACTION_COMMIT_SUCCESS": _drive_commit_success,
+    "STATUS_ACTION_SUBAGENT_COMPLETE": _drive_subagent_complete,
+    "STATUS_ACTION_PLAN_COMPLETED": _drive_plan_completed,
+    "STATUS_ACTION_PLAN_AWAITING_REVIEW": _drive_plan_completed,
+    "STATUS_ACTION_PLAN_EXITED": _drive_plan_exited,
+    "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("simplify"),
+    "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
+    "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
+    "STATUS_ACTION_SECURITY_TRIAGE_COMPLETE": _drive_review_cycle("xp-security-triage"),
+    "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
+    "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
+    "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
+    "STATUS_ACTION_SECURITY_TRIAGE_STARTED": _drive_security_triage_started,
 }
 
 
@@ -271,7 +265,7 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # Tracked by debt event ef03cbc32f1e — either wire a status producer
     # at sprint-retro completion, or remove the constant and rewrite the
     # consumers against retrospective-type events.
-    event_schema.STATUS_ACTION_SPRINT_RETRO_DONE: "ef03cbc32f1e",
+    "STATUS_ACTION_SPRINT_RETRO_DONE": "ef03cbc32f1e",
 }
 
 
@@ -279,19 +273,20 @@ class TestActionVocabularySmoke(_HookTestCase):
     """Capstone: every STATUS_ACTION_* must be exercised by a driver."""
 
     def test_missing_coverage_canary(self):
-        """Every constant must be in _PRODUCER_CASES or _DOCTRINE_GAPS."""
-        constants = _all_status_action_values()
+        """Every constant must be in _PRODUCER_CASES or _DOCTRINE_GAPS.
+
+        Keyed on constant *name* — a future constant whose value collides
+        with an existing one cannot be silently considered covered.
+        """
+        constant_names = set(_all_status_action_values())
         covered = set(_PRODUCER_CASES) | set(_DOCTRINE_GAPS)
-        missing = {
-            name: value for name, value in constants.items() if value not in covered
-        }
+        missing = sorted(constant_names - covered)
         self.assertEqual(
             missing,
-            {},
+            [],
             "STATUS_ACTION_* constants without a producer driver or "
-            "doctrine-gap debt entry: "
-            f"{sorted(missing)}. Add a driver to _PRODUCER_CASES or "
-            "file a debt event and add to _DOCTRINE_GAPS.",
+            f"doctrine-gap debt entry: {missing}. Add a driver to "
+            "_PRODUCER_CASES or file a debt event and add to _DOCTRINE_GAPS.",
         )
 
     def _reset_smm(self) -> None:
@@ -314,18 +309,17 @@ class TestActionVocabularySmoke(_HookTestCase):
 
     def test_per_constant_action_emitted(self):
         """Each driver emits at least one event with metadata.action = value."""
-        value_to_name = {v: k for k, v in _all_status_action_values().items()}
-        for action_value, driver in _PRODUCER_CASES.items():
-            with self.subTest(action=value_to_name.get(action_value, action_value)):
+        for name, driver in _PRODUCER_CASES.items():
+            with self.subTest(action=name):
+                action_value = getattr(event_schema, name)
                 self._reset_smm()
                 events = driver(self.smm_dir)
                 actions = [event_action(e) for e in events]
                 self.assertIn(
                     action_value,
                     actions,
-                    f"driver for {value_to_name.get(action_value)} emitted no "
-                    f"event with metadata.action={action_value!r}; "
-                    f"actions seen: {actions!r}",
+                    f"driver for {name} emitted no event with "
+                    f"metadata.action={action_value!r}; actions seen: {actions!r}",
                 )
 
 

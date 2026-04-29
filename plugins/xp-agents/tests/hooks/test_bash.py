@@ -424,6 +424,15 @@ class TestM2TestRunActions(_HookTestCase):
         self.assertIs(metadata.get("test_passed"), True)
         self.assertEqual(metadata.get("framework"), "pytest")
 
+    def test_errors_only_pytest_emits_test_passed_false(self):
+        # Collection-only errors must NOT report as a green zero-test run.
+        status = self._status("pytest", "===== 2 errors in 0.5s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("parser_status"), PARSER_STATUS_PARSED)
+        self.assertIs(metadata.get("test_passed"), False)
+        self.assertEqual(metadata.get("test_count"), 2)
+        self.assertEqual(metadata.get("test_errors"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

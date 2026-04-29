@@ -381,13 +381,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         parser_status = results["status"]
         passed = results["passed"]
         failed = results["failed"]
+        errors = results["errors"]
 
         # Structured metadata.action+companion fields are the canonical signal;
         # content stays as a human-readable digest for log readers.
         # parser_status disambiguates "framework ran 0 tests" (ZERO) from
         # "parser couldn't extract counts" (FAILED). On FAILED, test_passed
         # and test_count are omitted — producers don't invent numbers they
-        # don't have.
+        # don't have. parsers fold errors into failed, so failed is the
+        # disjoint "did-not-pass" count; metadata.test_errors is informational.
         metadata: dict = {
             "action": STATUS_ACTION_TEST_RUN_COMPLETE,
             "framework": framework,
@@ -397,6 +399,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
             metadata["test_count"] = passed + failed
+            if errors > 0:
+                metadata["test_errors"] = errors
         elif parser_status == PARSER_STATUS_ZERO:
             content = f"Tests ran ({framework}) — 0 tests"
             metadata["test_passed"] = True
