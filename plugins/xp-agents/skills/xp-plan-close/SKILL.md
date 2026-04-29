@@ -16,6 +16,7 @@ allowed-tools:
   - Bash(python3 */smm/plan_cli.py *)
   - Bash(git push *)
   - Bash(gh pr *)
+  - Skill
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -131,8 +132,24 @@ conflict marker) and **do not** archive the plan or delete the
 branch — the user needs to resolve the conflict on the still-existing
 branch with the plan still in place. Conflicts are never auto-resolved.
 
+## Step 8: Update System Context
+
+A completed plan means the project's architecture, conventions, or structure
+may have changed. Refresh `system_context.json` so the next planning cycle
+starts from an accurate baseline.
+
+Invoke `/xp-system-context` via the `Skill` tool. Wait for completion.
+Output the key findings to the user.
+
+If the skill fails, record a concern and continue — do not block plan-close:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-plan-close" --severity "medium" \
+  --content "system-context refresh failed after plan-close — run /xp-system-context manually"
+```
+
 ## Reporting Back
 
 Tell the user: plan branch merged into primary, PR (if created) merged,
 local branch deleted, execution_plan.json archived under
-`<SMM_DIR>/plans/`. Plan-close is complete.
+`<SMM_DIR>/plans/`, system context refreshed. Plan-close is complete.
