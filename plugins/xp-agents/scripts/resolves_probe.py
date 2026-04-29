@@ -29,6 +29,14 @@ _KEYWORD_MATCH_CAP = 5
 _RECENCY_DAYS = 7
 _TOKEN_RE = re.compile(r"[^a-z0-9_]+")
 
+# Shared trailer-reminder text used by pre_tool_bash in both the soft-nudge
+# (parts.append) and hard-block (BlockedError body) paths. Centralized so
+# wording stays in lockstep with the trailer-extraction conventions in
+# `commits.extract_resolves_trailer`.
+TRAILER_REMINDER = (
+    "Add Resolves-Event: <id> or Resolves-Event: none to your commit message"
+)
+
 
 def _extract_keywords(text: str) -> set[str]:
     """Tokenize text → lowercase set, drop stopwords and tokens <3 chars."""

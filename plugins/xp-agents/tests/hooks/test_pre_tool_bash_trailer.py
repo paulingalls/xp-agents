@@ -180,5 +180,156 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(self._probes()), 0)
 
 
+def _multi_story_sprint():
+    return {
+        "sprint_id": "sprint-099",
+        "stories": [
+            {
+                "id": "story-001",
+                "title": "auth",
+                "status": "in-progress",
+                "file_domain": ["scripts/auth.py"],
+            },
+            {
+                "id": "story-002",
+                "title": "billing",
+                "status": "in-progress",
+                "file_domain": ["scripts/billing.py"],
+            },
+        ],
+    }
+
+
+_STORY_NUDGE_PREFIX = "Story attribution: staged files match"
+
+
+class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
+    """Pre-commit story-prefix nudge wired alongside the resolves-trailer probe."""
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    @patch("sprint_store.load_sprint")
+    def test_multi_story_no_prefix_dominant_overlap_emits_nudge(
+        self, mock_load, *_mocks
+    ):
+        mock_load.return_value = _multi_story_sprint()
+        result = pre_tool_bash.run(
+            _make_bash_input(command="git commit -m 'wire something up'"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn(_STORY_NUDGE_PREFIX, result)
+        self.assertIn("story-001", result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    @patch("sprint_store.load_sprint")
+    def test_multi_story_with_bracket_prefix_silent(self, mock_load, *_mocks):
+        mock_load.return_value = _multi_story_sprint()
+        result = pre_tool_bash.run(
+            _make_bash_input(command="git commit -m '[chore] cleanup'"),
+            smm_dir=self.smm_dir,
+        )
+        if result is not None:
+            self.assertNotIn(_STORY_NUDGE_PREFIX, result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    @patch("sprint_store.load_sprint")
+    def test_single_story_silent(self, mock_load, *_mocks):
+        sprint = _multi_story_sprint()
+        sprint["stories"][1]["status"] = "ready"
+        mock_load.return_value = sprint
+        result = pre_tool_bash.run(
+            _make_bash_input(command="git commit -m 'subject'"),
+            smm_dir=self.smm_dir,
+        )
+        if result is not None:
+            self.assertNotIn(_STORY_NUDGE_PREFIX, result)
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    @patch("sprint_store.load_sprint")
+    def test_combined_with_resolves_block(self, mock_load, *_mocks):
+        """Both probes fire: resolves block AND story nudge present, story FIRST."""
+        mock_load.return_value = _multi_story_sprint()
+        concern = make_event(
+            "concern",
+            content="auth bypass risk",
+            severity="medium",
+            files=["scripts/auth.py"],
+        )
+        self._write_events([concern])
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                _make_bash_input(command=_COMMIT_CMD),
+                smm_dir=self.smm_dir,
+            )
+        msg = str(ctx.exception)
+        self.assertIn(_STORY_NUDGE_PREFIX, msg)
+        self.assertIn("Resolves-Event", msg)
+        self.assertLess(
+            msg.index(_STORY_NUDGE_PREFIX),
+            msg.index("Resolves-Event"),
+            "Story nudge must precede Resolves-Event guidance",
+        )
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    @patch("sprint_store.load_sprint")
+    def test_combined_soft_nudge_no_block(self, mock_load, *_mocks):
+        """Story nudge + no resolves candidates + no trailer → soft (no block).
+        Story nudge precedes the trailer reminder (decision #3)."""
+        mock_load.return_value = _multi_story_sprint()
+        result = pre_tool_bash.run(
+            _make_bash_input(command="git commit -m 'wire something up'"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn(_STORY_NUDGE_PREFIX, result)
+        self.assertIn("Resolves-Event", result)
+        self.assertLess(
+            result.index(_STORY_NUDGE_PREFIX),
+            result.index("Resolves-Event"),
+            "Story nudge must precede the trailer reminder",
+        )
+
+    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    @patch("sprint_store.load_sprint")
+    def test_worktree_teammate_silent(self, mock_load, *_mocks):
+        """Worktree teammate has story_assignment file → Tier 1 attributes;
+        story probe stays silent."""
+        import worktree
+
+        mock_load.return_value = _multi_story_sprint()
+        assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
+        assignment.parent.mkdir(parents=True, exist_ok=True)
+        assignment.write_text("story-001")
+        result = pre_tool_bash.run(
+            _make_bash_input(
+                command="git commit -m 'subject'",
+                cwd="/proj/.claude/worktrees/teammate-step-1",
+            ),
+            smm_dir=self.smm_dir,
+        )
+        if result is not None:
+            self.assertNotIn(_STORY_NUDGE_PREFIX, result)
+
+
 if __name__ == "__main__":
     unittest.main()
