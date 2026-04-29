@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Tests for sprint_schema.py validation logic.
+
+Covers: validate_sprint, branch_name field, empty_sprint, story validation.
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import sprint_schema
+from conftest import (
+    make_sprint_dict as _make_sprint,
+)
+from conftest import (
+    make_story_dict as _make_story,
+)
+
+
+class TestValidateSprint(unittest.TestCase):
+    def test_valid_sprint_no_errors(self):
+        errors = sprint_schema.validate_sprint(_make_sprint())
+        self.assertEqual(errors, [])
+
+    def test_not_a_dict(self):
+        errors = sprint_schema.validate_sprint("not a dict")
+        self.assertIn("must be an object", errors[0])
+
+    def test_missing_required_fields(self):
+        errors = sprint_schema.validate_sprint({})
+        for field in ("sprint_id", "goal", "started", "stories"):
+            self.assertTrue(
+                any(field in e for e in errors),
+                f"Missing error for {field}",
+            )
+
+    def test_invalid_story_status(self):
+        sprint = _make_sprint(stories=[_make_story(status="bogus")])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("status" in e for e in errors))
+
+    def test_valid_statuses(self):
+        for status in ("ready", "in-progress", "done", "deferred"):
+            sprint = _make_sprint(stories=[_make_story(status=status)])
+            errors = sprint_schema.validate_sprint(sprint)
+            self.assertEqual(errors, [], f"Status {status!r} should be valid")
+
+    def test_story_missing_required_fields(self):
+        sprint = _make_sprint(stories=[{"id": "story-001"}])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertGreater(len(errors), 0)
+
+    def test_stories_must_be_list(self):
+        errors = sprint_schema.validate_sprint(_make_sprint(stories="not list"))
+        self.assertTrue(any("stories" in e for e in errors))
+
+    def test_acceptance_execution_valid(self):
+        ae = {"type": "pytest", "command": "pytest tests/acceptance/"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_acceptance_execution_with_all_fields(self):
+        ae = {
+            "type": "playwright",
+            "command": "npx playwright test",
+            "setup": "docker compose up -d",
+            "notes": "Requires backend on :3000",
+        }
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_acceptance_execution_absent_is_valid(self):
+        sprint = _make_sprint()
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_acceptance_execution_missing_type_fails(self):
+        ae = {"command": "pytest tests/"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("type" in e for e in errors))
+
+    def test_acceptance_execution_missing_command_fails(self):
+        ae = {"type": "pytest"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("command" in e for e in errors))
+
+    def test_acceptance_execution_not_dict_fails(self):
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution="bad")])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("acceptance_execution" in e for e in errors))
+
+
+class TestBranchNameField(unittest.TestCase):
+    def test_branch_name_string_valid(self):
+        sprint = _make_sprint(branch_name="paul/sprint-031-test")
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_branch_name_null_valid(self):
+        sprint = _make_sprint(branch_name=None)
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_branch_name_missing_valid(self):
+        sprint = _make_sprint()
+        sprint.pop("branch_name", None)
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_branch_name_non_string_invalid(self):
+        sprint = _make_sprint(branch_name=42)
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("branch_name" in e for e in errors))
+
+    def test_branch_name_invalid_format_rejected(self):
+        sprint = _make_sprint(branch_name="has spaces/bad")
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("valid git branch name" in e for e in errors))
+
+
+class TestStoryBranchNameField(unittest.TestCase):
+    def test_story_without_branch_name_valid(self):
+        sprint = _make_sprint()
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_story_branch_name_string_valid(self):
+        story = _make_story(branch_name="paul/story-001-foo")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_story_branch_name_null_valid(self):
+        story = _make_story(branch_name=None)
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_story_branch_name_non_string_invalid(self):
+        story = _make_story(branch_name=42)
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("branch_name" in e for e in errors))
+
+    def test_story_branch_name_invalid_format_rejected(self):
+        story = _make_story(branch_name="has spaces/bad")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("valid git branch name" in e for e in errors))
+
+
+class TestEmptySprint(unittest.TestCase):
+    def test_empty_sprint_is_valid(self):
+        sprint = sprint_schema.empty_sprint()
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_has_required_fields(self):
+        sprint = sprint_schema.empty_sprint()
+        for field in ("sprint_id", "goal", "started", "stories"):
+            self.assertIn(field, sprint)
+
+
+if __name__ == "__main__":
+    unittest.main()
