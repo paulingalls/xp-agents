@@ -9,6 +9,8 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(*/scripts/spawn_teammate.py *)
+  - Bash(python3 */scripts/branching.py *)
+  - Bash(git checkout *)
   - Read
 ---
 
@@ -33,11 +35,50 @@ Analyze the plan and decide how to execute: solo (sequential) or with CLI teamma
 
 Present recommendation via `AskUserQuestion`: mode + rationale. For teammate mode: which groups run in parallel.
 
+## Branch Creation (Stage 1+)
+
+After mode selection but before execution, create story branches for all in-progress stories. This runs for both solo and teammate modes.
+
+1. Read the branching stage:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} stage
+```
+
+If stage < 1, skip branch creation entirely.
+
+2. Get the story base branch:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .
+```
+
+3. Determine execution unit shapes from plan analysis (file_domain + interface_contracts + dependencies):
+   - **Single/independent stories**: branch off the story base
+   - **Dependent story chain**: first story off story base, subsequent stories off the previous story's branch tip via `--base`
+   - **Parallel siblings**: all branch off the story base
+
+4. Checkout the story base, then for each story create its branch. The `create` command auto-records the branch name in sprint.json. The `--base` varies by shape: `<story-base>` for independent/first-in-chain, `<previous-story-branch>` for chained:
+```bash
+git checkout <story-base>
+
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
+  create --cwd . --story <story-id> --slug <title-slug> --base <current-base>
+```
+
+After creating all branches, return to the story base for mode execution:
+```bash
+git checkout <story-base>
+```
+
 ## Solo Mode
 
 Solo mode uses file-domain matching at commit time — no story assignment needed. The commit hook resolves story attribution by matching committed files against each in-progress story's `file_domain`.
 
-Output "Proceeding with solo execution." and stop.
+Checkout the first in-progress story's branch:
+```bash
+git checkout <first-story-branch>
+```
+
+Output "Proceeding with solo execution on `<first-story-branch>`." and stop.
 
 ## CLI Teammate Mode
 
@@ -51,6 +92,7 @@ Write a self-contained prompt per step group to `/tmp/prompt-step-N.txt`. The te
 - **What to Change** — detailed changes from plan
 - **Acceptance Criteria** — derived from plan goals
 - **Interface Contracts** — shared boundaries with other steps
+- **Story Branch** — the branch name created for this story (from sprint.json `branch_name`)
 - **SMM Directory** — `SMM_DIR=<path>`
 - TDD + review cycle instructions
 
@@ -58,13 +100,13 @@ If sprint active, include story ID for status tracking.
 
 ### 2. Spawn Teammates
 
-Launch each via Bash with `run_in_background`. Pass `--story-id story-NNN` when sprint is active (writes `.story-assignment-{name}` marker for commit attribution):
+Launch each via Bash with `run_in_background`. Pass `--story-id story-NNN` and `--branch <story-branch>` when sprint is active:
 
 ```bash
-python3 ${PLUGIN_ROOT}/scripts/spawn_teammate.py --name teammate-step-N \
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name teammate-step-N \
   --smm-dir ${SMM_DIR} --prompt-file /tmp/prompt-step-N.txt \
-  --story-id story-NNN 2>&1 \
-  | python3 ${PLUGIN_ROOT}/scripts/teammate_output_filter.py \
+  --story-id story-NNN --branch <story-branch> 2>&1 \
+  | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id teammate-step-N
 ```
 
@@ -75,7 +117,7 @@ Spawn all teammates in parallel (multiple Bash calls in one message).
 1. Wait for Bash task notifications
 2. Read task output for branch name, report path, cost
 3. Read report file for summary
-4. Merge: `git merge teammate-step-N --no-ff`
+4. Merge each teammate's story branch: `git merge <story-branch> --no-ff`
 5. Run full test suite on merged result
 6. Run `/xp-accept` to verify acceptance criteria
 
