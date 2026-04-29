@@ -201,9 +201,6 @@ def _session_end_checklist(smm_dir: Path) -> str | None:
     return "Session-end checklist: " + " ".join(parts)
 
 
-_STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
-
-
 def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
@@ -246,7 +243,7 @@ def _resolve_story_id(
         return None
 
     if message:
-        m = _STORY_PREFIX_RE.match(message)
+        m = story_metrics.STORY_PREFIX_RE.match(message)
         if m:
             tagged = m.group(1)
             if any(s["id"] == tagged for s in in_progress):
@@ -255,23 +252,8 @@ def _resolve_story_id(
     if len(in_progress) == 1:
         return in_progress[0]["id"]
 
-    best_id: str | None = None
-    best_overlap = 0
-    tied = False
-    for story in in_progress:
-        domain = story_metrics.extract_file_domain_paths(story.get("file_domain", []))
-        if not domain:
-            continue
-        overlap = sum(
-            1 for f in committed_files if story_metrics.file_matches_domain(f, domain)
-        )
-        if overlap > best_overlap:
-            best_overlap = overlap
-            best_id = story["id"]
-            tied = False
-        elif overlap == best_overlap and best_overlap > 0:
-            tied = True
-    return None if tied else best_id
+    story_id, _ = story_metrics.resolve_dominant_story(in_progress, committed_files)
+    return story_id
 
 
 _QR_WINDOW_CAP = 30

@@ -162,11 +162,16 @@ DISPOSITION_ADOPTED = "adopted"
 DISPOSITION_DEFERRED = "deferred"
 DISPOSITION_DROPPED = "dropped"
 
-# Resolves-trailer probe status event contract.
-# Producer (resolves_probe.emit_probe_status, called from pre_tool_bash)
-# emits content f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates" with
-# metadata {METADATA_KEY_PROBE_CANDIDATES: [ids]}.
+# Pre-commit probe status event contracts.
+# Resolves-trailer probe (resolves_probe.emit_probe_status):
+#   content f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates"
+#   metadata {METADATA_KEY_PROBE_CANDIDATES: [ids]}
+# Story-prefix probe (story_probe.emit_probe_status):
+#   content f"{STATUS_CONTENT_STORY_PROBE}: {story_id}"
+#   metadata {METADATA_KEY_STORY_CANDIDATE: story_id}
 STATUS_CONTENT_RESOLVES_PROBE = "resolves_probe_shown"
+STATUS_CONTENT_STORY_PROBE = "story_probe_shown"
+METADATA_KEY_STORY_CANDIDATE = "story_candidate"
 
 # Retrospective event metadata.action discriminators — distinguish session
 # retros from sprint retros so the session-start watermark scanner only

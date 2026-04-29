@@ -8,6 +8,7 @@ has ended.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,12 @@ import triage
 
 # Re-export for backward compat — canonical impl lives in smm/triage.py
 extract_file_domain_paths = triage.extract_file_domain_paths
+
+# Canonical regexes for story-prefix detection. Imported by both the
+# post-commit attributor (bash_post_tool._resolve_story_id) and the
+# pre-commit story-prefix probe (story_probe.find_story_candidate).
+STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
+BRACKET_PREFIX_RE = re.compile(r"^\s*\[")
 
 
 def file_matches_domain(file_path: str, domain: set[str]) -> bool:
@@ -37,6 +44,39 @@ def file_matches_domain(file_path: str, domain: set[str]) -> bool:
             if Path(d).name == source_name:
                 return True
     return False
+
+
+def resolve_dominant_story(
+    in_progress: list[dict], files: list[str]
+) -> tuple[str | None, int]:
+    """Find the in-progress story with highest file-domain overlap.
+
+    Returns (story_id, overlap_count):
+      - story_id: id of the highest-overlap story; None when no story matches
+                  or 2+ stories share the highest non-zero overlap (tied)
+      - overlap_count: count of files matching the winning story's domain
+                       (0 when story_id is None)
+
+    Used by post-commit attribution (`_resolve_story_id` Tier 2b) and the
+    pre-commit story-prefix probe — keeping a single algorithm avoids drift.
+    """
+    best_id: str | None = None
+    best_overlap = 0
+    tied = False
+    for story in in_progress:
+        domain = extract_file_domain_paths(story.get("file_domain", []))
+        if not domain:
+            continue
+        overlap = sum(1 for f in files if file_matches_domain(f, domain))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_id = story["id"]
+            tied = False
+        elif overlap == best_overlap and best_overlap > 0:
+            tied = True
+    if tied:
+        return (None, 0)
+    return (best_id, best_overlap)
 
 
 def _attribute_commits(
