@@ -13,33 +13,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
+from conftest import (
+    _HookTestCase,
+    file_write_status,
+    make_event,
+    tests_run_status,
+)
 from event_schema import (
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_SECURITY_COMPLETE,
     STATUS_ACTION_SECURITY_TRIAGE_STARTED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
-
-# -- Shared helpers for honesty-signal tests ----------------------------------
-
-
-def _make_write_status(path: str) -> dict:
-    return make_event(
-        "status",
-        content=f"Wrote to {path}",
-        working_on=[path],
-        metadata={"action": STATUS_ACTION_FILE_WRITE, "files": [path]},
-    )
-
-
-def _make_test_status() -> dict:
-    return make_event(
-        "status",
-        content="Tests: 5 passed, 0 failed",
-        working_on=[],
-        metadata={"action": STATUS_ACTION_TEST_RUN_COMPLETE, "test_passed": True},
-    )
 
 
 class TestHonestySignals(unittest.TestCase):
@@ -50,11 +35,11 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("src/app.py"),
-            _make_write_status("src/app.py"),
-            _make_write_status("src/app.py"),
-            _make_write_status("src/app.py"),
-            _make_test_status(),
+            file_write_status("src/app.py"),
+            file_write_status("src/app.py"),
+            file_write_status("src/app.py"),
+            file_write_status("src/app.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
@@ -64,10 +49,10 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("src/app.py"),
-            _make_write_status("src/db.py"),
-            _make_write_status("src/api.py"),
-            _make_test_status(),
+            file_write_status("src/app.py"),
+            file_write_status("src/db.py"),
+            file_write_status("src/api.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 3)
@@ -77,11 +62,11 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("src/app.py"),
-            _make_write_status("src/db.py"),
-            _make_test_status(),
-            _make_write_status("src/api.py"),
-            _make_test_status(),
+            file_write_status("src/app.py"),
+            file_write_status("src/db.py"),
+            tests_run_status(count=5),
+            file_write_status("src/api.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 2)
@@ -91,9 +76,9 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("tests/test_app.py"),
-            _make_write_status("src/app.py"),
-            _make_test_status(),
+            file_write_status("tests/test_app.py"),
+            file_write_status("src/app.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
@@ -103,10 +88,10 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("README.md"),
-            _make_write_status("config.json"),
-            _make_write_status("src/app.py"),
-            _make_test_status(),
+            file_write_status("README.md"),
+            file_write_status("config.json"),
+            file_write_status("src/app.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 1)
@@ -123,7 +108,7 @@ class TestHonestySignals(unittest.TestCase):
                 working_on=["src/app.py"],
                 metadata={"action": STATUS_ACTION_FILE_WRITE, "files": ["src/app.py"]},
             ),
-            _make_test_status(),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["code_file_writes"], 1)
@@ -135,8 +120,8 @@ class TestHonestySignals(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("src/a.py"),
-            _make_write_status("src/b.py"),
+            file_write_status("src/a.py"),
+            file_write_status("src/b.py"),
             make_event(
                 "status",
                 content="opaque",
@@ -145,7 +130,7 @@ class TestHonestySignals(unittest.TestCase):
                     "test_passed": True,
                 },
             ),
-            _make_write_status("src/c.py"),
+            file_write_status("src/c.py"),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         # Window resets after the action event, so the post-test write
@@ -365,10 +350,10 @@ class TestRefactorModeExclusion(unittest.TestCase):
 
         events = [
             self._make_refactor_mode_assumption(),
-            _make_write_status("src/app.py"),
-            _make_write_status("src/db.py"),
-            _make_write_status("src/api.py"),
-            _make_test_status(),
+            file_write_status("src/app.py"),
+            file_write_status("src/db.py"),
+            file_write_status("src/api.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 0)
@@ -378,10 +363,10 @@ class TestRefactorModeExclusion(unittest.TestCase):
         import honesty_signals
 
         events = [
-            _make_write_status("src/app.py"),
-            _make_write_status("src/db.py"),
-            _make_write_status("src/api.py"),
-            _make_test_status(),
+            file_write_status("src/app.py"),
+            file_write_status("src/db.py"),
+            file_write_status("src/api.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 3)
@@ -392,11 +377,11 @@ class TestRefactorModeExclusion(unittest.TestCase):
 
         events = [
             self._make_refactor_mode_assumption(),
-            _make_write_status("src/app.py"),
+            file_write_status("src/app.py"),
             self._make_commit(),
-            _make_write_status("src/db.py"),
-            _make_write_status("src/api.py"),
-            _make_test_status(),
+            file_write_status("src/db.py"),
+            file_write_status("src/api.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["max_unique_files_without_test"], 2)
@@ -407,9 +392,9 @@ class TestRefactorModeExclusion(unittest.TestCase):
 
         events = [
             self._make_refactor_mode_assumption(),
-            _make_write_status("src/app.py"),
-            _make_write_status("src/db.py"),
-            _make_test_status(),
+            file_write_status("src/app.py"),
+            file_write_status("src/db.py"),
+            tests_run_status(count=5),
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["refactor_mode_excluded_files"], 2)
@@ -421,8 +406,8 @@ class TestRefactorModeExclusion(unittest.TestCase):
         for content in ["Refactor Mode: file split", "refactor-mode: renaming"]:
             events = [
                 self._make_refactor_mode_assumption(content),
-                _make_write_status("src/app.py"),
-                _make_test_status(),
+                file_write_status("src/app.py"),
+                tests_run_status(count=5),
             ]
             signals = honesty_signals.build_honesty_signals(events)
             self.assertEqual(

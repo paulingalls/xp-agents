@@ -10,8 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
-from event_schema import STATUS_ACTION_FILE_WRITE, STATUS_ACTION_TEST_RUN_COMPLETE
+from conftest import _HookTestCase, file_write_status, make_event, tests_run_status
 
 
 class TestRetroDigest(_HookTestCase):
@@ -45,33 +44,9 @@ class TestRetroDigest(_HookTestCase):
         import retro_metrics
 
         events = [
-            make_event(
-                "status",
-                content="Wrote to src/app.ts",
-                working_on=["src/app.ts"],
-                metadata={
-                    "action": STATUS_ACTION_FILE_WRITE,
-                    "files": ["src/app.ts"],
-                },
-            ),
-            make_event(
-                "status",
-                content="Wrote to src/util.ts",
-                working_on=["src/util.ts"],
-                metadata={
-                    "action": STATUS_ACTION_FILE_WRITE,
-                    "files": ["src/util.ts"],
-                },
-            ),
-            make_event(
-                "status",
-                content="Tests: 5 passed, 0 failed (pytest)",
-                working_on=[],
-                metadata={
-                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
-                    "test_passed": True,
-                },
-            ),
+            file_write_status("src/app.ts"),
+            file_write_status("src/util.ts"),
+            tests_run_status(count=5),
             make_event(
                 "status",
                 content="Thinking about design",

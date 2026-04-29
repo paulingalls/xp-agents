@@ -9,22 +9,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import make_event
+from conftest import make_event, tests_run_status
 from event_schema import STATUS_ACTION_COMMIT_SUCCESS, STATUS_ACTION_TEST_RUN_COMPLETE
 from test_parsing import PARSER_STATUS_FAILED
-
-
-def _test_status(passed: bool, count: int = 1) -> dict:
-    return make_event(
-        "status",
-        content=f"Tests: {count} passed, {0 if passed else 1} failed (unittest)",
-        metadata={
-            "action": STATUS_ACTION_TEST_RUN_COMPLETE,
-            "test_passed": passed,
-            "test_count": count,
-            "framework": "unittest",
-        },
-    )
 
 
 class TestWorkSignals(unittest.TestCase):
@@ -81,10 +68,10 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            _test_status(passed=False),
-            _test_status(passed=False),
-            _test_status(passed=False),
-            _test_status(passed=True),
+            tests_run_status(passed=False),
+            tests_run_status(passed=False),
+            tests_run_status(passed=False),
+            tests_run_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 3)
@@ -94,8 +81,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            _test_status(passed=False),
-            _test_status(passed=True),
+            tests_run_status(passed=False),
+            tests_run_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 1)
@@ -105,8 +92,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            _test_status(passed=True),
-            _test_status(passed=True),
+            tests_run_status(passed=True),
+            tests_run_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 0)
@@ -259,30 +246,12 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
         signal — must not break a red streak by green-washing 'don't know'."""
         import work_signals
 
-        def fail() -> dict:
-            return make_event(
-                "status",
-                content="opaque",
-                metadata={
-                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
-                    "test_passed": False,
-                    "test_count": 1,
-                    "framework": "pytest",
-                },
-            )
-
-        def parser_failed() -> dict:
-            return make_event(
-                "status",
-                content="Tests ran (pytest) — counts not extracted",
-                metadata={
-                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
-                    "parser_status": PARSER_STATUS_FAILED,
-                    "framework": "pytest",
-                },
-            )
-
-        events = [fail(), fail(), parser_failed(), fail()]
+        events = [
+            tests_run_status(passed=False),
+            tests_run_status(passed=False),
+            tests_run_status(parser_status=PARSER_STATUS_FAILED),
+            tests_run_status(passed=False),
+        ]
         result = work_signals.build_work_signals(events)
         # Streak survives the parser_failed event: 3 reds in a row, not 2.
         self.assertEqual(result["max_consecutive_test_failures"], 3)

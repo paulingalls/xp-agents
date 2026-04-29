@@ -8,6 +8,8 @@ import secrets
 from collections.abc import Sequence
 from pathlib import Path
 
+from event_schema import STATUS_ACTION_FILE_WRITE, STATUS_ACTION_TEST_RUN_COMPLETE
+
 
 def make_event(event_type: str = "customer_input", **kwargs) -> dict:
     """Create a valid event dict with defaults."""
@@ -50,6 +52,60 @@ def make_retrospective_with_try(
         "retrospective",
         content="Session retrospective",
         **{"try": [{"id": try_id, "content": try_content, "event_refs": []}]},
+    )
+
+
+def file_write_status(path: str, **kwargs) -> dict:
+    """Status event matching post_tool_use's file-write emission.
+
+    Action-tagged with metadata.action=file_write + metadata.files=[path].
+    Used by retro_metrics / honesty_signals consumer tests.
+    """
+    return make_event(
+        "status",
+        content=f"Wrote to {path}",
+        working_on=[path],
+        metadata={"action": STATUS_ACTION_FILE_WRITE, "files": [path]},
+        **kwargs,
+    )
+
+
+def tests_run_status(
+    *,
+    passed: bool = True,
+    count: int = 1,
+    framework: str = "pytest",
+    parser_status: str | None = None,
+    **kwargs,
+) -> dict:
+    """Status event matching bash_post_tool's test_run_complete emission.
+
+    Action-tagged with metadata.action=test_run_complete + structured
+    test_passed / test_count / framework. Used by retro_metrics /
+    honesty_signals / work_signals consumer tests.
+
+    When parser_status is set (e.g. PARSER_STATUS_FAILED), test_passed
+    and test_count are omitted to match bash_post_tool's no-invented-numbers
+    contract for parser_failed runs.
+    """
+    metadata: dict = {
+        "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+        "framework": framework,
+    }
+    if parser_status is None:
+        failed = 0 if passed else 1
+        content = f"Tests: {count} passed, {failed} failed ({framework})"
+        metadata["test_passed"] = passed
+        metadata["test_count"] = count
+    else:
+        content = f"Tests ran ({framework}) — counts not extracted"
+        metadata["parser_status"] = parser_status
+    return make_event(
+        "status",
+        content=content,
+        working_on=[],
+        metadata=metadata,
+        **kwargs,
     )
 
 
