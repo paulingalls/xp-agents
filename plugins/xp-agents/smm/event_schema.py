@@ -110,6 +110,18 @@ STATUS_ACTION_LINT_RESOLVED = "lint_resolved"
 STATUS_ACTION_BASH_FAILED = "bash_failed"
 STATUS_ACTION_COMMIT_SUCCESS = "commit_success"
 
+# Subagent + plan lifecycle vocabulary — sprint-043 M3 of the deterministic-event
+# doctrine. Closes the cleanup window opened in M2. Producer map:
+#   STATUS_ACTION_SUBAGENT_COMPLETE     — subagent_stop.py (every subagent)
+#   STATUS_ACTION_PLAN_COMPLETED        — subagent_stop.py (Plan subagent stop)
+#   STATUS_ACTION_PLAN_AWAITING_REVIEW  — subagent_stop.py (Plan subagent gate)
+#   STATUS_ACTION_PLAN_EXITED           — post_tool_exit_plan.py (ExitPlanMode)
+# Producer/consumer wiring lands in stories 003-006.
+STATUS_ACTION_SUBAGENT_COMPLETE = "subagent_complete"
+STATUS_ACTION_PLAN_COMPLETED = "plan_completed"
+STATUS_ACTION_PLAN_AWAITING_REVIEW = "plan_awaiting_review"
+STATUS_ACTION_PLAN_EXITED = "plan_exited"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
