@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
 from event_schema import STATUS_ACTION_COMMIT_SUCCESS, STATUS_ACTION_TEST_RUN_COMPLETE
+from test_parsing import PARSER_STATUS_FAILED
 
 
 def _test_status(passed: bool, count: int = 1) -> dict:
@@ -252,6 +253,39 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 2)
+
+    def test_parser_failed_run_does_not_reset_consecutive_failures(self):
+        """A test_run_complete with parser_status=parser_failed carries no
+        signal — must not break a red streak by green-washing 'don't know'."""
+        import work_signals
+
+        def fail() -> dict:
+            return make_event(
+                "status",
+                content="opaque",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "test_passed": False,
+                    "test_count": 1,
+                    "framework": "pytest",
+                },
+            )
+
+        def parser_failed() -> dict:
+            return make_event(
+                "status",
+                content="Tests ran (pytest) — counts not extracted",
+                metadata={
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+                    "parser_status": PARSER_STATUS_FAILED,
+                    "framework": "pytest",
+                },
+            )
+
+        events = [fail(), fail(), parser_failed(), fail()]
+        result = work_signals.build_work_signals(events)
+        # Streak survives the parser_failed event: 3 reds in a row, not 2.
+        self.assertEqual(result["max_consecutive_test_failures"], 3)
 
     def test_concern_then_type_commit_counts_addressed(self):
         """Real type=commit events (with metadata.action=commit_success) close

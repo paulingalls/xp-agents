@@ -19,10 +19,11 @@ from event_schema import (
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
+from test_parsing import PARSER_STATUS_FAILED
 
-# Parses failed-count from content when metadata.test_passed is absent on a
-# test_run_complete event. NOT a status-event content fallback for test-run
-# detection (action dispatch handles that).
+# Parses failed-count from content when metadata.test_passed is absent and
+# parser_status didn't flag the run as parser_failed. NOT a status-event
+# content fallback for test-run detection (action dispatch handles that).
 _TEST_FAIL_RE = re.compile(r"(\d+)\s+failed", re.IGNORECASE)
 
 
@@ -84,9 +85,13 @@ def build_work_signals(events: list[dict]) -> dict:
             if etype == _common.CONCERN:
                 pending_concerns += 1
             elif is_test_run:
+                # parser_failed carries no signal — skip so a "don't know"
+                # outcome doesn't green-wash an in-flight red streak.
+                metadata = e.get("metadata") or {}
+                if metadata.get("parser_status") == PARSER_STATUS_FAILED:
+                    continue
                 # Prefer structured metadata.test_passed when present;
                 # otherwise fall back to parsing failed-count from content.
-                metadata = e.get("metadata") or {}
                 if "test_passed" in metadata:
                     failed_count = 0 if metadata["test_passed"] else 1
                 else:
