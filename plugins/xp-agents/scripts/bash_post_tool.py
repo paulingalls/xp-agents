@@ -38,6 +38,27 @@ from test_parsing import (
 
 COMMIT_SIZE_THRESHOLD = 12
 
+MID_CHAIN_NUDGE = (
+    "Multiple stories in-progress. If this commit completed the current "
+    "story's acceptance criteria, run /xp-accept to mark it done and "
+    "switch to the next story branch."
+)
+
+
+def _check_mid_chain_nudge(smm_dir: Path, input_data: dict) -> str | None:
+    """Return advisory nudge when solo with 2+ in-progress stories."""
+    if identity.is_worktree_teammate(input_data):
+        return None
+    import sprint_store
+
+    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        return None
+    in_progress = sprint_store.list_stories(sprint, status="in-progress")
+    if len(in_progress) < 2:
+        return None
+    return MID_CHAIN_NUDGE
+
 
 # ---------------------------------------------------------------------------
 # Event helpers (delegates to _common)
@@ -304,13 +325,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # security marker, review cycle, QR nudge) are gated by is_xp_agent_leak.
     # See TestCommitRecordingDespiteXpAgentType.
     if security.is_git_commit(command):
-        return _handle_commit(
+        is_xp_agent_leak = _common.is_xp_agent(input_data)
+        result = _handle_commit(
             smm_dir,
             agent_id,
             cwd,
             response_text,
-            is_xp_agent_leak=_common.is_xp_agent(input_data),
+            is_xp_agent_leak=is_xp_agent_leak,
         )
+        if not is_xp_agent_leak:
+            nudge = _check_mid_chain_nudge(smm_dir, input_data)
+            if nudge:
+                result = f"{result} {nudge}" if result is not None else nudge
+        return result
 
     if _common.is_xp_agent(input_data):
         return None
