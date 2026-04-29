@@ -73,7 +73,7 @@ class TestBuildNudgeLines(unittest.TestCase):
         lines = resolves_probe.build_nudge_lines([candidate])
         self.assertEqual(len(lines), 1)
         block = lines[0]
-        self.assertIn("Overlapping open events", block)
+        self.assertIn("Pick which your commit closes", block)
         self.assertIn("abc123def456", block)
         self.assertIn("Auth middleware leaks tokens", block)
         self.assertIn("Resolves-Event: abc123def456", block)
@@ -86,8 +86,8 @@ class TestBuildNudgeLines(unittest.TestCase):
         lines = resolves_probe.build_nudge_lines(candidates)
         self.assertEqual(len(lines), 1)
         block = lines[0]
-        self.assertIn("[concern]", block)
-        self.assertIn("[debt]", block)
+        self.assertIn("[concern", block)
+        self.assertIn("[debt", block)
         self.assertIn("Resolves-Event: abc123def456, def456abc123", block)
 
     def test_truncated_content_has_ellipsis(self):
@@ -105,7 +105,60 @@ class TestBuildNudgeLines(unittest.TestCase):
     def test_shows_event_type(self):
         candidate = {"id": "abc123def456", "type": "debt", "content": "Legacy code"}
         lines = resolves_probe.build_nudge_lines([candidate])
-        self.assertIn("[debt]", lines[0])
+        self.assertIn("[debt", lines[0])
+
+    def test_header_offers_explicit_none_escape(self):
+        candidate = {"id": "abc", "content": "x"}
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertIn("Resolves-Event: none", block)
+        self.assertIn("if none apply", block)
+
+    def test_concern_severity_inline_with_id(self):
+        candidate = {
+            "id": "abc123def456",
+            "type": "concern",
+            "severity": "high",
+            "content": "Auth leak",
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertIn("[concern|high|abc123def456]", block)
+
+    def test_concern_without_severity_falls_back(self):
+        candidate = {"id": "abc123def456", "type": "concern", "content": "x"}
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertIn("[concern|unknown|abc123def456]", block)
+
+    def test_close_reviewer_provenance_suffix_includes_mode(self):
+        candidate = {
+            "id": "abc123def456",
+            "type": "concern",
+            "severity": "medium",
+            "content": "Cross-cutting drift",
+            "metadata": {"close_mode": "sprint"},
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertIn("(from sprint-close-reviewer)", block)
+
+    def test_close_reviewer_provenance_suffix_for_plan_mode(self):
+        candidate = {
+            "id": "abc123def456",
+            "type": "concern",
+            "severity": "medium",
+            "content": "Architectural concern",
+            "metadata": {"close_mode": "plan"},
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertIn("(from plan-close-reviewer)", block)
+
+    def test_no_provenance_suffix_without_close_mode(self):
+        candidate = {
+            "id": "abc123def456",
+            "type": "concern",
+            "severity": "medium",
+            "content": "Plain concern",
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertNotIn("close-reviewer", block)
 
 
 class TestScoreCandidate(unittest.TestCase):

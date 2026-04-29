@@ -55,6 +55,14 @@ def _is_recent(event_ts: str, now_ts: str) -> bool:
     return event_date >= cutoff
 
 
+def _close_mode(candidate: dict) -> str | None:
+    """Return candidate's close_mode value (sprint/plan/free) or None."""
+    metadata = candidate.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        return None
+    return metadata.get(METADATA_KEY_CLOSE_MODE) or None
+
+
 def _ts_sort_key(candidate: dict) -> float:
     """Convert ISO ts to float for descending sort. Missing/unparseable → 0."""
     ts = candidate.get("ts") or ""
@@ -91,11 +99,7 @@ def _score_candidate(
         )
 
     recency = 1 if _is_recent(candidate.get("ts") or "", now_ts) else 0
-
-    metadata = candidate.get("metadata") or {}
-    provenance = (
-        1 if isinstance(metadata, dict) and metadata.get(METADATA_KEY_CLOSE_MODE) else 0
-    )
+    provenance = 1 if _close_mode(candidate) else 0
 
     return keyword_score + file_overlap + recency + provenance
 
@@ -146,18 +150,31 @@ def find_probe_candidates(
 
 
 def build_nudge_lines(candidates: list[dict]) -> list[str]:
-    """Format grouped nudge block with header, items, and ready-to-copy trailer."""
+    """Format grouped nudge block with header, items, and ready-to-copy trailer.
+
+    Wording is escape-resistant: assumes the commit closes something, with
+    `Resolves-Event: none` as the explicit opt-out (not an invited bailout).
+    Each item carries `[type|severity|id]` plus a `(from close-reviewer)`
+    suffix when metadata.close_mode is set.
+    """
     if not candidates:
         return []
     items = []
     for c in candidates:
         raw = c.get("content") or ""
         content = raw[:80] + ("..." if len(raw) > 80 else "")
-        items.append(f"- [{c.get('type', 'concern')}] {c['id']}: {content}")
+        etype = c.get("type", "concern")
+        # "unknown" is a display-only sentinel — never round-tripped to validation
+        severity = c.get("severity") or "unknown"
+        tag = f"[{etype}|{severity}|{c['id']}]"
+        mode = _close_mode(c)
+        suffix = f" (from {mode}-close-reviewer)" if mode else ""
+        items.append(f"- {tag}: {content}{suffix}")
     ids = ", ".join(c["id"] for c in candidates)
     block = (
-        "Overlapping open events — add Resolves-Event trailer "
-        "if this commit addresses them:\n"
+        "These open events overlap your staged files. "
+        "Pick which your commit closes "
+        "(or `Resolves-Event: none` if none apply):\n"
         + "\n".join(items)
         + f"\nReady-to-use trailer: Resolves-Event: {ids}"
     )
