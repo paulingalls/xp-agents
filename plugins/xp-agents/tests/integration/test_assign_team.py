@@ -276,7 +276,7 @@ class TestAcceptPreloadTeammate(_IntegrationTestCase):
     def test_preload_shows_teammate_worktrees(self):
         import spawn_teammate
 
-        name = "teammate-story-001"
+        name = "worktree-story-001"
         spawn_teammate.create_worktree(name, str(self.tmpdir))
 
         result = self._run_preload(_ACCEPT_PRELOAD)

@@ -103,11 +103,11 @@ If sprint active, include story ID for status tracking.
 Launch each via Bash with `run_in_background`. Pass `--story-id story-NNN` and `--branch <story-branch>` when sprint is active:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name teammate-step-N \
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name worktree-story-NNN \
   --smm-dir ${SMM_DIR} --prompt-file /tmp/prompt-step-N.txt \
   --story-id story-NNN --branch <story-branch> 2>&1 \
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
-  --smm-dir ${SMM_DIR} --teammate-id teammate-step-N
+  --smm-dir ${SMM_DIR} --teammate-id worktree-story-NNN
 ```
 
 Spawn all teammates in parallel (multiple Bash calls in one message).
