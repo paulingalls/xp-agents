@@ -18,6 +18,7 @@ import commits
 import concerns
 import identity
 import markers
+import resolution
 import security
 import worktree
 from event_schema import (
@@ -41,6 +42,36 @@ from test_parsing import (
 # ---------------------------------------------------------------------------
 
 
+def _check_and_resolve_lint(
+    smm_dir: Path,
+    cwd: str,
+    git_root: str,
+    agent_id: str,
+    normalized: str,
+    label: str,
+    events: list[dict] | None,
+    resolutions: dict | None,
+) -> None:
+    """Re-run the linter for *normalized*; resolve matching concerns if clean."""
+    import lint_check
+
+    config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
+    if config is None:
+        return
+    linter_name, _ = config
+    if lint_check.run_linter(linter_name, normalized, cwd=git_root) is not None:
+        return
+    concerns.resolve_concerns(
+        smm_dir,
+        lambda c, n=normalized: concerns.lint_concern_matches(c, n),
+        agent_id,
+        label,
+        events=events,
+        resolutions=resolutions,
+        extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
+    )
+
+
 def _resolve_lint_on_commit(
     smm_dir: Path,
     cwd: str,
@@ -52,28 +83,72 @@ def _resolve_lint_on_commit(
     """Run linter on committed files and resolve lint concerns for passing ones."""
     if not files:
         return
-
-    import lint_check
-
     git_root = worktree.resolve_git_root(cwd) or cwd
-
     for file_path in files:
         normalized = worktree.normalize_path(file_path, cwd)
-        config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
-        if config is None:
+        _check_and_resolve_lint(
+            smm_dir,
+            cwd,
+            git_root,
+            agent_id,
+            normalized,
+            "Lint concern resolved on commit",
+            events,
+            resolutions,
+        )
+
+
+def _sweep_orphan_lint_concerns(
+    smm_dir: Path,
+    cwd: str,
+    agent_id: str,
+    committed_files: list[str],
+    events: list[dict] | None = None,
+    resolutions: dict | None = None,
+) -> None:
+    """Resolve unresolved lint concerns whose file is now clean but isn't in
+    this commit. Catches side-effect fixes (`ruff check --fix` from Bash,
+    pre-commit reformatting, cross-file fixes) that don't show up as direct
+    edits to the offending file. Files referenced by lint concerns but no
+    longer on disk are skipped (manual triage)."""
+    if events is None:
+        events = _common.read_events_raw(smm_dir)
+    if resolutions is None:
+        resolutions = resolution.compute_resolutions(events)
+
+    resolved_ids = resolutions["resolved_concern_ids"]
+    committed_set = {worktree.normalize_path(f, cwd) for f in committed_files}
+
+    orphan_paths: set[str] = set()
+    for e in events:
+        if e.get("type") != _common.CONCERN:
             continue
-        linter_name, _ = config
-        lint_output = lint_check.run_linter(linter_name, normalized, cwd=git_root)
-        if lint_output is None:
-            concerns.resolve_concerns(
-                smm_dir,
-                lambda c, n=normalized: concerns.lint_concern_matches(c, n),
-                agent_id,
-                "Lint concern resolved on commit",
-                events=events,
-                resolutions=resolutions,
-                extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
-            )
+        if e.get("id", "") in resolved_ids:
+            continue
+        path_part = concerns.extract_lint_concern_path(e.get("content", ""))
+        if path_part is None:
+            continue
+        normalized = worktree.normalize_path(path_part, cwd)
+        if normalized not in committed_set:
+            orphan_paths.add(normalized)
+
+    if not orphan_paths:
+        return
+
+    git_root = worktree.resolve_git_root(cwd) or cwd
+    for normalized in orphan_paths:
+        if not (Path(git_root) / normalized).exists():
+            continue
+        _check_and_resolve_lint(
+            smm_dir,
+            cwd,
+            git_root,
+            agent_id,
+            normalized,
+            "Lint concern resolved on sweep",
+            events,
+            resolutions,
+        )
 
 
 COMMIT_SIZE_THRESHOLD = 12
@@ -126,9 +201,6 @@ def _session_end_checklist(smm_dir: Path) -> str | None:
     return "Session-end checklist: " + " ".join(parts)
 
 
-_STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
-
-
 def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
@@ -171,7 +243,7 @@ def _resolve_story_id(
         return None
 
     if message:
-        m = _STORY_PREFIX_RE.match(message)
+        m = story_metrics.STORY_PREFIX_RE.match(message)
         if m:
             tagged = m.group(1)
             if any(s["id"] == tagged for s in in_progress):
@@ -180,23 +252,8 @@ def _resolve_story_id(
     if len(in_progress) == 1:
         return in_progress[0]["id"]
 
-    best_id: str | None = None
-    best_overlap = 0
-    tied = False
-    for story in in_progress:
-        domain = story_metrics.extract_file_domain_paths(story.get("file_domain", []))
-        if not domain:
-            continue
-        overlap = sum(
-            1 for f in committed_files if story_metrics.file_matches_domain(f, domain)
-        )
-        if overlap > best_overlap:
-            best_overlap = overlap
-            best_id = story["id"]
-            tied = False
-        elif overlap == best_overlap and best_overlap > 0:
-            tied = True
-    return None if tied else best_id
+    story_id, _ = story_metrics.resolve_dominant_story(in_progress, committed_files)
+    return story_id
 
 
 _QR_WINDOW_CAP = 30
@@ -321,6 +378,9 @@ def _handle_commit(
         return None
 
     _resolve_lint_on_commit(
+        smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
+    )
+    _sweep_orphan_lint_concerns(
         smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
     )
     security.consume_security_triaged(smm_dir, agent_id)

@@ -16,16 +16,15 @@ metadata.story_id when it differs (or is absent). Default is dry-run;
 
 import argparse
 import json
-import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 from _append_impl import resolve_smm_dir, write_text_atomic
-
-_STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
+from story_metrics import STORY_PREFIX_RE
 
 
 @dataclass
@@ -59,7 +58,7 @@ def reconcile(smm_dir: Path, *, apply: bool) -> Report:
             continue
         report.commits += 1
         content = event.get("content", "")
-        match = _STORY_PREFIX_RE.match(content) if isinstance(content, str) else None
+        match = STORY_PREFIX_RE.match(content) if isinstance(content, str) else None
         if match is None:
             out_lines.append(line)
             continue

@@ -1,5 +1,47 @@
 # Changelog
 
+## v2.33.1 — Story-prefix probe + lint sweep + try-id resolution + test-file splits
+
+Nine commits on `paulingalls/free-2026-04-29-questions-discussion` resolving four aged-risk questions, two chronically-deferred Trys, and shipping two new pre/post-commit mechanisms. 3422 tests green at every commit.
+
+### `try_status` no-refs resolution (commit `f999bd4`)
+
+- **`retro_history._slim_try_item` now preserves the optional Try `id` field.** The full pipeline already wired Try `id` into resolver `metadata.resolves` (save_retrospective stamps it, work-selection preload prepends it to `[refs:...]`, work_selection_decide extracts it). The slim step was dropping the id before annotation could look it up. One-line fix closes concern `c5cb2ea74247` (15% of historical Tries — 38/258 — affected: lacked event_refs, would always show `resolved=false` regardless of disposition). Also corrects a stale `annotate_try_status` docstring claiming "8-char prefix" matching when the code does direct lookup against full event ids.
+
+### Orphan lint-concern sweep at commit time (commit `a4805c4`)
+
+- **`bash_post_tool._sweep_orphan_lint_concerns`** runs after `_resolve_lint_on_commit` and re-lints every file with an unresolved lint concern that *isn't* in the current commit. Catches side-effect fixes — `ruff check --fix` from Bash, pre-commit reformatting, cross-file refactors removing offending imports — that don't re-edit the originally-flagged file. Closes debt `3863cb520147` ("lint-error concerns pile up across edit cycles"). Files referenced by lint concerns but no longer on disk are skipped (manual triage).
+- **Refactor**: extracts `_check_and_resolve_lint` helper shared by both `_resolve_lint_on_commit` and the new sweep; extracts `concerns.extract_lint_concern_path` (`lint_concern_matches` now delegates); moves `import resolution` to module level.
+
+### Story-prefix probe at PreToolUse:Bash (commits `f4a0aa8`, `904f466`)
+
+- **New `story_probe.py` module** mirrors `resolves_probe`'s shape (`find_story_candidate` / `build_nudge_line` / `emit_probe_status`). When 2+ stories are in-progress AND the commit message has no `[bracketed]` prefix AND staged files have a single dominant file-domain overlap with one in-progress story, surfaces a soft nudge: `"Story attribution: staged files match story-005's domain (3/4 files). Add prefix [story-005] (or any other [bracketed] prefix to skip)."` Always soft (never raises `BlockedError`). Silenced by any bracket prefix, worktree teammate assignment, single-in-progress story, ties, or zero overlap.
+- **Wired into `pre_tool_bash.run`** alongside the existing Resolves-Event trailer probe. When both fire, story nudge precedes resolves output (subject-line decision before trailer decision). The `BlockedError` path prepends story_nudge to the body when resolves blocks for missing trailer. New `STATUS_CONTENT_STORY_PROBE = "story_probe_shown"` and `METADATA_KEY_STORY_CANDIDATE = "story_candidate"` constants in `event_schema.py`.
+- **Tier 2b math extracted to `story_metrics.resolve_dominant_story`** — single algorithm shared between post-commit attribution (`_resolve_story_id`) and the new pre-commit probe. `STORY_PREFIX_RE` and `BRACKET_PREFIX_RE` hoisted into `story_metrics.py` (neutral module). New `resolves_probe.TRAILER_REMINDER` constant centralizes wording shared between block and soft-nudge paths in `pre_tool_bash`.
+- **Empirical motivation**: multi-story sprint attribution rates ranged from 17% (sprint-032) to 92% (sprint-031) in historical data. The probe gives the agent a chance to make Tier 0 (explicit `[story-NNN]` prefix) work *before* the commit lands.
+
+### Test-file splits (commits `37f708a`, `d122e0b`, `1d12966`, `869ecad`)
+
+Four oversized test files split at natural class boundaries — closes the test-file-splits Try (re-proposed 5+ retros). Pure mechanical move + ruff format; existing tests are the executable spec.
+
+- **`test_scaffold_cli.py` (1023 → 3 files under cap)**: detect (453), apply (494), record (131). Apply hosts the shared `_ApplyCliTestBase`/`_ApplyCliCommitTestBase`; record imports via `from test_scaffold_cli_apply import _ApplyCliTestBase` (precedent: `tests/hooks/test_bash.py:25`).
+- **`test_scaffold_apply.py` (652 → 2 files under cap)**: pipeline (334) hosts shared `_plan`/`_ApplyTestBase`/`_RevertTestBase`; validation (350) imports them.
+- **`test_bash_commit.py` (648 → 2 files under cap)**: lifecycle (444) and qr_linkage (234). No cross-file imports needed — both use `_HookTestCase`/`_ProbeTestHelpers` from conftest.
+- **`test_retro_history.py` (646 → 2 files under cap)**: annotation/disposition/filter (314) and gather/e2e/save-stamps (360). Closes our own contribution debt — added 35 lines to this file earlier in the session.
+
+### Doctrine docs archived
+
+- **`docs/completed/deterministic-event-emission.md`** (commit `bc60634`). Audit confirms all 7 acceptance criteria met: 16 `STATUS_ACTION_*` constants, 7 hook producers emit `metadata.action`, legacy content regexes deleted from `_common.py`, no SKILL.md/agent.md prompt prescribes lifecycle-event content, agent_id ADR enforced.
+- **`docs/completed/retro-quality-review-counting.md`** (commit `04be570`). The bug report that motivated the doctrine. Empirical verification: 11 `qr_complete` events counted correctly this session (was 0 under the old `QUALITY_REVIEW_RE` regex).
+
+### SMM decisions resolving aged-risk Trys/questions
+
+- **`11e3f73ebf91`**: superseded-decision detector noise accept-as-designed (per-topic dedup added 2026-04-08, commit `3f60b42`; converged — 0 superseded concerns post-v2.33).
+- **`3e60b5eba84e`**: security-triage gate verified reliable (`pre_tool_bash.py:151-162` raises `BlockedError`; `security_triage_started:complete` 1:1 in event log).
+- **`74ff69401275`**: questions_stop_gate Try dropped — empirical 0/25 historical blocking questions went unanswered; existing retro Communication flag + kickoff aged-risk surfacing are sufficient.
+- **`420c454bf96a`**: QR hard-gate Try closed — gate live since 2026-03-26 via `review_cycle_done.py` + `pre_tool_bash.py:147`. v2.33's deterministic event work added the canonical `qr_complete` discriminator on top.
+- **`d8598a9018ad`**: test-file-splits Try closed by the four splits this release.
+
 ## v2.33.0 — Deterministic event emission doctrine fully shipped (M2 + M3) + teammate tee log + plan-close hardening
 
 Two sprints (sprint-042 M2 tool-action vocabulary, sprint-043 M3 subagent + plan lifecycle and regex deletion) plus a free branch (teammate tee log) plus four plan-close concern fixes. After this release, every hook-emitted lifecycle event carries `metadata.action`; consumers classify only via that discriminator; the regex-content-matching fallback that v2.32.2 documented as the bug class is gone. 3382 tests green at every commit.

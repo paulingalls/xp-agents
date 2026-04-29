@@ -1,5 +1,15 @@
 # Deterministic Event Emission Doctrine
 
+> **Status:** Shipped. v2.33.0 (2026-04-28) landed M1+M2 (review cycle +
+> tool actions); M3 (subagent lifecycle + `STATUS_ACTION_PLAN_EXITED`)
+> shipped shortly after. All 7 acceptance criteria met as of 2026-04-29:
+> every producer in the audit emits `metadata.action`; every legacy regex
+> in `_common.py` is gone; no SKILL.md / agent.md prompt prescribes a
+> lifecycle-event content phrasing; `event_schema.py` documents the
+> action vocabulary inline; the agent_id ADR (sprint-042) is enforced.
+> Document retained for historical context and as a template for future
+> similar doctrines.
+
 ## Purpose
 
 Replace the **non-deterministic event cycle** — where skills/agents emit

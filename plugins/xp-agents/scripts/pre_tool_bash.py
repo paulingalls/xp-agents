@@ -17,6 +17,7 @@ import identity
 import markers
 import resolves_probe
 import security
+import story_probe
 import worktree
 from event_schema import METADATA_KEY_RESOLVES
 
@@ -191,9 +192,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             has_trailer = False
             if msg:
                 already_resolved, _, has_trailer = commits.extract_resolves_trailer(msg)
-            candidates = resolves_probe.find_probe_candidates(
-                smm_dir, staged, already_resolved, cwd
+            story_candidate = story_probe.find_story_candidate(
+                smm_dir, cwd, staged, msg or ""
             )
+            story_probe.emit_probe_status(smm_dir, story_candidate, agent_id)
+            story_nudge = (
+                story_probe.build_nudge_line(story_candidate)
+                if story_candidate
+                else None
+            )
+            candidates = resolves_probe.find_probe_candidates(
+                smm_dir, staged, already_resolved, cwd, commit_message=msg or ""
+            )
+            if story_nudge:
+                parts.append(story_nudge)
             if candidates:
                 resolves_probe.emit_probe_status(smm_dir, candidates, agent_id)
                 # Concern a47dda9f00bd: advisory nudge → block when no
@@ -203,18 +215,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 # candidate IDs because the agent's intent is opaque.
                 if not has_trailer:
                     nudge = resolves_probe.build_nudge_lines(candidates)[0]
+                    body = (
+                        nudge
+                        + "\n\n"
+                        + resolves_probe.TRAILER_REMINDER
+                        + " before re-trying."
+                    )
+                    if story_nudge:
+                        body = story_nudge + "\n\n" + body
                     raise _common.BlockedError(
-                        nudge + "\n\nAdd Resolves-Event: <id> or"
-                        " Resolves-Event: none to your commit message"
-                        " before re-trying.",
+                        body,
                         "Resolves-Event trailer required:"
                         " open candidates overlap your staged files.",
                     )
             elif not has_trailer:
-                parts.append(
-                    "Add Resolves-Event: <id> or Resolves-Event: none"
-                    " to your commit message."
-                )
+                parts.append(resolves_probe.TRAILER_REMINDER + ".")
 
     if (
         smm_dir is not None

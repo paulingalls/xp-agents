@@ -1,5 +1,16 @@
 # Bug report: retro analyzer reports "0 quality reviews" despite QRs running
 
+> **Status:** Resolved. Fixed by the deterministic-event-emission doctrine
+> (v2.33.0, 2026-04-28; see `docs/completed/deterministic-event-emission.md`).
+> Counting now dispatches on `metadata.action == "qr_complete"` (set by the
+> `review_cycle_done.py` PostToolUse:Skill hook) via the `_ACTION_TO_COUNTER`
+> table at `retro_metrics.py:62-71`. The drift-prone content regex
+> `QUALITY_REVIEW_RE` is gone. Empirical verification 2026-04-29: this
+> session's 11 QR runs all counted (was 0 under the old regex). Acceptance
+> criteria #1-#4 met; #5 (verbose debug log) eclipsed by the deterministic
+> counter itself. Document retained as the canonical bug report that
+> motivated the doctrine.
+
 **Plugin:** `xp-agents` (cached at `~/.claude/plugins/cache/xp-agents/xp-agents/2.25.0/`)
 **Suspected location:** the QR-counting logic in the retrospective analyzer (whichever module scans `events.jsonl` for sprint metrics; produces lines like "N quality reviews for M review-required commits"). Exact file unconfirmed.
 **Reporter:** AJE PoC, sprint-004 retrospective (2026-04-23)
