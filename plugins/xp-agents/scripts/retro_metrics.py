@@ -54,21 +54,14 @@ _SIGNAL_TYPES = frozenset(
 # Status classification
 # ---------------------------------------------------------------------------
 
-_FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = _common.TEST_RUN_RE
-_COMMIT_RE = _common.LEGACY_COMMIT_RE
-_LINT_RE = re.compile(r"Lint (?:errors? in|concern resolved)", re.IGNORECASE)
-
-# Action-based dispatch for lifecycle events (sprint-041 review-cycle vocabulary
-# + sprint-042 M2 tool-action vocabulary). Hook is the canonical producer;
+# Action-based dispatch for lifecycle events. Hook is the canonical producer;
 # consumers read metadata.action exactly so LLM-authored content drift cannot
-# zero the counters. Started+complete triage both increment security_checks
-# (preserves legacy regex semantics — double-counts a single triage run).
-# STATUS_ACTION_BASH_FAILED has no counter — failures surface via concerns.
-# STATUS_ACTION_COMMIT_SUCCESS is forward-compat: bash_post_tool currently
-# emits commits as type=commit (handled by the early branch in the loop), so
-# this entry only fires if a future producer emits a status-typed
-# commit_success. Kept to keep the action contract symmetric.
+# zero the counters. Started + complete triage both increment security_checks
+# (one triage run = two ticks). STATUS_ACTION_BASH_FAILED has no counter —
+# failures surface via concerns. STATUS_ACTION_COMMIT_SUCCESS is forward-compat:
+# bash_post_tool currently emits commits as type=commit (handled by the early
+# branch in the loop); this entry keeps the action contract symmetric for any
+# future status-typed commit_success emitter.
 _ACTION_TO_COUNTER: dict[str, str] = {
     STATUS_ACTION_SIMPLIFY_COMPLETE: "simplifies",
     STATUS_ACTION_QR_COMPLETE: "quality_reviews",
@@ -92,7 +85,7 @@ def _normalize_concern_content(content: str) -> str:
 def _classify_status_events(
     events: list[dict],
 ) -> dict:
-    """Classify status events into action-based and content-regex buckets."""
+    """Classify status events by metadata.action; unactioned events → 'other'."""
     counts = {
         "file_writes": 0,
         "test_runs": 0,
@@ -104,20 +97,10 @@ def _classify_status_events(
         "other": 0,
     }
 
-    # TODO M3: drop _FILE_WRITE_RE / _TEST_RUN_RE / _COMMIT_RE / _LINT_RE once
-    # one full session of M2 dual-emit confirms action-match is comprehensive.
-    patterns = [
-        (_FILE_WRITE_RE, "file_writes"),
-        (_TEST_RUN_RE, "test_runs"),
-        (_COMMIT_RE, "commits"),
-        (_LINT_RE, "lint_events"),
-    ]
-
     for e in events:
         etype = e.get("type", "")
-        # type=commit is the canonical commit signal (closes the meta-irony
-        # where doctrine sessions couldn't count their own commits via the
-        # legacy "Committed:" status regex). Counted before the status guard.
+        # type=commit is the canonical commit signal; counted before the
+        # status guard so a real commit always ticks the commits counter.
         if etype == _common.COMMIT:
             counts["commits"] += 1
             continue
@@ -128,16 +111,7 @@ def _classify_status_events(
         action_counter = _ACTION_TO_COUNTER.get(action) if action else None
         if action_counter:
             counts[action_counter] += 1
-            continue
-
-        content = e.get("content", "")
-        matched = False
-        for pattern, key in patterns:
-            if pattern.search(content):
-                counts[key] += 1
-                matched = True
-                break
-        if not matched:
+        else:
             counts["other"] += 1
 
     counts["total"] = sum(counts.values())

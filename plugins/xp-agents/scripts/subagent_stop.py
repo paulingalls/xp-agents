@@ -20,6 +20,11 @@ import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
     SPRINT_ACTION_END,
+    STATUS_ACTION_HOUSEKEEPING_COMPLETE,
+    STATUS_ACTION_PLAN_AWAITING_REVIEW,
+    STATUS_ACTION_PLAN_COMPLETED,
+    STATUS_ACTION_PLAN_REVIEWED,
+    STATUS_ACTION_SUBAGENT_COMPLETE,
 )
 
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
@@ -29,6 +34,30 @@ _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
 _PLAN_REVIEWER_AGENT_ID = "xp-plan-reviewer"
+
+
+def _append_completion_event(
+    smm_dir: Path, agent_id: str, agent_type: str, action: str
+) -> None:
+    """Append a subagent-completion status event with action discriminator."""
+    event = _common.make_event(
+        _common.STATUS,
+        agent_id,
+        _common.subagent_completed_content(agent_id),
+        working_on=[],
+        metadata={"action": action, "agent_type": agent_type},
+    )
+    _common.append_safe(smm_dir, event)
+
+
+def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
+    """Append a generic subagent_complete event from the xp-* dispatch paths."""
+    _append_completion_event(
+        smm_dir,
+        input_data.get("agent_id", "subagent"),
+        input_data.get("agent_type", ""),
+        STATUS_ACTION_SUBAGENT_COMPLETE,
+    )
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
@@ -71,8 +100,11 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
         _HOUSEKEEPING_DONE_AGENT_ID,
         "Kickoff complete — housekeeping subagent finished.",
         working_on=[],
+        metadata={"action": STATUS_ACTION_HOUSEKEEPING_COMPLETE},
     )
     _common.append_safe(smm_dir, status)
+
+    _emit_subagent_complete(smm_dir, input_data)
 
     markers.marker_consume(smm_dir, markers.NEEDS_SPRINT)
 
@@ -112,6 +144,8 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
         )
         _common.append_safe(smm_dir, event)
 
+    _emit_subagent_complete(smm_dir, input_data)
+
     for stale in smm_dir.glob(f"{marker_names.SPRINT_REVIEW_INPUT_PREFIX}*"):
         stale.unlink(missing_ok=True)
 
@@ -136,8 +170,11 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
         agent_id,
         "assign_pending: Plan reviewed, run /xp-assign",
         working_on=[],
+        metadata={"action": STATUS_ACTION_PLAN_REVIEWED},
     )
     _common.append_safe(smm_dir, gate_event)
+
+    _emit_subagent_complete(smm_dir, input_data)
 
     return (
         "IMPORTANT: Run the /xp-assign skill NOW to decide execution mode "
@@ -146,15 +183,14 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     )
 
 
-def _record_completion(smm_dir: Path, agent_id: str) -> None:
+def _record_completion(
+    smm_dir: Path,
+    agent_id: str,
+    agent_type: str = "",
+    action: str = STATUS_ACTION_SUBAGENT_COMPLETE,
+) -> None:
     """Record subagent completion: status event + coordination + markers."""
-    event = _common.make_event(
-        _common.STATUS,
-        agent_id,
-        _common.subagent_completed_content(agent_id),
-        working_on=[],
-    )
-    _common.append_safe(smm_dir, event)
+    _append_completion_event(smm_dir, agent_id, agent_type, action)
     coordination.clear_coordination_agent(smm_dir, agent_id)
     markers.cleanup_agent_markers(smm_dir, agent_id)
 
@@ -190,7 +226,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except ValueError:
         return None
 
-    _record_completion(smm_dir, agent_id)
+    agent_type = input_data.get("agent_type", "")
+    completion_action = (
+        STATUS_ACTION_PLAN_COMPLETED
+        if agent_type == _PLAN_AGENT_TYPE
+        else STATUS_ACTION_SUBAGENT_COMPLETE
+    )
+    _record_completion(smm_dir, agent_id, agent_type, completion_action)
 
     # Conflict detection — patterns 2-5 only (no file_path)
     events = _common.read_events_raw(smm_dir)
@@ -201,7 +243,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Plan review gate — Plan subagent (via Agent tool) also needs review.
     # PostToolUse:ExitPlanMode handles the EnterPlanMode/ExitPlanMode tool flow;
     # this handles the SubagentStop flow for Plan-type subagents.
-    agent_type = input_data.get("agent_type", "")
     if agent_type == _PLAN_AGENT_TYPE:
         markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, agent_id)
 
@@ -210,6 +251,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             agent_id,
             "plan_awaiting_review: Plan completed, run /xp-review-plan",
             working_on=[],
+            metadata={"action": STATUS_ACTION_PLAN_AWAITING_REVIEW},
         )
         _common.append_safe(smm_dir, gate_event)
 

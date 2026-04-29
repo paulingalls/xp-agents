@@ -20,6 +20,7 @@ from conftest import (
     _s,
     _sprint_json,
 )
+from event_schema import STATUS_ACTION_SUBAGENT_COMPLETE, event_action
 
 _SRI = marker_names.SPRINT_REVIEW_INPUT_PREFIX
 
@@ -109,6 +110,20 @@ class TestSprintReviewerDone(_HookTestCase):
         """M6: No sprint.json → still returns None (no nudge), no crash."""
         result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
+
+    def test_emits_subagent_complete_after_sprint_review(self):
+        """A generic subagent_complete event accompanies the sprint end event."""
+        self._seed_sprint()
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        self.assertEqual(len(sprint_events), 1)
+        statuses = [e for e in events if e.get("type") == "status"]
+        sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
+        self.assertEqual(len(sc), 1)
+        self.assertEqual(
+            sc[0].get("metadata", {}).get("agent_type"), "xp-sprint-reviewer"
+        )
 
 
 if __name__ == "__main__":

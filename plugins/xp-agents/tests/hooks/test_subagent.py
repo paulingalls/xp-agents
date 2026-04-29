@@ -23,6 +23,14 @@ from conftest import (
     make_event,
     write_smm_fixture,
 )
+from event_schema import (
+    STATUS_ACTION_HOUSEKEEPING_COMPLETE,
+    STATUS_ACTION_PLAN_AWAITING_REVIEW,
+    STATUS_ACTION_PLAN_COMPLETED,
+    STATUS_ACTION_PLAN_REVIEWED,
+    STATUS_ACTION_SUBAGENT_COMPLETE,
+    event_action,
+)
 
 # ===========================================================================
 # user_prompt_log.py tests — Milestone 3.4
@@ -150,6 +158,7 @@ class TestSubagentStop(_HookTestCase):
             {
                 "session_id": "t",
                 "agent_id": "task-1",
+                "agent_type": "general-purpose",
                 "last_assistant_message": "Done",
             },
             smm_dir=self.smm_dir,
@@ -159,6 +168,10 @@ class TestSubagentStop(_HookTestCase):
         self.assertEqual(len(statuses), 1)
         self.assertIn("task-1", statuses[0]["content"])
         self.assertEqual(statuses[0]["working_on"], [])
+        self.assertEqual(event_action(statuses[0]), STATUS_ACTION_SUBAGENT_COMPLETE)
+        self.assertEqual(
+            statuses[0].get("metadata", {}).get("agent_type"), "general-purpose"
+        )
 
     def test_xp_agent_skips(self):
         subagent_stop.run(
@@ -305,7 +318,7 @@ class TestSubagentStopPlanGate(_HookTestCase):
         self.assertEqual(len(gate_events), 1)
 
     def test_plan_records_completion_and_gate(self):
-        """Both completion status and gate marker should be written."""
+        """Plan completion and gate events each carry their action discriminator."""
         subagent_stop.run(
             {
                 "session_id": "t",
@@ -317,7 +330,11 @@ class TestSubagentStopPlanGate(_HookTestCase):
         )
         events = _common.read_events_raw(self.smm_dir)
         statuses = [e for e in events if e.get("type") == "status"]
-        self.assertEqual(len(statuses), 2)  # completion + gate
+        self.assertEqual(len(statuses), 2)
+        actions = {event_action(e) for e in statuses}
+        self.assertEqual(
+            actions, {STATUS_ACTION_PLAN_COMPLETED, STATUS_ACTION_PLAN_AWAITING_REVIEW}
+        )
 
 
 class TestSubagentStopNoReviewerNudge(_HookTestCase):
@@ -404,6 +421,62 @@ class TestHousekeepingDone(_HookTestCase):
         (self.smm_dir / ".needs-housekeeping").write_text("kickoff")
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         self.assertFalse((self.smm_dir / ".needs-housekeeping").exists())
+
+    def test_emits_housekeeping_complete_action(self):
+        """Kickoff-done event carries the housekeeping_complete action."""
+        subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        kickoff_events = [e for e in events if e.get("agent_id") == "xp-kickoff-done"]
+        self.assertEqual(len(kickoff_events), 1)
+        self.assertEqual(
+            event_action(kickoff_events[0]), STATUS_ACTION_HOUSEKEEPING_COMPLETE
+        )
+
+    def test_emits_subagent_complete_after_housekeeping(self):
+        """A generic subagent_complete event is appended for housekeeper."""
+        subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 2)
+        sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
+        self.assertEqual(len(sc), 1)
+        self.assertEqual(sc[0].get("metadata", {}).get("agent_type"), "xp-housekeeper")
+
+
+class TestPlanReviewerDone(_HookTestCase):
+    """subagent_stop._handle_plan_review_done runs after xp-plan-reviewer."""
+
+    def _reviewer_input(self, agent_type: str = "xp-plan-reviewer") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "plan-reviewer-1",
+            "agent_type": agent_type,
+            "last_assistant_message": "Plan reviewed.",
+        }
+
+    def test_emits_plan_reviewed_action(self):
+        """assign_pending event carries the plan_reviewed action."""
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        gate_events = [
+            e
+            for e in events
+            if e.get("type") == "status" and "assign_pending" in e.get("content", "")
+        ]
+        self.assertEqual(len(gate_events), 1)
+        self.assertEqual(event_action(gate_events[0]), STATUS_ACTION_PLAN_REVIEWED)
+
+    def test_emits_subagent_complete_after_plan_review(self):
+        """A generic subagent_complete event accompanies the assign_pending event."""
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        statuses = [e for e in events if e.get("type") == "status"]
+        self.assertEqual(len(statuses), 2)
+        sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
+        self.assertEqual(len(sc), 1)
+        self.assertEqual(
+            sc[0].get("metadata", {}).get("agent_type"), "xp-plan-reviewer"
+        )
 
 
 if __name__ == "__main__":

@@ -32,7 +32,14 @@ class TestStatusActionConstants(unittest.TestCase):
         "STATUS_ACTION_COMMIT_SUCCESS": "commit_success",
     }
 
-    EXPECTED: ClassVar[dict[str, str]] = {**M1_EXPECTED, **M2_EXPECTED}
+    M3_EXPECTED: ClassVar[dict[str, str]] = {
+        "STATUS_ACTION_SUBAGENT_COMPLETE": "subagent_complete",
+        "STATUS_ACTION_PLAN_COMPLETED": "plan_completed",
+        "STATUS_ACTION_PLAN_AWAITING_REVIEW": "plan_awaiting_review",
+        "STATUS_ACTION_PLAN_EXITED": "plan_exited",
+    }
+
+    EXPECTED: ClassVar[dict[str, str]] = {**M1_EXPECTED, **M2_EXPECTED, **M3_EXPECTED}
 
     def test_each_constant_exists_with_expected_value(self):
         for name, expected in self.EXPECTED.items():
@@ -43,8 +50,8 @@ class TestStatusActionConstants(unittest.TestCase):
                 )
                 self.assertEqual(getattr(event_schema, name), expected)
 
-    def test_constants_distinct_from_existing_iteration_complete(self):
-        """New review-cycle constants must not collide with existing actions."""
+    def test_action_vocabularies_distinct_from_legacy_status_actions(self):
+        """M1/M2/M3 vocabularies must not collide with legacy status actions."""
         new_values = {getattr(event_schema, n) for n in self.EXPECTED}
         self.assertNotIn(event_schema.STATUS_ACTION_ITERATION_COMPLETE, new_values)
         self.assertNotIn(event_schema.STATUS_ACTION_SPRINT_RETRO_DONE, new_values)
@@ -58,7 +65,18 @@ class TestStatusActionConstants(unittest.TestCase):
             f"M1 and M2 action vocabularies overlap: {m1_values & m2_values}",
         )
 
-    # Expected producer hook for each M2 constant. The doc block in
+    def test_m3_set_disjoint_from_m1_m2(self):
+        """M3 vocabulary must not collide with M1 or M2 vocabularies."""
+        prior_values = frozenset(self.M1_EXPECTED.values()) | frozenset(
+            self.M2_EXPECTED.values()
+        )
+        m3_values = frozenset(self.M3_EXPECTED.values())
+        self.assertTrue(
+            prior_values.isdisjoint(m3_values),
+            f"M3 overlaps with prior vocabularies: {prior_values & m3_values}",
+        )
+
+    # Expected producer hook for each M2/M3 constant. The doc blocks in
     # event_schema.py must annotate every constant with its specific hook
     # filename on the same comment line — not just mention all hooks in a
     # shared block (which would let the test pass on mis-attribution).
@@ -68,10 +86,14 @@ class TestStatusActionConstants(unittest.TestCase):
         "STATUS_ACTION_LINT_RESOLVED": "bash_post_tool.py",
         "STATUS_ACTION_BASH_FAILED": "bash_failure.py",
         "STATUS_ACTION_COMMIT_SUCCESS": "bash_post_tool.py",
+        "STATUS_ACTION_SUBAGENT_COMPLETE": "subagent_stop.py",
+        "STATUS_ACTION_PLAN_COMPLETED": "subagent_stop.py",
+        "STATUS_ACTION_PLAN_AWAITING_REVIEW": "subagent_stop.py",
+        "STATUS_ACTION_PLAN_EXITED": "post_tool_exit_plan.py",
     }
 
-    def test_m2_doc_block_names_emitting_hook(self):
-        """The producer map names each M2 constant on the same line as its hook."""
+    def test_doc_block_names_emitting_hook(self):
+        """The producer map names each constant on the same line as its hook."""
         source = event_schema.__file__
         assert source is not None, "event_schema module has no __file__"
         text = Path(source).read_text(encoding="utf-8")

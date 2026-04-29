@@ -10,6 +10,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
+from event_schema import STATUS_ACTION_COMMIT_SUCCESS, STATUS_ACTION_TEST_RUN_COMPLETE
+
+
+def _test_status(passed: bool, count: int = 1) -> dict:
+    return make_event(
+        "status",
+        content=f"Tests: {count} passed, {0 if passed else 1} failed (unittest)",
+        metadata={
+            "action": STATUS_ACTION_TEST_RUN_COMPLETE,
+            "test_passed": passed,
+            "test_count": count,
+            "framework": "unittest",
+        },
+    )
 
 
 class TestWorkSignals(unittest.TestCase):
@@ -66,10 +80,10 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", content="Tests: 10 passed, 2 failed (unittest)"),
-            make_event("status", content="Tests: 11 passed, 1 failed (unittest)"),
-            make_event("status", content="Tests: 10 passed, 3 failed (unittest)"),
-            make_event("status", content="Tests: 13 passed, 0 failed (unittest)"),
+            _test_status(passed=False),
+            _test_status(passed=False),
+            _test_status(passed=False),
+            _test_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 3)
@@ -79,8 +93,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", content="Tests: 10 passed, 1 failed (unittest)"),
-            make_event("status", content="Tests: 11 passed, 0 failed (unittest)"),
+            _test_status(passed=False),
+            _test_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 1)
@@ -90,8 +104,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", content="Tests: 10 passed, 0 failed (unittest)"),
-            make_event("status", content="Tests: 11 passed, 0 failed (unittest)"),
+            _test_status(passed=True),
+            _test_status(passed=True),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_consecutive_test_failures"], 0)
@@ -209,7 +223,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "status",
                 content="opaque",
                 metadata={
-                    "action": "test_run_complete",
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
                     "test_passed": False,
                     "test_count": 1,
                     "framework": "pytest",
@@ -219,7 +233,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "status",
                 content="opaque",
                 metadata={
-                    "action": "test_run_complete",
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
                     "test_passed": False,
                     "test_count": 1,
                     "framework": "pytest",
@@ -229,7 +243,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "status",
                 content="opaque",
                 metadata={
-                    "action": "test_run_complete",
+                    "action": STATUS_ACTION_TEST_RUN_COMPLETE,
                     "test_passed": True,
                     "test_count": 5,
                     "framework": "pytest",
@@ -250,7 +264,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 "commit",
                 content="Add tests",
                 files=["tests/foo.py"],
-                metadata={"action": "commit_success", "commit_hash": "abc"},
+                metadata={"action": STATUS_ACTION_COMMIT_SUCCESS, "commit_hash": "abc"},
             ),
         ]
         result = work_signals.build_work_signals(events)
