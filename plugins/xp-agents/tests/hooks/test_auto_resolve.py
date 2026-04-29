@@ -253,11 +253,11 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
 
 
 class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
-    """Verify _resolve_lint_on_commit threads resolutions without re-computation."""
+    """Verify resolve_lint_on_commit threads resolutions without re-computation."""
 
     def test_precomputed_resolutions_skip_recomputation(self):
         """When resolutions kwarg is provided, compute_resolutions is not called."""
-        import bash_post_tool
+        import lint_resolution
         import resolution
 
         norm = worktree.normalize_path("src/app.py", str(self._lint_tmpdir))
@@ -282,7 +282,7 @@ class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
                 wraps=resolution.compute_resolutions,
             ) as mock_compute,
         ):
-            bash_post_tool._resolve_lint_on_commit(
+            lint_resolution.resolve_lint_on_commit(
                 self.smm_dir,
                 str(self._lint_tmpdir),
                 "main",
@@ -344,7 +344,7 @@ class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
         return concern
 
     def _run_sweep(self, committed_files, lint_clean=True):
-        import bash_post_tool
+        import lint_resolution
 
         events = self._read_events()
         with (
@@ -357,7 +357,7 @@ class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
                 return_value=None if lint_clean else "E302",
             ),
         ):
-            bash_post_tool._sweep_orphan_lint_concerns(
+            lint_resolution.sweep_orphan_lint_concerns(
                 self.smm_dir,
                 str(self._lint_tmpdir),
                 "main",
