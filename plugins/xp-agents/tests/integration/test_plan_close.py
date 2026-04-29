@@ -86,14 +86,18 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "plan_cli.py archive must appear AFTER merge-branch",
         )
 
+    def test_allowed_tools_includes_skill(self):
+        # Structural: the Skill tool must be in allowed-tools frontmatter
+        # so the LLM can actually invoke /xp-system-context in Step 8.
+        frontmatter = self.text.split("---", 2)[1]
+        self.assertIn("Skill", frontmatter)
+
     def test_refreshes_system_context_after_merge(self):
         # Step 8: plan-close must invoke /xp-system-context after the
         # merge/archive chain so system_context.json reflects the new
         # project state before the next planning cycle.
         self.assertIn("xp-system-context", self.text)
         self.assertIn("Skill", self.text)
-        # The invocation must appear after merge-branch — refreshing
-        # system context before the merge lands is pointless.
         merge_idx = self.text.index("merge-branch")
         sc_idx = self.text.index("xp-system-context")
         self.assertLess(

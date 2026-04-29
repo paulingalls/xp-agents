@@ -117,7 +117,7 @@ Spawn all teammates in parallel (multiple Bash calls in one message).
 1. Wait for Bash task notifications
 2. Read task output for branch name, report path, cost
 3. Read report file for summary
-4. Merge: `git merge teammate-step-N --no-ff`
+4. Merge each teammate's story branch: `git merge <story-branch> --no-ff`
 5. Run full test suite on merged result
 6. Run `/xp-accept` to verify acceptance criteria
 
