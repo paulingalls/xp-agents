@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import coordination
+import event_schema
 import identity
 import worktree
 
@@ -52,8 +53,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Semantic references
     refs = concerns.find_related_decisions(events, file_path, cwd)
 
-    # Auto-status event
-    extra: dict = {"working_on": [normalized]}
+    # Auto-status event. metadata.action+files are the canonical structured
+    # signal (sprint-042 M2 doctrine); content is dual-emitted as a digest.
+    extra: dict = {
+        "working_on": [normalized],
+        "metadata": {
+            "action": event_schema.STATUS_ACTION_FILE_WRITE,
+            "files": [normalized],
+        },
+    }
     if refs:
         extra["references"] = refs
     status_event = _common.make_event(
