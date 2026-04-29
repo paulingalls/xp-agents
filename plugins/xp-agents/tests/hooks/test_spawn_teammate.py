@@ -369,7 +369,47 @@ class TestRunWithTee(unittest.TestCase):
                 log_dir=self.log_dir,
             )
         log = (self.log_dir / "teammate-foo.log").read_text()
-        self.assertEqual(log, "line1\nline2\n")
+        self.assertIn("line1\nline2\n", log)
+        self.assertIn("spawn teammate-foo", log)
+
+    def test_respawn_appends_does_not_truncate(self):
+        """A second spawn with the same name preserves the prior run's log —
+        forensic value would be lost if the first run hung and the kill+respawn
+        truncated the only record of where it stuck."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with patch(
+            "spawn_teammate.subprocess.Popen",
+            return_value=self._fake_popen(["first-run-line\n"]),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-foo",
+                log_dir=self.log_dir,
+            )
+        with patch(
+            "spawn_teammate.subprocess.Popen",
+            return_value=self._fake_popen(["second-run-line\n"]),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-foo",
+                log_dir=self.log_dir,
+            )
+        log = (self.log_dir / "teammate-foo.log").read_text()
+        self.assertIn("first-run-line", log)
+        self.assertIn("second-run-line", log)
+        # Order matters: prior-run output must precede current-run output,
+        # otherwise a regression that truncates+rewrites could still pass.
+        self.assertLess(log.index("first-run-line"), log.index("second-run-line"))
 
     def test_proceeds_without_log_when_dir_unwritable(self):
         """Unwritable log dir does NOT abort the spawn — degrades gracefully."""

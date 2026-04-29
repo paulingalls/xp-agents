@@ -17,6 +17,7 @@ import argparse
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -104,13 +105,20 @@ def run_with_tee(
     proceeds without teeing — investigation aid is best-effort, not
     load-bearing.
 
+    Re-spawns of the same teammate name *append* with a session header so
+    the forensic record from a prior hang survives a kill + retry.
+
     Raises ``subprocess.CalledProcessError`` on non-zero exit so callers
     keep the prior ``check=True`` failure semantics.
     """
     log_path = log_dir / f"{name}.log"
     log_file = None
     try:
-        log_file = log_path.open("w")
+        log_file = log_path.open("a")
+        log_file.write(
+            f"\n===== spawn {name} {datetime.now(timezone.utc).isoformat()} =====\n"
+        )
+        log_file.flush()
     except OSError as exc:
         sys.stderr.write(
             f"WARN: tee log {log_path} unavailable ({exc}); spawning without tee\n"
