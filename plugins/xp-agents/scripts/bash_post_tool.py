@@ -29,7 +29,12 @@ from event_schema import (
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
-from test_parsing import is_test_run, parse_test_results
+from test_parsing import (
+    PARSER_STATUS_PARSED,
+    PARSER_STATUS_ZERO,
+    is_test_run,
+    parse_test_results,
+)
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -373,24 +378,31 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     framework = is_test_run(command)
     if framework:
         results = parse_test_results(response_text, framework)
+        parser_status = results["status"]
         passed = results["passed"]
         failed = results["failed"]
 
         # M2 dual-emit: structured metadata.action+companion fields are the
         # canonical signal; content stays as the legacy human-readable digest.
-        # When parser can't extract counts (truncated output, wrong dir, etc.),
-        # the action is still set but test_passed/test_count are omitted —
-        # producers don't invent numbers they don't have.
+        # parser_status disambiguates "framework ran 0 tests" (ZERO) from
+        # "parser couldn't extract counts" (FAILED). On FAILED, test_passed
+        # and test_count are omitted — producers don't invent numbers they
+        # don't have.
         metadata: dict = {
             "action": STATUS_ACTION_TEST_RUN_COMPLETE,
             "framework": framework,
+            "parser_status": parser_status,
         }
-        if passed == 0 and failed == 0:
-            content = f"Tests ran ({framework}) — counts not extracted"
-        else:
+        if parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
             metadata["test_count"] = passed + failed
+        elif parser_status == PARSER_STATUS_ZERO:
+            content = f"Tests ran ({framework}) — 0 tests"
+            metadata["test_passed"] = True
+            metadata["test_count"] = 0
+        else:
+            content = f"Tests ran ({framework}) — counts not extracted"
 
         status = _common.make_event(
             _common.STATUS,

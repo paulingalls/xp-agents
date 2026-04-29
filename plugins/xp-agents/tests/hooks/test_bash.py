@@ -388,6 +388,7 @@ class TestM2TestRunActions(_HookTestCase):
         status = self._status("pytest", "===== 3 passed in 0.3s =====")
         metadata = status.get("metadata") or {}
         self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("parser_status"), "parsed")
         self.assertTrue(metadata.get("test_passed"))
         self.assertEqual(metadata.get("test_count"), 3)
         self.assertEqual(metadata.get("framework"), "pytest")
@@ -398,18 +399,31 @@ class TestM2TestRunActions(_HookTestCase):
         status = self._status("pytest", "===== 1 passed, 2 failed in 0.5s =====")
         metadata = status.get("metadata") or {}
         self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("parser_status"), "parsed")
         self.assertFalse(metadata.get("test_passed"))
         self.assertEqual(metadata.get("test_count"), 3)
         self.assertEqual(metadata.get("framework"), "pytest")
 
-    def test_unparsed_counts_still_carries_action_without_count(self):
-        """When parser can't extract counts (truncated/wrong dir output),
-        metadata.action is still set but test_count is omitted."""
+    def test_garbled_emits_parser_failed_status(self):
+        """Garbled output → parser_status='parser_failed', test_count and
+        test_passed omitted: producers don't invent numbers they don't have."""
         status = self._status("pytest", "garbled output with no counts")
         metadata = status.get("metadata") or {}
         self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("parser_status"), "parser_failed")
         self.assertNotIn("test_count", metadata)
         self.assertNotIn("test_passed", metadata)
+        self.assertEqual(metadata.get("framework"), "pytest")
+
+    def test_zero_tests_emits_zero_status_with_count_zero(self):
+        """Framework legitimately ran zero tests → parser_status='zero',
+        test_count=0, test_passed=True (vacuously, no failures)."""
+        status = self._status("pytest", "===== no tests ran in 0.1s =====")
+        metadata = status.get("metadata") or {}
+        self.assertEqual(metadata.get("action"), "test_run_complete")
+        self.assertEqual(metadata.get("parser_status"), "zero")
+        self.assertEqual(metadata.get("test_count"), 0)
+        self.assertIs(metadata.get("test_passed"), True)
         self.assertEqual(metadata.get("framework"), "pytest")
 
 
