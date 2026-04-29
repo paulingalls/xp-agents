@@ -307,5 +307,49 @@ class TestCreateStoryBranchWithBase(unittest.TestCase):
             self.assertEqual(head_sha, base_sha)
 
 
+class TestCreateStoryBranchAutoRecords(unittest.TestCase):
+    def test_records_branch_name_in_sprint(self):
+        import json
+
+        import sprint_store
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+            sprint = {
+                "sprint_id": "sprint-044",
+                "goal": "test",
+                "started": "2026-04-29",
+                "stories": [
+                    {
+                        "id": "story-001",
+                        "title": "Test",
+                        "status": "in-progress",
+                        "dependencies": [],
+                        "milestone_ref": "",
+                        "design_sources": "",
+                        "context": "",
+                        "file_domain": [],
+                        "interface_contracts": [],
+                        "acceptance_criteria": [],
+                    }
+                ],
+            }
+            (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_story_branch(
+                    td, "story-001", "auto-record", smm_dir
+                )
+
+            self.assertEqual(result, "paul/story-001-auto-record")
+            loaded = sprint_store.load_sprint(smm_dir)
+            self.assertEqual(
+                loaded["stories"][0].get("branch_name"),
+                "paul/story-001-auto-record",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

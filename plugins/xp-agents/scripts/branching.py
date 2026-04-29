@@ -320,9 +320,12 @@ def create_story_branch(
     name = branch_name(user_ns, story_id, slug)
     if base is None:
         base = get_story_base_branch(smm_dir, cwd)
-    return _create_or_resume_branch(
+    result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["story"], base=base
     )
+    if result is not None and sprint_store.sprint_exists(smm_dir):
+        sprint_store.set_story_branch(smm_dir, story_id, result)
+    return result
 
 
 def create_sprint_branch(
