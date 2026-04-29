@@ -51,6 +51,18 @@ TEST_COMMAND_FAILED_PREFIX = "Test command failed"
 TEST_FAILURES_PREFIX = "Test failures detected"
 
 
+def extract_lint_concern_path(content: str) -> str | None:
+    """Return the file path embedded in a lint-concern content, or None.
+
+    Concern content shape: "Lint errors in <path>:<details>". Path may be
+    relative ("src/app.py") or absolute ("/abs/path/src/app.py") during the
+    transition from absolute to project-relative paths.
+    """
+    if not content.startswith(LINT_CONCERN_PREFIX):
+        return None
+    return content[len(LINT_CONCERN_PREFIX) :].split(":", 1)[0]
+
+
 def lint_concern_matches(content: str, rel_path: str) -> bool:
     """Match lint concern for a file, handling both relative and absolute formats.
 
@@ -58,9 +70,9 @@ def lint_concern_matches(content: str, rel_path: str) -> bool:
     have "Lint errors in /abs/path/src/app.py:" and new ones have
     "Lint errors in src/app.py:". This matcher handles both.
     """
-    if not content.startswith(LINT_CONCERN_PREFIX):
+    path_part = extract_lint_concern_path(content)
+    if path_part is None:
         return False
-    path_part = content[len(LINT_CONCERN_PREFIX) :].split(":", 1)[0]
     return path_part == rel_path or path_part.endswith("/" + rel_path)
 
 

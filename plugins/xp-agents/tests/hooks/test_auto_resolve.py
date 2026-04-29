@@ -318,5 +318,103 @@ class TestLintConcernMatches(unittest.TestCase):
         self.assertFalse(concerns.lint_concern_matches(content, "src/app.py"))
 
 
+class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
+    """Sweep unresolved lint concerns whose file isn't in this commit.
+
+    Catches side-effect fixes (`ruff check --fix` from Bash, pre-commit
+    reformatting, cross-file fixes) that don't show up as direct edits
+    to the offending file. Closes debt 3863cb520147 mechanically.
+    """
+
+    def _seed_concern(self, rel_path: str) -> dict:
+        # Create the file before normalizing so path realpath is stable
+        # (macOS /var/folders → /private/var/folders symlink would otherwise
+        # give different normalization before vs. after file creation).
+        target = Path(self._lint_tmpdir) / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+        norm = worktree.normalize_path(rel_path, str(self._lint_tmpdir))
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
+            severity="medium",
+            files=[norm],
+        )
+        self._write_events([concern])
+        return concern
+
+    def _run_sweep(self, committed_files, lint_clean=True):
+        import bash_post_tool
+
+        events = self._read_events()
+        with (
+            patch(
+                "lint_check.detect_linter_config",
+                return_value=("ruff", str(self._lint_tmpdir / "ruff.toml")),
+            ),
+            patch(
+                "lint_check.run_linter",
+                return_value=None if lint_clean else "E302",
+            ),
+        ):
+            bash_post_tool._sweep_orphan_lint_concerns(
+                self.smm_dir,
+                str(self._lint_tmpdir),
+                "main",
+                committed_files,
+                events=events,
+                resolutions=None,
+            )
+
+    def test_resolves_concern_for_clean_file_outside_commit(self):
+        """Concern on src/other.py (not in commit), file now lints clean -> resolved."""
+        concern = self._seed_concern("src/other.py")
+        self._run_sweep(committed_files=["src/app.py"], lint_clean=True)
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+        self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
+        self.assertEqual(resolutions[0]["metadata"].get("action"), "lint_resolved")
+
+    def test_skips_files_already_in_commit(self):
+        """Concern on src/app.py which IS in committed_files -> sweep skips
+        (already handled by _resolve_lint_on_commit, no double-resolve)."""
+        self._seed_concern("src/app.py")
+        self._run_sweep(committed_files=["src/app.py"], lint_clean=True)
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_leaves_dirty_file_concern_open(self):
+        """Concern on src/other.py, file still dirty -> NOT resolved."""
+        self._seed_concern("src/other.py")
+        self._run_sweep(committed_files=[], lint_clean=False)
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_skips_deleted_file(self):
+        """Concern on a file that no longer exists -> skip, don't crash."""
+        norm = worktree.normalize_path("src/gone.py", str(self._lint_tmpdir))
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm}:\nE302",
+            severity="medium",
+            files=[norm],
+        )
+        self._write_events([concern])
+        # File was never created — Path.exists() is False
+        self._run_sweep(committed_files=[], lint_clean=True)
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 0)
+
+    def test_no_op_with_no_unresolved_concerns(self):
+        """No unresolved lint concerns -> no work, no events written."""
+        self._run_sweep(committed_files=["src/app.py"], lint_clean=True)
+        events = self._read_events()
+        self.assertEqual(len(events), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
