@@ -297,7 +297,9 @@ class TestPostToolExitPlan(_HookTestCase):
         self.assertTrue(marker.exists())
 
     def test_writes_gate_event(self):
-        """Should append plan_awaiting_review status event."""
+        """Should append plan_awaiting_review event tagged with plan_exited action."""
+        from event_schema import STATUS_ACTION_PLAN_EXITED
+
         post_tool_exit_plan.run(
             {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
             smm_dir=self.smm_dir,
@@ -305,6 +307,8 @@ class TestPostToolExitPlan(_HookTestCase):
         events = _common.read_events_raw(self.smm_dir)
         gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
         self.assertEqual(len(gate), 1)
+        metadata = gate[0].get("metadata") or {}
+        self.assertEqual(metadata.get("action"), STATUS_ACTION_PLAN_EXITED)
 
     def test_skips_xp_agents(self):
         """XP agent types should be skipped."""
