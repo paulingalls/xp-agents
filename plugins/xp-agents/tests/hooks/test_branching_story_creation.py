@@ -350,6 +350,45 @@ class TestCreateStoryBranchAutoRecords(unittest.TestCase):
                 "paul/story-001-auto-record",
             )
 
+    def test_missing_story_id_still_creates_branch(self):
+        """Branch created even when story_id is absent from sprint.json."""
+        import json
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=1)
+            sprint = {
+                "sprint_id": "sprint-044",
+                "goal": "test",
+                "started": "2026-04-29",
+                "stories": [
+                    {
+                        "id": "story-001",
+                        "title": "Other",
+                        "status": "in-progress",
+                        "dependencies": [],
+                        "milestone_ref": "",
+                        "design_sources": "",
+                        "context": "",
+                        "file_domain": [],
+                        "interface_contracts": [],
+                        "acceptance_criteria": [],
+                    }
+                ],
+            }
+            (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+            with patch(
+                "branching.identity.user_namespace",
+                return_value="paul",
+            ):
+                result = branching.create_story_branch(
+                    td, "story-999", "missing", smm_dir
+                )
+
+            self.assertEqual(result, "paul/story-999-missing")
+
 
 if __name__ == "__main__":
     unittest.main()
