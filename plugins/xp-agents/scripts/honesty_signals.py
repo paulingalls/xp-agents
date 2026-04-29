@@ -25,11 +25,6 @@ from event_schema import (
     event_action,
 )
 
-# TODO M3: drop _FILE_WRITE_RE / _TEST_RUN_RE once dual-emit window proves
-# action-match comprehensive across producers.
-_FILE_WRITE_RE = re.compile(r"Wrote to\b", re.IGNORECASE)
-_TEST_RUN_RE = _common.TEST_RUN_RE
-_COMMIT_RE = _common.LEGACY_COMMIT_RE
 _PLAN_RE = re.compile(r"plan_awaiting_review:", re.IGNORECASE)
 _REFACTOR_MODE_RE = re.compile(r"refactor.mode", re.IGNORECASE)
 
@@ -70,10 +65,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
         etype = e.get("type", "")
         content = e.get("content", "")
 
-        is_commit = etype == _common.COMMIT or (
-            etype == _common.STATUS and _COMMIT_RE.search(content)
-        )
-        if is_commit:
+        if etype == _common.COMMIT:
             total_commits += 1
             in_refactor_mode = False
             is_code = e.get("metadata", {}).get("code_commit", True)
@@ -103,23 +95,6 @@ def build_honesty_signals(events: list[dict]) -> dict:
                         )
                         target.add(path)
             elif action == STATUS_ACTION_TEST_RUN_COMPLETE:
-                max_unique_files_without_test = max(
-                    max_unique_files_without_test,
-                    len(unique_files_since_test),
-                )
-                unique_files_since_test = set()
-            elif _FILE_WRITE_RE.search(content):
-                path = content.replace("Wrote to ", "").strip()
-                if security.is_code_file(path):
-                    file_write_count += 1
-                    if not is_test_file(path):
-                        target = (
-                            refactor_mode_excluded
-                            if in_refactor_mode
-                            else unique_files_since_test
-                        )
-                        target.add(path)
-            elif _TEST_RUN_RE.search(content):
                 max_unique_files_without_test = max(
                     max_unique_files_without_test,
                     len(unique_files_since_test),

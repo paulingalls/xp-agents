@@ -20,11 +20,10 @@ from event_schema import (
     event_action,
 )
 
-# TODO M3: drop _TEST_RUN_RE / _COMMIT_RE once dual-emit window proves the
-# action-match path is comprehensive.
-_TEST_RUN_RE = _common.TEST_RUN_RE
+# Parses failed-count from content when metadata.test_passed is absent on a
+# test_run_complete event. NOT a status-event content fallback for test-run
+# detection (action dispatch handles that).
 _TEST_FAIL_RE = re.compile(r"(\d+)\s+failed", re.IGNORECASE)
-_COMMIT_RE = _common.LEGACY_COMMIT_RE
 
 
 def _has_code_changes(event: dict) -> bool:
@@ -58,12 +57,8 @@ def build_work_signals(events: list[dict]) -> dict:
         action = event_action(e)
 
         # Real commits are type=commit; the action branch is forward-compat
-        # for any future status-typed commit emission. Regex is M2 fallback.
-        is_commit = (
-            etype == _common.COMMIT
-            or action == STATUS_ACTION_COMMIT_SUCCESS
-            or (etype == _common.STATUS and _COMMIT_RE.search(content))
-        )
+        # for any future status-typed commit emission.
+        is_commit = etype == _common.COMMIT or action == STATUS_ACTION_COMMIT_SUCCESS
 
         if is_commit:
             # Concerns before this commit are now addressed
@@ -84,9 +79,7 @@ def build_work_signals(events: list[dict]) -> dict:
             elif editing:
                 events_since_first_edit += 1
 
-            is_test_run = action == STATUS_ACTION_TEST_RUN_COMPLETE or (
-                etype == _common.STATUS and _TEST_RUN_RE.search(content)
-            )
+            is_test_run = action == STATUS_ACTION_TEST_RUN_COMPLETE
 
             if etype == _common.CONCERN:
                 pending_concerns += 1

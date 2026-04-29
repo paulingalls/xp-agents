@@ -14,16 +14,27 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import STATUS_ACTION_FILE_WRITE, STATUS_ACTION_TEST_RUN_COMPLETE
 
 # -- Shared helpers for honesty-signal tests ----------------------------------
 
 
 def _make_write_status(path: str) -> dict:
-    return make_event("status", content=f"Wrote to {path}", working_on=[path])
+    return make_event(
+        "status",
+        content=f"Wrote to {path}",
+        working_on=[path],
+        metadata={"action": STATUS_ACTION_FILE_WRITE, "files": [path]},
+    )
 
 
 def _make_test_status() -> dict:
-    return make_event("status", content="Tests: 5 passed, 0 failed", working_on=[])
+    return make_event(
+        "status",
+        content="Tests: 5 passed, 0 failed",
+        working_on=[],
+        metadata={"action": STATUS_ACTION_TEST_RUN_COMPLETE, "test_passed": True},
+    )
 
 
 class TestHonestySignals(unittest.TestCase):
@@ -203,17 +214,6 @@ class TestSecurityCheckCounting(unittest.TestCase):
         ]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["commits_without_security_check"], 0)
-
-    def test_legacy_status_commit_backward_compat(self):
-        """Legacy status commit events still detected (backward compat)."""
-        import honesty_signals
-
-        events = [
-            make_event("status", content="Committed: Old commit"),
-        ]
-        signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_security_check"], 1)
-        self.assertEqual(signals["total_commits"], 1)
 
 
 class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
