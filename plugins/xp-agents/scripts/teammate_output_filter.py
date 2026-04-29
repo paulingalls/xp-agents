@@ -9,7 +9,7 @@ Usage:
     claude -p ... --output-format stream-json --verbose \
       | python3 teammate_output_filter.py \
         --smm-dir /path/to/smm \
-        --teammate-id teammate-step-1
+        --teammate-id worktree-story-001
 """
 
 import argparse

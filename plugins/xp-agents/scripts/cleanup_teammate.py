@@ -6,7 +6,7 @@ Called by /xp-accept after story acceptance.
 
 Usage:
     python3 cleanup_teammate.py \
-        --name teammate-story-001 \
+        --name worktree-story-001 \
         --smm-dir /path/to/smm
 """
 

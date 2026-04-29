@@ -317,7 +317,7 @@ class TestSessionEnd(_HookTestCase):
 
         main_goal = make_event("goal", content="Main goal", agent_id="xp-kickoff")
         teammate_goal = make_event(
-            "goal", content="Teammate goal", agent_id="teammate-story-001"
+            "goal", content="Teammate goal", agent_id="worktree-story-001"
         )
         self._write_events([main_goal, teammate_goal])
         session_end.run(
@@ -337,17 +337,17 @@ class TestSessionEnd(_HookTestCase):
 
         main_goal = make_event("goal", content="Main goal", agent_id="xp-kickoff")
         own_goal = make_event(
-            "goal", content="Own teammate goal", agent_id="teammate-story-001"
+            "goal", content="Own teammate goal", agent_id="worktree-story-001"
         )
         other_goal = make_event(
-            "goal", content="Other teammate goal", agent_id="teammate-story-002"
+            "goal", content="Other teammate goal", agent_id="worktree-story-002"
         )
         self._write_events([main_goal, own_goal, other_goal])
         session_end.run(
             {
                 "session_id": "test",
                 "reason": "done",
-                "cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src",
+                "cwd": "/home/user/project/.claude/worktrees/worktree-story-001/src",
             },
             smm_dir=self.smm_dir,
         )
@@ -382,7 +382,7 @@ class TestSessionEnd(_HookTestCase):
 class TestTeammateSessionEnd(_HookTestCase):
     """CLI teammate SessionEnd: resolve_agent_id + completion event."""
 
-    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
 
     def test_resolve_agent_id_used_in_event(self):
         """SessionEnd event uses resolve_agent_id, not hardcoded 'main'."""
@@ -395,7 +395,7 @@ class TestTeammateSessionEnd(_HookTestCase):
         )
         events = _common.read_events_raw(self.smm_dir)
         se = next(e for e in events if e.get("type") == "session_end")
-        self.assertEqual(se["agent_id"], "teammate-story-001")
+        self.assertEqual(se["agent_id"], "worktree-story-001")
 
     def test_non_teammate_uses_main(self):
         """Non-teammate SessionEnd still uses 'main' agent_id."""
@@ -415,7 +415,7 @@ class TestTeammateSessionEnd(_HookTestCase):
         import markers
         import session_end
 
-        agent_id = "teammate-story-001"
+        agent_id = "worktree-story-001"
         markers.marker_write(self.smm_dir, markers.TDD_TRACKER, {"files": []}, agent_id)
         self._write_events([make_event()])
         session_end.run(
@@ -440,7 +440,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             e
             for e in events
             if e.get("type") == "status"
-            and e.get("agent_id") == "teammate-story-001"
+            and e.get("agent_id") == "worktree-story-001"
             and "completed" in e.get("content", "").lower()
         ]
         self.assertEqual(len(statuses), 1)

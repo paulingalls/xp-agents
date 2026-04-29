@@ -30,7 +30,7 @@ def _owns_goal(goal: dict, *, is_teammate: bool, agent_id: str) -> bool:
     """Return True if this session_end (running under agent_id) should
     take ownership of the goal event for resolution.
 
-    Multi-teammate worktrees share one SMM. Goals from teammate-*
+    Multi-teammate worktrees share one SMM. Goals from worktree-story-*
     agents belong to that specific teammate; everything else
     (xp-kickoff, xp-work-selection, main) belongs to the main session.
     """

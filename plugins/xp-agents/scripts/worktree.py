@@ -72,7 +72,7 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
 
 
 def has_live_teammates(cwd: str) -> bool:
-    """Return True if any non-prunable `teammate-*` worktree is registered.
+    """Return True if any non-prunable `worktree-story-*` worktree is registered.
 
     Uses `git worktree list --porcelain` so the check reflects real git
     state (not filesystem artifacts). Skips prunable entries — those are
@@ -88,11 +88,12 @@ def has_live_teammates(cwd: str) -> bool:
         )
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
         return False
+    wt_marker = "/.claude/worktrees/worktree-story-"
     for block in out.split("\n\n"):
         if "prunable" in block:
             continue
         for line in block.splitlines():
-            if line.startswith("worktree ") and "/.claude/worktrees/teammate-" in line:
+            if line.startswith("worktree ") and wt_marker in line:
                 wt_path = line[len("worktree ") :]
                 if Path(wt_path).is_dir():
                     return True

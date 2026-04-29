@@ -138,7 +138,7 @@ For each **done** story's worktree:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
-  --name teammate-story-NNN --smm-dir <SMM_DIR>
+  --name worktree-story-NNN --smm-dir <SMM_DIR>
 ```
 
 Verifies branch is merged before removing worktree, branch, markers, and report. **Only cleanup done stories** — leave deferred worktrees intact. If cleanup fails (unmerged commits), report and skip.

@@ -143,7 +143,7 @@ class TestKickoffGate(_HookTestCase):
             {
                 "session_id": "test",
                 "prompt": "work",
-                "cwd": "/project/.claude/worktrees/teammate-step-1/src",
+                "cwd": "/project/.claude/worktrees/worktree-story-step-1/src",
             },
             smm_dir=self.smm_dir,
         )
@@ -170,7 +170,7 @@ class TestKickoffGate(_HookTestCase):
         import kickoff_gate
 
         (self.smm_dir / ".needs-kickoff").write_text("startup")
-        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "teammate-step-1"}):
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-step-1"}):
             result = kickoff_gate.run(
                 {
                     "session_id": "test",

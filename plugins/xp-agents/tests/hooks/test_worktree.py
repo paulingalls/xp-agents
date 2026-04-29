@@ -248,19 +248,24 @@ class TestHasLiveTeammates(unittest.TestCase):
     def test_returns_false_for_no_worktrees(self):
         self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
 
-    def test_returns_true_for_teammate_worktree(self):
-        self._add_worktree("teammate-canvas-infra")
+    def test_returns_true_for_worktree_story(self):
+        self._add_worktree("worktree-story-001")
         self.assertTrue(worktree.has_live_teammates(str(self.tmpdir)))
 
     def test_ignores_non_teammate_worktrees(self):
         self._add_worktree("feature-branch")
         self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
 
-    def test_skips_prunable_teammate_worktree(self):
-        """Prunable (stale) teammate worktrees should not count as live."""
+    def test_ignores_old_teammate_pattern(self):
+        """Old teammate-* pattern is no longer detected."""
+        self._add_worktree("teammate-old")
+        self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
+
+    def test_skips_prunable_worktree_story(self):
+        """Prunable (stale) worktree-story entries should not count as live."""
         import shutil
 
-        wt_path = self._add_worktree("teammate-stale")
+        wt_path = self._add_worktree("worktree-story-stale")
         shutil.rmtree(wt_path)
         self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))
 
@@ -268,8 +273,8 @@ class TestHasLiveTeammates(unittest.TestCase):
         """Non-prunable entry whose directory is gone should not count."""
         porcelain = (
             "worktree /tmp/main\nHEAD abc123\nbranch refs/heads/main\n\n"
-            "worktree /tmp/.claude/worktrees/teammate-dead\n"
-            "HEAD def456\nbranch refs/heads/teammate-dead\n\n"
+            "worktree /tmp/.claude/worktrees/worktree-story-dead\n"
+            "HEAD def456\nbranch refs/heads/worktree-story-dead\n\n"
         )
         with patch("worktree.subprocess.check_output", return_value=porcelain):
             self.assertFalse(worktree.has_live_teammates(str(self.tmpdir)))

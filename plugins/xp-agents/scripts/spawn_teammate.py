@@ -7,7 +7,7 @@ Called by /xp-assign via Bash with run_in_background.
 
 Usage:
     python3 spawn_teammate.py \
-        --name teammate-step-1 \
+        --name worktree-story-001 \
         --smm-dir /path/to/smm \
         --prompt-file /tmp/prompt.txt \
         [--story-id story-001] \
@@ -36,8 +36,8 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
     """Create a git worktree for a teammate. Returns worktree path.
 
     When branch is provided, checks out that existing branch in the
-    worktree instead of creating a new teammate-* branch. Used by
-    /xp-assign to place teammates on story branches.
+    worktree instead of creating a new branch. Used by /xp-assign
+    to place teammates on story branches.
     """
     cleanup_existing(name, cwd)
 
@@ -103,9 +103,9 @@ def run_with_tee(
     log_dir: Path = _DEFAULT_LOG_DIR,
 ) -> None:
     """Run *cmd*, mirroring stdout (and merged stderr) to both this process'
-    stdout and ``<log_dir>/<name>.log``. Caller passes an already-prefixed
-    teammate name (e.g. ``teammate-astro``) so the log file lands at
-    ``<log_dir>/teammate-astro.log``.
+    stdout and ``<log_dir>/<name>.log``. Caller passes the worktree name
+    (e.g. ``worktree-story-001``) so the log file lands at
+    ``<log_dir>/worktree-story-001.log``.
 
     The on-disk log preserves output up to a hang point so a stuck teammate
     can be inspected forensically. Note: while the teammate is producing no
@@ -160,13 +160,6 @@ def run_with_tee(
         raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
-def ensure_teammate_prefix(name: str) -> str:
-    """Auto-prefix teammate- if not already present."""
-    if name.startswith(identity._TEAMMATE_PREFIX):
-        return name
-    return identity._TEAMMATE_PREFIX + name
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
@@ -181,7 +174,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """Parse args and spawn the teammate."""
     args = parse_args(argv)
-    name = ensure_teammate_prefix(args.name)
+    name = args.name
 
     cwd = os.getcwd()
     wt_path = create_worktree(name, cwd, branch=args.branch)

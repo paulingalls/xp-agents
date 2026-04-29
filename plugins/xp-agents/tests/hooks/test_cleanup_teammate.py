@@ -18,7 +18,7 @@ from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
 def _create_teammate_worktree(tmpdir: Path, name: str) -> str:
-    """Create a teammate worktree with a commit. Returns worktree path."""
+    """Create a worktree with a commit. Returns worktree path."""
     wt_dir = tmpdir / ".claude" / "worktrees"
     wt_dir.mkdir(parents=True, exist_ok=True)
     wt_path = str(wt_dir / name)
@@ -63,7 +63,7 @@ class TestVerifyMerged(_IntegrationTestCase):
         """Branch merged into current branch returns True."""
         import cleanup_teammate
 
-        name = "teammate-story-001"
+        name = "worktree-story-001"
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
@@ -73,7 +73,7 @@ class TestVerifyMerged(_IntegrationTestCase):
         """Branch with unmerged commits returns False."""
         import cleanup_teammate
 
-        name = "teammate-story-002"
+        name = "worktree-story-002"
         _create_teammate_worktree(self.tmpdir, name)
 
         self.assertFalse(cleanup_teammate.verify_merged(name, str(self.tmpdir)))
@@ -98,7 +98,7 @@ class TestCleanup(_IntegrationTestCase):
         """After merge, cleanup removes the worktree dir and branch."""
         import cleanup_teammate
 
-        name = "teammate-story-010"
+        name = "worktree-story-010"
         wt_path = _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
@@ -125,7 +125,7 @@ class TestCleanup(_IntegrationTestCase):
         import cleanup_teammate
         import markers
 
-        name = "teammate-story-011"
+        name = "worktree-story-011"
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
@@ -150,7 +150,7 @@ class TestCleanup(_IntegrationTestCase):
         """Cleanup removes .teammate-report-{name}.txt."""
         import cleanup_teammate
 
-        name = "teammate-story-012"
+        name = "worktree-story-012"
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
@@ -166,7 +166,7 @@ class TestCleanup(_IntegrationTestCase):
         """No error when worktree is already gone."""
         import cleanup_teammate
 
-        name = "teammate-story-013"
+        name = "worktree-story-013"
         # Create branch but no worktree dir
         subprocess.run(
             ["git", "branch", name],
@@ -188,7 +188,7 @@ class TestCleanup(_IntegrationTestCase):
         import cleanup_teammate
         import worktree
 
-        name = "teammate-story-015"
+        name = "worktree-story-015"
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
@@ -204,7 +204,7 @@ class TestCleanup(_IntegrationTestCase):
         """No error when report file doesn't exist."""
         import cleanup_teammate
 
-        name = "teammate-story-014"
+        name = "worktree-story-014"
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
