@@ -26,12 +26,16 @@ _HEX_ID_RE = re.compile(r"\b[0-9a-f]{12,}\b")
 
 
 def _slim_try_item(item) -> dict:
-    """Slim a try item to {content, event_refs}, handling legacy strings."""
+    """Slim a try item to {id?, content, event_refs}, handling legacy strings."""
     if isinstance(item, dict):
-        return {
+        slim: dict = {
             "content": item.get("content", ""),
             "event_refs": item.get("event_refs", []),
         }
+        own_id = item.get("id")
+        if own_id:
+            slim["id"] = own_id
+        return slim
     return {"content": item, "event_refs": []}
 
 
@@ -82,9 +86,9 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
 
     Only the most recent retro gets annotated — older retros already
     went through a retro cycle, so their Try items are not candidates
-    for re-proposal. For each Try item, scan content and event_refs for
-    8+ char hex tokens; if any token's 8-char prefix matches a key in
-    resolutions_map, the Try item is flagged as honored.
+    for re-proposal. For each Try item, collect candidate ids: 12+ char
+    hex tokens in content, the event_refs list, and the Try's own id.
+    Direct lookup against resolutions_map (which keys on full event ids).
     """
     if not previous_retros:
         return

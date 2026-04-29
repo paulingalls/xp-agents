@@ -370,6 +370,41 @@ class TestGatherRetroHistoryAnalysisNotes(_HookTestCase):
         result = retro_history.gather_retro_history(self.smm_dir)
         self.assertEqual(len(result), 1)
 
+    def test_gather_preserves_try_id_for_annotation(self):
+        """A retro file's Try item id must survive slimming so
+        annotate_try_status can resolve it via the resolutions_map.
+        Without the id, Try items without event_refs always show
+        resolved=false (concern c5cb2ea74247)."""
+        try_id = "abc111222333"
+        self._write_retro(
+            "2026-04-20T00-00-00.json",
+            {
+                "timestamp": "2026-04-20T00:00:00+00:00",
+                "keep": [],
+                "fix": [],
+                "try": [
+                    {
+                        "id": try_id,
+                        "content": "Improve process with no event refs",
+                        "event_refs": [],
+                    }
+                ],
+            },
+        )
+        gathered = retro_history.gather_retro_history(self.smm_dir)
+        rmap = {
+            try_id: {
+                "type": "other",
+                "resolver_id": "deadbeef0001",
+                "resolver_type": "decision",
+                "resolver_content": "Adopted",
+            }
+        }
+        retro_history.annotate_try_status(gathered, rmap)
+        status = gathered[0]["try_status"][0]
+        self.assertTrue(status["resolved_this_session"])
+        self.assertEqual(status["disposition"], "adopted")
+
 
 class TestTryItemIdResolution(unittest.TestCase):
     """Try items with their own id field should be resolvable by that id."""
