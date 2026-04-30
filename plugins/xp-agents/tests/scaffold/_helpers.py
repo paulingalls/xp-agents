@@ -6,12 +6,36 @@ once a third copy made the duplication concrete (resolves debt
 f61d0b067e11). Seed-file choice differs per test (README vs
 package.json), so init_git_identity stops at git init + identity and
 lets the caller stage whatever it needs.
+
+Skill-text parsers (frontmatter_body / step_section) live here too —
+shared by test_scaffold_skill.py and test_scaffold_skill_m3.py so a
+SKILL.md format change has one update site.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
+
+
+def frontmatter_body(text: str) -> tuple[str, str]:
+    """Return (frontmatter, body) split on the closing `---` fence."""
+    match = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.DOTALL)
+    if not match:
+        return "", text
+    return match.group(1), match.group(2)
+
+
+def step_section(body: str, step_number: int) -> str:
+    """Extract the prose for `## Step N` up to the next `## Step` header."""
+    pattern = rf"^##+\s+Step\s+{step_number}\b"
+    splits = re.split(pattern, body, flags=re.MULTILINE)
+    if len(splits) < 2:
+        return ""
+    rest = splits[1]
+    next_step = re.search(r"^##+\s+Step\s+\d+\b", rest, flags=re.MULTILINE)
+    return rest[: next_step.start()] if next_step else rest
 
 
 def run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:

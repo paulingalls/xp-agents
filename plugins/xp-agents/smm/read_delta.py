@@ -8,14 +8,12 @@ Watermark advances after each read.
 from pathlib import Path
 
 from _append_impl import (
-    _validate_agent_id,
-    _validate_smm_dir,
-    parse_jsonl,
-    write_watermark,
-)
-from _append_impl import (
     read_with_lock as _read_with_lock,
 )
+from _append_impl import (
+    write_watermark,
+)
+from append_validation import parse_jsonl, validate_agent_id, validate_smm_dir
 
 
 def read_watermark(smm_dir: Path, agent_id: str) -> int:
@@ -25,7 +23,7 @@ def read_watermark(smm_dir: Path, agent_id: str) -> int:
     """
     import os as _os
 
-    _validate_agent_id(agent_id)
+    validate_agent_id(agent_id)
     wm_file = smm_dir / f".watermark-{agent_id}"
     try:
         fd = _os.open(str(wm_file), _os.O_RDONLY | _os.O_NOFOLLOW)
@@ -78,7 +76,7 @@ def read_delta(
 ) -> list[dict]:
     """Read new events for agent since last watermark. Returns event list."""
     try:
-        _validate_smm_dir(smm_dir)
+        validate_smm_dir(smm_dir)
     except ValueError:
         return []
 

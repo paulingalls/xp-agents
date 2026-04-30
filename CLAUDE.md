@@ -80,7 +80,7 @@ python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 
 Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), `tests/engine/` (SMM engine), `tests/smm/` (foundation). Hook tests extend `_HookTestCase`, integration tests extend `_IntegrationTestCase`, engine tests extend `_SMMTestCase`, SMM tests extend `_TempRepoTestCase` — all from `tests/conftest.py`. Follow TDD: write the test first, watch it fail, then implement.
 
-**Test isolation gotcha**: production code that depends on `os.environ` (e.g., `_common.resolve_plugin_root` reads `CLAUDE_PLUGIN_ROOT`) must NOT cache results — `@functools.lru_cache` on env-dependent loaders breaks isolation in source-order test runners (pytest), and the bug hides under unittest's alphabetical-by-class ordering. If you need memoization for a hot path, key the cache on the env var explicitly, or invalidate per-test.
+**Test isolation gotcha**: production code that depends on `os.environ` (e.g., `plugin_loader.resolve_plugin_root` reads `CLAUDE_PLUGIN_ROOT`) must NOT cache results — `@functools.lru_cache` on env-dependent loaders breaks isolation in source-order test runners (pytest), and the bug hides under unittest's alphabetical-by-class ordering. If you need memoization for a hot path, key the cache on the env var explicitly, or invalidate per-test.
 
 ## Key Decisions (Don't Revisit)
 

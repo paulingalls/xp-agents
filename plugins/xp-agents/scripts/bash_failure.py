@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import append_validation
 import bash_post_tool
 import concerns
 import identity
@@ -43,7 +44,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     agent_id = identity.resolve_agent_id(input_data)
     try:
-        _common._validate_agent_id(agent_id)
+        append_validation.validate_agent_id(agent_id)
     except ValueError:
         return None
     error = input_data.get("error", "")

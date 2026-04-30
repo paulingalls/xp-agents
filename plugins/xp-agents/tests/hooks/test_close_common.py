@@ -332,5 +332,67 @@ class TestMerge(unittest.TestCase):
             )
 
 
+class TestDiffCommand(unittest.TestCase):
+    """diff-command picks gh-pr-diff vs git-diff based on PR_OUTPUT shape.
+
+    Each close skill (sprint, plan, free, story) used to inline a 3-line
+    'Pick the diff command' stanza. This subcommand is the single source
+    of truth — SKILL.md captures the printed command into a variable
+    and passes it to the close-reviewer fork.
+    """
+
+    def test_numeric_pr_output_emits_gh_pr_diff(self):
+        result = _run(["diff-command", "--pr-output", "4242", "--target", "main"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "gh pr diff 4242")
+
+    def test_skipped_pr_output_emits_git_diff(self):
+        result = _run(
+            [
+                "diff-command",
+                "--pr-output",
+                "skipped: gh not on PATH",
+                "--target",
+                "main",
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
+
+    def test_empty_pr_output_emits_git_diff(self):
+        result = _run(["diff-command", "--pr-output", "", "--target", "main"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
+
+    def test_target_branch_substituted_correctly(self):
+        result = _run(
+            [
+                "diff-command",
+                "--pr-output",
+                "skipped: no gh",
+                "--target",
+                "develop",
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "git diff develop...HEAD")
+
+    def test_non_numeric_arbitrary_text_treated_as_skipped(self):
+        # Defensive: any non-numeric output (gh failure prose, leading
+        # whitespace, etc.) falls through to git diff so the reviewer
+        # never gets a malformed gh-pr-diff invocation.
+        result = _run(
+            [
+                "diff-command",
+                "--pr-output",
+                "PR #42 created at https://...",
+                "--target",
+                "main",
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
+
+
 if __name__ == "__main__":
     unittest.main()

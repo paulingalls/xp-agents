@@ -16,12 +16,12 @@ import resolution
 import smm_store
 from _append_impl import (
     now_iso,
-    parse_jsonl,
     write_json_atomic,
 )
 from _append_impl import (
     read_with_lock as _read_with_lock,
 )
+from append_validation import parse_jsonl
 from event_schema import METADATA_KEY_RESOLVES, sessions_since_event
 
 logger = logging.getLogger(__name__)

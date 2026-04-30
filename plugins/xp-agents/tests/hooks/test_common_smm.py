@@ -85,7 +85,7 @@ class TestFindRelatedDecisions(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_invalid_agent_id_graceful(self):
-        """Invalid agent_id in _validate_agent_id should not crash hooks."""
+        """Invalid agent_id in validate_agent_id should not crash hooks."""
         import post_tool_use
         from conftest import _make_write_input
 

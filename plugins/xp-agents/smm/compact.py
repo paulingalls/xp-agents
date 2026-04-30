@@ -24,14 +24,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 import resolution
 from _append_impl import (
     LockTimeoutError,
-    _validate_smm_dir,
-    parse_jsonl,
     read_with_lock,
     replace_events_file,
     resolve_smm_dir,
     write_json_atomic,
     write_watermark,
 )
+from append_validation import parse_jsonl, validate_smm_dir
 from event_schema import (
     EVENT_TYPE_RETROSPECTIVE,
     EVENT_TYPE_SESSION_END,
@@ -474,7 +473,7 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        _validate_smm_dir(smm_dir)
+        validate_smm_dir(smm_dir)
     except ValueError:
         # Graceful degradation when SMM not initialized
         sys.exit(0)

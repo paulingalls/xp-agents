@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
+import append_validation
 import materialize
 from _lock_helpers import held_events_lock
 from conftest import _SMMTestCase, make_event
@@ -23,21 +24,21 @@ from event_schema import sessions_since_event
 
 
 class TestParseJsonl(unittest.TestCase):
-    """Tests for _append_impl.parse_jsonl()."""
+    """Tests for append_validation.parse_jsonl()."""
 
     def test_empty_string(self):
-        events, skipped = _append_impl.parse_jsonl("")
+        events, skipped = append_validation.parse_jsonl("")
         self.assertEqual(events, [])
         self.assertEqual(skipped, 0)
 
     def test_blank_lines_only(self):
-        events, skipped = _append_impl.parse_jsonl("\n\n  \n")
+        events, skipped = append_validation.parse_jsonl("\n\n  \n")
         self.assertEqual(events, [])
         self.assertEqual(skipped, 0)
 
     def test_valid_events(self):
         raw = '{"id": "a", "type": "status"}\n{"id": "b", "type": "goal"}\n'
-        events, skipped = _append_impl.parse_jsonl(raw)
+        events, skipped = append_validation.parse_jsonl(raw)
         self.assertEqual(len(events), 2)
         self.assertEqual(events[0]["id"], "a")
         self.assertEqual(events[1]["id"], "b")
@@ -45,19 +46,19 @@ class TestParseJsonl(unittest.TestCase):
 
     def test_malformed_json_skipped(self):
         raw = '{"id": "a"}\nnot-json\n{"id": "b"}\n'
-        events, skipped = _append_impl.parse_jsonl(raw)
+        events, skipped = append_validation.parse_jsonl(raw)
         self.assertEqual(len(events), 2)
         self.assertEqual(skipped, 1)
 
     def test_non_dict_skipped(self):
         raw = '{"id": "a"}\n[1, 2, 3]\n"just a string"\n{"id": "b"}\n'
-        events, skipped = _append_impl.parse_jsonl(raw)
+        events, skipped = append_validation.parse_jsonl(raw)
         self.assertEqual(len(events), 2)
         self.assertEqual(skipped, 2)
 
     def test_mixed_valid_and_invalid(self):
         raw = '{"ok": true}\n\nbad\n{"ok": false}\n'
-        events, skipped = _append_impl.parse_jsonl(raw)
+        events, skipped = append_validation.parse_jsonl(raw)
         self.assertEqual(len(events), 2)
         self.assertEqual(skipped, 1)
 

@@ -20,6 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
+import append_validation
 from _lock_helpers import briefly_held_lock, held_events_lock
 from conftest import _SMMTestCase, _TempRepoTestCase, make_event
 
@@ -157,54 +158,54 @@ class TestLockBudgetTolerance(_SMMTestCase):
 
 
 class TestAgentIdValidation(unittest.TestCase):
-    """Tests for _append_impl._validate_agent_id allowlist."""
+    """Tests for append_validation.validate_agent_id allowlist."""
 
     def test_accepts_simple_name(self):
-        _append_impl._validate_agent_id("main")
+        append_validation.validate_agent_id("main")
 
     def test_accepts_hyphenated(self):
-        _append_impl._validate_agent_id("xp-housekeeper")
+        append_validation.validate_agent_id("xp-housekeeper")
 
     def test_accepts_colon_separator(self):
-        _append_impl._validate_agent_id("xp-quality:reviewer")
+        append_validation.validate_agent_id("xp-quality:reviewer")
 
     def test_accepts_underscore(self):
-        _append_impl._validate_agent_id("test_agent")
+        append_validation.validate_agent_id("test_agent")
 
     def test_accepts_digits(self):
-        _append_impl._validate_agent_id("agent123")
+        append_validation.validate_agent_id("agent123")
 
     def test_rejects_semicolon(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("agent;rm -rf")
+            append_validation.validate_agent_id("agent;rm -rf")
 
     def test_rejects_backtick(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("agent`cmd`")
+            append_validation.validate_agent_id("agent`cmd`")
 
     def test_rejects_pipe(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("agent|cat")
+            append_validation.validate_agent_id("agent|cat")
 
     def test_rejects_dollar(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("agent$HOME")
+            append_validation.validate_agent_id("agent$HOME")
 
     def test_rejects_space(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("agent name")
+            append_validation.validate_agent_id("agent name")
 
     def test_rejects_slash(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("../escape")
+            append_validation.validate_agent_id("../escape")
 
     def test_rejects_null(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("agent\x00id")
+            append_validation.validate_agent_id("agent\x00id")
 
     def test_rejects_empty(self):
         with self.assertRaises(ValueError):
-            _append_impl._validate_agent_id("")
+            append_validation.validate_agent_id("")
 
 
 class TestSmmDirValidation(unittest.TestCase):
@@ -221,16 +222,16 @@ class TestSmmDirValidation(unittest.TestCase):
     def test_rejects_nonexistent(self):
         shutil.rmtree(self.smm_dir)
         with self.assertRaises(ValueError):
-            _append_impl._validate_smm_dir(self.smm_dir)
+            append_validation.validate_smm_dir(self.smm_dir)
 
     def test_rejects_world_writable(self):
         self.smm_dir.chmod(0o777)
         with self.assertRaises(ValueError):
-            _append_impl._validate_smm_dir(self.smm_dir)
+            append_validation.validate_smm_dir(self.smm_dir)
 
     def test_accepts_valid_dir(self):
         self.smm_dir.chmod(0o700)
-        _append_impl._validate_smm_dir(self.smm_dir)
+        append_validation.validate_smm_dir(self.smm_dir)
 
 
 class TestSymlinkProtection(unittest.TestCase):
