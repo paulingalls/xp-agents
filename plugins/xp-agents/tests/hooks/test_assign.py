@@ -273,5 +273,69 @@ class TestSkillMdJitBranchCreation(unittest.TestCase):
         self.assertIn("in-progress", self.content)
 
 
+class TestAssignSkillTextDocumentsPredicates(unittest.TestCase):
+    """Regression-pin: SCHEDULED_COUNT branch ordering in xp-assign SKILL.md.
+
+    Pins concerns b3d2e79d624e (0-scheduled silent-solo + empty story id) and
+    49d404f5986c (carried-over in-progress documentation) against future edits.
+    Already-shipped fix lives in 24e733f.
+    """
+
+    # 0-scheduled branch body, capturing content up to the next elif. Used
+    # by two tests — keep one pattern so they can't drift apart.
+    _ZERO_BRANCH_RE = re.compile(
+        r'if\s*\[\s*"\$SCHEDULED_COUNT"\s*-eq\s*0\s*\];(.*?)elif',
+        re.DOTALL,
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_scheduled_count_zero_early_exits(self):
+        # Anchor on the shell block so unrelated `exit 0` elsewhere can't
+        # satisfy the assertion.
+        match = self._ZERO_BRANCH_RE.search(self.text)
+        assert match is not None, "Missing 0-scheduled branch (b3d2e79d624e)"
+        self.assertIn("exit 0", match.group(1), "0-scheduled must exit 0")
+
+    def test_carried_over_in_progress_documented(self):
+        # Tolerate line-wrapping (the phrase spans lines in rendered SKILL.md).
+        self.assertRegex(
+            self.text,
+            r"ignores\s+pre-existing\s+in-progress\s+stories\s+carried\s+over",
+            "Missing carried-over-in-progress prose (49d404f5986c)",
+        )
+
+    def test_zero_scheduled_branch_does_not_call_branching_create(self):
+        # Defensive: a future edit putting branching.py inside the 0-branch
+        # reintroduces the empty-story-id bug (b3d2e79d624e).
+        match = self._ZERO_BRANCH_RE.search(self.text)
+        assert match is not None, "0-scheduled branch must exist"
+        self.assertNotIn(
+            "branching.py",
+            match.group(1),
+            "0-scheduled branch must not invoke branching.py (b3d2e79d624e)",
+        )
+
+    def test_predicate_branches_are_ordered(self):
+        # 0 → 1 → overlap WITHIN the if/elif shell block. Anchor on the
+        # `elif python3` overlap-line, not the bare scheduled-overlap
+        # token (which also appears in the prose explanation BEFORE the
+        # shell block and would falsely match).
+        pos_eq_0 = self.text.find('"$SCHEDULED_COUNT" -eq 0')
+        pos_eq_1 = self.text.find('"$SCHEDULED_COUNT" -eq 1')
+        pos_overlap_elif = self.text.find("elif python3")
+        self.assertGreater(pos_eq_0, -1, "Missing `-eq 0` predicate")
+        self.assertGreater(pos_eq_1, -1, "Missing `-eq 1` predicate")
+        self.assertGreater(pos_overlap_elif, -1, "Missing `elif python3` branch")
+        self.assertLess(pos_eq_0, pos_eq_1, "`-eq 0` must precede `-eq 1`")
+        self.assertLess(
+            pos_eq_1,
+            pos_overlap_elif,
+            "`-eq 1` must precede `elif python3` overlap branch",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
