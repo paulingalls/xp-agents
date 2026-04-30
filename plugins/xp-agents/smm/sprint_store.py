@@ -189,6 +189,27 @@ def is_complete(smm_dir: Path) -> bool:
     return not has_active_stories_data(sprint)
 
 
+def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
+    """Return the recorded branch_name for a story, or empty string.
+
+    Powers /xp-story-close's JIT-next gate: a non-empty branch_name
+    means the branch already exists (parallel teammate batch at
+    /xp-assign), so JIT-create is skipped. Empty means solo mode —
+    create the branch off the just-merged sprint tip.
+
+    Returns "" when the sprint is missing OR the story is missing OR
+    branch_name is unset, to keep the CLI contract simple (caller can
+    test for non-empty without distinguishing the failure modes).
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return ""
+    story = next((s for s in sprint["stories"] if s["id"] == story_id), None)
+    if story is None:
+        return ""
+    return story.get("branch_name", "") or ""
+
+
 def next_in_progress_story_id(smm_dir: Path) -> str | None:
     """Lowest-id in-progress story whose deps are ALL done. None if none.
 

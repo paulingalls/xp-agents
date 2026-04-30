@@ -35,6 +35,11 @@ def _cmd_next_in_progress(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_get_story_branch(args: argparse.Namespace) -> int:
+    print(store.get_story_branch_name(args.smm_dir, args.story_id))
+    return 0
+
+
 def _cmd_count(args: argparse.Namespace) -> int:
     sprint = store.load_sprint(args.smm_dir)
     if sprint is None:
@@ -252,6 +257,12 @@ def main() -> None:
     usb_p.add_argument("story_id", help="Story ID")
     usb_p.add_argument("branch_name", help="Branch name to record")
 
+    gsb_p = sub.add_parser(
+        "get-story-branch",
+        help="Print a story's recorded branch_name (empty if unset/missing)",
+    )
+    gsb_p.add_argument("story_id", help="Story ID")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -271,6 +282,7 @@ def main() -> None:
         "edit-story": _cmd_edit_story,
         "update-story": _cmd_update_story,
         "update-story-branch": _cmd_update_story_branch,
+        "get-story-branch": _cmd_get_story_branch,
     }
 
     sys.exit(dispatch[args.command](args))

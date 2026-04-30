@@ -269,6 +269,43 @@ class TestUpdateStoryBranch(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestGetStoryBranchCommand(_SMMTestCase):
+    """get-story-branch prints a story's recorded branch_name. Replaces
+    the inline `python3 -c` JSON-poking that /xp-story-close was using
+    in Step 8 to gate JIT-create on solo vs teammate (parallel) mode.
+    """
+
+    def test_returns_recorded_branch_name(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", branch_name="paul/story-001-foo"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["get-story-branch", "story-001"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "paul/story-001-foo")
+
+    def test_returns_empty_when_unset(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["get-story-branch", "story-001"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_returns_empty_when_story_missing(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["get-story-branch", "story-999"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_returns_empty_when_no_sprint(self):
+        result = run_cli(_CLI, ["get-story-branch", "story-001"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+
 class TestNextInProgressCommand(_SMMTestCase):
     """Tests for the next-in-progress subcommand. See sprint_store
     docstring for behavior; tests cover empty/no-sprint cases plus
