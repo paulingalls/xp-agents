@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from _branching_fixtures import GIT_ENV
+from _system_context_fixtures import valid_doc
 from conftest import _SMMTestCase
 from scaffold_detect import (
     canonical_tools_for,
@@ -24,30 +25,13 @@ from scaffold_detect import (
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
 
-def _valid_doc(surfaces: list[dict] | None = None) -> dict:
-    """Minimal valid system context with optional acceptance_surfaces."""
-    doc: dict = {
-        "product": "A test product.",
-        "architecture_overview": "Simple architecture.",
-        "stack": {"languages": ["Python"]},
-        "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
-        "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "language", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
-        "project_specific": [],
-    }
-    if surfaces is not None:
-        doc["acceptance_surfaces"] = surfaces
-    return doc
-
-
 class TestReadAcceptanceSurfaces(_SMMTestCase):
     def test_empty_when_file_missing(self) -> None:
         self.assertEqual(read_acceptance_surfaces(self.smm_dir), [])
 
     def test_empty_when_field_absent(self) -> None:
         path = self.smm_dir / SYSTEM_CONTEXT_FILENAME
-        path.write_text(json.dumps(_valid_doc()))
+        path.write_text(json.dumps(valid_doc()))
         self.assertEqual(read_acceptance_surfaces(self.smm_dir), [])
 
     def test_propagates_value_error_on_corrupt_file(self) -> None:
@@ -58,7 +42,7 @@ class TestReadAcceptanceSurfaces(_SMMTestCase):
 
     def test_propagates_os_error_on_symlink(self) -> None:
         real = self.smm_dir / "real.json"
-        real.write_text(json.dumps(_valid_doc()))
+        real.write_text(json.dumps(valid_doc()))
         link = self.smm_dir / SYSTEM_CONTEXT_FILENAME
         link.symlink_to(real)
         with self.assertRaises(OSError):
@@ -75,7 +59,7 @@ class TestReadAcceptanceSurfaces(_SMMTestCase):
             {"name": "cli", "signals": ["bin/ in package.json"], "status": "gap"},
         ]
         path = self.smm_dir / SYSTEM_CONTEXT_FILENAME
-        path.write_text(json.dumps(_valid_doc(surfaces)))
+        path.write_text(json.dumps(valid_doc(acceptance_surfaces=surfaces)))
         self.assertEqual(read_acceptance_surfaces(self.smm_dir), surfaces)
 
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Shared test fixtures for system_context tests.
 
-Consolidates `valid_doc` and `write_doc` helpers that lived as 8
-near-identical copies across the system_context test files. The
-`**overrides` shape supports the test_system_context_branching.py
-caller that needs to inject branching_strategy variants; no-arg
-calls behave identically to the previous `_valid_doc()` form.
+Consolidates `valid_doc` and `write_doc` helpers that lived as
+near-identical copies across system_context test files (7 in
+tests/engine/, 1 in tests/scaffold/). The `**overrides` shape lets
+callers inject any top-level field (branching_strategy,
+acceptance_surfaces, etc.); no-arg calls produce a minimal valid doc.
 """
 
 from __future__ import annotations
