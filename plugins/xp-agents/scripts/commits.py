@@ -123,11 +123,14 @@ def get_staged_files(cwd: str) -> list[str]:
 def get_filenames_from_diff(diff_text: str) -> list[str]:
     """Parse post-image filenames from a unified diff, deduped, in first-seen order.
 
-    Mirrors the output of `git diff --cached --name-only`: emits the
-    new-side path for modifications and additions, the old-side path
-    for deletions (where post is /dev/null), and the rename destination
-    for renames. Used to avoid re-shelling for filenames when the
-    caller already has the cached unified diff in hand.
+    Approximates `git diff --cached --name-only` for the common case:
+    emits the new-side path for modifications and additions, the old-
+    side path for deletions (where post is /dev/null), and the rename
+    destination for renames. Does NOT parse `copy from`/`copy to` git
+    copy-detection headers (rare for `--cached` since copy detection
+    is off by default; cross-check before threading through copy-aware
+    flows). Used to avoid re-shelling for filenames when the caller
+    already has the cached unified diff in hand.
     """
     if not diff_text:
         return []
