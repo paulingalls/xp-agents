@@ -89,7 +89,7 @@ M-2 tiered-migration gate: fire `/security-review` against the cumulative story 
 
 **Scope distinct from Step 0.** Step 0 covers the teammate-merge slice only; Step 1c covers the full cumulative story diff (`git merge-base <story-branch> <sprint-base>` ... HEAD). Both run when both apply — overlap is tolerated. Always name the cumulative-merge-base scope in the args string so the LLM does not silently reuse Step 0's scope.
 
-For each in-progress story (skipping any marked code_free):
+For the current story (skip if code_free):
 
 1. Invoke `Skill(skill: "security-review", args: "the cumulative story-NNN diff: merge-base of <story-branch> vs <sprint-base>")`. The PostToolUse:Skill hook auto-emits a `security_complete` status event.
 2. Read the prose findings and judge severity per convention (Constraints `d57963f81ac1`, `agents/xp-close-reviewer.md:92`): **Block = high**, **Concern = medium**, **Keep = no event**.
