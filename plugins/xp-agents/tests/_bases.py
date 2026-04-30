@@ -182,6 +182,14 @@ class _IntegrationTestCase(unittest.TestCase):
                 shutil.rmtree(f)
             else:
                 f.unlink()
+        # Mirror the worktree scrub for the git index — without this, a
+        # sibling test's blocked-commit (file staged but commit refused)
+        # leaves a stale index entry that bleeds into the next test.
+        subprocess.run(
+            ["git", "reset", "HEAD", "--", "."],
+            cwd=self.tmpdir,
+            capture_output=True,
+        )
         keep = set(self._smm_snapshot) | {"retrospectives"}
         for f in self.smm_dir.iterdir():
             if f.name in keep:
