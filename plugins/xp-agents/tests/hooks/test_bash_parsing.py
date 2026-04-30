@@ -124,6 +124,223 @@ class TestIsTestRun(unittest.TestCase):
         self.assertIsNone(test_parsing.is_test_run("playwright install"))
 
 
+class TestIsTestRunWorkspaceFlags(unittest.TestCase):
+    """Workspace runners with intervening flags between runner and `test`.
+
+    Bun/pnpm/yarn/turbo/nx/lerna all permit `<runner> <flags...> [run] <script>`.
+    The bounded lazy-quantifier pattern tolerates up to 5 intervening tokens.
+    """
+
+    # --- bun --filter (the reported bug) ---
+
+    def test_bun_filter_test(self):
+        # Reported: bun --filter @aje-poc/perf-harness test
+        self.assertEqual(
+            test_parsing.is_test_run("bun --filter @aje-poc/perf-harness test"),
+            "bun",
+        )
+
+    def test_bun_filter_test_chained_scope(self):
+        # Reported: bun --filter aje-poc-astro test:acceptance:live
+        self.assertEqual(
+            test_parsing.is_test_run("bun --filter aje-poc-astro test:acceptance:live"),
+            "bun",
+        )
+
+    def test_bun_filter_test_with_double_dash(self):
+        # vitest positional file pattern: bun --filter X test -- spawn_test
+        self.assertEqual(
+            test_parsing.is_test_run(
+                "bun --filter @aje-poc/perf-harness test -- spawn_test"
+            ),
+            "bun",
+        )
+
+    # --- pnpm filter ---
+
+    def test_pnpm_filter_test(self):
+        self.assertEqual(test_parsing.is_test_run("pnpm --filter mypkg test"), "jest")
+
+    def test_pnpm_filter_short_test(self):
+        self.assertEqual(test_parsing.is_test_run("pnpm -F mypkg test"), "jest")
+
+    def test_pnpm_recursive_test(self):
+        self.assertEqual(test_parsing.is_test_run("pnpm -r test"), "jest")
+
+    # --- yarn workspaces ---
+
+    def test_yarn_workspace_test(self):
+        self.assertEqual(test_parsing.is_test_run("yarn workspace mypkg test"), "jest")
+
+    def test_yarn_workspaces_foreach_run_test(self):
+        self.assertEqual(
+            test_parsing.is_test_run("yarn workspaces foreach run test"),
+            "jest",
+        )
+
+    # --- turbo ---
+
+    def test_turbo_run_test(self):
+        self.assertEqual(test_parsing.is_test_run("turbo run test"), "turbo")
+
+    def test_turbo_test_shorthand(self):
+        self.assertEqual(test_parsing.is_test_run("turbo test"), "turbo")
+
+    def test_turbo_run_test_filter(self):
+        self.assertEqual(
+            test_parsing.is_test_run("turbo run test --filter=mypkg"),
+            "turbo",
+        )
+
+    def test_turbo_via_npx(self):
+        self.assertEqual(test_parsing.is_test_run("npx turbo test"), "turbo")
+
+    def test_turbo_via_pnpm(self):
+        self.assertEqual(test_parsing.is_test_run("pnpm turbo test"), "turbo")
+
+    # --- nx ---
+
+    def test_nx_test_pkg(self):
+        self.assertEqual(test_parsing.is_test_run("nx test mypkg"), "nx")
+
+    def test_nx_run_pkg_test(self):
+        self.assertEqual(test_parsing.is_test_run("nx run mypkg:test"), "nx")
+
+    def test_nx_run_many_target_test(self):
+        self.assertEqual(test_parsing.is_test_run("nx run-many --target=test"), "nx")
+
+    def test_nx_run_many_targets_list(self):
+        self.assertEqual(
+            test_parsing.is_test_run("nx run-many --targets=test,build"),
+            "nx",
+        )
+
+    # --- lerna ---
+
+    def test_lerna_run_test(self):
+        self.assertEqual(test_parsing.is_test_run("lerna run test"), "jest")
+
+    def test_lerna_run_test_scope(self):
+        self.assertEqual(
+            test_parsing.is_test_run("lerna run test --scope=mypkg"), "jest"
+        )
+
+    # --- npx/bunx/pnpm-exec/yarn-dlx wrappers around runners ---
+
+    def test_bunx_vitest(self):
+        self.assertEqual(test_parsing.is_test_run("bunx vitest"), "vitest")
+
+    def test_bunx_jest(self):
+        self.assertEqual(test_parsing.is_test_run("bunx jest"), "jest")
+
+    def test_bunx_mocha(self):
+        self.assertEqual(test_parsing.is_test_run("bunx mocha"), "mocha")
+
+    def test_pnpm_exec_vitest(self):
+        self.assertEqual(test_parsing.is_test_run("pnpm exec vitest"), "vitest")
+
+    def test_yarn_dlx_vitest(self):
+        self.assertEqual(test_parsing.is_test_run("yarn dlx vitest"), "vitest")
+
+    # --- direct runners (mocha, node, deno) ---
+
+    def test_mocha_bare(self):
+        self.assertEqual(test_parsing.is_test_run("mocha"), "mocha")
+
+    def test_mocha_with_path(self):
+        self.assertEqual(test_parsing.is_test_run("mocha test/spec.js"), "mocha")
+
+    def test_npx_mocha(self):
+        self.assertEqual(test_parsing.is_test_run("npx mocha"), "mocha")
+
+    def test_node_test(self):
+        self.assertEqual(test_parsing.is_test_run("node --test"), "node-test")
+
+    def test_node_test_with_glob(self):
+        self.assertEqual(
+            test_parsing.is_test_run("node --test test/**/*.js"), "node-test"
+        )
+
+    def test_deno_test(self):
+        self.assertEqual(test_parsing.is_test_run("deno test"), "deno")
+
+    def test_deno_test_with_path(self):
+        self.assertEqual(test_parsing.is_test_run("deno test src/"), "deno")
+
+    # --- direct binary invocations (no npx/bunx prefix) ---
+
+    def test_direct_binary_jest(self):
+        self.assertEqual(test_parsing.is_test_run("./node_modules/.bin/jest"), "jest")
+
+    def test_direct_binary_vitest(self):
+        self.assertEqual(
+            test_parsing.is_test_run("./node_modules/.bin/vitest"), "vitest"
+        )
+
+    def test_direct_binary_playwright(self):
+        self.assertEqual(
+            test_parsing.is_test_run("./node_modules/.bin/playwright test"),
+            "playwright",
+        )
+
+    def test_direct_binary_mocha(self):
+        self.assertEqual(test_parsing.is_test_run("node_modules/.bin/mocha"), "mocha")
+
+    # --- non-JS monorepo flag-tolerance ---
+
+    def test_mvn_with_pl(self):
+        # mvn -pl <module> test
+        self.assertEqual(test_parsing.is_test_run("mvn -pl core test"), "maven")
+
+    def test_gradle_module_path(self):
+        # ./gradlew :module:test
+        self.assertEqual(test_parsing.is_test_run("./gradlew :module:test"), "gradle")
+
+    def test_gradle_nested_module_path(self):
+        self.assertEqual(
+            test_parsing.is_test_run("./gradlew :api:server:test"), "gradle"
+        )
+
+    # --- Negative-shape tests (per-runner false-positive guards) ---
+
+    def test_not_bun_filter_build(self):
+        self.assertIsNone(test_parsing.is_test_run("bun --filter mypkg build"))
+
+    def test_not_pnpm_filter_lint(self):
+        self.assertIsNone(test_parsing.is_test_run("pnpm --filter mypkg lint"))
+
+    def test_not_yarn_workspace_build(self):
+        self.assertIsNone(test_parsing.is_test_run("yarn workspace mypkg build"))
+
+    def test_not_turbo_run_lint(self):
+        self.assertIsNone(test_parsing.is_test_run("turbo run lint"))
+
+    def test_not_pnpm_exec_helper_test_fixture(self):
+        # Reviewer concern: tool whose name contains 'test' shouldn't match.
+        self.assertIsNone(
+            test_parsing.is_test_run("pnpm exec helper test-fixture-builder")
+        )
+
+    def test_not_lerna_run_build(self):
+        self.assertIsNone(test_parsing.is_test_run("lerna run build"))
+
+    def test_not_node_run_script(self):
+        self.assertIsNone(test_parsing.is_test_run("node script.js"))
+
+    def test_not_deno_run(self):
+        self.assertIsNone(test_parsing.is_test_run("deno run app.ts"))
+
+    # --- Bound verification (lazy-quantifier limit) ---
+
+    def test_bun_within_5_tokens_matches(self):
+        # 5 intervening tokens is the bound — should still match.
+        self.assertEqual(test_parsing.is_test_run("bun a b c d e test"), "bun")
+
+    def test_bun_beyond_5_tokens_no_match(self):
+        # 6 intervening tokens exceeds the bound — should NOT match.
+        self.assertIsNone(test_parsing.is_test_run("bun a b c d e f test"))
+
+
 class TestParseCommitMessage(unittest.TestCase):
     def test_standard_output(self):
         response = "[main abc123] Add auth module\n 3 files changed, 45 insertions(+)"

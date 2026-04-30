@@ -13,6 +13,16 @@ import re
 # Command classification
 # ---------------------------------------------------------------------------
 
+# Bounded lazy-quantifier "0-5 intervening tokens" — the upper bound keeps
+# regex engines from backtracking pathologically on long arg lists.
+_FLAG_GAP = r"(?:\s+\S+){0,5}?"
+# Reject hyphen-suffixed tool names (e.g., test-fixture-builder) that would
+# otherwise satisfy a plain `\b` after `test` because `-` is non-word.
+_NOT_HYPHEN_TAIL = r"(?![\w-])"
+# Allow colon-suffixed script names: test, test:unit, test:e2e-live (hyphens
+# allowed within the suffix for kebab-case scripts).
+_TEST_SCRIPT_TAIL = r"test(?::[\w:-]+)?" + _NOT_HYPHEN_TAIL
+
 
 def is_test_run(command: str) -> str | None:
     """Check if the command is a test run. Returns framework name or None."""
@@ -23,27 +33,73 @@ def is_test_run(command: str) -> str | None:
         return "pytest"
     if re.search(r"python3?\s+-m\s+unittest\b", command):
         return "unittest"
+
     # JavaScript/TypeScript
-    # Playwright — check before generic script aliases; may appear as
-    # `playwright test`, `npx playwright test`, `bunx playwright test`,
-    # `pnpm exec playwright test`, `yarn playwright test`.
+    # Playwright — check before generic script aliases; covers
+    # `playwright test`, `npx/bunx/pnpm-exec/yarn playwright test`, and
+    # `./node_modules/.bin/playwright test` (\b matches at `/`).
     if re.search(r"\bplaywright\s+test\b", command):
         return "playwright"
-    if re.search(r"\b(npx\s+)?jest\b", command) or re.search(
-        r"\bnpm\s+test\b", command
-    ):
+
+    # Direct runners. `\b` already matches at `/` boundaries, so a single
+    # word-bounded match covers bare invocation, npx/bunx/pnpm-exec/yarn-dlx
+    # wrappers, and direct-binary path tails (`./node_modules/.bin/jest`).
+    if re.search(r"\bjest\b", command):
         return "jest"
-    if re.search(r"\b(npx\s+)?vitest\b", command):
+    if re.search(r"\bvitest\b", command):
         return "vitest"
-    # Bun's own test runner + `bun run test*` script aliases
-    if re.search(r"\bbun\s+(?:run\s+)?test(?::[\w:-]+)?\b", command):
-        return "bun"
-    # npm/pnpm/yarn script aliases (e.g., `npm run test:unit`, `yarn test:ci`).
-    # pnpm and yarn allow `<tool> <script>` without `run`; npm requires `run`.
+    if re.search(r"\bmocha\b", command):
+        return "mocha"
+
+    # Node built-in test runner: `node --test`, `node --test test/**/*.js`
+    if re.search(r"\bnode\s+--test\b", command):
+        return "node-test"
+    # Deno test runner: `deno test`, `deno test src/`
+    if re.search(r"\bdeno\s+test\b", command):
+        return "deno"
+
+    # Workspace task runners (turbo). Check turbo before bun/pnpm so that
+    # `pnpm turbo test` returns "turbo" rather than the pnpm-script form.
+    # Turbo accepts `turbo test`, `turbo run test`, with or without a
+    # wrapping `npx`/`bunx`/`pnpm`. `--filter=<pkg>` and other flags may
+    # appear after `test`.
     if re.search(
-        r"\b(?:npm\s+run|(?:pnpm|yarn)(?:\s+run)?)\s+test(?::[\w:-]+)?\b", command
+        r"\b(?:npx\s+|bunx\s+|pnpm\s+|yarn\s+|bun\s+x\s+)?turbo"
+        + _FLAG_GAP
+        + r"\s+(?:run\s+)?"
+        + _TEST_SCRIPT_TAIL,
+        command,
+    ):
+        return "turbo"
+
+    # nx workspace runner: `nx test <pkg>`, `nx run <pkg>:test`,
+    # `nx run-many --target=test`, `nx run-many --targets=test,build`.
+    if re.search(r"\bnx\s+test\b", command):
+        return "nx"
+    if re.search(r"\bnx\s+run\s+\S+:test\b", command):
+        return "nx"
+    if re.search(r"\bnx\s+\S+\s+--targets?=test(?:[,\s]|$)", command):
+        return "nx"
+
+    # bun: bare `bun test[:script]` or `bun run test[:script]`, and the
+    # workspace form `bun --filter <pkg> test[:script]` (and similar
+    # flag-tolerant variants up to 5 intervening tokens).
+    if re.search(r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL, command):
+        return "bun"
+
+    # npm/pnpm/yarn/lerna script aliases — flag-tolerant (covers --filter,
+    # --workspace, -w, -F, -r, workspace foreach, workspace <pkg>, run, etc.)
+    # bound to 5 intervening tokens. lerna folded in here since it shares
+    # the script-alias shape (`lerna run test [--scope=<pkg>]`).
+    if re.search(
+        r"\b(?:npm|pnpm|yarn|lerna)"
+        + _FLAG_GAP
+        + r"\s+(?:run\s+)?"
+        + _TEST_SCRIPT_TAIL,
+        command,
     ):
         return "jest"
+
     # Go
     if re.search(r"\bgo\s+test\b", command):
         return "go"
@@ -55,13 +111,16 @@ def is_test_run(command: str) -> str | None:
     # Rust
     if re.search(r"\bcargo\s+test\b", command):
         return "cargo"
-    # Java/Kotlin
-    if re.search(r"\bmvn\s+test\b", command) or re.search(r"\bmvn\s+verify\b", command):
+    # Java/Kotlin — flag-tolerant for monorepo/multi-module forms like
+    # `mvn -pl <module> test`, `mvn -pl <module> verify`.
+    if re.search(r"\bmvn" + _FLAG_GAP + r"\s+(?:test|verify)\b", command):
         return "maven"
-    if (
-        re.search(r"\bgradle\s+test\b", command)
-        or re.search(r"(?:^|[\s/])\.?/gradlew\s+test\b", command)
-        or re.search(r"\bgradlew\s+test\b", command)
+    # Gradle accepts `gradle test`, `./gradlew test`, `./gradlew :module:test`,
+    # `./gradlew :module:sub:test` (path-prefixed task name). `\bgradlew\b`
+    # subsumes both `./gradlew` and bare `gradlew` invocations.
+    if re.search(
+        r"\b(?:gradle|gradlew)" + _FLAG_GAP + r"\s+(?::?[\w:-]+:)?test\b",
+        command,
     ):
         return "gradle"
     # Ruby
@@ -353,5 +412,32 @@ def parse_test_results(tool_response: str, framework: str) -> dict:
         case "bun":
             # "130 pass\n 0 fail" or "130 pass, 0 fail"
             _apply_two_counts(result, tool_response, r"(\d+)\s+pass", r"(\d+)\s+fail")
+
+        case "mocha":
+            # "  10 passing (123ms)" and optional "  2 failing"
+            _apply_two_counts(
+                result,
+                tool_response,
+                r"(\d+)\s+passing",
+                r"(\d+)\s+failing",
+            )
+
+        case "node-test":
+            # TAP-ish summary: "# pass N" / "# fail N" / "# tests N"
+            _apply_two_counts(
+                result, tool_response, r"#\s*pass\s+(\d+)", r"#\s*fail\s+(\d+)"
+            )
+
+        case "deno":
+            # "ok | 5 passed | 2 failed" (Deno test summary line)
+            _apply_two_counts(
+                result, tool_response, r"(\d+)\s+passed", r"(\d+)\s+failed"
+            )
+
+        case "nx" | "turbo":
+            # nx/turbo wrap underlying frameworks; their summary lines vary.
+            # Best-effort: fall through to the same N passed/N failed shape
+            # that jest/vitest/pytest also use.
+            _apply_two_counts(result, tool_response, _RE_N_PASSED, _RE_N_FAILED)
 
     return result
