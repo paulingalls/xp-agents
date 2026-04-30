@@ -42,8 +42,9 @@ echo ""
 python3 "${SKILL_DIR}/scripts/acceptance_types.py" --sprint-file "${SPRINT_FILE}" || true
 echo ""
 
-# Detect teammate worktrees
-teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/worktree-story-" | sed 's|.*/||' || true)
+# Detect teammate worktrees — single source of truth, skips prunable entries
+teammate_wts=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" --smm-dir "${SMM_DIR}" \
+    list-teammate-worktrees --cwd . 2>/dev/null || true)
 if [ -n "$teammate_wts" ]; then
     echo ""
     echo "### TEAMMATE_WORKTREES"

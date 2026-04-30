@@ -87,6 +87,17 @@ def _cmd_extract_story_id(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_list_teammate_worktrees(args: argparse.Namespace) -> int:
+    """Print one teammate worktree NAME per line. Empty stdout = none live.
+
+    Always exits 0. Powers /xp-accept's preload (replaces an inline
+    `git worktree list --porcelain | grep | sed` parser).
+    """
+    for name in worktree.list_live_teammate_worktree_names(args.cwd):
+        print(name)
+    return 0
+
+
 def _cmd_find_teammate_worktree(args: argparse.Namespace) -> int:
     """Print teammate worktree NAME for a story id, empty if none live.
 
@@ -216,6 +227,13 @@ def main() -> int:
     )
     p_xsid.add_argument("--branch", required=True)
     p_xsid.set_defaults(func=_cmd_extract_story_id)
+
+    p_ltw = sub.add_parser(
+        "list-teammate-worktrees",
+        help="List live teammate worktree names (one per line)",
+    )
+    p_ltw.add_argument("--cwd", required=True)
+    p_ltw.set_defaults(func=_cmd_list_teammate_worktrees)
 
     p_ftw = sub.add_parser(
         "find-teammate-worktree",
