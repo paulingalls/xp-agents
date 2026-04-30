@@ -18,7 +18,7 @@ allowed-tools:
 
 # Work Assignment
 
-Analyze the plan and decide how to execute: solo (sequential) or with CLI teammates (parallel).
+Analyze the plan and decide how to execute: solo (sequential) or with CLI teammates (parallel). Stories arrive at /xp-assign in the `scheduled` status (xp-work-selection parks them there). xp-assign promotes scheduled → in-progress as it creates each branch — solo creates only the FIRST scheduled, teammates create ALL.
 
 ## Pre-flight
 
@@ -29,16 +29,53 @@ Analyze the plan and decide how to execute: solo (sequential) or with CLI teamma
 
 ## Mode Selection
 
-**Solo** when ANY apply: steps have sequential deps, steps target overlapping files, plan is small (≤3 steps).
+**Auto-pick solo without prompting** when EITHER:
 
-**CLI teammates** when ALL apply: 2+ independent step groups with no deps, non-overlapping files, steps substantial enough to justify coordination.
+- only one scheduled story exists (nothing to parallelize), OR
+- two or more scheduled stories share at least one file in their `file_domain` (parallel teammates would step on each other).
 
-Present recommendation via `AskUserQuestion`: mode + rationale. For teammate mode: which groups run in parallel.
+Use the CLI to decide. The two auto-solo signals are checked separately
+for clarity (`scheduled-overlap` exits 0 when overlap exists — i.e.,
+"the conflict condition holds" — same convention as `has-active`/
+`is-complete`):
+
+```bash
+SCHEDULED_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+  --smm-dir ${SMM_DIR} count-status scheduled)
+
+if [ "$SCHEDULED_COUNT" -eq 0 ]; then
+  # No scheduled stories — nothing to assign. Return without creating
+  # branches. Pre-existing in-progress stories from a prior session
+  # stay on their existing branches; xp-assign acts on the new batch
+  # only.
+  echo "No scheduled stories — nothing to assign. Stop."
+  exit 0
+elif [ "$SCHEDULED_COUNT" -eq 1 ]; then
+  # One scheduled story — nothing to parallelize.
+  MODE=solo
+elif python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+       --smm-dir ${SMM_DIR} scheduled-overlap; then
+  # 2+ scheduled with file_domain overlap — parallel teammates would
+  # step on each other.
+  MODE=solo
+else
+  # 2+ scheduled with disjoint file_domains — genuinely parallelizable.
+  MODE=$(ask user via AskUserQuestion: "Solo (sequential) or CLI teammates (parallel)?")
+fi
+```
+
+The predicate intentionally ignores pre-existing in-progress stories
+carried over from a prior session — those already have branches and
+their own xp-accept lifecycle; xp-assign acts on the new scheduled
+batch only.
+
+The plan-driven heuristic still applies: if the plan steps have sequential deps, target overlapping files, or the plan is small (≤3 steps) — favor solo even when not auto-picked. Present the rationale when you ask.
 
 ## Branch Creation (Stage 1+)
 
-After mode selection but before execution, create story branches —
-JIT in solo mode, eager in teammate mode.
+After mode selection but before execution, transition scheduled stories
+to `in-progress` and create their branches — JIT in solo mode, eager in
+teammate mode.
 
 1. Read the branching stage:
 ```bash
@@ -52,33 +89,41 @@ If stage < 1, skip branch creation entirely.
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .
 ```
 
-3. **Solo mode** (JIT): create ONLY the first in-progress story's branch.
-Subsequent in-progress stories get their branches at /xp-story-close
-time, born off the merged sprint tip — so chained branches are never
-stale (decision df47c932fbe6 — JIT story branches eliminate the
+3. **Solo mode** (JIT): promote ONLY the first scheduled story to
+`in-progress` and create its branch. The rest stay `scheduled` —
+/xp-story-close JIT-promotes the next scheduled story to in-progress
++ creates its branch off the merged sprint tip after each prior story
+ships (decision df47c932fbe6 — JIT story branches eliminate the
 pre-JIT staleness that an `ff-only` post-step in /xp-accept was
 trying to patch). The just-merged-tip base is what the next story
 needs to build on.
 
 ```bash
+FIRST_SCHEDULED=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} next-scheduled)
+
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
+  update-story "$FIRST_SCHEDULED" in-progress
+
 git checkout <story-base>
 
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
-  create --cwd . --story <first-in-progress-story-id> \
+  create --cwd . --story "$FIRST_SCHEDULED" \
   --slug <title-slug> --base <story-base>
 ```
 
-4. **Teammate mode** (eager — parallel-eligible): create branches for
-EVERY in-progress story now, since each teammate needs its own
-worktree+branch to spawn into. Per design, teammates only run parallel
-work — never chained sequential — so all in-progress stories at
-/xp-assign time are parallel-eligible and unblocked. Each branches
-off the story base.
+4. **Teammate mode** (eager — parallel-eligible): promote EVERY
+scheduled story to `in-progress` and create its branch now, since each
+teammate needs its own worktree+branch to spawn into. Per design,
+teammates only run parallel work — never chained sequential — so all
+scheduled stories at /xp-assign time are parallel-eligible and
+unblocked. Each branches off the story base.
 
 ```bash
 git checkout <story-base>
 
-# For each in-progress story (parallel batch):
+# For each scheduled story (parallel batch):
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
+  update-story <story-id> in-progress
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
   create --cwd . --story <story-id> --slug <title-slug> --base <story-base>
 ```
@@ -100,7 +145,7 @@ git checkout <story-base>
 
 Solo mode uses file-domain matching at commit time — no story assignment needed. The commit hook resolves story attribution by matching committed files against each in-progress story's `file_domain`.
 
-Checkout the first in-progress story's branch:
+Checkout the first in-progress story's branch (the one just promoted from `scheduled` above):
 ```bash
 git checkout <first-story-branch>
 ```

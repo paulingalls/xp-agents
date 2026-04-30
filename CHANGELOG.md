@@ -1,5 +1,90 @@
 # Changelog
 
+## v2.37.1 — Lint resolutions from Write/Edit now count as `lint_events`
+
+User reported that lint events appeared low/missing in retros despite lint passing. Root cause: a latent regression since the metadata.action vocabulary was introduced. Two paths emit lint-resolution events but only one tagged them with `metadata.action=lint_resolved`:
+
+- `lint_resolution.py:47` (PostToolUse:Bash on commit) — correctly tagged ✓
+- `lint_check.py:361` (PostToolUse:Write/Edit when lint passes) — was missing the tag ✗
+
+`retro_metrics._classify_lifecycle_events` keys `lint_events` on `STATUS_ACTION_LINT_RESOLVED`, so the Write/Edit-time resolutions silently fell into the `"other"` bucket. One-line fix: add `extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED}` to the missing call site. Pinned by a new test (`test_lint_pass_resolution_carries_action_tag`) so the asymmetry can't recur.
+
+Tests use a different counter model — `STATUS_ACTION_TEST_RUN_COMPLETE` ticks unconditionally on every test run, so `test_runs` is an activity counter (not a resolution counter). No symmetric bug exists for tests; a `test_resolutions` counter would be a separate feature design.
+
+## v2.37.0 — Four-state story lifecycle: `scheduled` between ready and in-progress
+
+Adds a fourth story status (`scheduled`) so the data model, not a derived "does the branch have commits" check, distinguishes "queued for this iteration" from "actively worked." Resolves four interlocking pain points surfaced in sprint-048's retro:
+
+- xp-accept tried to verify next-up stories that had no branch and no commits
+- The Stop hook fired demanding /xp-accept after each story closed because the next was already marked in-progress
+- xp-assign always asked solo-vs-parallel even when the answer was obvious
+- The branch-already-exists state when re-running plan cycles was confusing
+
+### New lifecycle
+`ready` (backlog) → **`scheduled`** (xp-work-selection picks it) → `in-progress` (xp-assign creates the branch) → `done` / `deferred`. Stop gate and /xp-accept only fire on `in-progress`. Existing in-progress stories from prior sessions stay in-progress (they ARE actively worked) — no migration needed.
+
+### xp-assign auto-pick solo
+xp-assign no longer asks solo-vs-parallel when the answer is obvious:
+- only one scheduled story exists (nothing to parallelize), OR
+- 2+ scheduled stories share at least one file in their `file_domain` (parallel teammates would step on each other)
+
+Otherwise the user is asked. The overlap check uses the canonical `triage.extract_file_domain_paths` em-dash splitter so paths-with-spaces work correctly.
+
+### State transitions
+- xp-work-selection: marks picked stories `scheduled` (not `in-progress` directly).
+- xp-assign solo: promotes ONLY the first scheduled story to `in-progress` + creates its branch. Rest stay queued.
+- xp-assign teammates: promotes ALL scheduled with branches eagerly created.
+- xp-story-close JIT-next: when no in-progress remains, fall back to `next-scheduled` — promote to in-progress + JIT-create branch off the merged sprint tip.
+- xp-accept and sprint_stop_gate: gate on `in-progress` only (verified by new pin test).
+
+### Schema + tooling
+- `sprint_schema.VALID_STORY_STATUSES` adds `"scheduled"`. ACTIVE/TERMINAL derive automatically.
+- `sprint_store`: new `has_stories_with_status` (collapses 3 has_*_stories into 1-line wrappers), `has_scheduled_stories`, `next_scheduled_story_id` (shares `_next_story_id_with_status` with next_in_progress), `scheduled_file_domains_overlap`. `count_by_status` derives keys from the schema (no hardcoded list).
+- `sprint_cli`: new `next-scheduled` and `scheduled-overlap` subcommands. `_STATUS_CHOICES = sorted(VALID_STORY_STATUSES)` constant feeds all 3 argparse choices arrays. `_cmd_count` derives output from `count_by_status` instead of a hardcoded f-string (would have silently dropped scheduled).
+- xp-kickoff preload: SPRINT_ACTIVE block now surfaces ready/scheduled/in-progress counts + per-status story lists. Single `sprint_count` call + pure-bash for/case parse (3 subprocess spawns collapsed to 1).
+
+### Process docs
+- PROCESS_GUIDE.md: lifecycle one-liner inline with sprint flow paragraph (token-tight to fit the 1000-token budget).
+
+3640 tests pass.
+
+## v2.36.0 — Sprint-048 retro followups: workflow + detection fixes
+
+Seven commits addressing items raised in the sprint-048 retrospective. Notable user-visible improvement: the test_runs counter in retros now correctly fires on Bun monorepo workspace commands (e.g. `bun --filter @aje-poc/perf-harness test`) that previously slipped past the regex. 3619 tests green.
+
+### Test-run detection: comprehensive workspace + monorepo coverage
+The reporter's downstream Bun monorepo saw `test_runs=0` in retros despite running many tests. Root cause: `is_test_run` required `bun` directly followed by `test`, missing the `bun --filter <pkg> test` workspace shape. Extended with a bounded lazy-quantifier `(?:\s+\S+){0,5}?` pattern (5-token cap, no catastrophic backtracking) applied to:
+
+- **Workspace runners**: bun --filter, pnpm --filter/-F/-r, yarn workspace/workspaces foreach, npm --workspace
+- **Task runners**: turbo (with npx/bunx/pnpm wrappers), nx (test/run/run-many --target=test), lerna
+- **Direct runners** (added): mocha, node --test, deno test
+- **Direct binaries**: ./node_modules/.bin/{jest,vitest,mocha,playwright}
+- **Monorepo Java**: mvn -pl <module> test, ./gradlew :module:test
+
+Tightened `(?![\w.-])` lookahead rejects file extensions after `test` so `bun build test.ts` no longer false-matches. Pinned the residual `pnpm install test` blind-spot (would require enumerating every pnpm subcommand to fix without breaking `yarn workspace X test`). 49 new tests including the reporter's exact commands, per-runner negative-shape guards, and bound verification (5 tokens matches; 6 doesn't).
+
+### Test-file detection: JS/TS underscore convention
+`is_test_file` already caught `foo.test.ts` (dot convention) but missed `foo_test.ts` (underscore convention used by Bun and some monorepos). Added `_JS_TS_TEST_SUFFIXES = (_test.ts, _test.tsx, _test.js, _test.jsx, _test.mts, _test.cts, _test.mjs, _test.cjs)` with a negative test pinning that middle-underscore impl files (`user_service.ts`) don't fire.
+
+### QR-nudge gating
+Doc-only and config-only commits (DEMO.md, package.json, etc.) no longer trigger "No quality review found since previous commit" warnings. `_check_qr_linkage` now takes a keyword-only `has_code` parameter — false short-circuits the nudge. Mixed commits with at least one code file preserve existing behavior.
+
+### sprint_cli get-story subcommand
+New `get-story <story_id>` subcommand prints a single story as JSON. Backed by `sprint_store.get_story()` thin wrapper over the existing private `_load_story`. Lets read-only consumers (xp-close-reviewer, future tooling) avoid parsing sprint.json directly.
+
+### close-reviewer prompt: --files MUST + Resolves-Event handoff
+Sprint-048 close surfaced four concerns whose follow-up commits had no `Resolves-Event:` trailers — the recorded concerns either lacked `--files` (so the structural auto-link probe didn't fire) or the orchestrator had no way to obtain event IDs.
+
+- `--files` discipline strengthened: every concern naming any source path MUST pass them via `--files`. Inverted the default: "when tempted to omit, default to including".
+- New "Resolves-Event handoff" instruction: agent suffixes each Concern/Block bullet with ` [event_id: <id>]`. Orchestrator strips for display, reads for trailer population.
+- `_append_impl.py` now prints the new event ID to stdout on success so the agent can capture via `id=$(append.sh ...)`. Stdout contract pinned: exactly the event id, nothing else — duplicate-debt probe MUST keep its output on stderr (asserted by exact-match test).
+
+### Pyright config
+Added `tests/` to `extraPaths` (not `include`) so the editor LSP can resolve sys.path-based sibling imports without the lefthook commit-time pyright invocation surfacing ~374 pre-existing test type errors. Added `**/__pycache__` / `**/.pytest_cache` exclude.
+
+### Deferred to a future free session
+The `scheduled` story-status state-machine refactor (items #3-#6 from the retro brainstorm) — too broad to bundle here per plan-reviewer feedback. Touches sprint_schema, sprint_store, sprint_cli, 4 skill files, and ~97 occurrences of `in-progress`. Lands as its own focused free session.
+
 ## v2.35.2 — Cross-directory fixture share
 
 `tests/engine/_system_context_fixtures.py` lifted to `tests/_system_context_fixtures.py` so `tests/scaffold/test_scaffold_detect.py` can import alongside the 7 engine consumers (resolves debt ce16305093fe). Scaffold's local `_valid_doc(surfaces=None)` (~15 lines) replaced with the shared `valid_doc(**overrides)`. Engine tests dropped their now-redundant engine-dir `sys.path.insert` (parent already inserted for conftest). 8-of-8 callers consolidated. 3553 tests green.

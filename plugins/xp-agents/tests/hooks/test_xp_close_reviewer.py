@@ -110,6 +110,31 @@ class TestModeFocusSections(unittest.TestCase):
         for mode in ("sprint", "plan", "free", "story"):
             self.assertIn(mode, step1, f"Step 1 mode list missing {mode!r}")
 
+    def test_files_required_when_locatable(self):
+        # The recording-instructions block must require --files for any
+        # concern that names a concrete source path. The previous wording
+        # was advisory ("when your bullet cites concrete paths") which let
+        # the agent silently omit --files and disable the structural
+        # auto-link probe — Resolves-Event trailers then never fired on
+        # follow-up commits. Pin the strengthened wording so it can't
+        # regress without a deliberate test edit.
+        self.assertIn("MUST", self.text, "files-required wording lost the MUST")
+        # The new instruction must mention --files in the same paragraph
+        # as the requirement so the rule is actionable.
+        files_paragraph = re.search(
+            r"\*\*`?--files`? discipline.*?(?=\n\n|\n##)", self.text, re.DOTALL
+        )
+        assert files_paragraph is not None, "files-discipline paragraph missing"
+        self.assertIn("MUST", files_paragraph.group(0))
+
+    def test_resolves_event_handoff_in_prose(self):
+        # The prose summary returned to the close skill must surface
+        # event IDs alongside Concern/Block bullets so the orchestrator
+        # can populate the next commit's `Resolves-Event:` trailer
+        # without a second probe round-trip.
+        self.assertIn("Resolves-Event", self.text)
+        self.assertIn("event_id", self.text.lower() + " " + self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -87,6 +87,98 @@ class TestCreateCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestNextScheduledCommand(_SMMTestCase):
+    def test_returns_first_scheduled_id(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="done"),
+                _make_story(id="story-002", status="scheduled"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-scheduled"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-002")
+
+    def test_no_scheduled_exits_nonzero(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["next-scheduled"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
+class TestScheduledOverlapCommand(_SMMTestCase):
+    def test_overlap_exit0_when_shared_file(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    file_domain=["src/a.py — owner", "src/b.py — shared"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py — caller", "src/c.py — owner"],
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["scheduled-overlap"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_overlap_exit1_when_disjoint(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="s1", status="scheduled", file_domain=["a.py"]),
+                _make_story(id="s2", status="scheduled", file_domain=["b.py"]),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["scheduled-overlap"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+
+
+class TestUpdateStoryAcceptsScheduled(_SMMTestCase):
+    def test_update_story_to_scheduled(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["update-story", "story-001", "scheduled"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "scheduled")
+
+
+class TestCountStatusAcceptsScheduled(_SMMTestCase):
+    def test_count_scheduled(self):
+        sprint = _make_sprint(stories=[_make_story(status="scheduled")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["count-status", "scheduled"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+
+
+class TestGetStoryCommand(_SMMTestCase):
+    def test_get_story_returns_json(self):
+        sprint = _make_sprint(
+            stories=[_make_story(id="story-042", title="Demo", status="ready")]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["get-story", "story-042"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads(result.stdout)
+        self.assertEqual(story["id"], "story-042")
+        self.assertEqual(story["title"], "Demo")
+        self.assertEqual(story["status"], "ready")
+
+    def test_get_story_missing_id_exits_nonzero(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["get-story", "story-999"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_get_story_no_sprint_file_exits_nonzero(self):
+        result = run_cli(_CLI, ["get-story", "story-001"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
 class TestUpdateStoryCommand(_SMMTestCase):
     def test_update_status(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))

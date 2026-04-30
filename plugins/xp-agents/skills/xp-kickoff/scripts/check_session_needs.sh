@@ -46,13 +46,38 @@ fi
 
 # 5. Sprint status (for work selection context)
 if sprint_has_active; then
-    ready_count=$(sprint_count_status ready)
-    if [ "$ready_count" -gt 0 ]; then
+    # One subprocess call gets all status counts; pure-bash parse
+    # avoids per-status subprocess spawns and drift risk if a future
+    # status renames/reorders.
+    ready_count=0
+    scheduled_count=0
+    in_progress_count=0
+    for kv in $(sprint_count); do
+        case "$kv" in
+            ready=*) ready_count=${kv#ready=} ;;
+            scheduled=*) scheduled_count=${kv#scheduled=} ;;
+            in-progress=*) in_progress_count=${kv#in-progress=} ;;
+        esac
+    done
+    if [ "$ready_count" -gt 0 ] || [ "$scheduled_count" -gt 0 ] || [ "$in_progress_count" -gt 0 ]; then
         echo "### SPRINT_ACTIVE"
-        echo "Sprint has ${ready_count} ready stories:"
+        echo "Sprint counts: ready=${ready_count} scheduled=${scheduled_count} in-progress=${in_progress_count}"
         echo ""
-        sprint_list_stories --status ready
-        echo ""
+        if [ "$ready_count" -gt 0 ]; then
+            echo "Ready stories:"
+            sprint_list_stories --status ready
+            echo ""
+        fi
+        if [ "$scheduled_count" -gt 0 ]; then
+            echo "Scheduled stories (queued by xp-work-selection, awaiting xp-assign branch creation):"
+            sprint_list_stories --status scheduled
+            echo ""
+        fi
+        if [ "$in_progress_count" -gt 0 ]; then
+            echo "In-progress stories (branch exists, work underway):"
+            sprint_list_stories --status in-progress
+            echo ""
+        fi
     fi
 fi
 

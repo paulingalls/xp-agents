@@ -31,6 +31,18 @@ _TEST_DIRS = {"tests", "__tests__", "test", "spec"}
 _TEST_DIR_SUFFIXES = ("Tests",)  # Xcode: ContactForgeTests/
 # Maven/Gradle: src/test/java/...
 _TEST_PATH_SEGMENTS = {"src/test"}
+# JS/TS lacks a canonical test extension — enumerate the family
+# (.ts/.tsx/.js/.jsx + ESM/CJS module variants).
+_JS_TS_TEST_SUFFIXES = (
+    "_test.ts",
+    "_test.tsx",
+    "_test.js",
+    "_test.jsx",
+    "_test.mts",
+    "_test.cts",
+    "_test.mjs",
+    "_test.cjs",
+)
 
 
 def is_test_file(path: str) -> bool:
@@ -55,6 +67,11 @@ def is_test_file(path: str) -> bool:
 
     # Name contains .test. or .spec. (JS/TS: app.test.js, app.spec.ts)
     if ".test." in name or ".spec." in name:
+        return True
+
+    # JS/TS underscore convention (Bun/some monorepos use foo_test.ts
+    # alongside the more common foo.test.ts).
+    if name.endswith(_JS_TS_TEST_SUFFIXES):
         return True
 
     # Python: test_*.py, *_test.py

@@ -12,7 +12,9 @@ from execution_plan_schema import VALID_BRANCH_NAME_RE
 
 SPRINT_FILENAME = "sprint.json"
 
-VALID_STORY_STATUSES = frozenset({"ready", "in-progress", "done", "deferred"})
+VALID_STORY_STATUSES = frozenset(
+    {"ready", "scheduled", "in-progress", "done", "deferred"}
+)
 TERMINAL_STORY_STATUSES = frozenset({"done", "deferred"})
 ACTIVE_STORY_STATUSES = VALID_STORY_STATUSES - TERMINAL_STORY_STATUSES
 

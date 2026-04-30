@@ -159,6 +159,10 @@ SPRINT_IN_PROGRESS = _sprint_json(
 
 SPRINT_READY_ONLY = _sprint_json([_s("story-001", "As a user I can log in", "ready")])
 
+SPRINT_SCHEDULED_ONLY = _sprint_json(
+    [_s("story-001", "As a user I can log in", "scheduled")]
+)
+
 SPRINT_ALL_DONE = _sprint_json(
     [
         _s("story-001", "As a user I can log in", "done"),
