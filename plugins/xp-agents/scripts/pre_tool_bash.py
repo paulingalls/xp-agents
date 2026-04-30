@@ -17,6 +17,8 @@ import identity
 import markers
 import resolves_probe
 import security
+import security_patterns
+import security_scanner
 import story_probe
 import worktree
 from event_schema import METADATA_KEY_RESOLVES
@@ -132,6 +134,30 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Above threshold (3+ code files): simplify → quality review → security triage
     # Below threshold: security triage only for production code commits
     if smm_dir is not None and security.is_git_commit(command):
+        # Tier 1 fires before the review-cycle gate so deterministic patterns
+        # block even when /simplify, /xp-quality-review, /xp-security-triage
+        # have all been satisfied.
+        diff = commits.get_staged_diff(cwd)
+        if diff:
+            findings = security_scanner.scan_diff(diff, security_patterns.V3_0_PATTERNS)
+            if findings:
+                lines = [
+                    f"  - {f.pattern_name} at {f.file_path}:{f.line_number}"
+                    for f in findings
+                ]
+                raise _common.BlockedError(
+                    "\n".join(
+                        [
+                            "Tier 1 security scan blocked this commit:",
+                            *lines,
+                            "",
+                            "Fix the flagged lines or add `# noqa: secret`"
+                            " on each intentional line.",
+                        ]
+                    ),
+                    "Tier 1 security pattern detected.",
+                )
+
         cycle = markers.read_review_cycle(smm_dir, agent_id)
         code_files = commits.get_code_files_for_review(
             cwd, cycle.get("last_review_commit", ""), command
