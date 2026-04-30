@@ -100,6 +100,12 @@ def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
     return sprint, matches[0]
 
 
+def get_story(smm_dir: Path, story_id: str) -> dict:
+    """Return the story dict by id. Raises ValueError if missing."""
+    _, story = _load_story(smm_dir, story_id)
+    return story
+
+
 def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
     """Update a story's status in the sprint."""
     if status not in VALID_STORY_STATUSES:

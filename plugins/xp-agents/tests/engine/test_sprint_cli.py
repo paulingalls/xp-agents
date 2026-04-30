@@ -87,6 +87,29 @@ class TestCreateCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestGetStoryCommand(_SMMTestCase):
+    def test_get_story_returns_json(self):
+        sprint = _make_sprint(
+            stories=[_make_story(id="story-042", title="Demo", status="ready")]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["get-story", "story-042"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads(result.stdout)
+        self.assertEqual(story["id"], "story-042")
+        self.assertEqual(story["title"], "Demo")
+        self.assertEqual(story["status"], "ready")
+
+    def test_get_story_missing_id_exits_nonzero(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["get-story", "story-999"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_get_story_no_sprint_file_exits_nonzero(self):
+        result = run_cli(_CLI, ["get-story", "story-001"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
 class TestUpdateStoryCommand(_SMMTestCase):
     def test_update_status(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
