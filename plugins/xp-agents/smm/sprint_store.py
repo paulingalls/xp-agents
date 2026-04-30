@@ -11,6 +11,7 @@ Follows the same pattern as execution_plan_store.py.
 
 import json
 import sys
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from sprint_schema import (
     VALID_STORY_STATUSES,
     validate_sprint,
 )
+from triage import extract_file_domain_paths
 
 _MARKER_NAME = ".needs-sprint"
 
@@ -100,6 +102,12 @@ def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
     return sprint, matches[0]
 
 
+def get_story(smm_dir: Path, story_id: str) -> dict:
+    """Return the story dict by id. Raises ValueError if missing."""
+    _, story = _load_story(smm_dir, story_id)
+    return story
+
+
 def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
     """Update a story's status in the sprint."""
     if status not in VALID_STORY_STATUSES:
@@ -164,20 +172,53 @@ def has_active_stories_data(data: dict) -> bool:
     return any(s["status"] in ACTIVE_STORY_STATUSES for s in data["stories"])
 
 
-def has_in_progress_stories(smm_dir: Path) -> bool:
-    """True if sprint has in-progress stories."""
+def has_stories_with_status(smm_dir: Path, status: str) -> bool:
+    """True if sprint has any story matching `status`."""
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return False
-    return any(s["status"] == "in-progress" for s in sprint["stories"])
+    return any(s["status"] == status for s in sprint["stories"])
+
+
+def has_in_progress_stories(smm_dir: Path) -> bool:
+    """True if sprint has in-progress stories."""
+    return has_stories_with_status(smm_dir, "in-progress")
 
 
 def has_ready_stories(smm_dir: Path) -> bool:
     """True if sprint has ready stories."""
+    return has_stories_with_status(smm_dir, "ready")
+
+
+def has_scheduled_stories(smm_dir: Path) -> bool:
+    """True if sprint has scheduled stories (queued for this iteration)."""
+    return has_stories_with_status(smm_dir, "scheduled")
+
+
+def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
+    """True when 2+ scheduled stories share at least one file in their
+    file_domain.
+
+    Powers /xp-assign's auto-pick-solo decision: if any scheduled stories'
+    file_domains overlap, parallel teammates would step on each other —
+    auto-pick solo without asking the user. Returns False when fewer than
+    two scheduled stories exist (no pair to overlap).
+
+    Reuses the canonical em-dash splitter from `triage` so parsing matches
+    every other consumer of file_domain entries (paths with embedded
+    whitespace work correctly; descriptions don't mask shared files).
+    """
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return False
-    return any(s["status"] == "ready" for s in sprint["stories"])
+    scheduled = [s for s in sprint["stories"] if s.get("status") == "scheduled"]
+    if len(scheduled) < 2:
+        return False
+
+    path_sets = [
+        extract_file_domain_paths(s.get("file_domain") or []) for s in scheduled
+    ]
+    return any(a & b for a, b in combinations(path_sets, 2))
 
 
 def is_complete(smm_dir: Path) -> bool:
@@ -211,15 +252,15 @@ def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     return story.get("branch_name", "") or ""
 
 
-def next_in_progress_story_id(smm_dir: Path) -> str | None:
-    """Lowest-id in-progress story whose deps are ALL done. None if none.
+def _next_story_id_with_status(smm_dir: Path, status: str) -> str | None:
+    """Lowest-id story with `status` whose deps are ALL done. None if none.
 
     Powers JIT branch creation in /xp-story-close: the next story's
     branch is born off the merged tip of the just-accepted story, but
     only when the candidate's deps are actually satisfied. Cascade-defer
     naturally excludes blocked stories — a deferred story's status is
-    "deferred", not "done", so any in-progress story depending on it
-    fails the "all deps done" check and is skipped.
+    "deferred", not "done", so any matching story depending on it fails
+    the "all deps done" check and is skipped.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:
@@ -233,9 +274,7 @@ def next_in_progress_story_id(smm_dir: Path) -> str | None:
         )
 
     eligible = [
-        s["id"]
-        for s in sprint["stories"]
-        if s["status"] == "in-progress" and _deps_done(s)
+        s["id"] for s in sprint["stories"] if s["status"] == status and _deps_done(s)
     ]
     if not eligible:
         return None
@@ -256,6 +295,30 @@ def next_in_progress_story_id(smm_dir: Path) -> str | None:
     return min(eligible, key=_id_sort_key)
 
 
+def next_in_progress_story_id(smm_dir: Path) -> str | None:
+    """Lowest-id in-progress story whose deps are ALL done. None if none.
+
+    Powers /xp-story-close's JIT branch creation: the next story's branch
+    is born off the merged tip of the just-accepted story, but only when
+    its deps are actually satisfied. Cascade-defer naturally excludes
+    blocked stories — a deferred story's status is "deferred", not
+    "done", so any in-progress story depending on it fails the
+    "all deps done" check and is skipped.
+    """
+    return _next_story_id_with_status(smm_dir, "in-progress")
+
+
+def next_scheduled_story_id(smm_dir: Path) -> str | None:
+    """Lowest-id scheduled story whose deps are ALL done. None if none.
+
+    Powers /xp-story-close's JIT-next dispatch when no in-progress story
+    remains: promotes the next scheduled story to in-progress + creates
+    its branch off the merged sprint tip. Same cascade-defer semantics
+    as next_in_progress_story_id.
+    """
+    return _next_story_id_with_status(smm_dir, "scheduled")
+
+
 # -------------------------------------------------------------------
 # Computed fields (pure functions on sprint dict)
 # -------------------------------------------------------------------
@@ -264,14 +327,10 @@ def next_in_progress_story_id(smm_dir: Path) -> str | None:
 def count_by_status(sprint: dict) -> dict[str, int]:
     """Count stories by status.
 
-    Returns dict with keys: ready, in-progress, done, deferred.
+    Keys derived from VALID_STORY_STATUSES so adding a new status value to
+    the schema automatically extends this dict — no separate edit needed.
     """
-    counts = {
-        "ready": 0,
-        "in-progress": 0,
-        "done": 0,
-        "deferred": 0,
-    }
+    counts = {s: 0 for s in VALID_STORY_STATUSES}
     for s in sprint["stories"]:
         status = s["status"]
         if status in counts:

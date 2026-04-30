@@ -38,6 +38,28 @@ class TestIsTestFile(unittest.TestCase):
     def test_ts_spec(self):
         self.assertTrue(pre_tool_write.is_test_file("app.spec.ts"))
 
+    def test_ts_underscore_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("foo_test.ts"))
+
+    def test_tsx_underscore_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("Button_test.tsx"))
+
+    def test_js_underscore_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("util_test.js"))
+
+    def test_jsx_underscore_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("Card_test.jsx"))
+
+    def test_mts_underscore_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("api_test.mts"))
+
+    def test_cts_underscore_test(self):
+        self.assertTrue(pre_tool_write.is_test_file("legacy_test.cts"))
+
+    def test_ts_impl_with_underscore_not_test(self):
+        # Underscore in the middle (not preceding "_test.") shouldn't fire.
+        self.assertFalse(pre_tool_write.is_test_file("user_service.ts"))
+
     def test_go_test(self):
         self.assertTrue(pre_tool_write.is_test_file("handler_test.go"))
 

@@ -16,6 +16,7 @@ import concerns
 import lint_check
 import worktree
 from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
+from event_schema import STATUS_ACTION_LINT_RESOLVED
 
 
 class TestAutoResolveTestConcerns(_HookTestCase):
@@ -204,6 +205,31 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
         self.assertIn(
             concern["id"],
             resolutions[0]["metadata"]["resolves"],
+        )
+
+    def test_lint_pass_resolution_carries_action_tag(self):
+        """Lint resolution events from PostToolUse:Write/Edit must carry
+        metadata.action='lint_resolved' so retro_metrics counts them as
+        lint_events (not 'other'). Mirrors the lint_resolution.py path
+        already does for PostToolUse:Bash on commit; the Write/Edit path
+        was missed when the action vocabulary was introduced."""
+        norm = self._normalized("src/app.py")
+        concern = make_event(
+            "concern",
+            content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
+            severity="medium",
+        )
+        self._write_events([concern])
+        self._run_lint_clean("src/app.py")
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+        self.assertEqual(
+            resolutions[0]["metadata"].get("action"),
+            STATUS_ACTION_LINT_RESOLVED,
+            "Write/Edit-time lint resolution must tag action=lint_resolved "
+            "to symmetrically tick retro_metrics' lint_events counter "
+            "(commit-time path already does this via lint_resolution.py).",
         )
 
     def test_lint_pass_no_resolve_for_different_file(self):
