@@ -82,8 +82,6 @@ class TestSecurityPreCommitE2E(_IntegrationTestCase):
 
         # Developer adds the suppression marker and re-stages.
         self._stage("workflow.py", _NOQA_LINE)
-        # Triage marker may have been consumed; re-write before second pass.
-        security.write_security_triaged(self.smm_dir)
 
         unblocked = self._run_script("pre_tool_bash.py", self._commit_input())
         self.assertEqual(unblocked.returncode, 0, unblocked.stderr)
