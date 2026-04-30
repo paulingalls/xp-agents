@@ -529,5 +529,49 @@ class TestRenderStorySections(unittest.TestCase):
         self.assertEqual(md, "")
 
 
+# ===========================================================================
+# Status-module extraction + re-export shim (story-008)
+# ===========================================================================
+# When sprint_store grew past 500 lines, the 8 status-check functions were
+# moved into a sibling module sprint_status. This class pins both the new
+# import path AND the legacy import path through sprint_store, so the 16+
+# existing callers keep working without churn (constraint 2c19173dad39).
+
+
+class TestSprintStatusModuleAndShim(unittest.TestCase):
+    _STATUS_NAMES = (
+        "has_active_stories",
+        "has_active_stories_data",
+        "has_stories_with_status",
+        "has_in_progress_stories",
+        "has_ready_stories",
+        "has_scheduled_stories",
+        "scheduled_file_domains_overlap",
+        "is_complete",
+    )
+
+    def test_new_module_exposes_all_status_functions(self):
+        import sprint_status
+
+        for name in self._STATUS_NAMES:
+            self.assertTrue(
+                callable(getattr(sprint_status, name, None)),
+                f"sprint_status.{name} should be a callable",
+            )
+
+    def test_sprint_store_reexports_status_functions(self):
+        import sprint_status
+        import sprint_store
+
+        for name in self._STATUS_NAMES:
+            store_fn = getattr(sprint_store, name, None)
+            status_fn = getattr(sprint_status, name, None)
+            self.assertIs(
+                store_fn,
+                status_fn,
+                f"sprint_store.{name} must re-export sprint_status.{name}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
