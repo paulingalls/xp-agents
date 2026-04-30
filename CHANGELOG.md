@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.35.1 — Concern + debt cleanup
+
+Eight commits closing out a session-long sweep of open concerns and 500-line file-budget debts. No behavior changes — pure refactors, dedup, and consolidation. 3553 tests green at every commit.
+
+### Resolved concerns (4)
+- 14b7aefa4fd2 — security-triage hallucination (built-in `/security-review`); follow-up debt filed to capture review summary text into events.jsonl for forensics.
+- ba6e79c4ae0a — per-story close-reviewer latency (decided "always run reviewer").
+- 23122adc8608 / 7eb4829f80b6 — branching.py size (adopted as next-sprint named story).
+
+### New shared modules (extracted from oversized files)
+- `scripts/plugin_loader.py` (58 lines) — split from `_common.py` (551 → 497). Plugin-root resolution + guide loading. Module docstring preserves the load-bearing "agent Bash strips CLAUDE_PLUGIN_ROOT" rationale and the no-caching reason.
+- `smm/append_validation.py` (68 lines) — split from `_append_impl.py` (536 → 483). Three validation primitives (`validate_smm_dir`, `validate_agent_id`, `parse_jsonl`). Underscore prefix dropped — these are now public API. 13 callers updated, no re-export shims.
+- `tests/scaffold/_helpers.py` — promoted shared `frontmatter_body` / `step_section` SKILL.md parsers (was inline in two test files).
+- `tests/hooks/_hooks_json.py` (35 lines) — promoted shared `HooksJsonTestCase` base (was duplicated across two test files).
+
+### New script subcommands
+- `close_common.py diff-command` — replaces the inline 3-line "Pick the diff command" stanza duplicated 4× across `xp-{sprint,plan,free,story}-close/SKILL.md`. Print-only, no `--cwd` requirement.
+- `branching.py list-teammate-worktrees` — wraps `worktree.list_live_teammate_worktree_names` so `xp-accept` preload can drop its inline `git worktree list --porcelain | grep | sed` parser. Latent bug fix: prunable worktrees are now correctly skipped.
+
+### Test-file splits (all under 500-line target)
+- `test_system_context_cli.py` (590 → 453) → `test_system_context_cli_branching.py` (179 lines)
+- `test_scaffold_skill.py` (581 → 464) → `test_scaffold_skill_m3.py` (121 lines)
+- `test_smm_cli.py` (519 → 350) → `test_smm_cli_items.py` (201 lines)
+- `test_validation.py` (509 → 340) → `test_validation_hooks.py` (164 lines)
+- `test_common.py` (514 → 452) — bonus shrink from `plugin_loader` extraction
+
+### Filed for follow-up
+- `_valid_doc` + `_write_doc` system_context fixtures duplicated across 7 test files — extract to `tests/_system_context_fixtures.py` next session.
+- security-reviewer agent's vulnerability summary not captured to events.jsonl — adds a forensic gap when the subagent hallucinates.
+
 ## v2.35.0 — JIT story branches + close-skill unification
 
 Twelve commits replacing eager-all branch creation with just-in-time (solo mode) and consolidating the four close skills onto a shared pipeline. 3544 tests green at every commit. Resolves Try 1 (ff-only post-step in /xp-accept) by addressing the root cause — stale chained branches — instead of patching the symptom.
