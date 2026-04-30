@@ -9,7 +9,6 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
-  - Bash(python3 */scripts/cleanup_teammate.py *)
   - Skill
 ---
 
@@ -131,17 +130,10 @@ For cascaded deferrals, include the cascade reason (e.g., "deferred: depends on 
 
 Present: how many stories marked done, how many deferred.
 
-## Step 5: Cleanup Teammate Worktrees (if TEAMMATE_WORKTREES shown)
+Per-story teammate-worktree cleanup is owned by /xp-story-close
+(invoked in Step 2b above) — it removes the teammate worktree per
+closed story when one existed (decision 9029c07ae198).
 
-For each **done** story's worktree:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
-  --name worktree-story-NNN --smm-dir <SMM_DIR>
-```
-
-Verifies branch is merged before removing worktree, branch, markers, and report. **Only cleanup done stories** — leave deferred worktrees intact. If cleanup fails (unmerged commits), report and skip.
-
-## Step 6: Sprint Review
+## Step 5: Sprint Review
 
 **If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate.

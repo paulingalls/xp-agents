@@ -16,6 +16,7 @@ allowed-tools:
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
   - Bash(python3 */smm/sprint_cli.py *)
+  - Bash(python3 */scripts/cleanup_teammate.py *)
   - Bash(git push *)
   - Bash(gh pr *)
 ---
@@ -120,6 +121,40 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
 The script chains: merge `--no-ff` → push target (if remote) → delete
 source. Any step failing aborts the chain — the source branch always
 survives a failed step so the user can resolve and retry.
+
+## Step 7b: Teammate worktree cleanup (if applicable)
+
+If the story being closed was a teammate's, a worktree exists at
+`.claude/worktrees/worktree-<story-id>`. Solo stories have no
+worktree to clean up. Per-story symmetry (decision 9029c07ae198)
+puts the cleanup here, not bulk-after-loop in /xp-accept.
+
+Derive the story id from the just-closed `<CURRENT_BRANCH>` (form
+`<user>/story-NNN-<slug>`) and check whether a matching worktree
+exists. Teammate worktrees are named `worktree-story-NNN` exactly
+(no slug suffix — see `spawn_teammate.py` and `_TEAMMATE_PREFIX`
+in `identity.py`):
+
+```bash
+STORY_ID=$(echo "<CURRENT_BRANCH>" | sed -nE 's|.*/(story-[0-9]+)-.*|\1|p')
+WORKTREE_NAME=$(ls -1 .claude/worktrees 2>/dev/null \
+  | grep -E "^worktree-${STORY_ID}$" | head -n1)
+```
+
+Run cleanup ONLY when `WORKTREE_NAME` is non-empty (empty = solo mode,
+no worktree to clean). Use an executable guard so the gate isn't just
+prose:
+
+```bash
+if [ -n "$WORKTREE_NAME" ]; then
+  python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
+    --name "$WORKTREE_NAME" --smm-dir <SMM_DIR>
+fi
+```
+
+`cleanup_teammate.py` verifies the branch is merged before removing
+the worktree, branch, markers, and report. The merge in Step 7
+already ran, so the merge check passes.
 
 ## Step 8: JIT-next dispatch (solo mode)
 

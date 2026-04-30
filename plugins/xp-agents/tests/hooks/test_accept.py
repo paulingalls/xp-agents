@@ -173,6 +173,25 @@ class TestAcceptSkillTextDispatchesToStoryClose(unittest.TestCase):
         # dispatch stays in /xp-accept.
         self.assertIn("/xp-sprint-review", self.text)
 
+    def test_cleanup_teammate_moved_to_story_close(self):
+        # Per decision 9029c07ae198: cleanup_teammate.py runs in
+        # /xp-story-close per closed story (per-story symmetry), not
+        # bulk-after-loop in /xp-accept. /xp-accept must NOT mention
+        # the cleanup script anymore — leaves a footgun if an editor
+        # adds it back without thinking.
+        self.assertNotIn(
+            "cleanup_teammate.py",
+            self.text,
+            "/xp-accept must NOT invoke cleanup_teammate.py — the "
+            "cleanup moved to /xp-story-close per closed story for "
+            "per-story symmetry (decision 9029c07ae198).",
+        )
+        self.assertNotIn(
+            "Cleanup Teammate Worktrees",
+            self.text,
+            "Step 5 (Cleanup Teammate Worktrees) moved to /xp-story-close",
+        )
+
 
 class TestAcceptPreloadTypes(_IntegrationTestCase):
     """Preload surfaces acceptance_execution type per in-progress story."""

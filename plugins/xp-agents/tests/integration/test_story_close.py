@@ -135,6 +135,40 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "SKILL.md must reference branch_name to gate JIT-create",
         )
 
+    def test_cleans_up_teammate_worktree_when_present(self):
+        # Per-story symmetry (decision 9029c07ae198): cleanup_teammate.py
+        # runs from /xp-story-close per closed story when a teammate
+        # worktree existed for that story — not bulk-after-loop in
+        # /xp-accept. SKILL.md must reference cleanup_teammate.py and
+        # gate the call on worktree existence (so solo-mode closes
+        # don't try to clean up a non-existent worktree).
+        self.assertIn(
+            "cleanup_teammate.py",
+            self.text,
+            "/xp-story-close must invoke cleanup_teammate.py for the "
+            "just-closed story when a teammate worktree existed for it",
+        )
+        # Gate prose must mention worktree presence (e.g. "if a worktree
+        # exists" / "teammate worktree" / "worktree-story-") so solo
+        # closes skip the cleanup cleanly.
+        self.assertRegex(
+            self.text,
+            r"(?is)worktree[^.\n]{0,200}exist|worktree-story-",
+            "SKILL.md must gate cleanup_teammate.py on worktree presence",
+        )
+        # Pin the actual worktree-name pattern. Teammate worktrees are
+        # `worktree-story-NNN` with NO slug suffix (see spawn_teammate.py
+        # and identity._TEAMMATE_PREFIX). A grep that requires a trailing
+        # hyphen (e.g. `^worktree-story-NNN-`) would never match a real
+        # teammate worktree and the cleanup would silently no-op.
+        self.assertNotRegex(
+            self.text,
+            r'grep[^\n]*"\^worktree-\$\{STORY_ID\}-"',
+            "Worktree-grep must not require a trailing hyphen — teammate "
+            "worktrees are named `worktree-story-NNN` exactly, no slug "
+            "suffix (spawn_teammate.py, identity._TEAMMATE_PREFIX).",
+        )
+
     def test_does_not_dispatch_sprint_review(self):
         # Per recorded decision e30e9e91e61a: /xp-story-close NEVER
         # fires /xp-sprint-review. /xp-accept owns that single
