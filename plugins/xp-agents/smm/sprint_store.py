@@ -332,7 +332,7 @@ def next_sprint_id(smm_dir: Path) -> str:
 
 def _count_sprint_starts(smm_dir: Path) -> int:
     """Count sprint start events in events.jsonl."""
-    from _append_impl import parse_jsonl
+    from append_validation import parse_jsonl
 
     path = smm_dir / "events.jsonl"
     if path.is_symlink():

@@ -18,15 +18,17 @@ from _append_impl import (
     PRIORITY_ASSUMED,  # noqa: F401
     PRIORITY_BLOCKING,  # noqa: F401
     PRIORITY_INFO,  # noqa: F401
-    _validate_agent_id,  # noqa: F401
     now_iso,
-    parse_jsonl,
     write_watermark,  # noqa: F401
 )
-from _append_impl import _validate_smm_dir as validate_smm_dir
 from _append_impl import resolve_smm_dir as _resolve_smm_dir_impl
 from _append_impl import (
     write_json_atomic as _write_json_atomic,
+)
+from append_validation import (
+    parse_jsonl,
+    validate_agent_id,  # noqa: F401
+    validate_smm_dir,
 )
 
 # ---------------------------------------------------------------------------

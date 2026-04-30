@@ -18,7 +18,8 @@ from typing import Literal
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
-from _append_impl import _validate_agent_id, write_json_atomic, write_text_atomic
+from _append_impl import write_json_atomic, write_text_atomic
+from append_validation import validate_agent_id
 
 # ---------------------------------------------------------------------------
 # MarkerDef descriptor
@@ -38,7 +39,7 @@ class MarkerDef:
         if self.agent_scoped:
             if not agent_id:
                 raise ValueError("agent_id required for agent-scoped marker")
-            _validate_agent_id(agent_id)
+            validate_agent_id(agent_id)
             return self.name.format(agent_id=agent_id)
         return self.name
 

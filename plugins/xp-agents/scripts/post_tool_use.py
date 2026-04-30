@@ -36,7 +36,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     agent_id = identity.resolve_agent_id(input_data)
     try:
-        _common._validate_agent_id(agent_id)
+        _common.validate_agent_id(agent_id)
     except ValueError:
         return None
     cwd = input_data.get("cwd", ".")

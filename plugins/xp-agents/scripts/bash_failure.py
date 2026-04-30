@@ -43,7 +43,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     agent_id = identity.resolve_agent_id(input_data)
     try:
-        _common._validate_agent_id(agent_id)
+        _common.validate_agent_id(agent_id)
     except ValueError:
         return None
     error = input_data.get("error", "")

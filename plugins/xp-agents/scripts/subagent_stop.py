@@ -222,7 +222,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = input_data.get("agent_id", "subagent")
     try:
-        _common._validate_agent_id(agent_id)
+        _common.validate_agent_id(agent_id)
     except ValueError:
         return None
 
