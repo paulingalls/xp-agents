@@ -19,6 +19,7 @@ import _common
 import concerns
 import identity
 import worktree
+from event_schema import STATUS_ACTION_LINT_RESOLVED
 
 # ---------------------------------------------------------------------------
 # Linter detection
@@ -362,6 +363,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             lambda c, n=normalized: concerns.lint_concern_matches(c, n),
             "lint-check",
             "Lint concern resolved",
+            extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
         )
 
     return None
