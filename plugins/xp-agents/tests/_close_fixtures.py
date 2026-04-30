@@ -18,12 +18,46 @@ merge+delete ordering, etc.). Subclasses supply `_SKILL_MD: Path` and
 on the subclasses.
 """
 
+import os
 import re
+import shlex
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
 
 from conftest import _extract_preload_var
+
+
+def stub_gh(stub_dir: str, stdout: str, exit_code: int = 0) -> dict:
+    """Write a fake `gh` script that prints `stdout` and exits `exit_code`.
+
+    Returns env dict with PATH prefixed by stub_dir. Used by close_common
+    tests (and future close-family tests) to exercise the gh-available
+    path without depending on a real `gh` binary or live GitHub.
+    """
+    gh_path = Path(stub_dir) / "gh"
+    # shlex.quote prevents callers' stdout containing $/`/quotes from
+    # injecting into the sh script. Today's callers pass URL literals,
+    # but the helper outlives its first user.
+    gh_path.write_text(
+        f"#!/bin/sh\nprintf '%s' {shlex.quote(stdout)}\nexit {exit_code}\n"
+    )
+    gh_path.chmod(gh_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    env = dict(os.environ)
+    env["PATH"] = f"{stub_dir}:{env.get('PATH', '')}"
+    return env
+
+
+def stub_no_gh(stub_dir: str) -> dict:
+    """Return env with PATH scoped to `stub_dir` so no real `gh` is found.
+
+    `stub_dir` should be empty (no gh script). Used by close-family tests
+    to exercise the gh-not-available skip path.
+    """
+    env = dict(os.environ)
+    env["PATH"] = stub_dir
+    return env
 
 
 class _ClosePreloadCommonTests:
