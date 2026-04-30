@@ -22,6 +22,7 @@ import _common
 import event_schema
 import identity
 import markers
+import plugin_loader
 import security
 
 # Canonical target names — derived from skill/agent names via _detect_target.
@@ -161,7 +162,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Return appropriate context.
     if target == _TARGET_HOUSEKEEPING:
-        return _common.load_process_guide() or None
+        return plugin_loader.load_process_guide() or None
     if target == _TARGET_PLAN_REVIEW:
         return _TASK_CREATION_NUDGE
     return _NEXT_STEP.get(flag) if flag else None

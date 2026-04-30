@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
+import plugin_loader
 from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
@@ -330,7 +330,7 @@ class TestTeammateGuideContent(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.guide = _common.load_teammate_guide()
+        cls.guide = plugin_loader.load_teammate_guide()
         assert cls.guide, "load_teammate_guide() returned None"
 
     def test_has_full_review_cycle(self):

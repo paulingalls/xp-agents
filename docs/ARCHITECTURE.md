@@ -132,11 +132,13 @@ Forked skills delegate to a subagent above. Inline skills run in the main agent 
 - `/xp-quality-review` — orchestrator: spawns `xp-code-reviewer` subagent for independent review (simplify accountability, drift, debt, XP-lens), resolves plan concerns inline
 - `/xp-plan` — create/update execution plan with milestones (`execution_plan.json`)
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
-- `/xp-accept` — acceptance testing gate, mark stories done/deferred
-- `/xp-assign` — analyze plan steps, decide execution mode (solo vs CLI teammates), spawn teammates via `spawn_teammate.py` for parallel execution. Auto-runs after planning completes
+- `/xp-accept` — acceptance testing gate, mark stories done/deferred, dispatch `/xp-story-close` per accepted story
+- `/xp-assign` — analyze plan steps, decide execution mode (solo vs CLI teammates), spawn teammates via `spawn_teammate.py` for parallel execution. Solo creates only the first in-progress story branch (JIT); teammate mode creates all parallel-eligible branches eagerly (one per teammate). Auto-runs after planning completes
+- `/xp-story-close` — per-accepted-story: review (close-reviewer mode=story), merge into sprint base via `close_common.py merge`, cleanup teammate worktree if present, JIT-create next solo story's branch off merged sprint tip
 - `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
 - `/xp-plan-close` — push plan branch, fork close-reviewer, merge into primary, archive plan
 - `/xp-free-close` — push free branch, fork close-reviewer, merge into primary, cleanup
+- `scripts/close_common.py` — shared close pipeline (preflight, push, create-pr, merge subcommands) used by all four close skills above; eliminates the ~80% bash duplication that previously lived across SKILL.md files
 
 XP values are covered by the process guide (injected at SubagentStart).
 
@@ -272,7 +274,7 @@ plugins/xp-agents/
 - **SubagentStop only supports `decision:"block"` or silence** — `decision:"approve"` with `reason` is silently dropped. No `additionalContext` support. This limits enforcement options for plan review
 - Plugin cache requires version bump to update — `/reload-plugins` alone isn't sufficient if version is unchanged
 - File-based coordination (`.retro-input.json`) is a race — design for graceful degradation
-- **`${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are NOT exported into the agent's Bash tool environment** in `claude -p` (and regular `claude`). Claude Code substitutes them when injecting `SKILL.md` content and hook command strings, but raw markdown loaded via our own loaders (e.g. `_common.load_process_guide`, `load_teammate_guide`) leaks the literal variable into agent Bash, where it expands to empty. Loaders that inject guide content as `additionalContext` MUST run text through `_common._expand_plugin_root` first
+- **`${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are NOT exported into the agent's Bash tool environment** in `claude -p` (and regular `claude`). Claude Code substitutes them when injecting `SKILL.md` content and hook command strings, but raw markdown loaded via our own loaders (e.g. `plugin_loader.load_process_guide`, `plugin_loader.load_teammate_guide`) leaks the literal variable into agent Bash, where it expands to empty. Loaders that inject guide content as `additionalContext` MUST run text through `plugin_loader.expand_plugin_root` first
 
 ## Error Handling
 

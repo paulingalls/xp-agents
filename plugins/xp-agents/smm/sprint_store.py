@@ -10,6 +10,7 @@ Follows the same pattern as execution_plan_store.py.
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -189,6 +190,72 @@ def is_complete(smm_dir: Path) -> bool:
     return not has_active_stories_data(sprint)
 
 
+def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
+    """Return the recorded branch_name for a story, or empty string.
+
+    Powers /xp-story-close's JIT-next gate: a non-empty branch_name
+    means the branch already exists (parallel teammate batch at
+    /xp-assign), so JIT-create is skipped. Empty means solo mode —
+    create the branch off the just-merged sprint tip.
+
+    Returns "" when the sprint is missing OR the story is missing OR
+    branch_name is unset, to keep the CLI contract simple (caller can
+    test for non-empty without distinguishing the failure modes).
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return ""
+    story = next((s for s in sprint["stories"] if s["id"] == story_id), None)
+    if story is None:
+        return ""
+    return story.get("branch_name", "") or ""
+
+
+def next_in_progress_story_id(smm_dir: Path) -> str | None:
+    """Lowest-id in-progress story whose deps are ALL done. None if none.
+
+    Powers JIT branch creation in /xp-story-close: the next story's
+    branch is born off the merged tip of the just-accepted story, but
+    only when the candidate's deps are actually satisfied. Cascade-defer
+    naturally excludes blocked stories — a deferred story's status is
+    "deferred", not "done", so any in-progress story depending on it
+    fails the "all deps done" check and is skipped.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return None
+    by_id = {s["id"]: s for s in sprint["stories"]}
+
+    def _deps_done(story: dict) -> bool:
+        return all(
+            by_id.get(dep, {}).get("status") == "done"
+            for dep in story.get("dependencies", [])
+        )
+
+    eligible = [
+        s["id"]
+        for s in sprint["stories"]
+        if s["status"] == "in-progress" and _deps_done(s)
+    ]
+    if not eligible:
+        return None
+
+    # Numeric sort by trailing -NNN — lexical min would order story-10
+    # before story-2. Project convention zero-pads (story-001) but a
+    # numeric key removes the latent footgun. Malformed ids (typos
+    # like `story-2a` that escaped schema validation) fall back to a
+    # large sentinel so they sort last instead of crashing the close
+    # pipeline with an uncaught ValueError.
+    def _id_sort_key(s: str) -> tuple[int, str]:
+        tail = s.rsplit("-", 1)[-1]
+        try:
+            return (int(tail), s)
+        except ValueError:
+            return (sys.maxsize, s)
+
+    return min(eligible, key=_id_sort_key)
+
+
 # -------------------------------------------------------------------
 # Computed fields (pure functions on sprint dict)
 # -------------------------------------------------------------------
@@ -265,7 +332,7 @@ def next_sprint_id(smm_dir: Path) -> str:
 
 def _count_sprint_starts(smm_dir: Path) -> int:
     """Count sprint start events in events.jsonl."""
-    from _append_impl import parse_jsonl
+    from append_validation import parse_jsonl
 
     path = smm_dir / "events.jsonl"
     if path.is_symlink():

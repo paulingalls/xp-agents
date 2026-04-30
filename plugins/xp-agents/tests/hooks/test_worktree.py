@@ -289,5 +289,181 @@ class TestHasLiveTeammates(unittest.TestCase):
             shutil.rmtree(non_git, ignore_errors=True)
 
 
+class TestFindTeammateWorktreeForStory(unittest.TestCase):
+    """find_teammate_worktree_for_story locates the `worktree-story-NNN`
+    teammate worktree for a given story id. Returns None when no live
+    worktree exists for that story (solo mode, or teammate already
+    cleaned up). Powers /xp-story-close's Step 7b cleanup gate.
+
+    Mirrors has_live_teammates' use of `git worktree list --porcelain`
+    (real git state, skips prunable entries) but filters by exact
+    story-id match instead of just checking for any teammate.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_returns_none_when_no_worktrees(self):
+        porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertIsNone(
+                worktree.find_teammate_worktree_for_story("story-001", str(self.tmpdir))
+            )
+
+    def test_returns_worktree_name_when_match(self):
+        wt_dir = self.tmpdir / ".claude" / "worktrees" / "worktree-story-042"
+        wt_dir.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt_dir}\nHEAD def\n"
+            "branch refs/heads/worktree-story-042\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.find_teammate_worktree_for_story(
+                    "story-042", str(self.tmpdir)
+                ),
+                "worktree-story-042",
+            )
+
+    def test_returns_none_when_other_story_present(self):
+        wt_dir = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt_dir.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt_dir}\nHEAD def\n"
+            "branch refs/heads/worktree-story-001\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertIsNone(
+                worktree.find_teammate_worktree_for_story("story-002", str(self.tmpdir))
+            )
+
+    def test_skips_prunable_entries(self):
+        # A prunable worktree-story-NNN should not match — its dir is
+        # stale and the cleanup script would fail on it.
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            "worktree /tmp/.claude/worktrees/worktree-story-099\n"
+            "HEAD def\nbranch refs/heads/worktree-story-099\nprunable gitdir\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertIsNone(
+                worktree.find_teammate_worktree_for_story("story-099", str(self.tmpdir))
+            )
+
+    def test_returns_none_for_non_git_cwd(self):
+        import shutil
+
+        non_git = Path(tempfile.mkdtemp())
+        try:
+            self.assertIsNone(
+                worktree.find_teammate_worktree_for_story("story-001", str(non_git))
+            )
+        finally:
+            shutil.rmtree(non_git, ignore_errors=True)
+
+    def test_finds_match_when_not_first_in_list(self):
+        # Exercises the loop's continuation past non-matching entries —
+        # the target (story-002) appears AFTER another teammate worktree
+        # (story-001) in the porcelain output.
+        wt001 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt002 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
+        wt001.mkdir(parents=True)
+        wt002.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt001}\nHEAD def\n"
+            "branch refs/heads/worktree-story-001\n\n"
+            f"worktree {wt002}\nHEAD ghi\n"
+            "branch refs/heads/worktree-story-002\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.find_teammate_worktree_for_story(
+                    "story-002", str(self.tmpdir)
+                ),
+                "worktree-story-002",
+            )
+
+
+class TestListLiveTeammateWorktreeNames(unittest.TestCase):
+    """list_live_teammate_worktree_names returns the basename for every
+    live (non-prunable, on-disk) `worktree-story-*` worktree.
+
+    Powers /xp-accept's preload — it currently does its own inline
+    `git worktree list --porcelain | grep | sed` parser. This helper
+    is the same data source as has_live_teammates / find_teammate_worktree_for_story
+    so all three queries stay consistent if the porcelain shape changes.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_returns_empty_when_no_teammate_worktrees(self):
+        porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_names(str(self.tmpdir)),
+                [],
+            )
+
+    def test_returns_names_in_porcelain_order(self):
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-042"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt1}\nHEAD def\n"
+            "branch refs/heads/worktree-story-001\n\n"
+            f"worktree {wt2}\nHEAD ghi\n"
+            "branch refs/heads/worktree-story-042\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_names(str(self.tmpdir)),
+                ["worktree-story-001", "worktree-story-042"],
+            )
+
+    def test_skips_prunable_entries(self):
+        wt_live = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt_live.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt_live}\nHEAD def\n"
+            "branch refs/heads/worktree-story-001\n\n"
+            "worktree /tmp/.claude/worktrees/worktree-story-099\n"
+            "HEAD ghi\nbranch refs/heads/worktree-story-099\nprunable gitdir\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_names(str(self.tmpdir)),
+                ["worktree-story-001"],
+            )
+
+    def test_returns_empty_for_non_git_cwd(self):
+        import shutil
+
+        non_git = Path(tempfile.mkdtemp())
+        try:
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_names(str(non_git)),
+                [],
+            )
+        finally:
+            shutil.rmtree(non_git, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

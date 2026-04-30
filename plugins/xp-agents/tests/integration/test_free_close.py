@@ -65,15 +65,6 @@ class TestFreeCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     _SKILL_MD = _SKILL_MD
     _MODE = "free"
 
-    def test_refuses_when_current_equals_target(self):
-        # Free-close from the primary branch is nonsensical — refuse.
-        self.assertIn("CURRENT_BRANCH == TARGET_BRANCH", self.text)
-        lower = self.text.lower()
-        self.assertTrue(
-            "refuse" in lower or "abort" in lower or "stop" in lower,
-            "SKILL.md must describe refusing when CURRENT_BRANCH==TARGET_BRANCH",
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

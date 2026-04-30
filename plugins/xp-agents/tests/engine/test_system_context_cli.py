@@ -9,29 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _system_context_fixtures import valid_doc, write_doc
 from conftest import _SMMTestCase, run_cli
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "system_context_cli.py"
-
-
-def _valid_doc() -> dict:
-    """Return a minimal valid system context document."""
-    return {
-        "product": "A test product.",
-        "architecture_overview": "Simple architecture.",
-        "stack": {"languages": ["Python"]},
-        "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
-        "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "language", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
-        "project_specific": [],
-    }
-
-
-def _write_doc(smm_dir: Path, doc: dict | None = None) -> None:
-    """Write a valid system context doc to the SMM directory."""
-    (smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(json.dumps(doc or _valid_doc()))
 
 
 # ── exists ──────────────────────────────────────────────────────
@@ -39,7 +21,7 @@ def _write_doc(smm_dir: Path, doc: dict | None = None) -> None:
 
 class TestExistsCommand(_SMMTestCase):
     def test_exists_when_present(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(_CLI, ["exists"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
 
@@ -52,8 +34,8 @@ class TestExistsCommand(_SMMTestCase):
 
 
 class TestValidateCommand(_SMMTestCase):
-    def test_validate_valid_doc(self) -> None:
-        _write_doc(self.smm_dir)
+    def test_validatevalid_doc(self) -> None:
+        write_doc(self.smm_dir)
         result = run_cli(_CLI, ["validate"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
 
@@ -74,8 +56,8 @@ class TestValidateCommand(_SMMTestCase):
 
 
 class TestCreateCommand(_SMMTestCase):
-    def test_create_valid_doc(self) -> None:
-        doc = _valid_doc()
+    def test_createvalid_doc(self) -> None:
+        doc = valid_doc()
         result = run_cli(_CLI, ["create"], self.smm_dir, stdin_data=json.dumps(doc))
         self.assertEqual(result.returncode, 0)
         self.assertTrue((self.smm_dir / SYSTEM_CONTEXT_FILENAME).exists())
@@ -96,15 +78,15 @@ class TestCreateCommand(_SMMTestCase):
         self.assertIn("Validation error", result.stderr)
 
     def test_create_preserves_branching_strategy_when_omitted(self) -> None:
-        existing = _valid_doc()
+        existing = valid_doc()
         existing["branching_strategy"] = {
             "stage": 2,
             "user_namespace": "paul",
             "protected_branches": ["main"],
         }
-        _write_doc(self.smm_dir, existing)
+        write_doc(self.smm_dir, existing)
 
-        incoming = _valid_doc()
+        incoming = valid_doc()
         result = run_cli(
             _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
         )
@@ -115,13 +97,13 @@ class TestCreateCommand(_SMMTestCase):
         self.assertEqual(data["branching_strategy"]["user_namespace"], "paul")
 
     def test_create_preserves_acceptance_surfaces_when_omitted(self) -> None:
-        existing = _valid_doc()
+        existing = valid_doc()
         existing["acceptance_surfaces"] = [
             {"name": "tests", "signals": ["pytest"], "status": "covered"}
         ]
-        _write_doc(self.smm_dir, existing)
+        write_doc(self.smm_dir, existing)
 
-        incoming = _valid_doc()
+        incoming = valid_doc()
         result = run_cli(
             _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
         )
@@ -131,11 +113,11 @@ class TestCreateCommand(_SMMTestCase):
         self.assertEqual(data["acceptance_surfaces"][0]["name"], "tests")
 
     def test_create_explicit_null_wipes_branching_strategy(self) -> None:
-        existing = _valid_doc()
+        existing = valid_doc()
         existing["branching_strategy"] = {"stage": 2}
-        _write_doc(self.smm_dir, existing)
+        write_doc(self.smm_dir, existing)
 
-        incoming = _valid_doc()
+        incoming = valid_doc()
         incoming["branching_strategy"] = None
         result = run_cli(
             _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
@@ -145,13 +127,13 @@ class TestCreateCommand(_SMMTestCase):
         self.assertNotIn("branching_strategy", data)
 
     def test_create_explicit_null_wipes_acceptance_surfaces(self) -> None:
-        existing = _valid_doc()
+        existing = valid_doc()
         existing["acceptance_surfaces"] = [
             {"name": "tests", "signals": ["pytest"], "status": "covered"}
         ]
-        _write_doc(self.smm_dir, existing)
+        write_doc(self.smm_dir, existing)
 
-        incoming = _valid_doc()
+        incoming = valid_doc()
         incoming["acceptance_surfaces"] = None
         result = run_cli(
             _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
@@ -161,7 +143,7 @@ class TestCreateCommand(_SMMTestCase):
         self.assertNotIn("acceptance_surfaces", data)
 
     def test_create_fresh_without_optional_fields(self) -> None:
-        incoming = _valid_doc()
+        incoming = valid_doc()
         result = run_cli(
             _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
         )
@@ -176,11 +158,11 @@ class TestCreateCommand(_SMMTestCase):
 
 class TestRenderCommand(_SMMTestCase):
     def test_render_canonical_order(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [
             {"name": "Custom Section", "content": "Custom content"}
         ]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         output = result.stdout
@@ -209,22 +191,22 @@ class TestRenderCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
 
     def test_render_project_specific_string(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [{"name": "Notes", "content": "Some prose notes."}]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertIn("Some prose notes.", result.stdout)
 
     def test_render_project_specific_list_of_strings(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [{"name": "Items", "content": ["item1", "item2"]}]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertIn("- item1", result.stdout)
         self.assertIn("- item2", result.stdout)
 
     def test_render_project_specific_list_of_objects(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [
             {
                 "name": "Hooks",
@@ -234,18 +216,18 @@ class TestRenderCommand(_SMMTestCase):
                 ],
             }
         ]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertIn("event", result.stdout)
         self.assertIn("PreToolUse", result.stdout)
         self.assertIn("PostToolUse", result.stdout)
 
     def test_render_project_specific_object(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [
             {"name": "Config", "content": {"key": "value", "debug": "false"}}
         ]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(_CLI, ["render"], self.smm_dir)
         self.assertIn("key", result.stdout)
         self.assertIn("value", result.stdout)
@@ -256,21 +238,21 @@ class TestRenderCommand(_SMMTestCase):
 
 class TestSectionCommand(_SMMTestCase):
     def test_section_generic_field(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(_CLI, ["section", "product"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("A test product.", result.stdout)
 
     def test_section_project_specific(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [{"name": "Custom", "content": "Custom data"}]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(_CLI, ["section", "Custom"], self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("Custom data", result.stdout)
 
     def test_section_unknown_name(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(_CLI, ["section", "nonexistent"], self.smm_dir)
         self.assertEqual(result.returncode, 1)
 
@@ -284,7 +266,7 @@ class TestSectionCommand(_SMMTestCase):
 
 class TestEditFieldCommand(_SMMTestCase):
     def test_edit_field_string(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
             ["edit-field", "product"],
@@ -296,7 +278,7 @@ class TestEditFieldCommand(_SMMTestCase):
         self.assertEqual(data["product"], "Updated product")
 
     def test_edit_field_preserves_other_fields(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         run_cli(
             _CLI,
             ["edit-field", "product"],
@@ -316,7 +298,7 @@ class TestEditFieldCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
 
     def test_edit_field_unknown_field(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
             ["edit-field", "nonexistent"],
@@ -326,9 +308,9 @@ class TestEditFieldCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
 
     def test_edit_field_project_specific(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         doc["project_specific"] = [{"name": "Custom", "content": "Old content"}]
-        _write_doc(self.smm_dir, doc)
+        write_doc(self.smm_dir, doc)
         result = run_cli(
             _CLI,
             ["edit-field", "Custom"],
@@ -340,7 +322,7 @@ class TestEditFieldCommand(_SMMTestCase):
         self.assertEqual(data["project_specific"][0]["content"], "New content")
 
     def test_edit_field_invalid_json(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
             ["edit-field", "product"],
@@ -356,7 +338,7 @@ class TestEditFieldCommand(_SMMTestCase):
 
 class TestAddModuleCommand(_SMMTestCase):
     def test_add_module(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         new_module = {"name": "api", "purpose": "API layer", "path": "src/api"}
         result = run_cli(
             _CLI,
@@ -370,7 +352,7 @@ class TestAddModuleCommand(_SMMTestCase):
         self.assertEqual(data["modules"][1]["name"], "api")
 
     def test_add_module_invalid_json(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
             ["add-module"],
@@ -395,7 +377,7 @@ class TestAddModuleCommand(_SMMTestCase):
 
 class TestAddDecisionCommand(_SMMTestCase):
     def test_add_decision(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         new_decision = {"topic": "database", "decision": "Use SQLite"}
         result = run_cli(
             _CLI,
@@ -409,7 +391,7 @@ class TestAddDecisionCommand(_SMMTestCase):
         self.assertEqual(data["key_decisions"][1]["topic"], "database")
 
     def test_add_decision_invalid_json(self) -> None:
-        _write_doc(self.smm_dir)
+        write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
             ["add-decision"],
@@ -429,148 +411,12 @@ class TestAddDecisionCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
 
 
-# ── edit-branching ─────────────────────────────────────────────
-
-
-class TestEditBranchingCommand(_SMMTestCase):
-    def test_edit_branching_valid(self) -> None:
-        _write_doc(self.smm_dir)
-        bs = {"stage": 1, "user_namespace": "paul"}
-        result = run_cli(
-            _CLI,
-            ["edit-branching"],
-            self.smm_dir,
-            stdin_data=json.dumps(bs),
-        )
-        self.assertEqual(result.returncode, 0)
-        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
-        self.assertEqual(data["branching_strategy"]["stage"], 1)
-        self.assertEqual(data["branching_strategy"]["user_namespace"], "paul")
-
-    def test_edit_branching_invalid_stage(self) -> None:
-        _write_doc(self.smm_dir)
-        bs = {"stage": 5}
-        result = run_cli(
-            _CLI,
-            ["edit-branching"],
-            self.smm_dir,
-            stdin_data=json.dumps(bs),
-        )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("Validation error", result.stderr)
-
-    def test_edit_branching_no_existing_context(self) -> None:
-        bs = {"stage": 1}
-        result = run_cli(
-            _CLI,
-            ["edit-branching"],
-            self.smm_dir,
-            stdin_data=json.dumps(bs),
-        )
-        self.assertEqual(result.returncode, 1)
-
-    def test_edit_branching_replaces_existing(self) -> None:
-        doc = _valid_doc()
-        doc["branching_strategy"] = {"stage": 0}
-        _write_doc(self.smm_dir, doc)
-        bs = {"stage": 2, "protected_branches": ["main"]}
-        result = run_cli(
-            _CLI,
-            ["edit-branching"],
-            self.smm_dir,
-            stdin_data=json.dumps(bs),
-        )
-        self.assertEqual(result.returncode, 0)
-        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
-        self.assertEqual(data["branching_strategy"]["stage"], 2)
-
-    def test_edit_branching_null_wipes_field(self) -> None:
-        # Symmetry with _cmd_create: explicit null on an optional top-level
-        # field (branching_strategy / acceptance_surfaces) wipes the field
-        # rather than storing literal None (which would fail schema
-        # validation). Both CLI entry points to optional fields agree on
-        # null-as-wipe semantics.
-        doc = _valid_doc()
-        doc["branching_strategy"] = {"stage": 2, "protected_branches": ["main"]}
-        _write_doc(self.smm_dir, doc)
-        result = run_cli(
-            _CLI,
-            ["edit-branching"],
-            self.smm_dir,
-            stdin_data="null",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
-        self.assertNotIn("branching_strategy", data)
-
-    def test_edit_acceptance_surfaces_null_wipes_field(self) -> None:
-        doc = _valid_doc()
-        doc["acceptance_surfaces"] = [
-            {"name": "cli", "signals": ["x"], "status": "covered"}
-        ]
-        _write_doc(self.smm_dir, doc)
-        result = run_cli(
-            _CLI,
-            ["edit-acceptance-surfaces"],
-            self.smm_dir,
-            stdin_data="null",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
-        self.assertNotIn("acceptance_surfaces", data)
-
-
-# ── render branching strategy ──────────────────────────────────
-
-
-class TestRenderBranchingStrategy(_SMMTestCase):
-    def test_render_includes_branching_strategy(self) -> None:
-        doc = _valid_doc()
-        doc["branching_strategy"] = {
-            "stage": 2,
-            "user_namespace": "paul",
-            "protected_branches": ["main"],
-            "rationale": "Team project with CI",
-        }
-        _write_doc(self.smm_dir, doc)
-        result = run_cli(_CLI, ["render"], self.smm_dir)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("Branching Strategy", result.stdout)
-        self.assertIn("Stage 2", result.stdout)
-        self.assertIn("paul", result.stdout)
-        self.assertIn("main", result.stdout)
-
-    def test_render_omits_when_absent(self) -> None:
-        _write_doc(self.smm_dir)
-        result = run_cli(_CLI, ["render"], self.smm_dir)
-        self.assertEqual(result.returncode, 0)
-        self.assertNotIn("Branching Strategy", result.stdout)
-
-    def test_render_shows_integration_branch(self) -> None:
-        doc = _valid_doc()
-        doc["branching_strategy"] = {
-            "stage": 3,
-            "integration_branch": "develop",
-        }
-        _write_doc(self.smm_dir, doc)
-        result = run_cli(_CLI, ["render"], self.smm_dir)
-        self.assertIn("develop", result.stdout)
-
-    def test_section_command_returns_branching(self) -> None:
-        doc = _valid_doc()
-        doc["branching_strategy"] = {"stage": 1}
-        _write_doc(self.smm_dir, doc)
-        result = run_cli(_CLI, ["section", "branching_strategy"], self.smm_dir)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("Stage 1", result.stdout)
-
-
 # ── e2e ────────────────────────────────────────────────────────
 
 
 class TestE2E(_SMMTestCase):
     def test_create_edit_render_roundtrip(self) -> None:
-        doc = _valid_doc()
+        doc = valid_doc()
         run_cli(_CLI, ["create"], self.smm_dir, stdin_data=json.dumps(doc))
 
         run_cli(

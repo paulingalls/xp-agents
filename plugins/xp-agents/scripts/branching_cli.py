@@ -13,6 +13,8 @@ from pathlib import Path
 
 import branch_queries
 import branching
+import identity
+import worktree
 
 
 def _print_or_skip(result: str | None, min_stage: int, *, resumed: bool = False) -> int:
@@ -71,6 +73,39 @@ def _cmd_get_primary(args: argparse.Namespace) -> int:
 
 def _cmd_get_target(args: argparse.Namespace) -> int:
     print(branching.get_merge_target(Path(args.smm_dir), args.cwd))
+    return 0
+
+
+def _cmd_extract_story_id(args: argparse.Namespace) -> int:
+    """Print story-NNN from `<user>/story-NNN-<slug>`. Empty if no match.
+
+    Always exits 0 — empty stdout signals "not a story branch" cleanly
+    so SKILL.md callers can `[ -n "$STORY_ID" ]` gate without needing
+    to distinguish error vs no-match exit codes.
+    """
+    print(identity.extract_story_id(args.branch) or "")
+    return 0
+
+
+def _cmd_list_teammate_worktrees(args: argparse.Namespace) -> int:
+    """Print one teammate worktree NAME per line. Empty stdout = none live.
+
+    Always exits 0. Powers /xp-accept's preload (replaces an inline
+    `git worktree list --porcelain | grep | sed` parser).
+    """
+    for name in worktree.list_live_teammate_worktree_names(args.cwd):
+        print(name)
+    return 0
+
+
+def _cmd_find_teammate_worktree(args: argparse.Namespace) -> int:
+    """Print teammate worktree NAME for a story id, empty if none live.
+
+    Always exits 0 — empty stdout signals "no live teammate worktree"
+    (solo mode, or already cleaned up) so SKILL.md callers can gate on
+    non-empty without distinguishing error vs no-match.
+    """
+    print(worktree.find_teammate_worktree_for_story(args.story_id, args.cwd) or "")
     return 0
 
 
@@ -185,6 +220,28 @@ def main() -> int:
     )
     p_list_orphans.add_argument("--cwd", required=True)
     p_list_orphans.set_defaults(func=_cmd_list_story_orphans)
+
+    p_xsid = sub.add_parser(
+        "extract-story-id",
+        help="Print story-NNN from a `<user>/story-NNN[-<slug>]` branch",
+    )
+    p_xsid.add_argument("--branch", required=True)
+    p_xsid.set_defaults(func=_cmd_extract_story_id)
+
+    p_ltw = sub.add_parser(
+        "list-teammate-worktrees",
+        help="List live teammate worktree names (one per line)",
+    )
+    p_ltw.add_argument("--cwd", required=True)
+    p_ltw.set_defaults(func=_cmd_list_teammate_worktrees)
+
+    p_ftw = sub.add_parser(
+        "find-teammate-worktree",
+        help="Print live teammate worktree name for a story id (empty if none)",
+    )
+    p_ftw.add_argument("--story-id", required=True)
+    p_ftw.add_argument("--cwd", required=True)
+    p_ftw.set_defaults(func=_cmd_find_teammate_worktree)
 
     p_div = sub.add_parser("check-divergence", help="Check plan branch divergence")
     p_div.add_argument("--cwd", required=True)

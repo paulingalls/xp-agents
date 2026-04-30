@@ -19,7 +19,6 @@ Pins the sprint-close chain end-to-end. Two scenarios:
    close skill orchestrates actually work on real git state.
 """
 
-import re
 import subprocess
 import sys
 import tempfile
@@ -43,7 +42,6 @@ _SPRINT_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
 _SPRINT_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
 )
-_CLOSE_REVIEWER_AGENT = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
 
 
 class TestSprintReviewToCloseChainIntegrity(unittest.TestCase):
@@ -52,7 +50,6 @@ class TestSprintReviewToCloseChainIntegrity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.close_text = _SPRINT_CLOSE_SKILL.read_text()
-        cls.agent_text = _CLOSE_REVIEWER_AGENT.read_text()
 
     def test_close_skill_and_preload_exist(self):
         self.assertTrue(
@@ -68,70 +65,10 @@ class TestSprintReviewToCloseChainIntegrity(unittest.TestCase):
         # The chain requires the close skill to invoke xp-close-reviewer.
         self.assertIn("xp-agents:xp-close-reviewer", self.close_text)
 
-    def test_close_reviewer_agent_exists_and_is_read_only(self):
-        # The agent's frontmatter must restrict tools to read-only —
-        # no Edit/Write so a buggy fork can't mutate the repo.
-        self.assertTrue(
-            _CLOSE_REVIEWER_AGENT.is_file(),
-            "xp-close-reviewer.md must exist for the close skill to fork",
-        )
-        # Guard against frontmatter-less files slicing garbage.
-        self.assertTrue(
-            self.agent_text.startswith("---"),
-            "xp-close-reviewer.md must start with YAML frontmatter",
-        )
-        frontmatter = self.agent_text.split("---", 2)[1]
-        self.assertNotIn("Edit", frontmatter)
-        self.assertNotIn("Write", frontmatter)
-
-    def test_close_reviewer_records_concerns_as_smm_events(self):
-        # The agent must instruct itself to file SMM concern events for
-        # each Concern and Block bullet — without recording, the prose
-        # summary is ephemeral and concerns vanish into the chat scrollback.
-        # Mirrors xp-plan-reviewer's record-then-prose pattern.
-        body = self.agent_text.split("---", 2)[2]
-        # Must include TWO append.sh blocks: one for Block (severity high)
-        # and one for Concern (severity medium). Each block must pair the
-        # severity with --type "concern" — quoted form, matching the
-        # codebase convention in xp-plan-reviewer / xp-code-reviewer.
-        # The DOTALL+lazy regex allows the multi-line append.sh template
-        # between --type and --severity.
-        block_pattern = re.compile(
-            r'--type\s+"concern".*?--severity\s+"high"', re.DOTALL
-        )
-        concern_pattern = re.compile(
-            r'--type\s+"concern".*?--severity\s+"medium"', re.DOTALL
-        )
-        self.assertRegex(
-            body,
-            block_pattern,
-            'agent must include an append.sh template with --type "concern" '
-            'and --severity "high" for Block bullets',
-        )
-        self.assertRegex(
-            body,
-            concern_pattern,
-            'agent must include an append.sh template with --type "concern" '
-            'and --severity "medium" for Concern bullets',
-        )
-        # Must instruct attaching --files when paths are cited (STRUCTURAL link).
-        self.assertIn("--files", body)
-        # Must specify recording happens before the prose summary, so an
-        # aborted close still leaves the concerns filed. This is a smoke
-        # check on the prompt text — it cannot verify runtime ordering, but
-        # it catches accidental deletion of the ordering rule. Two distinct
-        # phrasings must both be present so a single ambiguous "before
-        # returning the summary, do X" sentence elsewhere can't satisfy it.
-        self.assertRegex(
-            body,
-            r"[Bb]efore\*{0,2}\s+returning the prose summary",
-            "agent must explicitly state recording happens before prose",
-        )
-        self.assertRegex(
-            body,
-            r"(?i)do not emit.*prose",
-            "agent must explicitly forbid emitting prose before recording",
-        )
+    # Agent-internals assertions (read-only frontmatter,
+    # records-concerns-via-append-sh, mode focus sections) live in
+    # tests/hooks/test_xp_close_reviewer.py — one canonical place
+    # for the agent definition contract.
 
 
 class TestMergeAndCleanupEndToEnd(unittest.TestCase):

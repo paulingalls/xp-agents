@@ -16,11 +16,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _append_impl import (
     LockTimeoutError,
-    _validate_smm_dir,
-    parse_jsonl,
     replace_events_file,
     resolve_smm_dir,
 )
+from append_validation import parse_jsonl, validate_smm_dir
 
 # ---------------------------------------------------------------------------
 # Version & migrations
@@ -138,7 +137,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        _validate_smm_dir(smm_dir)
+        validate_smm_dir(smm_dir)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

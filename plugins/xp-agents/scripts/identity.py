@@ -13,6 +13,12 @@ _WORKTREE_PATH_MARKER = "/.claude/worktrees/"
 _TEAMMATE_PREFIX = "worktree-story-"
 _XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 
+# Matches `<user>/story-NNN[-<slug>]` and captures the `story-NNN` group.
+# Story ids are zero-padded by sprint-start convention but the regex
+# accepts any digit count for resilience. Slug suffix is optional —
+# spawn_teammate's worktree names omit it.
+_STORY_BRANCH_RE = re.compile(r"^[^/]+/(story-\d+)(?:-.*)?$")
+
 
 def _git_stdout(args: list[str], cwd: str) -> str:
     """Run a git command and return stripped stdout, or empty on failure."""
@@ -32,6 +38,20 @@ def _git_stdout(args: list[str], cwd: str) -> str:
 def get_current_branch(cwd: str) -> str:
     """Get current git branch name, or empty string on failure."""
     return _git_stdout(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
+
+
+def extract_story_id(branch_name: str) -> str | None:
+    """Extract `story-NNN` from a `<user>/story-NNN-<slug>` branch name.
+
+    Returns None for branches that don't match the convention (free
+    branches, plan branches, primary, story-prefixed branches without
+    a user namespace). Powers /xp-story-close's JIT-next gate so the
+    teammate-worktree lookup can find the matching `worktree-story-NNN`.
+    """
+    if not branch_name:
+        return None
+    m = _STORY_BRANCH_RE.match(branch_name)
+    return m.group(1) if m else None
 
 
 def extract_worktree_name(cwd: str) -> str | None:

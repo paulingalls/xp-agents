@@ -79,36 +79,11 @@ def _derive_smm_dir() -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Agent ID validation
-# ---------------------------------------------------------------------------
-
-_AGENT_ID_RE = re.compile(r"^[a-zA-Z0-9_:\-]+$")
-
-
-def _validate_smm_dir(smm_dir: Path) -> None:
-    """Validate SMM directory exists, is owned by us, not world-writable."""
-    if not smm_dir.exists():
-        raise ValueError(f"SMM directory does not exist: {smm_dir}")
-    st = smm_dir.stat()
-    if st.st_uid != os.getuid():
-        raise ValueError(f"SMM directory not owned by current user: {smm_dir}")
-    if st.st_mode & 0o002:
-        raise ValueError(f"SMM directory is world-writable: {smm_dir}")
-
-
-def _validate_agent_id(agent_id: str) -> None:
-    """Reject agent IDs that don't match the allowlist pattern."""
-    if not agent_id:
-        raise ValueError("agent_id must not be empty")
-    if not _AGENT_ID_RE.match(agent_id):
-        raise ValueError(f"Invalid agent_id: {agent_id!r}")
-
-
-# ---------------------------------------------------------------------------
 # Event schema (re-exported from event_schema.py)
 # ---------------------------------------------------------------------------
 
 import marker_names  # noqa: E402
+from append_validation import validate_agent_id, validate_smm_dir  # noqa: E402
 from event_builder import (  # noqa: E402
     build_event,
     build_parser,
@@ -122,34 +97,6 @@ from event_schema import (  # noqa: E402
     PRIORITY_INFO,  # noqa: F401
     validate_event,
 )
-
-# ---------------------------------------------------------------------------
-# Shared JSONL parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_jsonl(raw: str) -> tuple[list[dict], int]:
-    """Parse JSONL text into dicts. Returns (events, skipped_count).
-
-    Skips blank lines, malformed JSON, and non-dict values silently.
-    This is the canonical JSONL parser — all callers should use it.
-    """
-    events: list[dict] = []
-    skipped = 0
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if isinstance(obj, dict):
-                events.append(obj)
-            else:
-                skipped += 1
-        except json.JSONDecodeError:
-            skipped += 1
-    return events, skipped
-
 
 # Notifications: see resolution.py
 from resolution import (  # noqa: F401, E402
@@ -232,7 +179,7 @@ def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
 
     Rejects symlinks at the target path to prevent write-through attacks.
     """
-    _validate_agent_id(agent_id)
+    validate_agent_id(agent_id)
     wm_file = smm_dir / f".watermark-{agent_id}"
 
     # Reject existing symlink at target path
@@ -486,7 +433,7 @@ def main() -> None:
 
     # Validate agent_id
     try:
-        _validate_agent_id(args.agent)
+        validate_agent_id(args.agent)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -497,7 +444,7 @@ def main() -> None:
         print("Error: Not in a git repository", file=sys.stderr)
         sys.exit(1)
     try:
-        _validate_smm_dir(smm_dir)
+        validate_smm_dir(smm_dir)
     except ValueError as e:
         print(f"Error: {e}\nRun smm/init.sh first.", file=sys.stderr)
         sys.exit(1)

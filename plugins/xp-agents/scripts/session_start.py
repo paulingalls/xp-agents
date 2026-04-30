@@ -20,6 +20,7 @@ import _common
 import execution_plan_store
 import identity
 import markers
+import plugin_loader
 import smm_cli
 import smm_store
 import sprint_state
@@ -60,10 +61,10 @@ def _run_teammate(smm_dir: Path | None) -> str | None:
     """Teammate SessionStart: XP Values + Teammate Guide + SMM. No markers."""
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     parts: list[str] = []
-    values = _common.load_xp_values()
+    values = plugin_loader.load_xp_values()
     if values:
         parts.append(values)
-    guide = _common.load_teammate_guide()
+    guide = plugin_loader.load_teammate_guide()
     if guide:
         parts.append(guide)
     if smm_dir is not None:
@@ -92,7 +93,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Ensure SMM exists via init.sh
     if smm_dir is None or not smm_dir.exists():
-        plugin_root = _common.resolve_plugin_root()
+        plugin_root = plugin_loader.resolve_plugin_root()
         init_script = plugin_root / "smm" / "init.sh"
         # Validate script path before executing
         if init_script.is_file() and init_script.stat().st_uid == os.getuid():
@@ -132,7 +133,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts: list[str] = []
     parts.append(gupp)
     # XP values are always available from the first prompt.
-    values = _common.load_xp_values()
+    values = plugin_loader.load_xp_values()
     if values:
         parts.append("\n\n" + values)
 
@@ -146,7 +147,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         rendered = smm_cli.render_markdown(smm_data)
         if rendered.strip():
             parts.append("\n\n" + rendered)
-        process = _common.load_process_guide()
+        process = plugin_loader.load_process_guide()
         if process:
             parts.append("\n\n" + process)
 
@@ -161,7 +162,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 def _get_version() -> str:
     """Read plugin version from plugin.json."""
     try:
-        plugin_json = _common.resolve_plugin_root() / ".claude-plugin" / "plugin.json"
+        plugin_json = (
+            plugin_loader.resolve_plugin_root() / ".claude-plugin" / "plugin.json"
+        )
         data = json.loads(plugin_json.read_text())
         return data.get("version", "?")
     except (OSError, json.JSONDecodeError, ValueError):

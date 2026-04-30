@@ -10,6 +10,8 @@
 > - `resolve_agent_id()` was extracted into `identity.py` (not inline in `_common.py` as described)
 > - Worktree helpers were extracted into `worktree.py` (not inline in `_common.py`)
 > - The `xp-teammate.md` agent definition was removed as planned — teammate context is purely SessionStart-injected
+> - **Branch merge + worktree cleanup moved out of `/xp-accept`** into the new `/xp-story-close` skill (per-story symmetry, decision 9029c07ae198). `/xp-accept` now dispatches `/xp-story-close` per accepted story; `/xp-story-close` merges via `close_common.py merge`, then runs `cleanup_teammate.py` if a teammate worktree existed for that story.
+> - **Teammates run parallel work only**, never chained sequential (decision teammates-parallel-only). Chained sequential is solo mode's domain — `/xp-story-close` JIT-creates the next branch off the merged sprint tip after each acceptance, eliminating the stale-chained-branch problem this doc's M4 design didn't address.
 
 ## Problem
 
