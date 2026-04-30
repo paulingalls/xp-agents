@@ -19,6 +19,7 @@ from conftest import (
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
+    SPRINT_SCHEDULED_ONLY,
     _HookTestCase,
     _make_stop_input,
     make_event,
@@ -171,6 +172,21 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
         (self.smm_dir / ".accept").write_text("done")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         # No in-progress stories; ready stories means sprint not complete
+        self.assertIsNone(result)
+
+    def test_scheduled_only_does_not_block_stop(self):
+        """Scheduled stories with no in-progress should NOT trigger the
+        accept-cascade gate. Pinning the four-state lifecycle invariant:
+        `scheduled` is queued, not actively worked, so /xp-accept doesn't
+        apply. Without this distinction the Stop hook would fire after
+        every story closed (the symptom that motivated the lifecycle work)."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_SCHEDULED_ONLY)
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        # Scheduled is non-terminal but the gate must only fire on
+        # in-progress (active branches with possible commits).
         self.assertIsNone(result)
 
 

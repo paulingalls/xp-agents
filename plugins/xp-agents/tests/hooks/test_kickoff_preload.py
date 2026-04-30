@@ -150,7 +150,9 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         # Ready stories should appear
         self.assertIn("story-002", result.stdout)
         self.assertIn("story-003", result.stdout)
-        self.assertIn("2 ready stories", result.stdout)
+        # Counts line uses the four-state lifecycle format.
+        self.assertIn("ready=2", result.stdout)
+        self.assertIn("Ready stories:", result.stdout)
 
     def test_outputs_retro_needed_when_input_exists(self):
         """M3: .retro-input.json triggers RETRO_NEEDED flag (covers both
