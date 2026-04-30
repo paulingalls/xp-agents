@@ -454,5 +454,44 @@ class TestSprintBranchGate(_HookTestCase):
                 self.assertIsNone(result)
 
 
+class TestSubprocessConsolidation(_HookTestCase):
+    """Story-007 regression: per `git commit` attempt, pre_tool_bash makes
+    at most one `git diff --cached --name-only` subprocess invocation in the
+    common path (no `-a` flag, no inline `git add`). Earlier the hook re-shelled
+    three times — once each from get_code_files_for_review,
+    has_staged_code_files, and get_staged_files — to compute the same data
+    derivable from the cached unified diff fetched at line 140.
+    """
+
+    def _fake_run(self, args, **kwargs):
+        """Stand-in for subprocess.run that returns empty success."""
+        from unittest.mock import MagicMock
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        return mock_result
+
+    def test_common_path_at_most_one_name_only_call(self):
+        with patch("subprocess.run", side_effect=self._fake_run) as mock_run:
+            pre_tool_bash.run(
+                _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
+            )
+
+        name_only_calls = [
+            call
+            for call in mock_run.call_args_list
+            if call.args
+            and list(call.args[0]) == ["git", "diff", "--cached", "--name-only"]
+        ]
+        all_calls = [list(c.args[0]) if c.args else [] for c in mock_run.call_args_list]
+        self.assertLessEqual(
+            len(name_only_calls),
+            1,
+            f"Expected ≤1 `git diff --cached --name-only` call, got "
+            f"{len(name_only_calls)}. All subprocess calls: {all_calls}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
