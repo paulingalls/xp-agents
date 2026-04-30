@@ -120,15 +120,15 @@ def get_staged_files(cwd: str) -> list[str]:
     return sorted(f.strip() for f in out.splitlines() if f.strip())
 
 
-def get_staged_diff(cwd: str) -> str:
+def get_staged_diff(cwd: str) -> str | None:
     """Get unified diff of staged changes via git diff --cached.
 
-    Returns empty string on git failure — caller treats absence-of-diff
-    as no findings, leaving downstream gates to handle the underlying
-    git issue.
+    Returns None on git failure (non-zero exit, subprocess timeout,
+    OSError, or missing git binary) so security-sensitive callers can
+    fail closed instead of treating a failed git invocation as 'no
+    findings'. Empty string means git ran and reported no staged changes.
     """
-    out = _run_git(["git", "diff", "--cached"], cwd)
-    return out or ""
+    return _run_git(["git", "diff", "--cached"], cwd)
 
 
 def open_issues_matching_commit(

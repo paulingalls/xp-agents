@@ -311,16 +311,19 @@ class TestGetStagedDiff(unittest.TestCase):
         self.assertEqual(commits.get_staged_diff("/tmp"), diff.strip())
 
     @patch(_SUBPROCESS)
-    def test_failure_returns_empty_string(self, mock_run):
+    def test_failure_returns_none(self, mock_run):
+        """Non-zero exit → None so callers can fail closed (security gate)."""
         mock_run.return_value.returncode = 1
-        self.assertEqual(commits.get_staged_diff("/tmp"), "")
+        self.assertIsNone(commits.get_staged_diff("/tmp"))
 
     @patch(_SUBPROCESS, side_effect=OSError("no git"))
-    def test_exception_returns_empty_string(self, _mock):
-        self.assertEqual(commits.get_staged_diff("/tmp"), "")
+    def test_exception_returns_none(self, _mock):
+        """OSError → None so callers can fail closed (security gate)."""
+        self.assertIsNone(commits.get_staged_diff("/tmp"))
 
     @patch(_SUBPROCESS)
     def test_empty_staging_returns_empty_string(self, mock_run):
+        """Git ran successfully but no staged changes → empty string (not None)."""
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = ""
         self.assertEqual(commits.get_staged_diff("/tmp"), "")

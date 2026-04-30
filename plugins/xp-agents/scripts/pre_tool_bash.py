@@ -138,6 +138,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # block even when /simplify, /xp-quality-review, /xp-security-triage
         # have all been satisfied.
         diff = commits.get_staged_diff(cwd)
+        if diff is None:
+            raise _common.BlockedError(
+                "Tier 1 security scan could not run: `git diff --cached`"
+                " failed. Resolve the git issue and retry the commit.",
+                "Tier 1 fail-closed: git diff failure.",
+            )
         if diff:
             findings = security_scanner.scan_diff(diff, security_patterns.V3_0_PATTERNS)
             if findings:

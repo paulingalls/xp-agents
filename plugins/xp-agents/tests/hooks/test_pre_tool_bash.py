@@ -415,8 +415,16 @@ class TestTier1SecurityScan(_HookTestCase):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception)
         self.assertIn("aws-access-key", msg)
-        self.assertIn("src/cfg.py", msg)
-        self.assertIn("2", msg)  # line number
+        self.assertIn("src/cfg.py:2", msg)
+
+    @patch("commits.get_staged_diff")
+    def test_tier1_fails_closed_on_git_failure(self, mock_diff):
+        """git diff failure (None) must block, not silently bypass Tier 1."""
+        mock_diff.return_value = None
+        security.write_security_triaged(self.smm_dir)
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertIn("git diff", str(ctx.exception).lower())
 
 
 if __name__ == "__main__":
