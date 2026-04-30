@@ -43,8 +43,15 @@ for clarity (`scheduled-overlap` exits 0 when overlap exists — i.e.,
 SCHEDULED_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
   --smm-dir ${SMM_DIR} count-status scheduled)
 
-if [ "$SCHEDULED_COUNT" -le 1 ]; then
-  # 0 or 1 scheduled story — nothing to parallelize.
+if [ "$SCHEDULED_COUNT" -eq 0 ]; then
+  # No scheduled stories — nothing to assign. Return without creating
+  # branches. Pre-existing in-progress stories from a prior session
+  # stay on their existing branches; xp-assign acts on the new batch
+  # only.
+  echo "No scheduled stories — nothing to assign. Stop."
+  exit 0
+elif [ "$SCHEDULED_COUNT" -eq 1 ]; then
+  # One scheduled story — nothing to parallelize.
   MODE=solo
 elif python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
        --smm-dir ${SMM_DIR} scheduled-overlap; then
@@ -56,6 +63,11 @@ else
   MODE=$(ask user via AskUserQuestion: "Solo (sequential) or CLI teammates (parallel)?")
 fi
 ```
+
+The predicate intentionally ignores pre-existing in-progress stories
+carried over from a prior session — those already have branches and
+their own xp-accept lifecycle; xp-assign acts on the new scheduled
+batch only.
 
 The plan-driven heuristic still applies: if the plan steps have sequential deps, target overlapping files, or the plan is small (≤3 steps) — favor solo even when not auto-picked. Present the rationale when you ask.
 
