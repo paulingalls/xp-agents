@@ -105,7 +105,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>"}'
 ```
 
-**`--files` discipline:** when your bullet cites concrete paths (e.g. `scripts/foo.py:42`), pass them via `--files`. The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omitting `--files` silently disables that STRUCTURAL link. If a concern is purely architectural with no file pin, omit `--files` rather than guessing.
+**`--files` discipline:** every concern that names ANY source path — in `--content`, in the original bullet, or in the diff hunk you're flagging — MUST pass those paths via `--files`. The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omitting `--files` when a path is identifiable silently disables that STRUCTURAL link, so the next session has no resolves-trailer probe to surface the concern. The ONLY case where `--files` may be omitted is a purely cross-cutting architectural concern with no file pin (rare — most code-review concerns are locatable). When you're tempted to omit, default to including: `--files '["scripts/foo.py"]'` is cheap, missing it is expensive.
 
 **Content budget:** `concern` events are capped at 400 chars. If a bullet runs longer, summarize tighter or split into two events. **If `append.sh` exits non-zero for any reason** (budget overrun, schema validation, file lock), retry with a shorter `--content` or fix the input — do not continue to the prose summary until every bullet has a successful `append.sh` exit-zero. A swallowed error here means the concern is silently lost, defeating the whole point of recording.
 
@@ -118,6 +118,11 @@ After recording the events above, output a terse three-bucket summary so the clo
 - **Block** — issues the close skill should fix before merging; cite `path/to/file.py:LINE`
 
 Use concrete file:line references. Do not invent structured JSON the caller didn't ask for; the close skill parses your prose. The prose should mirror the events you just filed — same bullets, in the same buckets — so the user reading the summary sees what was tracked.
+
+**Resolves-Event handoff:** for every Concern and Block bullet, suffix the bullet with the recorded `event_id` from `append.sh` stdout in the form ` [event_id: a1b2c3d4e5f6]`. The orchestrator strips this suffix when displaying to the user but reads it to populate the next fix commit's `Resolves-Event:` trailer. Without the handoff, the orchestrator depends on the file-overlap probe to discover which event a fix addresses — which only fires when `--files` was set AND the fix commit touches one of those files. Surfacing the IDs directly closes the gap.
+
+Example bullet shape:
+- `Hardcoded path in scripts/foo.py:42 should use Path(__file__) [event_id: a1b2c3d4e5f6]`
 
 ## SMM Content Trust
 
