@@ -9,7 +9,8 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
-  - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */scripts/cleanup_teammate.py *)
+  - Skill
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -90,53 +91,29 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN <done|deferred>
 ```
 
-## Step 2b: Merge Story Branches
+## Step 2b: Invoke /xp-story-close per done story
 
-Read the branching stage once:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
-```
+For each story just marked **done** (skip deferred — their branches
+stay intact for the next sprint), invoke `/xp-story-close` via the
+Skill tool. /xp-story-close owns the per-story review + merge +
+JIT-create-next pipeline:
 
-If stage >= 1, get the merge target branch:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  get-base --cwd .
-```
+- Forks `xp-close-reviewer` in story mode (AC alignment, file_domain,
+  scope creep, regression risk in unmodified stories)
+- Auto-resolves LIKELY ADDRESSED concerns
+- Asks the user to confirm the merge
+- Runs `close_common.py merge` (chained merge --no-ff + push target +
+  delete source — same pipeline used by sprint/plan/free-close)
+- (Solo mode) JIT-creates the next in-progress story's branch off
+  the merged sprint tip and checks it out
 
-Merge each story marked **done** into the base branch. Branch names follow `<user>/story-NNN-<slug>` — check `git branch` to find the exact name.
+Loop continues for the next done story (each gets its own
+/xp-story-close invocation). /xp-story-close NEVER fires
+/xp-sprint-review — Step 6 below owns that single dispatch after
+the loop completes (decision e30e9e91e61a).
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  merge-branch --cwd . --branch <story-branch-name> --target <base-branch>
-
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  delete --cwd . --branch <story-branch-name>
-```
-
-If merge fails (conflict or error), report the failure and skip that story's branch deletion. Do not proceed to delete a branch whose merge failed.
-
-**Stage 0 or missing:** Skip merge and cleanup entirely.
-**Deferred stories:** Do not merge — leave their branches intact for the next sprint.
-
-## Step 2c: Auto-Switch to Next Story
-
-After merging done stories and processing deferrals, check if there is a next story to work on:
-
-1. Re-read sprint.json (statuses changed in Step 2). Find the next in-progress or ready story by declaration order (lowest story ID first).
-2. If the next story **depends on the just-accepted story** (chain relationship via `dependencies` field): create-or-checkout its branch off the accepted story's tip:
-   ```bash
-   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-     create --cwd . --story <next-story-id> --slug <title-slug> --base HEAD
-   ```
-3. If the next story has **no chain dependency**: create-or-checkout its branch off the sprint base:
-   ```bash
-   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-     create --cwd . --story <next-story-id> --slug <title-slug>
-   ```
-4. If **no next story exists** (all done or deferred): stay on the sprint branch and report sprint-complete.
-5. Tell the agent: *"story-NNN marked done; checked out `<branch-name>` for story-MMM."*
-
-**Stage 0:** Skip auto-switch — no branch discipline.
+**Stage 0:** /xp-story-close still runs — its own preflight and
+close_common.py handle the no-branch case gracefully.
 
 ## Step 3: Record Events
 
