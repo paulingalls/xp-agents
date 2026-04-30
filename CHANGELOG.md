@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.37.1 — Lint resolutions from Write/Edit now count as `lint_events`
+
+User reported that lint events appeared low/missing in retros despite lint passing. Root cause: a latent regression since the metadata.action vocabulary was introduced. Two paths emit lint-resolution events but only one tagged them with `metadata.action=lint_resolved`:
+
+- `lint_resolution.py:47` (PostToolUse:Bash on commit) — correctly tagged ✓
+- `lint_check.py:361` (PostToolUse:Write/Edit when lint passes) — was missing the tag ✗
+
+`retro_metrics._classify_lifecycle_events` keys `lint_events` on `STATUS_ACTION_LINT_RESOLVED`, so the Write/Edit-time resolutions silently fell into the `"other"` bucket. One-line fix: add `extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED}` to the missing call site. Pinned by a new test (`test_lint_pass_resolution_carries_action_tag`) so the asymmetry can't recur.
+
+Tests use a different counter model — `STATUS_ACTION_TEST_RUN_COMPLETE` ticks unconditionally on every test run, so `test_runs` is an activity counter (not a resolution counter). No symmetric bug exists for tests; a `test_resolutions` counter would be a separate feature design.
+
 ## v2.37.0 — Four-state story lifecycle: `scheduled` between ready and in-progress
 
 Adds a fourth story status (`scheduled`) so the data model, not a derived "does the branch have commits" check, distinguishes "queued for this iteration" from "actively worked." Resolves four interlocking pain points surfaced in sprint-048's retro:
