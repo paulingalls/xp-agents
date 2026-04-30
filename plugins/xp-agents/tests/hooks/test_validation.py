@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
+import plugin_loader
 
 # ===========================================================================
 # hooks.json M3.4 registration tests
@@ -115,7 +115,7 @@ def _async_hook_scripts(hooks_config: dict) -> list[Path]:
                 )
                 if py_token is None:
                     continue
-                scripts.append(Path(_common.expand_plugin_root(py_token)))
+                scripts.append(Path(plugin_loader.expand_plugin_root(py_token)))
     return scripts
 
 

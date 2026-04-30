@@ -274,7 +274,7 @@ plugins/xp-agents/
 - **SubagentStop only supports `decision:"block"` or silence** — `decision:"approve"` with `reason` is silently dropped. No `additionalContext` support. This limits enforcement options for plan review
 - Plugin cache requires version bump to update — `/reload-plugins` alone isn't sufficient if version is unchanged
 - File-based coordination (`.retro-input.json`) is a race — design for graceful degradation
-- **`${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are NOT exported into the agent's Bash tool environment** in `claude -p` (and regular `claude`). Claude Code substitutes them when injecting `SKILL.md` content and hook command strings, but raw markdown loaded via our own loaders (e.g. `_common.load_process_guide`, `load_teammate_guide`) leaks the literal variable into agent Bash, where it expands to empty. Loaders that inject guide content as `additionalContext` MUST run text through `_common._expand_plugin_root` first
+- **`${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are NOT exported into the agent's Bash tool environment** in `claude -p` (and regular `claude`). Claude Code substitutes them when injecting `SKILL.md` content and hook command strings, but raw markdown loaded via our own loaders (e.g. `plugin_loader.load_process_guide`, `plugin_loader.load_teammate_guide`) leaks the literal variable into agent Bash, where it expands to empty. Loaders that inject guide content as `additionalContext` MUST run text through `plugin_loader.expand_plugin_root` first
 
 ## Error Handling
 

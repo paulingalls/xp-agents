@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import plugin_loader
 import smm_cli
 from event_schema import (
     DISPOSITION_DEFERRED,
@@ -162,7 +163,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         # Even without SMM, inject values for all subagents
-        values = _common.load_xp_values()
+        values = plugin_loader.load_xp_values()
         return values if values else None
 
     agent_id = input_data.get("agent_id", "subagent")
@@ -185,7 +186,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts = injector(smm_data, smm_dir, input_data)
 
     # Universal: XP values injected for ALL subagents
-    values = _common.load_xp_values()
+    values = plugin_loader.load_xp_values()
     if values:
         parts.append(values)
 

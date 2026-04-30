@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import plugin_loader
 from conftest import _HookTestCase, make_event, write_smm_fixture
 
 # ===========================================================================
@@ -201,7 +202,7 @@ class TestSessionStart(_HookTestCase):
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         # Mock resolve_plugin_root to prevent init.sh from resolving
         # the real project's SMM dir (which would leak a marker file)
-        with patch.object(_common, "resolve_plugin_root", return_value=fake_dir):
+        with patch.object(plugin_loader, "resolve_plugin_root", return_value=fake_dir):
             result = session_start.run(
                 {"session_id": "test", "source": "startup"},
                 smm_dir=fake_dir,

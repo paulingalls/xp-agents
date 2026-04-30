@@ -266,62 +266,6 @@ def is_task_notification(prompt: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Plugin root resolution
-# ---------------------------------------------------------------------------
-
-
-_PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}"
-
-
-def resolve_plugin_root() -> Path:
-    """Resolve plugin root from CLAUDE_PLUGIN_ROOT env var or __file__.
-
-    Not cached — env-var read is O(1) and the __file__ fallback is constant.
-    Caching introduced staleness when tests/agents pin the env var.
-    """
-    env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if env_root:
-        return Path(env_root)
-    return Path(__file__).parent.parent
-
-
-def expand_plugin_root(text: str) -> str:
-    """Substitute ${CLAUDE_PLUGIN_ROOT} with the resolved plugin root.
-
-    Mirrors Claude Code's own substitution for SKILL.md content. Without
-    this, guides loaded as raw markdown leak the literal shell variable
-    into the agent's Bash, where `claude -p` does not export
-    CLAUDE_PLUGIN_ROOT — the variable expands to empty and the
-    documented `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` pattern breaks
-    silently.
-    """
-    return text.replace(_PLUGIN_ROOT_VAR, str(resolve_plugin_root()))
-
-
-def _load_plugin_file(filename: str) -> str:
-    """Read a plugin-root file and expand ${CLAUDE_PLUGIN_ROOT} in its text."""
-    try:
-        path = resolve_plugin_root() / filename
-        if path.is_file():
-            return expand_plugin_root(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        pass
-    return ""
-
-
-def load_xp_values() -> str:
-    return _load_plugin_file("XP_VALUES.md")
-
-
-def load_process_guide() -> str:
-    return _load_plugin_file("PROCESS_GUIDE.md")
-
-
-def load_teammate_guide() -> str:
-    return _load_plugin_file("TEAMMATE_GUIDE.md")
-
-
-# ---------------------------------------------------------------------------
 # Event reading (no locking — for hook scripts that don't need atomicity)
 # ---------------------------------------------------------------------------
 
