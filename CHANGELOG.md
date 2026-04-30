@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.35.2 — Cross-directory fixture share
+
+`tests/engine/_system_context_fixtures.py` lifted to `tests/_system_context_fixtures.py` so `tests/scaffold/test_scaffold_detect.py` can import alongside the 7 engine consumers (resolves debt ce16305093fe). Scaffold's local `_valid_doc(surfaces=None)` (~15 lines) replaced with the shared `valid_doc(**overrides)`. Engine tests dropped their now-redundant engine-dir `sys.path.insert` (parent already inserted for conftest). 8-of-8 callers consolidated. 3553 tests green.
+
 ## v2.35.1 — Concern + debt cleanup
 
 Eight commits closing out a session-long sweep of open concerns and 500-line file-budget debts. No behavior changes — pure refactors, dedup, and consolidation. 3553 tests green at every commit.
