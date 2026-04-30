@@ -301,6 +301,56 @@ class TestStatusChecks(_SMMTestCase):
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
 
+    def test_scheduled_file_domains_overlap_true_when_shared_file(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    file_domain=["src/a.py — owner", "src/b.py — shared"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py — caller", "src/c.py — owner"],
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # Path portion (before " — ") is what counts; descriptions vary.
+        self.assertTrue(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
+
+    def test_scheduled_file_domains_overlap_false_when_disjoint(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/a.py"]
+                ),
+                _make_story(
+                    id="story-002", status="scheduled", file_domain=["src/b.py"]
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
+
+    def test_scheduled_file_domains_overlap_false_when_single_scheduled(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="scheduled", file_domain=["a.py"]),
+                _make_story(id="story-002", status="ready", file_domain=["a.py"]),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # Only one scheduled story — no pair to overlap. Not a conflict.
+        self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
+
     def test_sprint_exists(self):
         import sprint_store
 

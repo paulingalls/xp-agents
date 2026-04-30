@@ -211,11 +211,13 @@ class TestSkillMdJitBranchCreation(unittest.TestCase):
     """SKILL.md gates branch creation by execution mode (JIT for solo).
 
     Per the JIT-branch design (decision df47c932fbe6 — JIT story
-    branches + close-skill unification): solo mode creates ONLY the
-    first in-progress story's branch at /xp-assign time; subsequent
-    branches are JIT-created at /xp-story-close after the prior story
-    merges. Teammate mode keeps eager creation — all parallel-eligible
-    branches at /xp-assign so each teammate has a worktree to spawn into.
+    branches + close-skill unification): solo mode promotes ONLY the
+    first scheduled story to in-progress and creates its branch at
+    /xp-assign time; subsequent branches are JIT-created at
+    /xp-story-close after the prior story merges. Teammate mode keeps
+    eager creation — all parallel-eligible scheduled stories get
+    promoted + branched at /xp-assign so each teammate has a worktree
+    to spawn into.
 
     The pre-JIT behavior (eager all-branch creation in solo too) caused
     stale chained branches: story-002 born off the pre-001 sprint tip
@@ -229,8 +231,7 @@ class TestSkillMdJitBranchCreation(unittest.TestCase):
     def test_branch_creation_section_documents_solo_jit_gating(self):
         # Scope to the Branch Creation section so a future revert to
         # eager-all in this section can't false-pass against the
-        # unrelated "Solo Mode" section that already says "Checkout
-        # the first in-progress story's branch".
+        # unrelated "Solo Mode" section.
         bc_match = re.search(
             r"## Branch Creation.*?\n##\s",
             self.content,
@@ -238,16 +239,16 @@ class TestSkillMdJitBranchCreation(unittest.TestCase):
         )
         assert bc_match is not None, "## Branch Creation section not found"
         branch_creation = bc_match.group(0)
-        # Solo's JIT pins on "ONLY the first in-progress" — capitalized
+        # Solo's JIT pins on "ONLY the first scheduled" — capitalized
         # to match the SKILL.md's emphasis and to filter out incidental
         # prose elsewhere.
         self.assertIn(
-            "ONLY the first in-progress",
+            "ONLY the first scheduled",
             branch_creation,
-            "Branch Creation section must describe creating ONLY the "
-            "first in-progress story branch in solo mode (JIT — "
-            "subsequent branches are created by /xp-story-close after "
-            "each prior merge)",
+            "Branch Creation section must describe promoting ONLY the "
+            "first scheduled story to in-progress + creating its branch "
+            "in solo mode (JIT — subsequent stories promoted by "
+            "/xp-story-close after each prior merge)",
         )
 
     def test_references_jit_story_close_handoff(self):
@@ -256,6 +257,20 @@ class TestSkillMdJitBranchCreation(unittest.TestCase):
         # editor doesn't reintroduce eager creation thinking it was a
         # gap.
         self.assertIn("/xp-story-close", self.content)
+
+    def test_uses_scheduled_overlap_for_auto_solo(self):
+        # Auto-pick-solo predicate: count_scheduled<=1 OR
+        # scheduled-overlap exits 0. Pin the CLI commands so the predicate
+        # can't drift back to "always ask" or to a different signal.
+        self.assertIn("scheduled-overlap", self.content)
+        self.assertIn("count-status scheduled", self.content)
+
+    def test_promotes_scheduled_to_in_progress(self):
+        # Branch creation must include the status transition. Without it,
+        # the story stays scheduled forever and downstream gates (xp-accept,
+        # stop gate) never fire.
+        self.assertIn("update-story", self.content)
+        self.assertIn("in-progress", self.content)
 
 
 if __name__ == "__main__":

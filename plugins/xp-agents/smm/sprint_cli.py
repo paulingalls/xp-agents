@@ -49,6 +49,10 @@ def _cmd_next_scheduled(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_scheduled_overlap(args: argparse.Namespace) -> int:
+    return 0 if store.scheduled_file_domains_overlap(args.smm_dir) else 1
+
+
 def _cmd_get_story_branch(args: argparse.Namespace) -> int:
     print(store.get_story_branch_name(args.smm_dir, args.story_id))
     return 0
@@ -239,6 +243,14 @@ def main() -> None:
         "next-scheduled",
         help="Lowest-id scheduled story whose deps are all done (exit 1 if none)",
     )
+    sub.add_parser(
+        "scheduled-overlap",
+        help=(
+            "Exit 0 if 2+ scheduled stories share file_domain paths "
+            "(parallel teammates would conflict — auto-pick solo); "
+            "exit 1 when disjoint or <2 scheduled stories"
+        ),
+    )
     sub.add_parser("count", help="Count stories by status")
     sub.add_parser("next-id", help="Next sprint ID")
 
@@ -302,6 +314,7 @@ def main() -> None:
         "is-complete": _cmd_is_complete,
         "next-in-progress": _cmd_next_in_progress,
         "next-scheduled": _cmd_next_scheduled,
+        "scheduled-overlap": _cmd_scheduled_overlap,
         "count": _cmd_count,
         "count-status": _cmd_count_status,
         "next-id": _cmd_next_id,

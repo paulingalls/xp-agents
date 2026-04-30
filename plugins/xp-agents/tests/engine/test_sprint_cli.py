@@ -106,6 +106,38 @@ class TestNextScheduledCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestScheduledOverlapCommand(_SMMTestCase):
+    def test_overlap_exit0_when_shared_file(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    file_domain=["src/a.py — owner", "src/b.py — shared"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py — caller", "src/c.py — owner"],
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["scheduled-overlap"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_overlap_exit1_when_disjoint(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="s1", status="scheduled", file_domain=["a.py"]),
+                _make_story(id="s2", status="scheduled", file_domain=["b.py"]),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["scheduled-overlap"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+
+
 class TestUpdateStoryAcceptsScheduled(_SMMTestCase):
     def test_update_story_to_scheduled(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
