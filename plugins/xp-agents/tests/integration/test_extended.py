@@ -403,15 +403,6 @@ class TestCommitGateIntegration(_IntegrationTestCase):
         commit_without_security_check is not a defect when there are no
         code files to triage.
         """
-        # _IntegrationTestCase.setUp deletes files but does NOT reset the
-        # git index, so a sibling test's staged code file bleeds into
-        # has_staged_code_files here. Reset the index so this test sees
-        # only the docs-only diff it stages below.
-        subprocess.run(
-            ["git", "reset", "HEAD", "--", "."],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
         doc_file = self.tmpdir / "CHANGELOG.md"
         doc_file.write_text("## v9.9.9\n- bump\n")
         subprocess.run(
