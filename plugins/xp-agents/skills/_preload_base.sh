@@ -244,6 +244,13 @@ branching_list_free() {
         --smm-dir "$SMM_DIR" list-free --cwd . 2>/dev/null
 }
 
+# List orphan story branches (story branches not backed by active stories).
+# Usage: branching_list_story_orphans
+branching_list_story_orphans() {
+    python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "$SMM_DIR" list-story-orphans --cwd . 2>/dev/null
+}
+
 # Marker helpers (thin wrappers over markers.py).
 # Usage: consume_marker ACCEPT
 #        write_marker NEEDS_HOUSEKEEPING "kickoff"

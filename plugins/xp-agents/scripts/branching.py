@@ -71,7 +71,7 @@ def get_branching_stage(smm_dir: Path) -> int:
     return _load_branching_strategy(smm_dir).get("stage", 0)
 
 
-def _match_local_branches(cwd: str, pattern: str) -> list[str]:
+def match_local_branches(cwd: str, pattern: str) -> list[str]:
     """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
     r = _git(
         ["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{pattern}"],
@@ -100,7 +100,7 @@ def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:
         return None
     if branch_exists(cwd, plan_branch):
         return plan_branch
-    matches = sorted(_match_local_branches(cwd, f"{plan_branch}-*"))
+    matches = sorted(match_local_branches(cwd, f"{plan_branch}-*"))
     if not matches:
         return None
     drifted = matches[0]
@@ -382,7 +382,7 @@ def list_free_branches(cwd: str) -> list[str]:
     """Return free branches owned by the current user, excluding HEAD."""
     user_ns = identity.user_namespace(cwd)
     current = identity.get_current_branch(cwd)
-    return [b for b in _match_local_branches(cwd, f"{user_ns}/free-*") if b != current]
+    return [b for b in match_local_branches(cwd, f"{user_ns}/free-*") if b != current]
 
 
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
