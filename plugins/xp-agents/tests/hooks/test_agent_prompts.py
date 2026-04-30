@@ -38,6 +38,38 @@ class TestHousekeeperPurposeFilters(unittest.TestCase):
         self.assertGreaterEqual(bad_count, 4, "Need bad example per pillar")
 
 
+class TestWorkSelectionUsesScheduledStatus(unittest.TestCase):
+    """xp-work-selection moves stories to `scheduled`, not `in-progress`.
+
+    The four-state lifecycle (ready → scheduled → in-progress → done/deferred)
+    means work-selection picks for THIS iteration and parks at `scheduled`.
+    xp-assign promotes to in-progress when it creates the branch. Pinning the
+    SKILL.md instructions so a regression to `in-progress` (the old shape)
+    can't slip in unnoticed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = (
+            Path(__file__).parent.parent.parent
+            / "skills"
+            / "xp-work-selection"
+            / "SKILL.md"
+        )
+        cls.content = path.read_text()
+
+    def test_update_story_uses_scheduled(self):
+        self.assertIn("update-story story-NNN scheduled", self.content)
+
+    def test_no_update_story_in_progress(self):
+        # Old shape removed — work-selection no longer transitions to
+        # in-progress directly. xp-assign owns that transition.
+        self.assertNotIn("update-story story-NNN in-progress", self.content)
+
+    def test_status_event_says_scheduled(self):
+        self.assertIn("marked N stories scheduled", self.content)
+
+
 class TestRetroAnalysisNotesDirectives(unittest.TestCase):
     """M7: retro prompt has analysis_notes read/write directives and Try cap."""
 
