@@ -125,7 +125,6 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
 
 
 _SPRINT_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
-_CLOSE_REVIEWER_AGENT = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
 _PLAN_CLI = _PLUGIN_ROOT / "smm" / "plan_cli.py"
 
 
@@ -143,7 +142,6 @@ class TestSprintCloseToPlanCloseChainIntegrity(unittest.TestCase):
     def setUpClass(cls):
         cls.plan_close_text = _SKILL_MD.read_text()
         cls.sprint_close_text = _SPRINT_CLOSE_SKILL.read_text()
-        cls.agent_text = _CLOSE_REVIEWER_AGENT.read_text()
 
     def test_plan_close_skill_and_preload_exist(self):
         self.assertTrue(
@@ -168,15 +166,9 @@ class TestSprintCloseToPlanCloseChainIntegrity(unittest.TestCase):
         self.assertIn("xp-agents:xp-close-reviewer", self.plan_close_text)
         self.assertIn("## Mode\\nplan", self.plan_close_text)
 
-    def test_close_reviewer_agent_supports_plan_mode(self):
-        # Agent's mode-aware focus list must include plan as a distinct
-        # mode token — not just any prose containing "plan" / "planning".
-        self.assertTrue(_CLOSE_REVIEWER_AGENT.is_file())
-        self.assertRegex(
-            self.agent_text,
-            r"###\s+plan\b",
-            "xp-close-reviewer must declare a plan-mode focus section",
-        )
+    # The "agent supports plan mode" assertion lives in
+    # tests/hooks/test_xp_close_reviewer.py::TestModeFocusSections —
+    # one canonical place for all mode focus-section guards.
 
 
 class TestPlanMergeAndArchiveEndToEnd(_IntegrationTestCase):
