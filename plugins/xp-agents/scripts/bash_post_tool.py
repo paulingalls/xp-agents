@@ -165,7 +165,9 @@ def _resolve_story_id(
 _QR_WINDOW_CAP = 30
 
 
-def _check_qr_linkage(events: list[dict], agent_id: str) -> str | None:
+def _check_qr_linkage(
+    events: list[dict], agent_id: str, *, has_code: bool = True
+) -> str | None:
     """Return a warning if no quality-review status since previous commit.
 
     The backward scan for the previous commit is capped at _QR_WINDOW_CAP
@@ -173,7 +175,12 @@ def _check_qr_linkage(events: list[dict], agent_id: str) -> str | None:
     forward scan starts from index 0 -- fail-open: an ancient QR event
     may suppress the warning.  Acceptable because this is an advisory
     nudge, not a commit gate.
+
+    `has_code=False` short-circuits the nudge for doc-only / config-only
+    commits — /xp-quality-review only applies to code changes.
     """
+    if not has_code:
+        return None
     prev_commit_idx: int | None = None
     start = max(0, len(events) - _QR_WINDOW_CAP)
     for i in range(len(events) - 1, start - 1, -1):
@@ -294,7 +301,7 @@ def _handle_commit(
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
-    return _check_qr_linkage(events, agent_id)
+    return _check_qr_linkage(events, agent_id, has_code=has_code)
 
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,16 @@ def _cmd_get_story_branch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_get_story(args: argparse.Namespace) -> int:
+    try:
+        story = store.get_story(args.smm_dir, args.story_id)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(json.dumps(story, indent=2))
+    return 0
+
+
 def _cmd_count(args: argparse.Namespace) -> int:
     sprint = store.load_sprint(args.smm_dir)
     if sprint is None:
@@ -263,6 +273,12 @@ def main() -> None:
     )
     gsb_p.add_argument("story_id", help="Story ID")
 
+    gs_p = sub.add_parser(
+        "get-story",
+        help="Print one story as JSON (exits non-zero if id is unknown)",
+    )
+    gs_p.add_argument("story_id", help="Story ID")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -283,6 +299,7 @@ def main() -> None:
         "update-story": _cmd_update_story,
         "update-story-branch": _cmd_update_story_branch,
         "get-story-branch": _cmd_get_story_branch,
+        "get-story": _cmd_get_story,
     }
 
     sys.exit(dispatch[args.command](args))

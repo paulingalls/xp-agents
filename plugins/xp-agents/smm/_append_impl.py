@@ -467,6 +467,12 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Print the assigned event id to stdout so callers (e.g. close-reviewer
+    # agent populating `Resolves-Event:` trailers) can capture it via
+    # `id=$(append.sh ...)`. Stdout contract: exactly the event id, nothing
+    # else — the duplicate-debt probe below MUST keep its output on stderr.
+    print(event["id"])
+
     # Post-write duplicate-debt probe — advisory only, never fails the write
     try:
         scripts_dir = Path(__file__).parent.parent / "scripts"
