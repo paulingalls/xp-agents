@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.37.0 — Four-state story lifecycle: `scheduled` between ready and in-progress
+
+Adds a fourth story status (`scheduled`) so the data model, not a derived "does the branch have commits" check, distinguishes "queued for this iteration" from "actively worked." Resolves four interlocking pain points surfaced in sprint-048's retro:
+
+- xp-accept tried to verify next-up stories that had no branch and no commits
+- The Stop hook fired demanding /xp-accept after each story closed because the next was already marked in-progress
+- xp-assign always asked solo-vs-parallel even when the answer was obvious
+- The branch-already-exists state when re-running plan cycles was confusing
+
+### New lifecycle
+`ready` (backlog) → **`scheduled`** (xp-work-selection picks it) → `in-progress` (xp-assign creates the branch) → `done` / `deferred`. Stop gate and /xp-accept only fire on `in-progress`. Existing in-progress stories from prior sessions stay in-progress (they ARE actively worked) — no migration needed.
+
+### xp-assign auto-pick solo
+xp-assign no longer asks solo-vs-parallel when the answer is obvious:
+- only one scheduled story exists (nothing to parallelize), OR
+- 2+ scheduled stories share at least one file in their `file_domain` (parallel teammates would step on each other)
+
+Otherwise the user is asked. The overlap check uses the canonical `triage.extract_file_domain_paths` em-dash splitter so paths-with-spaces work correctly.
+
+### State transitions
+- xp-work-selection: marks picked stories `scheduled` (not `in-progress` directly).
+- xp-assign solo: promotes ONLY the first scheduled story to `in-progress` + creates its branch. Rest stay queued.
+- xp-assign teammates: promotes ALL scheduled with branches eagerly created.
+- xp-story-close JIT-next: when no in-progress remains, fall back to `next-scheduled` — promote to in-progress + JIT-create branch off the merged sprint tip.
+- xp-accept and sprint_stop_gate: gate on `in-progress` only (verified by new pin test).
+
+### Schema + tooling
+- `sprint_schema.VALID_STORY_STATUSES` adds `"scheduled"`. ACTIVE/TERMINAL derive automatically.
+- `sprint_store`: new `has_stories_with_status` (collapses 3 has_*_stories into 1-line wrappers), `has_scheduled_stories`, `next_scheduled_story_id` (shares `_next_story_id_with_status` with next_in_progress), `scheduled_file_domains_overlap`. `count_by_status` derives keys from the schema (no hardcoded list).
+- `sprint_cli`: new `next-scheduled` and `scheduled-overlap` subcommands. `_STATUS_CHOICES = sorted(VALID_STORY_STATUSES)` constant feeds all 3 argparse choices arrays. `_cmd_count` derives output from `count_by_status` instead of a hardcoded f-string (would have silently dropped scheduled).
+- xp-kickoff preload: SPRINT_ACTIVE block now surfaces ready/scheduled/in-progress counts + per-status story lists. Single `sprint_count` call + pure-bash for/case parse (3 subprocess spawns collapsed to 1).
+
+### Process docs
+- PROCESS_GUIDE.md: lifecycle one-liner inline with sprint flow paragraph (token-tight to fit the 1000-token budget).
+
+3640 tests pass.
+
 ## v2.36.0 — Sprint-048 retro followups: workflow + detection fixes
 
 Seven commits addressing items raised in the sprint-048 retrospective. Notable user-visible improvement: the test_runs counter in retros now correctly fires on Bun monorepo workspace commands (e.g. `bun --filter @aje-poc/perf-harness test`) that previously slipped past the regex. 3619 tests green.

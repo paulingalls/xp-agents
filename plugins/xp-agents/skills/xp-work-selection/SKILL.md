@@ -108,24 +108,28 @@ the question's event-id.
    Options: individual story IDs, "all ready stories", or "add ad-hoc story".
 3. For ad-hoc stories: ask for title and brief description, then add via CLI:
    ```bash
-   echo '{"id":"story-NNN","title":"...","status":"in-progress","dependencies":[],"acceptance_criteria":["..."]}' \
+   echo '{"id":"story-NNN","title":"...","status":"scheduled","dependencies":[],"acceptance_criteria":["..."]}' \
      | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> add-story
    ```
-4. For selected stories: update each story's status via CLI:
+4. For selected stories: mark each as `scheduled` (queued for this
+   iteration). xp-assign promotes the first scheduled story to
+   `in-progress` when it creates the branch — the four-state lifecycle
+   keeps "queued" and "actively worked" distinct so the stop gate and
+   /xp-accept only fire on stories that have a branch.
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
-     update-story story-NNN in-progress
+     update-story story-NNN scheduled
    ```
 5. Record status event:
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
      --type "status" --agent "xp-work-selection" \
-     --content "Story selection: marked N stories in-progress" \
+     --content "Story selection: marked N stories scheduled" \
      --working-on '[]'
    ```
 
-**If sprint active but no ready stories (all in-progress or done):**
-Report "All stories are in progress or complete. Continuing."
+**If sprint active but no ready stories (all scheduled, in-progress, or done):**
+Report "All stories are queued, in progress, or complete. Continuing."
 
 **If no active sprint:**
 Ask the user "What should we work on this session?" via AskUserQuestion.

@@ -156,6 +156,28 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "clobbered by a fresh create",
         )
 
+    def test_jit_next_falls_back_to_scheduled_when_no_in_progress(self):
+        # Under the four-state lifecycle (commit 1+2+3 of this work),
+        # solo mode's next story is in `scheduled` status — xp-assign
+        # only promoted the FIRST scheduled at /xp-assign time. The
+        # JIT-next dispatch must look at next-scheduled when
+        # next-in-progress is empty, promote it to in-progress, and
+        # create the branch off the merged sprint tip.
+        self.assertIn(
+            "next-scheduled",
+            self.text,
+            "JIT-next dispatch must check next-scheduled for the solo "
+            "fallback (the next scheduled story becomes the new in-progress)",
+        )
+        # The promotion step (update-story <id> in-progress) must be
+        # explicit in the SKILL.md so a future editor doesn't drop it
+        # and leave the next story stuck in scheduled forever.
+        self.assertIn(
+            "update-story",
+            self.text,
+            "SKILL.md must promote scheduled → in-progress before creating the branch",
+        )
+
     def test_cleans_up_teammate_worktree_when_present(self):
         # Per-story symmetry (decision 9029c07ae198): cleanup_teammate.py
         # runs from /xp-story-close per closed story when a teammate

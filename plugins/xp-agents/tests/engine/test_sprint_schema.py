@@ -43,10 +43,18 @@ class TestValidateSprint(unittest.TestCase):
         self.assertTrue(any("status" in e for e in errors))
 
     def test_valid_statuses(self):
-        for status in ("ready", "in-progress", "done", "deferred"):
+        for status in ("ready", "scheduled", "in-progress", "done", "deferred"):
             sprint = _make_sprint(stories=[_make_story(status=status)])
             errors = sprint_schema.validate_sprint(sprint)
             self.assertEqual(errors, [], f"Status {status!r} should be valid")
+
+    def test_scheduled_is_active_not_terminal(self):
+        # `scheduled` sits between ready and in-progress — both ACTIVE,
+        # neither TERMINAL. Stop gates / accept-cycle distinguish on terminal,
+        # not on the specific value.
+        self.assertIn("scheduled", sprint_schema.VALID_STORY_STATUSES)
+        self.assertIn("scheduled", sprint_schema.ACTIVE_STORY_STATUSES)
+        self.assertNotIn("scheduled", sprint_schema.TERMINAL_STORY_STATUSES)
 
     def test_story_missing_required_fields(self):
         sprint = _make_sprint(stories=[{"id": "story-001"}])
