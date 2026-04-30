@@ -415,34 +415,6 @@ milestones:
 
 ## Status
 
-**Draft.** Not yet in any execution plan. Forthcoming as a peer of
-the security-tier doctrine; both target v3.0.
-
-**Sources / context:**
-
-- This-session conversation: user asked "since teammates run on
-  worktrees, do we need branches for them?" → analysis showed
-  double-naming problem → "should story branch creation happen in
-  /xp-assign?" → analysis showed sprint-start was wrong place →
-  reliability discussion (PreToolUse block vs. PostToolUse nudge)
-  → user's "encourage right behavior, not punish wrong" reframing
-  → "create new branch" vs "run /xp-accept" nudge variants → user
-  noted file_domain rule mostly closes the parallel-teammate
-  dependency question → execution-unit framing.
-- Sprint-036 retrospective evidence: story-002's teammate manually
-  rebased onto story-001's branch (because the contract was
-  unclear); other teammates committed to `teammate-step-N` and
-  story branches stayed at fork-point.
-- Existing infrastructure: `branching.py create --story`,
-  `branching.py create-sprint`, `spawn_teammate.py`,
-  `_close_fixtures.py`, `xp-accept/SKILL.md`, kickoff orphan
-  triage.
-
-**Concerns this doctrine answers (would resolve at v3.0):**
-
-- Implicit: today's wasted story-branch artifacts at fork-point
-  generate retro noise. No specific concern event filed yet, but
-  the pattern is visible in sprint-036's git log.
-- Open question carried by the security-doctrine plan
-  (paragraph: "Worktree-directory-vs-branch-naming worth being
-  explicit about") — addressed here.
+**Complete.** All 5 milestones shipped across sprints 044-047,
+released as v2.34.0. The execution plan
+(`plan-story-branch-lifecycle`) is archived.
