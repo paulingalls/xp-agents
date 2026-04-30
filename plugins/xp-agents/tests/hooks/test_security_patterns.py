@@ -91,5 +91,68 @@ class TestSecretPatterns(unittest.TestCase):
         self.assertNotIn("password-literal", _names(findings))
 
 
+class TestShellInjectionPatterns(unittest.TestCase):
+    """Per-pattern coverage for the 3 shell-injection patterns."""
+
+    def test_subprocess_shell_true_with_fstring_canonical(self):
+        # Canonical Python ordering: cmd first, kwargs last.
+        findings = _scan(['subprocess.run(f"ls {x}", shell=True)'])
+        self.assertIn("subprocess-shell-true", _names(findings))
+
+    def test_subprocess_shell_true_with_concat_canonical(self):
+        findings = _scan(['subprocess.call("ls " + arg, shell=True)'])
+        self.assertIn("subprocess-shell-true", _names(findings))
+
+    def test_subprocess_shell_true_with_literal_matches(self):
+        # Per relaxed regex (story-002 plan revision): any shell=True fires.
+        # Safe literal-string usage suppresses with `# noqa: secret`.
+        findings = _scan(['subprocess.run("ls -la", shell=True)'])
+        self.assertIn("subprocess-shell-true", _names(findings))
+
+    def test_subprocess_no_shell_arg_no_match(self):
+        findings = _scan(['subprocess.run(["ls", arg])'])
+        self.assertNotIn("subprocess-shell-true", _names(findings))
+
+    def test_subprocess_shell_false_no_match(self):
+        findings = _scan(['subprocess.run("ls", shell=False)'])
+        self.assertNotIn("subprocess-shell-true", _names(findings))
+
+    def test_subprocess_literal_close_paren_blind_spot(self):
+        # KNOWN LIMITATION: the [^)]* quantifier stops at the FIRST `)`,
+        # so a `)` inside a string literal closes the regex window before
+        # reaching shell=True. Pinning this so a future maintainer
+        # "fixing" it considers the catastrophic-backtracking trade-off
+        # of any unbounded alternative (e.g. balanced-paren regex).
+        findings = _scan(['subprocess.run("echo )", shell=True)'])
+        self.assertNotIn("subprocess-shell-true", _names(findings))
+
+    def test_os_system_positive(self):
+        findings = _scan(['os.system("rm -rf /tmp/scratch")'])
+        self.assertIn("os-system", _names(findings))
+
+    def test_os_system_substring_no_match(self):
+        # `pos.system(` shouldn't fire — the \b anchor pins `os.system` as a whole word.
+        findings = _scan(["something.pos.system(x)"])
+        self.assertNotIn("os-system", _names(findings))
+
+    def test_eval_call_positive(self):
+        findings = _scan(["eval(user_input)"])
+        self.assertIn("eval-exec", _names(findings))
+
+    def test_exec_call_positive(self):
+        findings = _scan(["exec(compile(code, '<string>', 'exec'))"])
+        self.assertIn("eval-exec", _names(findings))
+
+    def test_evaluator_substring_no_match(self):
+        # `evaluator(` shouldn't fire — \b pins eval as a whole word.
+        findings = _scan(["evaluator(x)"])
+        self.assertNotIn("eval-exec", _names(findings))
+
+    def test_executor_substring_no_match(self):
+        # `executor(` shouldn't fire — \b pins exec as a whole word.
+        findings = _scan(["executor(y)"])
+        self.assertNotIn("eval-exec", _names(findings))
+
+
 if __name__ == "__main__":
     unittest.main()

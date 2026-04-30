@@ -12,6 +12,7 @@ import re
 from security_scanner import Pattern
 
 V3_0_PATTERNS: list[Pattern] = [
+    # --- Secrets ---
     Pattern(
         name="aws-access-key",
         regex=re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -33,6 +34,26 @@ V3_0_PATTERNS: list[Pattern] = [
             r"""(?:password|passwd|pwd)\s*[:=]\s*["'][^"']{8,}["']""",
             re.IGNORECASE,
         ),
+        skip_tests=True,
+    ),
+    # --- Shell injection ---
+    # subprocess-shell-true: relaxed from doctrine's "with interpolation"
+    # qualifier so canonical Python ordering (cmd first, kwargs last) fires.
+    # Production has zero shell=True today; safe literal-string uses suppress
+    # with `# noqa: secret`.
+    Pattern(
+        name="subprocess-shell-true",
+        regex=re.compile(r"subprocess\.\w+\([^)]*shell\s*=\s*True\b"),
+        skip_tests=True,
+    ),
+    Pattern(
+        name="os-system",
+        regex=re.compile(r"\bos\.system\s*\("),
+        skip_tests=True,
+    ),
+    Pattern(
+        name="eval-exec",
+        regex=re.compile(r"\b(?:eval|exec)\s*\("),
         skip_tests=True,
     ),
 ]
