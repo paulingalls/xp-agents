@@ -19,7 +19,8 @@ class Pattern:
     `regex` is a compiled pattern — callers pre-compile so each pattern
     is built once at import time.
     `skip_tests` opts out of matching when the file path is recognized
-    as a test file (per pre_tool_write.is_test_file).
+    as a test file. NOTE: not yet honored by scan_diff — wired in
+    commit 3 of story-001 alongside `# noqa: secret` suppression.
     """
 
     name: str
@@ -37,25 +38,38 @@ class Finding:
     line_content: str
 
 
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
 def scan_diff(diff_text: str, patterns: list[Pattern]) -> list[Finding]:
     """Scan a unified diff for pattern matches.
 
-    Walks `+++ b/<path>` headers to track the current file, then for each
-    added line (prefix '+') runs every pattern's regex. Returns one
-    Finding per (pattern, line) match.
-
-    Minimal implementation: line numbers are not yet derived from hunk
-    headers — every match reports line_number=1. Hunk parsing is a planned
-    follow-up.
+    Walks `+++ b/<path>` headers to track the current file and `@@` hunk
+    headers to track the new-file line counter, then for each added line
+    (prefix '+') runs every pattern's regex. Returns one Finding per
+    (pattern, line) match. Removed lines ('-') don't advance the new-file
+    counter; context lines (' ') do.
     """
     findings: list[Finding] = []
     current_file = ""
+    new_line = 0
     for raw in diff_text.splitlines():
         if raw.startswith("+++ b/"):
             current_file = raw[len("+++ b/") :].rstrip()
-        elif raw.startswith(("+++", "---")) or not current_file:
             continue
-        elif raw.startswith("+"):
+        if raw.startswith("+++"):
+            # `+++ /dev/null` (deletion) — clear context so any stray '+' lines
+            # before the next file header aren't misattributed to the prior file.
+            current_file = ""
+            continue
+        if raw.startswith("---") or not current_file:
+            continue
+        if raw.startswith("@@"):
+            hunk = _HUNK_RE.match(raw)
+            if hunk:
+                new_line = int(hunk.group(1))
+            continue
+        if raw.startswith("+"):
             line_body = raw[1:]
             for pat in patterns:
                 if pat.regex.search(line_body):
@@ -63,8 +77,11 @@ def scan_diff(diff_text: str, patterns: list[Pattern]) -> list[Finding]:
                         Finding(
                             pattern_name=pat.name,
                             file_path=current_file,
-                            line_number=1,
+                            line_number=new_line,
                             line_content=line_body,
                         )
                     )
+            new_line += 1
+        elif raw.startswith(" "):
+            new_line += 1
     return findings

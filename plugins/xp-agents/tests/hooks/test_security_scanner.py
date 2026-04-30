@@ -62,10 +62,7 @@ class TestScanDiff(unittest.TestCase):
     def test_added_line_with_match_emits_finding(self):
         """A single + line matching the pattern produces one Finding.
 
-        Hunk header pins the new-file start at line 1, so the assertion
-        line_number==1 holds for both the minimal scanner (which reports
-        line=1 unconditionally) and the future full hunk parser (which
-        will derive line=1 from the +1 in the hunk header).
+        Hunk header pins the new-file start at +1, so line_number==1.
         """
         diff = (
             "diff --git a/scripts/cfg.py b/scripts/cfg.py\n"
@@ -80,6 +77,132 @@ class TestScanDiff(unittest.TestCase):
         self.assertEqual(findings[0].file_path, "scripts/cfg.py")
         self.assertEqual(findings[0].line_number, 1)
         self.assertIn("AKIA1234567890ABCDEF", findings[0].line_content)
+
+    def test_no_pattern_match_returns_no_findings(self):
+        """A diff with content that no pattern matches produces no Findings."""
+        diff = "+++ b/scripts/safe.py\n@@ -0,0 +1,1 @@\n+x = 1  # safe code\n"
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_removed_line_with_match_emits_no_finding(self):
+        """A '-' line containing a secret-shape is not a Finding (it's leaving)."""
+        diff = '+++ b/scripts/cfg.py\n@@ -1,1 +1,0 @@\n-key = "AKIA1234567890ABCDEF"\n'
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_context_line_with_match_emits_no_finding(self):
+        """A ' ' (context) line containing a secret-shape is not a Finding."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -1,2 +1,2 @@\n"
+            ' key = "AKIA1234567890ABCDEF"\n'
+            "+x = 1\n"
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_hunk_line_numbering_offset(self):
+        """When hunk starts at +5, the first + line is reported at line 5."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -1,3 +5,3 @@\n"
+            " context_a\n"
+            " context_b\n"
+            '+key = "AKIA1234567890ABCDEF"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].line_number, 7)  # 5 + 2 context lines
+
+    def test_hunk_without_count_treated_as_one(self):
+        """`@@ -3 +5 @@` (no comma) is a valid one-line hunk; +5 still parses."""
+        diff = '+++ b/scripts/cfg.py\n@@ -3 +5 @@\n+key = "AKIA1234567890ABCDEF"\n'
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].line_number, 5)
+
+    def test_minus_lines_dont_advance_new_line_counter(self):
+        """A '-' line is a removal — new-file line numbers don't advance over it."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -1,3 +1,2 @@\n"
+            "-old_line_one\n"
+            "-old_line_two\n"
+            '+key = "AKIA1234567890ABCDEF"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].line_number, 1)
+
+    def test_multiple_hunks_reset_line_counter(self):
+        """Each hunk header re-establishes the new-file line counter."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            '+key1 = "AKIA1111111111111111"\n'
+            "@@ -50,1 +50,1 @@\n"
+            '+key2 = "AKIA2222222222222222"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(findings[0].line_number, 1)
+        self.assertEqual(findings[1].line_number, 50)
+
+    def test_multiple_files_in_one_diff(self):
+        """Two files in the same diff each get their own Findings."""
+        diff = (
+            "+++ b/scripts/a.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key_a = "AKIA1111111111111111"\n'
+            "diff --git a/scripts/b.py b/scripts/b.py\n"
+            "+++ b/scripts/b.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key_b = "AKIA2222222222222222"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(findings[0].file_path, "scripts/a.py")
+        self.assertEqual(findings[1].file_path, "scripts/b.py")
+
+
+class TestEdgeCases(unittest.TestCase):
+    """scan_diff() edge cases and defensive behavior."""
+
+    def test_new_file_diff_processes_added_lines(self):
+        """`--- /dev/null` followed by `+++ b/new.py` is a new file — scan it."""
+        diff = (
+            "diff --git a/new.py b/new.py\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/new.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+secret = "AKIA1234567890ABCDEF"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].file_path, "new.py")
+
+    def test_deleted_file_diff_emits_nothing(self):
+        """`+++ /dev/null` is a deletion — there are no + lines to scan."""
+        diff = (
+            "diff --git a/old.py b/old.py\n"
+            "deleted file mode 100644\n"
+            "--- a/old.py\n"
+            "+++ /dev/null\n"
+            "@@ -1,1 +0,0 @@\n"
+            '-key = "AKIA1234567890ABCDEF"\n'
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_binary_file_marker_does_not_crash(self):
+        """`Binary files differ` lines are tolerated, not treated as content."""
+        diff = (
+            "diff --git a/img.png b/img.png\n"
+            "Binary files a/img.png and b/img.png differ\n"
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_diff_without_file_header_emits_nothing(self):
+        """Without a `+++ b/<path>` header, no file context exists — no findings."""
+        diff = '@@ -0,0 +1,1 @@\n+key = "AKIA1234567890ABCDEF"\n'
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
 
 
 if __name__ == "__main__":
