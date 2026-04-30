@@ -135,6 +135,27 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "SKILL.md must reference branch_name to gate JIT-create",
         )
 
+    def test_jit_next_uses_explicit_shell_guard(self):
+        # Pin the explicit `if NEXT_STORY=$(...)` outer guard and the
+        # inner `if [ -z "$NEXT_BRANCH" ]; then` so the gate is shell-
+        # enforced, not just prose. A regression that drops the
+        # explicit if/then would let an LLM-orchestrator interpret the
+        # `&&`-style guard incorrectly and run JIT-create even when
+        # `next-in-progress` exited non-zero.
+        self.assertRegex(
+            self.text,
+            r"if NEXT_STORY=\$\(",
+            "JIT-next dispatch must use an explicit `if NEXT_STORY=$(...)` "
+            "outer guard so non-zero exit short-circuits cleanly",
+        )
+        self.assertRegex(
+            self.text,
+            r'if \[ -z "\$NEXT_BRANCH" \]; then',
+            "JIT-create must run inside an explicit `if [ -z $NEXT_BRANCH ]; "
+            "then` block so parallel-teammate branches are skipped, not "
+            "clobbered by a fresh create",
+        )
+
     def test_cleans_up_teammate_worktree_when_present(self):
         # Per-story symmetry (decision 9029c07ae198): cleanup_teammate.py
         # runs from /xp-story-close per closed story when a teammate

@@ -111,8 +111,11 @@ Loop continues for the next done story (each gets its own
 /xp-sprint-review — Step 6 below owns that single dispatch after
 the loop completes (decision e30e9e91e61a).
 
-**Stage 0:** /xp-story-close still runs — its own preflight and
-close_common.py handle the no-branch case gracefully.
+**Stage 0:** at stage 0 there is no branch discipline — the
+orchestrator commits directly on the primary branch — so
+/xp-story-close's preflight will refuse (CURRENT_BRANCH IS
+TARGET_BRANCH) and stop with a clear stderr message. Skip the
+dispatch entirely at stage 0.
 
 ## Step 3: Record Events
 

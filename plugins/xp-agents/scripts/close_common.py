@@ -106,9 +106,21 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
         return result.returncode
-    pr_url = result.stdout.strip()
-    pr_number = pr_url.rsplit("/", 1)[-1]
-    print(pr_number)
+    # gh may emit info/warning lines around the URL; pick the last
+    # line that looks like a github PR URL so trailing confirmation
+    # text doesn't poison the trailing rsplit.
+    pr_url = ""
+    for line in reversed(result.stdout.splitlines()):
+        line = line.strip()
+        if "/pull/" in line and line.startswith("http"):
+            pr_url = line
+            break
+    if not pr_url:
+        sys.stderr.write(
+            f"create-pr: could not parse PR URL from gh stdout:\n{result.stdout}"
+        )
+        return 1
+    print(pr_url.rsplit("/", 1)[-1])
     return 0
 
 

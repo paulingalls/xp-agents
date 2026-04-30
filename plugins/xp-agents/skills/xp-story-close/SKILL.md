@@ -171,41 +171,36 @@ branch created on demand. The `next-in-progress` subcommand returns
 the lowest-id in-progress story whose deps are all done; cascade-defer
 naturally excludes blocked stories.
 
-```bash
-NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-  --smm-dir <SMM_DIR> next-in-progress) && [ -n "$NEXT_STORY" ]
-```
-
-If the command exits non-zero (no eligible next story), **stop the
-JIT-next step**. /xp-accept's loop owns the sprint-review dispatch
-when the sprint completes; /xp-story-close NEVER fires it itself
-(decision e30e9e91e61a — single source of truth lives in /xp-accept).
-
-If `NEXT_STORY` is set, check whether its branch already exists.
-Parallel teammate batches set `branch_name` for every parallel-eligible
-story at /xp-assign time, so JIT-create is a no-op for teammate mode.
-Use `sprint_cli.py get-story-branch` to read the recorded value
-(prints the branch name or empty; exit 0 either way):
+Wrap the entire JIT-next dispatch in a single shell guard so the gate
+is enforced by the shell itself, not just by prose. If
+`next-in-progress` exits non-zero (no eligible next story), the outer
+`if` body is skipped — /xp-accept's loop owns the sprint-review
+dispatch when the sprint completes (decision e30e9e91e61a — single
+source of truth lives in /xp-accept). The inner `if` distinguishes
+the parallel-teammate case (branch already exists, skip create) from
+the solo case (JIT-create off merged tip):
 
 ```bash
-NEXT_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-  --smm-dir <SMM_DIR> get-story-branch "$NEXT_STORY")
+if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+    --smm-dir <SMM_DIR> next-in-progress); then
+  NEXT_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+    --smm-dir <SMM_DIR> get-story-branch "$NEXT_STORY")
+  if [ -z "$NEXT_BRANCH" ]; then
+    # Solo mode: JIT-create the branch off the merged sprint tip.
+    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
+      --smm-dir <SMM_DIR> create --cwd . \
+      --story "$NEXT_STORY" --slug "<next-story-title-slug>" \
+      --base <TARGET_BRANCH>
+  fi
+  # Else parallel teammate batch — branch exists, the existing
+  # teammate worktree already drives that story; nothing to do.
+fi
 ```
 
-If `NEXT_BRANCH` is **non-empty**, the branch already exists (parallel
-teammate batch). Skip JIT-create and stop here — the existing teammate
-worktree already drives that story.
-
-If `NEXT_BRANCH` is **empty** (solo mode), JIT-create the branch off
-the merged sprint tip and check it out so the orchestrator can begin
-the next story:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
-  --smm-dir <SMM_DIR> create --cwd . \
-  --story "$NEXT_STORY" --slug "<next-story-title-slug>" \
-  --base <TARGET_BRANCH>
-```
+`sprint_cli.py get-story-branch` prints the branch name (when the
+parallel-teammate batch set `branch_name` at /xp-assign time) or
+empty (solo mode awaiting JIT-create); exits 0 either way so the
+`[ -z ]` test cleanly gates without `set +e` gymnastics.
 
 `branching.py create` records `branch_name` in sprint.json
 automatically and checks out the new branch. The orchestrator now

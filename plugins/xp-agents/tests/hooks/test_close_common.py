@@ -162,6 +162,43 @@ class TestCreatePr(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "4242")
 
+    def test_returns_number_when_gh_emits_extra_lines(self):
+        # gh sometimes emits info/confirmation lines AFTER the PR URL on
+        # stdout. cmd_create_pr must locate the URL line specifically —
+        # naive `rsplit("/", 1)` against the full stripped stdout
+        # returns "<num>\n<trailing-line>" garbage when the trailing
+        # line has no slash, and downstream `gh pr diff <PR_NUMBER>`
+        # then fails confusingly. Pinning the multi-line case here.
+        with (
+            tempfile.TemporaryDirectory() as td,
+            tempfile.TemporaryDirectory() as stubd,
+        ):
+            _bf.init_repo(td)
+            multiline = (
+                "Creating pull request for feature-x into main\n"
+                "https://github.com/owner/repo/pull/4242\n"
+                "Created pull request\n"
+            )
+            env = _cf.stub_gh(stubd, multiline)
+            result = _run(
+                [
+                    "create-pr",
+                    "--cwd",
+                    td,
+                    "--base",
+                    "main",
+                    "--head",
+                    "feature-x",
+                    "--title",
+                    "T",
+                    "--body",
+                    "B",
+                ],
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "4242")
+
 
 class TestMerge(unittest.TestCase):
     def test_full_chain_with_remote_merges_pushes_deletes(self):

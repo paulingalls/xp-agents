@@ -385,6 +385,27 @@ class TestNextInProgressCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "story-001")
 
+    def test_handles_malformed_story_id_gracefully(self):
+        # If a sprint somehow contains a story id whose trailing segment
+        # isn't all digits (e.g. a typo `story-2a` that escaped schema
+        # validation, or a manually-edited sprint.json), the numeric
+        # sort key must NOT raise an uncaught ValueError. Inside the
+        # /xp-story-close pipeline a traceback here would be opaque;
+        # graceful fallback to lexical ordering surfaces the bad id
+        # without bringing down the close.
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="in-progress", dependencies=[]),
+                # Schema-bypass: feed sprint.json a typo'd id directly.
+                _make_story(id="story-2a", status="in-progress"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        # Must not crash with ValueError; must return *some* eligible id.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(result.stdout.strip(), {"story-001", "story-2a"})
+
     def test_excludes_dependent_of_deferred_story(self):
         # When an upstream story is deferred (e.g. cascade from a
         # failed AC), in-progress stories that depend on it must NOT

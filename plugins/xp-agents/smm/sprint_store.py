@@ -10,6 +10,7 @@ Follows the same pattern as execution_plan_store.py.
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -238,10 +239,21 @@ def next_in_progress_story_id(smm_dir: Path) -> str | None:
     ]
     if not eligible:
         return None
+
     # Numeric sort by trailing -NNN — lexical min would order story-10
     # before story-2. Project convention zero-pads (story-001) but a
-    # numeric key removes the latent footgun.
-    return min(eligible, key=lambda s: int(s.rsplit("-", 1)[1]))
+    # numeric key removes the latent footgun. Malformed ids (typos
+    # like `story-2a` that escaped schema validation) fall back to a
+    # large sentinel so they sort last instead of crashing the close
+    # pipeline with an uncaught ValueError.
+    def _id_sort_key(s: str) -> tuple[int, str]:
+        tail = s.rsplit("-", 1)[-1]
+        try:
+            return (int(tail), s)
+        except ValueError:
+            return (sys.maxsize, s)
+
+    return min(eligible, key=_id_sort_key)
 
 
 # -------------------------------------------------------------------
