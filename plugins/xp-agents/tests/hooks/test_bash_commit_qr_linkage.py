@@ -96,6 +96,30 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
         if result:
             self.assertNotIn("quality review", result.lower())
 
+    def test_doc_only_commit_does_not_warn(self):
+        # User-reported noise: doc-only commits (DEMO.md, README.md, etc.)
+        # currently fire the "No quality review found" warning even though
+        # /xp-quality-review only applies to code changes. Gate the nudge
+        # on at least one staged code file.
+        self._seed_commit_event()
+        result = self._run_commit(committed_files=["DEMO.md"])
+        if result:
+            self.assertNotIn("quality review", result.lower())
+
+    def test_config_only_commit_does_not_warn(self):
+        # JSON/YAML config files are also non-code per security.is_code_file.
+        self._seed_commit_event()
+        result = self._run_commit(committed_files=["package.json", "config.yaml"])
+        if result:
+            self.assertNotIn("quality review", result.lower())
+
+    def test_mixed_code_and_doc_still_warns(self):
+        # Even one code file in a multi-file commit should preserve the nudge.
+        self._seed_commit_event()
+        result = self._run_commit(committed_files=["DEMO.md", "src/app.py"])
+        self.assertIsNotNone(result)
+        self.assertIn("quality review", result.lower())
+
 
 class TestResolutionComputationCount(_HookTestCase):
     """Verify _handle_commit computes resolutions exactly once."""
