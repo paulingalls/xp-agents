@@ -68,22 +68,25 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     _MODE = "plan"
 
     def test_refuses_when_current_equals_target(self):
-        # Plan-close from the primary branch is nonsensical — refuse.
+        # Plan-close from the primary branch is nonsensical — close_common.py
+        # preflight refuses, but SKILL.md still names both vars in the
+        # invocation so the orchestrator knows what it's checking.
         self.assertIn("CURRENT_BRANCH", self.text)
         self.assertIn("TARGET_BRANCH", self.text)
 
     def test_archives_plan_only_after_merge(self):
-        # plan_cli.py archive must appear AFTER the merge-branch call so
+        # plan_cli.py archive must appear AFTER close_common.py merge so
         # the plan stays intact on a failed merge.
         self.assertIn("plan_cli.py", self.text)
         self.assertIn("archive", self.text)
-        merge_idx = self.text.index("merge-branch")
+        merge_match = re.search(r"close_common\.py\s+merge", self.text)
+        assert merge_match is not None, "close_common.py merge invocation not found"
         archive_match = re.search(r"plan_cli\.py[^\n]*archive", self.text)
         assert archive_match is not None, "plan_cli.py archive call not found"
         self.assertLess(
-            merge_idx,
+            merge_match.start(),
             archive_match.start(),
-            "plan_cli.py archive must appear AFTER merge-branch",
+            "plan_cli.py archive must appear AFTER close_common.py merge",
         )
 
     def test_allowed_tools_includes_skill(self):
@@ -98,12 +101,13 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
         # project state before the next planning cycle.
         self.assertIn("xp-system-context", self.text)
         self.assertIn("Skill", self.text)
-        merge_idx = self.text.index("merge-branch")
+        merge_match = re.search(r"close_common\.py\s+merge", self.text)
+        assert merge_match is not None
         sc_idx = self.text.index("xp-system-context")
         self.assertLess(
-            merge_idx,
+            merge_match.start(),
             sc_idx,
-            "/xp-system-context must appear AFTER merge-branch",
+            "/xp-system-context must appear AFTER close_common.py merge",
         )
 
     def test_system_context_failure_does_not_block(self):

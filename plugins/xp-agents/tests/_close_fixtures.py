@@ -10,12 +10,14 @@ uses get-target, plan-close uses get-primary, free-close mirrors
 plan-close), so subclasses own that test individually.
 
 `_CloseSkillTextCommonTests` covers the SKILL.md guard assertions
-shared across sprint/plan/free close skills (refusal prose, gh-conditional
-PR, prompt-section names for the close-reviewer, agent prompt literals,
-merge+delete ordering, etc.). Subclasses supply `_SKILL_MD: Path` and
-`_MODE: str` ("sprint" | "plan" | "free"); mode-specific tests
-(plan-archive, sprint→plan-close chain, current==target refusal) stay
-on the subclasses.
+shared across sprint/plan/free close skills: each SKILL.md must
+invoke close_common.py's four subcommands (preflight, push,
+create-pr, merge) with the right args, embed the close-reviewer
+prompt sections inline, fork the reviewer before the merge, and
+prompt the user via AskUserQuestion. Subclasses supply `_SKILL_MD:
+Path` and `_MODE: str` ("sprint" | "plan" | "free" | "story");
+mode-specific tail tests (plan-archive, sprint→plan-close chain,
+plan/free same-branch refusal nuance) stay on the subclasses.
 """
 
 import os
@@ -156,59 +158,85 @@ class _CloseSkillTextCommonTests:
 
     Subclasses must define:
         _SKILL_MD: Path — absolute path to the close skill's SKILL.md
-        _MODE: str    — "sprint" | "plan" | "free"; used by the
-                        Agent-prompt-mode assertion.
+        _MODE: str    — "sprint" | "plan" | "free" | "story"; used by
+                        the Agent-prompt-mode assertion.
 
-    Mode-specific tests (current==target refusal for plan/free,
-    plan_cli archive for plan, /xp-plan-close chain for sprint) live
-    on the subclasses — not enough overlap to justify another mixin.
+    The shared close pipeline (preflight, push, create-pr, merge) lives
+    in scripts/close_common.py — these tests assert each SKILL.md
+    invokes the four subcommands instead of asserting the pipeline's
+    inline bash literals (which are now hidden inside close_common.py).
+    Mode-specific tail tests (plan-archive, sprint→plan-close chain,
+    current==target refusal) live on the subclasses.
     """
 
     _SKILL_MD: Path
     _MODE: str
+    # Subclasses set False when current==target is impossible by design
+    # (e.g. sprint-close uses the get-target lookup which returns a
+    # different branch when on the sprint branch).
+    _ASSERT_REFUSES_SAME_BRANCH: bool = True
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.text = cls._SKILL_MD.read_text()
 
-    def test_refuses_when_worktree_clean_false(self):
-        # The body must describe the refusal path when WORKTREE_CLEAN=false.
-        self.assertIn("WORKTREE_CLEAN", self.text)
-        lower = self.text.lower()
-        self.assertTrue(
-            "refuse" in lower or "abort" in lower or "stop" in lower,
-            "SKILL.md must describe refusing/aborting on dirty worktree",
-        )
+    def _merge_invocation(self) -> "re.Match[str]":
+        """Locate the close_common.py merge invocation. Asserts presence."""
+        m = re.search(r"close_common\.py\s+merge", self.text)
+        assert m is not None, "close_common.py merge invocation not found"
+        return m
 
-    def test_gh_pr_create_only_inside_gh_available_branch(self):
-        # `gh pr create` must appear inside a GH_AVAILABLE=true conditional —
-        # not just somewhere in the file. Look for an explicit
-        # `GH_AVAILABLE=true` near (within 200 chars before) the gh call.
-        self.assertIn("gh pr create", self.text)
-        gh_idx = self.text.index("gh pr create")
-        prelude = self.text[max(0, gh_idx - 200) : gh_idx]
+    def test_invokes_close_common_preflight(self):
+        # SKILL.md must invoke close_common.py preflight with the three
+        # required args. close_common.py owns the dirty/same-branch
+        # refusal logic — SKILL.md just calls it and bails on non-zero.
         self.assertRegex(
-            prelude,
-            r"GH_AVAILABLE\s*=\s*true",
-            "gh pr create must be guarded by an explicit "
-            "`GH_AVAILABLE=true` conditional within 200 chars before it",
+            self.text,
+            r"close_common\.py\s+preflight",
+            "SKILL.md must invoke close_common.py preflight",
         )
+        for arg in ("--cwd", "--current", "--target"):
+            self.assertIn(arg, self.text, f"preflight invocation must pass {arg}")
 
-    def test_documents_no_gh_skip_path(self):
-        # When GH_AVAILABLE=false the skill must describe what is skipped
-        # so the operator knows the PR step was intentionally bypassed.
-        lower = self.text.lower()
-        self.assertTrue(
-            "skip" in lower and ("gh" in lower or "pr" in lower),
-            "SKILL.md must describe the gh-not-available skip path",
+    def test_invokes_close_common_push(self):
+        # SKILL.md must invoke close_common.py push. The script handles
+        # the no-remote skip internally, so SKILL.md no longer branches.
+        self.assertRegex(
+            self.text,
+            r"close_common\.py\s+push",
+            "SKILL.md must invoke close_common.py push",
         )
+        self.assertIn("--branch", self.text)
+
+    def test_invokes_close_common_create_pr(self):
+        # SKILL.md must invoke close_common.py create-pr. The script
+        # handles the no-gh skip internally; SKILL.md captures stdout
+        # (PR_NUMBER or skip message) for the diff-command decision.
+        self.assertRegex(
+            self.text,
+            r"close_common\.py\s+create-pr",
+            "SKILL.md must invoke close_common.py create-pr",
+        )
+        for arg in ("--base", "--head", "--title", "--body"):
+            self.assertIn(arg, self.text, f"create-pr invocation must pass {arg}")
+
+    def test_invokes_close_common_merge(self):
+        # SKILL.md must invoke close_common.py merge. The script does
+        # the chained merge --no-ff + push target (if remote) + delete
+        # source — SKILL.md no longer inlines the && chain.
+        self.assertRegex(
+            self.text,
+            r"close_common\.py\s+merge",
+            "SKILL.md must invoke close_common.py merge",
+        )
+        for arg in ("--source", "--target"):
+            self.assertIn(arg, self.text, f"merge invocation must pass {arg}")
 
     def test_prompt_template_carries_close_review_fields(self):
-        # The Agent prompt template must include the four close-review
-        # sections inline — the close-reviewer reads them from the prompt
-        # now that the JSON file pattern was removed. The mode literal
-        # ('sprint' | 'plan' | 'free') must also appear in the prompt.
+        # The Agent prompt template still embeds the four close-review
+        # sections inline — that's the close-reviewer's prompt contract,
+        # which is orchestrator-side (close_common.py doesn't touch it).
         self.assertNotIn(
             "REVIEW_INPUT",
             self.text,
@@ -223,33 +251,6 @@ class _CloseSkillTextCommonTests:
             self.assertIn(
                 section, self.text, f"Missing prompt section heading: {section}"
             )
-        # Diff Command section must carry an actual command, not just the
-        # heading — guards against a regression that drops the value while
-        # keeping the section. The `\\n` matches the literal escape
-        # sequence in the embedded Python-style prompt string (SKILL.md
-        # writes prompts as one-liners with `\n` characters as text, not
-        # real newlines). Trailing space after `git diff ` distinguishes
-        # the subcommand from lookalike substrings.
-        self.assertRegex(
-            self.text,
-            r"## Diff Command\\n(gh pr diff|git diff )",
-            "## Diff Command section must be followed by gh pr diff or git diff",
-        )
-        # Both branches must be present — the GH_AVAILABLE=true block
-        # carries `gh pr diff`, the GH_AVAILABLE=false block carries the
-        # `git diff <TARGET_BRANCH>...HEAD` fallback. Asserting both
-        # individually catches a regression where one branch is dropped
-        # but the other still satisfies the regex above.
-        self.assertIn(
-            "gh pr diff",
-            self.text,
-            "GH_AVAILABLE=true branch must invoke `gh pr diff`",
-        )
-        self.assertIn(
-            "git diff <TARGET_BRANCH>...HEAD",
-            self.text,
-            "GH_AVAILABLE=false branch must invoke `git diff <TARGET_BRANCH>...HEAD`",
-        )
 
     def test_agent_prompt_carries_smm_dir_and_mode(self):
         # The Agent prompt must literally embed SMM_DIR= and the mode
@@ -260,49 +261,56 @@ class _CloseSkillTextCommonTests:
         self.assertIn(f"## Mode\\n{self._MODE}", self.text)
 
     def test_invokes_close_reviewer_via_agent_tool(self):
-        # The body must instruct forking xp-close-reviewer via the Agent tool.
+        # The body must instruct forking xp-close-reviewer via the Agent
+        # tool — orchestrator step, can't be in close_common.py.
         self.assertIn("xp-agents:xp-close-reviewer", self.text)
         self.assertIn("subagent_type", self.text)
 
-    def test_merge_branch_called_with_explicit_target(self):
-        # The body must invoke `branching.py merge-branch` with an explicit
-        # --target — branching.py requires it and implicit defaults caused
-        # drift in earlier iterations.
-        self.assertIn("merge-branch", self.text)
-        self.assertIn("--target", self.text)
-        self.assertIn("--branch", self.text)
-
-    def test_delete_branch_only_after_merge(self):
-        # The body must invoke `branching.py delete ... --branch` AND that
-        # call must appear AFTER the merge-branch call so cleanup never
-        # runs on a failed merge.
-        delete_match = re.search(r"\bdelete\b.*--branch", self.text)
-        assert delete_match is not None, "branching.py delete --branch not found"
-        merge_idx = self.text.index("merge-branch")
+    def test_merge_invocation_appears_after_review(self):
+        # The merge step must run AFTER the close-reviewer fork — never
+        # before — so the user has the reviewer's findings before
+        # merging. Catches a regression that reorders the pipeline.
+        agent_idx = self.text.index("xp-agents:xp-close-reviewer")
         self.assertLess(
-            merge_idx,
-            delete_match.start(),
-            "delete --branch must appear AFTER merge-branch",
-        )
-
-    def test_pushes_target_after_merge(self):
-        # The merge step must push the target branch so the GitHub PR
-        # auto-closes. The push must appear AFTER merge-branch and BEFORE
-        # delete (push failure should leave the source branch alive for
-        # retry; merge failure should not push).
-        self.assertIn("git push origin <TARGET_BRANCH>", self.text)
-        merge_idx = self.text.index("merge-branch")
-        push_idx = self.text.index("git push origin <TARGET_BRANCH>")
-        delete_match = re.search(r"\bdelete\b.*--branch", self.text)
-        assert delete_match is not None
-        self.assertLess(merge_idx, push_idx, "git push must appear AFTER merge-branch")
-        self.assertLess(
-            push_idx,
-            delete_match.start(),
-            "git push must appear BEFORE delete --branch",
+            agent_idx,
+            self._merge_invocation().start(),
+            "close_common.py merge must appear AFTER the reviewer fork",
         )
 
     def test_asks_user_before_merging(self):
         # Per design, the close skill must ask the user to confirm the
-        # merge after presenting the reviewer's findings.
+        # merge after presenting the reviewer's findings — orchestrator
+        # step (AskUserQuestion is not a script-callable tool).
         self.assertIn("AskUserQuestion", self.text)
+
+    def test_documents_no_gh_skip_breadcrumb(self):
+        # Operator-facing breadcrumb: SKILL.md must mention "skipped:"
+        # so the human reading the skill sees what create-pr's
+        # gh-not-available output looks like. Without this line the
+        # operator might think a missing PR_NUMBER is a bug.
+        self.assertIn(
+            "skipped:",
+            self.text,
+            "SKILL.md must document close_common.py skip-message prose "
+            "so the operator recognizes the no-gh / no-remote path",
+        )
+
+    def test_refuses_when_current_equals_target(self):
+        # Pulled from the plan/free subclasses: SKILL.md must name both
+        # branch vars (so the operator sees what preflight checks) and
+        # describe the stop-on-failure path. Sprint-close opts out via
+        # _ASSERT_REFUSES_SAME_BRANCH = False because its get-target
+        # lookup always returns a different branch from the sprint
+        # branch — the same-branch case is not reachable.
+        if not self._ASSERT_REFUSES_SAME_BRANCH:
+            self.skipTest(
+                "this skill's preload guarantees current != target; "
+                "no same-branch refusal to assert"
+            )
+        self.assertIn("CURRENT_BRANCH", self.text)
+        self.assertIn("TARGET_BRANCH", self.text)
+        lower = self.text.lower()
+        self.assertTrue(
+            "stop" in lower or "preflight" in lower or "refuse" in lower,
+            "SKILL.md must describe stopping/refusing on preflight failure",
+        )
