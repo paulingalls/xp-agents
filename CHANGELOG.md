@@ -11,7 +11,8 @@ Eight commits closing out a session-long sweep of open concerns and 500-line fil
 
 ### New shared modules (extracted from oversized files)
 - `scripts/plugin_loader.py` (58 lines) — split from `_common.py` (551 → 497). Plugin-root resolution + guide loading. Module docstring preserves the load-bearing "agent Bash strips CLAUDE_PLUGIN_ROOT" rationale and the no-caching reason.
-- `smm/append_validation.py` (68 lines) — split from `_append_impl.py` (536 → 483). Three validation primitives (`validate_smm_dir`, `validate_agent_id`, `parse_jsonl`). Underscore prefix dropped — these are now public API. 13 callers updated, no re-export shims.
+- `smm/append_validation.py` (68 lines) — split from `_append_impl.py` (536 → 483). Three validation primitives (`validate_smm_dir`, `validate_agent_id`, `parse_jsonl`). Underscore prefix dropped — these are now public API. All callers (production + tests) import directly; `_common.py` retains a re-export of `parse_jsonl` and `validate_smm_dir` only because internal in-module use needs them.
+- `tests/engine/_system_context_fixtures.py` — promoted `valid_doc` + `write_doc` (was 8 near-identical copies across system_context tests). Unified `**overrides` shape supports the branching test's variant calls; no-arg form unchanged for everyone else.
 - `tests/scaffold/_helpers.py` — promoted shared `frontmatter_body` / `step_section` SKILL.md parsers (was inline in two test files).
 - `tests/hooks/_hooks_json.py` (35 lines) — promoted shared `HooksJsonTestCase` base (was duplicated across two test files).
 
@@ -27,7 +28,6 @@ Eight commits closing out a session-long sweep of open concerns and 500-line fil
 - `test_common.py` (514 → 452) — bonus shrink from `plugin_loader` extraction
 
 ### Filed for follow-up
-- `_valid_doc` + `_write_doc` system_context fixtures duplicated across 7 test files — extract to `tests/_system_context_fixtures.py` next session.
 - security-reviewer agent's vulnerability summary not captured to events.jsonl — adds a forensic gap when the subagent hallucinates.
 
 ## v2.35.0 — JIT story branches + close-skill unification

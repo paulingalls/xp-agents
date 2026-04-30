@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import append_validation
 import concerns
 import coordination
 import event_schema
@@ -36,7 +37,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     tool_input = input_data.get("tool_input", {})
     agent_id = identity.resolve_agent_id(input_data)
     try:
-        _common.validate_agent_id(agent_id)
+        append_validation.validate_agent_id(agent_id)
     except ValueError:
         return None
     cwd = input_data.get("cwd", ".")

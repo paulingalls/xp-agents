@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import append_validation
 import coordination
 import identity
 import markers
@@ -156,7 +157,7 @@ def check_tdd_order(
         return None
 
     try:
-        _common.validate_agent_id(agent_id)
+        append_validation.validate_agent_id(agent_id)
     except ValueError:
         return None
 

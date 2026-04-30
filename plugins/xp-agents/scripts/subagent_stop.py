@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import append_validation
 import concerns
 import coordination
 import marker_names
@@ -222,7 +223,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = input_data.get("agent_id", "subagent")
     try:
-        _common.validate_agent_id(agent_id)
+        append_validation.validate_agent_id(agent_id)
     except ValueError:
         return None
 

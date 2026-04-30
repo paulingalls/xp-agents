@@ -25,11 +25,7 @@ from _append_impl import resolve_smm_dir as _resolve_smm_dir_impl
 from _append_impl import (
     write_json_atomic as _write_json_atomic,
 )
-from append_validation import (
-    parse_jsonl,
-    validate_agent_id,  # noqa: F401
-    validate_smm_dir,
-)
+from append_validation import parse_jsonl, validate_smm_dir
 
 # ---------------------------------------------------------------------------
 # Exceptions
