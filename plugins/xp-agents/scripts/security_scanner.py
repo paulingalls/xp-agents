@@ -19,8 +19,7 @@ class Pattern:
     `regex` is a compiled pattern — callers pre-compile so each pattern
     is built once at import time.
     `skip_tests` opts out of matching when the file path is recognized
-    as a test file. NOTE: not yet honored by scan_diff — wired in
-    commit 3 of story-001 alongside `# noqa: secret` suppression.
+    as a test file (per pre_tool_write.is_test_file).
     """
 
     name: str
@@ -39,6 +38,7 @@ class Finding:
 
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_NOQA_RE = re.compile(r"#\s*noqa:\s*secret\b", re.IGNORECASE)
 
 
 def scan_diff(diff_text: str, patterns: list[Pattern]) -> list[Finding]:
@@ -71,16 +71,22 @@ def scan_diff(diff_text: str, patterns: list[Pattern]) -> list[Finding]:
             continue
         if raw.startswith("+"):
             line_body = raw[1:]
-            for pat in patterns:
-                if pat.regex.search(line_body):
-                    findings.append(
-                        Finding(
-                            pattern_name=pat.name,
-                            file_path=current_file,
-                            line_number=new_line,
-                            line_content=line_body,
+            if not _NOQA_RE.search(line_body):
+                from pre_tool_write import is_test_file
+
+                in_test = is_test_file(current_file)
+                for pat in patterns:
+                    if pat.skip_tests and in_test:
+                        continue
+                    if pat.regex.search(line_body):
+                        findings.append(
+                            Finding(
+                                pattern_name=pat.name,
+                                file_path=current_file,
+                                line_number=new_line,
+                                line_content=line_body,
+                            )
                         )
-                    )
             new_line += 1
         elif raw.startswith(" "):
             new_line += 1

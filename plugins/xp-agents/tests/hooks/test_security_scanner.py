@@ -205,5 +205,122 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
 
 
+class TestNoqaSuppression(unittest.TestCase):
+    """`# noqa: secret` per-line suppression marker."""
+
+    def test_noqa_secret_suppresses_match(self):
+        """A line marked `# noqa: secret` is not reported even if it matches."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"  # noqa: secret\n'
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_noqa_case_insensitive(self):
+        """Uppercase `# NOQA: secret` also suppresses."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"  # NOQA: secret\n'
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_noqa_compact_form(self):
+        """`#noqa: secret` (no space after #) also suppresses."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"  #noqa: secret\n'
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern()]), [])
+
+    def test_noqa_other_codes_do_not_suppress(self):
+        """`# noqa: E501` (different code) does NOT suppress secret findings."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"  # noqa: E501\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].pattern_name, "aws-access-key")
+
+
+class TestSkipTestsFilter(unittest.TestCase):
+    """`Pattern.skip_tests` opts a pattern out of test-file scanning."""
+
+    def test_skip_tests_true_skips_test_file_path(self):
+        """A skip_tests=True pattern emits no Finding in a test-file path."""
+        diff = (
+            "+++ b/plugins/xp-agents/tests/hooks/test_thing.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"\n'
+        )
+        self.assertEqual(scan_diff(diff, [_aws_pattern(skip_tests=True)]), [])
+
+    def test_skip_tests_true_matches_in_non_test_file(self):
+        """A skip_tests=True pattern still emits in a production-code path."""
+        diff = (
+            "+++ b/plugins/xp-agents/scripts/cfg.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern(skip_tests=True)])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].file_path, "plugins/xp-agents/scripts/cfg.py")
+
+    def test_skip_tests_false_matches_in_test_file(self):
+        """A skip_tests=False pattern emits in test-file paths too."""
+        diff = (
+            "+++ b/plugins/xp-agents/tests/hooks/test_thing.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern(skip_tests=False)])
+        self.assertEqual(len(findings), 1)
+
+    def test_mixed_skip_tests_patterns_in_one_call(self):
+        """In a test file, only the skip_tests=False pattern fires; the
+        skip_tests=True pattern is skipped — verifies the per-pattern filter
+        doesn't short-circuit the whole pattern loop."""
+        skip_pat = Pattern(
+            name="skip-me-in-tests",
+            regex=re.compile(r"AKIA[0-9A-Z]{16}"),
+            skip_tests=True,
+        )
+        always_pat = Pattern(
+            name="always-fire",
+            regex=re.compile(r"AKIA[0-9A-Z]{16}"),
+            skip_tests=False,
+        )
+        diff = (
+            "+++ b/plugins/xp-agents/tests/hooks/test_thing.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+key = "AKIA1234567890ABCDEF"\n'
+        )
+        findings = scan_diff(diff, [skip_pat, always_pat])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].pattern_name, "always-fire")
+
+
+class TestStory001E2E(unittest.TestCase):
+    """Story-001 acceptance criterion #4: planted secret + noqa-suppressed line."""
+
+    def test_planted_secret_reported_noqa_line_not(self):
+        """E2E: a diff with one planted secret and one noqa-suppressed line —
+        exactly the planted line is reported, the noqa line is not."""
+        diff = (
+            "+++ b/scripts/cfg.py\n"
+            "@@ -0,0 +1,2 @@\n"
+            '+real_secret = "AKIA1111111111111111"\n'
+            '+example_secret = "AKIA2222222222222222"  # noqa: secret\n'
+        )
+        findings = scan_diff(diff, [_aws_pattern()])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("AKIA1111111111111111", findings[0].line_content)
+        self.assertNotIn("AKIA2222222222222222", findings[0].line_content)
+
+
 if __name__ == "__main__":
     unittest.main()
