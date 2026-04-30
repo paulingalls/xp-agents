@@ -169,7 +169,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         stage = branching.get_branching_stage(smm_dir)
         if stage >= 1:
             branch = identity.get_current_branch(cwd)
-            is_escape = branching.is_escape_hatch_commit(command)
+            is_escape = commits.is_escape_hatch_commit(command)
             if branching.is_protected_branch(stage, branch) and not is_escape:
                 parts.append(
                     f"You're committing directly to {branch} "
@@ -187,7 +187,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         staged = commits.get_staged_files(cwd)
         if staged:
-            msg = branching.extract_commit_message(command)
+            msg = commits.extract_commit_message(command)
             already_resolved: list[str] = []
             has_trailer = False
             if msg:

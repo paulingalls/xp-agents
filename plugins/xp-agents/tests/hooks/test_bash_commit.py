@@ -149,15 +149,15 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
         )
 
     def test_xp_agent_type_does_not_run_lint_resolution(self):
-        """Leaked agent_type must not invoke _resolve_lint_on_commit.
+        """Leaked agent_type must not invoke lint_resolution.resolve_lint_on_commit.
 
-        Closes the 4th-of-4 side-effect coverage gap. _resolve_lint_on_commit
+        Closes the 4th-of-4 side-effect coverage gap. resolve_lint_on_commit
         runs ruff per committed file and resolves matching lint concerns; on
         the leak path this would resolve concerns under the wrong identity.
         """
         with (
             self._patch_commit_lookups(),
-            patch.object(bash_post_tool, "_resolve_lint_on_commit") as lint_spy,
+            patch("lint_resolution.resolve_lint_on_commit") as lint_spy,
         ):
             self._run_leaked_commit()
         lint_spy.assert_not_called()

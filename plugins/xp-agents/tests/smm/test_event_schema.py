@@ -83,7 +83,7 @@ class TestStatusActionConstants(unittest.TestCase):
     EXPECTED_PRODUCER: ClassVar[dict[str, str]] = {
         "STATUS_ACTION_FILE_WRITE": "post_tool_use.py",
         "STATUS_ACTION_TEST_RUN_COMPLETE": "bash_post_tool.py",
-        "STATUS_ACTION_LINT_RESOLVED": "bash_post_tool.py",
+        "STATUS_ACTION_LINT_RESOLVED": "lint_resolution.py",
         "STATUS_ACTION_BASH_FAILED": "bash_failure.py",
         "STATUS_ACTION_COMMIT_SUCCESS": "bash_post_tool.py",
         "STATUS_ACTION_SUBAGENT_COMPLETE": "subagent_stop.py",

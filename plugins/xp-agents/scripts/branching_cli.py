@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+import branch_queries
 import branching
 
 
@@ -101,6 +102,12 @@ def _cmd_list_free(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_list_story_orphans(args: argparse.Namespace) -> int:
+    for b in branch_queries.list_orphan_story_branches(args.cwd, Path(args.smm_dir)):
+        print(b)
+    return 0
+
+
 def _cmd_check_divergence(args: argparse.Namespace) -> int:
     result = branching.check_plan_divergence(
         args.cwd, Path(args.smm_dir), args.threshold
@@ -172,6 +179,12 @@ def main() -> int:
     p_list_free = sub.add_parser("list-free", help="List the user's free branches")
     p_list_free.add_argument("--cwd", required=True)
     p_list_free.set_defaults(func=_cmd_list_free)
+
+    p_list_orphans = sub.add_parser(
+        "list-story-orphans", help="List orphan story branches"
+    )
+    p_list_orphans.add_argument("--cwd", required=True)
+    p_list_orphans.set_defaults(func=_cmd_list_story_orphans)
 
     p_div = sub.add_parser("check-divergence", help="Check plan branch divergence")
     p_div.add_argument("--cwd", required=True)

@@ -17,15 +17,14 @@ import _common
 import commits
 import concerns
 import identity
+import lint_resolution
 import markers
-import resolution
 import security
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_RESOLVES,
     STATUS_ACTION_COMMIT_SUCCESS,
-    STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
@@ -37,121 +36,28 @@ from test_parsing import (
     parse_test_results,
 )
 
-# ---------------------------------------------------------------------------
-# Settings
-# ---------------------------------------------------------------------------
-
-
-def _check_and_resolve_lint(
-    smm_dir: Path,
-    cwd: str,
-    git_root: str,
-    agent_id: str,
-    normalized: str,
-    label: str,
-    events: list[dict] | None,
-    resolutions: dict | None,
-) -> None:
-    """Re-run the linter for *normalized*; resolve matching concerns if clean."""
-    import lint_check
-
-    config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
-    if config is None:
-        return
-    linter_name, _ = config
-    if lint_check.run_linter(linter_name, normalized, cwd=git_root) is not None:
-        return
-    concerns.resolve_concerns(
-        smm_dir,
-        lambda c, n=normalized: concerns.lint_concern_matches(c, n),
-        agent_id,
-        label,
-        events=events,
-        resolutions=resolutions,
-        extra_metadata={"action": STATUS_ACTION_LINT_RESOLVED},
-    )
-
-
-def _resolve_lint_on_commit(
-    smm_dir: Path,
-    cwd: str,
-    agent_id: str,
-    files: list[str],
-    events: list[dict] | None = None,
-    resolutions: dict | None = None,
-) -> None:
-    """Run linter on committed files and resolve lint concerns for passing ones."""
-    if not files:
-        return
-    git_root = worktree.resolve_git_root(cwd) or cwd
-    for file_path in files:
-        normalized = worktree.normalize_path(file_path, cwd)
-        _check_and_resolve_lint(
-            smm_dir,
-            cwd,
-            git_root,
-            agent_id,
-            normalized,
-            "Lint concern resolved on commit",
-            events,
-            resolutions,
-        )
-
-
-def _sweep_orphan_lint_concerns(
-    smm_dir: Path,
-    cwd: str,
-    agent_id: str,
-    committed_files: list[str],
-    events: list[dict] | None = None,
-    resolutions: dict | None = None,
-) -> None:
-    """Resolve unresolved lint concerns whose file is now clean but isn't in
-    this commit. Catches side-effect fixes (`ruff check --fix` from Bash,
-    pre-commit reformatting, cross-file fixes) that don't show up as direct
-    edits to the offending file. Files referenced by lint concerns but no
-    longer on disk are skipped (manual triage)."""
-    if events is None:
-        events = _common.read_events_raw(smm_dir)
-    if resolutions is None:
-        resolutions = resolution.compute_resolutions(events)
-
-    resolved_ids = resolutions["resolved_concern_ids"]
-    committed_set = {worktree.normalize_path(f, cwd) for f in committed_files}
-
-    orphan_paths: set[str] = set()
-    for e in events:
-        if e.get("type") != _common.CONCERN:
-            continue
-        if e.get("id", "") in resolved_ids:
-            continue
-        path_part = concerns.extract_lint_concern_path(e.get("content", ""))
-        if path_part is None:
-            continue
-        normalized = worktree.normalize_path(path_part, cwd)
-        if normalized not in committed_set:
-            orphan_paths.add(normalized)
-
-    if not orphan_paths:
-        return
-
-    git_root = worktree.resolve_git_root(cwd) or cwd
-    for normalized in orphan_paths:
-        if not (Path(git_root) / normalized).exists():
-            continue
-        _check_and_resolve_lint(
-            smm_dir,
-            cwd,
-            git_root,
-            agent_id,
-            normalized,
-            "Lint concern resolved on sweep",
-            events,
-            resolutions,
-        )
-
-
 COMMIT_SIZE_THRESHOLD = 12
+
+MID_CHAIN_NUDGE = (
+    "Multiple stories in-progress. If this commit completed the current "
+    "story's acceptance criteria, run /xp-accept to mark it done and "
+    "switch to the next story branch."
+)
+
+
+def _check_mid_chain_nudge(smm_dir: Path, input_data: dict) -> str | None:
+    """Return advisory nudge when solo with 2+ in-progress stories."""
+    if identity.is_worktree_teammate(input_data):
+        return None
+    import sprint_store
+
+    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        return None
+    in_progress = sprint_store.list_stories(sprint, status="in-progress")
+    if len(in_progress) < 2:
+        return None
+    return MID_CHAIN_NUDGE
 
 
 # ---------------------------------------------------------------------------
@@ -377,10 +283,10 @@ def _handle_commit(
     if is_xp_agent_leak:
         return None
 
-    _resolve_lint_on_commit(
+    lint_resolution.resolve_lint_on_commit(
         smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
     )
-    _sweep_orphan_lint_concerns(
+    lint_resolution.sweep_orphan_lint_concerns(
         smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
     )
     security.consume_security_triaged(smm_dir, agent_id)
@@ -419,13 +325,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # security marker, review cycle, QR nudge) are gated by is_xp_agent_leak.
     # See TestCommitRecordingDespiteXpAgentType.
     if security.is_git_commit(command):
-        return _handle_commit(
+        is_xp_agent_leak = _common.is_xp_agent(input_data)
+        result = _handle_commit(
             smm_dir,
             agent_id,
             cwd,
             response_text,
-            is_xp_agent_leak=_common.is_xp_agent(input_data),
+            is_xp_agent_leak=is_xp_agent_leak,
         )
+        if not is_xp_agent_leak:
+            nudge = _check_mid_chain_nudge(smm_dir, input_data)
+            if nudge:
+                result = f"{result} {nudge}" if result is not None else nudge
+        return result
 
     if _common.is_xp_agent(input_data):
         return None
