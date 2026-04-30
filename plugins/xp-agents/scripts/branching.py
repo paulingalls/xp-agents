@@ -378,11 +378,17 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     )
 
 
-def list_free_branches(cwd: str) -> list[str]:
-    """Return free branches owned by the current user, excluding HEAD."""
+def list_user_branches(cwd: str, prefix: str) -> list[str]:
+    """Return branches matching <user-ns>/<prefix>-*, excluding HEAD."""
     user_ns = identity.user_namespace(cwd)
     current = identity.get_current_branch(cwd)
-    return [b for b in match_local_branches(cwd, f"{user_ns}/free-*") if b != current]
+    pattern = f"{user_ns}/{prefix}-*"
+    return [b for b in match_local_branches(cwd, pattern) if b != current]
+
+
+def list_free_branches(cwd: str) -> list[str]:
+    """Return free branches owned by the current user, excluding HEAD."""
+    return list_user_branches(cwd, "free")
 
 
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:

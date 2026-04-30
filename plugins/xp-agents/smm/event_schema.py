@@ -100,7 +100,7 @@ STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 # are not parsed back out of LLM-authored content. Producer map:
 #   STATUS_ACTION_FILE_WRITE        — post_tool_use.py (Write/Edit/MultiEdit)
 #   STATUS_ACTION_TEST_RUN_COMPLETE — bash_post_tool.py (test command success)
-#   STATUS_ACTION_LINT_RESOLVED     — bash_post_tool.py (lint resolved on commit)
+#   STATUS_ACTION_LINT_RESOLVED     — lint_resolution.py (lint resolved on commit)
 #   STATUS_ACTION_BASH_FAILED       — bash_failure.py (Bash exit non-zero)
 #   STATUS_ACTION_COMMIT_SUCCESS    — bash_post_tool.py (git commit, type=commit)
 # Producer/consumer wiring lands in stories 002-004.

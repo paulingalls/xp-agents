@@ -13,19 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import branching
-import identity
 import sprint_store
 
 
 def list_story_branches(cwd: str) -> list[str]:
     """Return story branches owned by the current user, excluding HEAD."""
-    user_ns = identity.user_namespace(cwd)
-    current = identity.get_current_branch(cwd)
-    return [
-        b
-        for b in branching.match_local_branches(cwd, f"{user_ns}/story-*")
-        if b != current
-    ]
+    return branching.list_user_branches(cwd, "story")
 
 
 def list_orphan_story_branches(cwd: str, smm_dir: Path) -> list[str]:
