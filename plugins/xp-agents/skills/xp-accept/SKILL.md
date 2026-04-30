@@ -81,6 +81,42 @@ If the preload shows `### Concerns for story-NNN`, review each listed concern ag
 
 File overlap alone does not mean a concern is resolved. Use your judgment based on the concern's content and what the commits actually changed.
 
+## Step 1c: Tier 2 Security Review
+
+M-2 tiered-migration gate: fire `/security-review` against the cumulative story diff before marking the story done.
+
+**Skip when the story is `code_free`** (empty `file_domain` — verification-only / prose-only). The cumulative diff has no code worth reviewing.
+
+**Scope distinct from Step 0.** Step 0 covers the teammate-merge slice only; Step 1c covers the full cumulative story diff (`git merge-base <story-branch> <sprint-base>` ... HEAD). Both run when both apply — overlap is tolerated. Always name the cumulative-merge-base scope in the args string so the LLM does not silently reuse Step 0's scope.
+
+For each in-progress story (skipping any marked code_free):
+
+1. Invoke `Skill(skill: "security-review", args: "the cumulative story-NNN diff: merge-base of <story-branch> vs <sprint-base>")`. The PostToolUse:Skill hook auto-emits a `security_complete` status event.
+2. Read the prose findings and judge severity per convention (Constraints `d57963f81ac1`, `agents/xp-close-reviewer.md:92`): **Block = high**, **Concern = medium**, **Keep = no event**.
+
+**Block path** (high-severity findings): **do NOT call `sprint_cli.py update-story story-NNN done`.** Present via `AskUserQuestion`:
+
+- **Defer** — move story to `deferred` (cascade downstream dependents same as Step 1):
+  ```bash
+  python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+    update-story story-NNN deferred
+  ```
+- **Override with concern** — proceed to update-story done despite the Block. Record the override at **severity high** (NOT medium — downgrading hides the consciously-shipped Block):
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+    --type "concern" --agent "xp-accept" --severity "high" \
+    --content "Tier 2 Block override for story-NNN: <one-line summary>"
+  ```
+
+**Concern path** (medium-severity findings, no Block): record each finding, then proceed to update-story done:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-accept" --severity "medium" \
+  --content "Tier 2 finding for story-NNN: <one-line summary>"
+```
+
+**Keep path** (no findings): proceed to Step 2.
+
 ## Step 2: Update sprint.json
 
 Update each story's status via CLI:
