@@ -166,7 +166,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         cycle = markers.read_review_cycle(smm_dir, agent_id)
         code_files = commits.get_code_files_for_review(
-            cwd, cycle.get("last_review_commit", ""), command
+            cwd,
+            cycle.get("last_review_commit", ""),
+            command,
+            staged_diff=diff,
         )
 
         if len(code_files) >= commits.REVIEW_CYCLE_THRESHOLD:
@@ -187,7 +190,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Security triage required before committing.",
                 )
         elif not security.security_triaged_exists(smm_dir, agent_id):
-            has_code = security.has_staged_code_files(cwd, command)
+            has_code = security.has_staged_code_files(cwd, command, staged_diff=diff)
             if has_code:
                 raise _common.BlockedError(
                     "Run /xp-security-triage before committing.",

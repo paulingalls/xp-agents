@@ -110,6 +110,9 @@ markers per-line.
 
 **Out of scope for Tier 1:** anything requiring semantic analysis
 (SQL injection, XSS, deserialization). Those are Tier 2's job.
+Commit-message content (passed via `git commit -F file` or HEREDOC) is
+also out of Tier 1 scope. Tier 1 scans the staged diff only, not commit
+metadata.
 
 ### Tier 2 — LLM Review at `/xp-accept` (per story)
 

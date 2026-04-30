@@ -109,9 +109,23 @@ class TestPreToolBashCommitGate(_HookTestCase):
         heredoc_unquoted = "cat <<EOF | python3 smm_cli.py\nbefore git commit\nEOF"
         self.assertFalse(security.is_git_commit(heredoc_unquoted))
 
-    def test_commit_blocked_without_marker(self):
-        """git commit is blocked when no triage marker exists."""
-        with self.assertRaises(_common.BlockedError) as ctx:
+    def test_commit_with_code_blocked_without_marker(self):
+        """git commit with staged code and no triage marker is blocked."""
+        # _HookTestCase auto-mocks get_staged_diff to "" — override so a
+        # real code file appears staged, otherwise the gate (correctly)
+        # treats this as a no-code commit.
+        diff = (
+            "diff --git a/src/a.py b/src/a.py\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1 +1 @@\n"
+            "-x\n"
+            "+y\n"
+        )
+        with (
+            patch("commits.get_staged_diff", return_value=diff),
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         self.assertIn("/xp-security-triage", str(ctx.exception))
 
@@ -143,13 +157,24 @@ class TestPreToolBashCommitGate(_HookTestCase):
         # Should not raise, even without marker
         pre_tool_bash.run(inp, smm_dir=self.smm_dir)
 
-    def test_marker_symlink_rejected(self):
-        """Symlink marker is rejected -- commit is blocked."""
+    def test_marker_symlink_rejected_when_code_staged(self):
+        """Symlink marker is rejected -- commit is blocked when code staged."""
         real_file = self.smm_dir / "real_target"
         real_file.write_text("x")
         link = security.security_triaged_path(self.smm_dir)
         link.symlink_to(real_file)
-        with self.assertRaises(_common.BlockedError):
+        diff = (
+            "diff --git a/src/a.py b/src/a.py\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1 +1 @@\n"
+            "-x\n"
+            "+y\n"
+        )
+        with (
+            patch("commits.get_staged_diff", return_value=diff),
+            self.assertRaises(_common.BlockedError),
+        ):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
 
 

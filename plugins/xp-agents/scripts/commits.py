@@ -120,6 +120,50 @@ def get_staged_files(cwd: str) -> list[str]:
     return sorted(f.strip() for f in out.splitlines() if f.strip())
 
 
+def get_filenames_from_diff(diff_text: str) -> list[str]:
+    """Parse post-image filenames from a unified diff, deduped, in first-seen order.
+
+    Approximates `git diff --cached --name-only` for the common case:
+    emits the new-side path for modifications and additions, the old-
+    side path for deletions (where post is /dev/null), and the rename
+    destination for renames. Does NOT parse `copy from`/`copy to` git
+    copy-detection headers (rare for `--cached` since copy detection
+    is off by default; cross-check before threading through copy-aware
+    flows). Used to avoid re-shelling for filenames when the caller
+    already has the cached unified diff in hand.
+    """
+    if not diff_text:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(path: str) -> None:
+        if path and path not in seen:
+            seen.add(path)
+            out.append(path)
+
+    # Walk line-by-line so we can pair `+++ /dev/null` (deleted file) with
+    # the immediately-preceding `--- a/<path>` line.
+    last_pre: str | None = None
+    for line in diff_text.splitlines():
+        if line.startswith("--- a/"):
+            last_pre = line[len("--- a/") :]
+        elif line == "--- /dev/null":
+            last_pre = None
+        elif line.startswith("+++ b/"):
+            _add(line[len("+++ b/") :])
+            last_pre = None
+        elif line == "+++ /dev/null":
+            if last_pre is not None:
+                _add(last_pre)
+            last_pre = None
+        elif line.startswith("rename to "):
+            _add(line[len("rename to ") :])
+
+    return out
+
+
 def get_staged_diff(cwd: str) -> str | None:
     """Get unified diff of staged changes via git diff --cached.
 
@@ -199,18 +243,36 @@ def get_head_commit_hash(cwd: str) -> str | None:
 
 
 def get_code_files_for_review(
-    cwd: str, last_review_commit: str, command: str = ""
+    cwd: str,
+    last_review_commit: str,
+    command: str = "",
+    *,
+    staged_diff: str | None = None,
 ) -> list[str]:
     """Get deduplicated code files changed since last review + staged.
 
-    Combines git diff --cached --name-only with git diff --name-only
-    {last_review_commit}..HEAD (if a prior commit exists). Filters
-    through security.is_code_file(). Returns empty list on git failure.
-    """
-    diff_commands: list[list[str]] = [["git", "diff", "--cached", "--name-only"]]
+    Combines staged filenames with git diff --name-only {last_review_commit}..HEAD
+    (if a prior commit exists). Filters through security.is_code_file().
+    Returns empty list on git failure.
 
+    When ``staged_diff`` is provided (the unified-diff text from
+    ``get_staged_diff``), the staged filenames are parsed from that text
+    rather than re-shelling — for callers that already hold the cached
+    diff and want to avoid an extra subprocess fork.
+    """
+    all_files: set[str] = set()
+
+    if staged_diff is not None:
+        all_files.update(get_filenames_from_diff(staged_diff))
+    else:
+        out = _run_git(["git", "diff", "--cached", "--name-only"], cwd)
+        if out is None:
+            return []
+        all_files.update(f.strip() for f in out.splitlines() if f.strip())
+
+    extra_commands: list[list[str]] = []
     if last_review_commit:
-        diff_commands.append(
+        extra_commands.append(
             ["git", "diff", "--name-only", f"{last_review_commit}..HEAD"]
         )
 
@@ -219,26 +281,13 @@ def get_code_files_for_review(
     if re.search(r"\bgit\s+add\b", command) or re.search(
         r"\bgit\s+commit\s+-a", command
     ):
-        diff_commands.append(["git", "diff", "--name-only"])
+        extra_commands.append(["git", "diff", "--name-only"])
 
-    all_files: set[str] = set()
-    try:
-        for cmd in diff_commands:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=cwd,
-            )
-            if result.returncode != 0:
-                return []
-            for f in result.stdout.strip().splitlines():
-                f = f.strip()
-                if f:
-                    all_files.add(f)
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        return []
+    for cmd in extra_commands:
+        out = _run_git(cmd, cwd)
+        if out is None:
+            return []
+        all_files.update(f.strip() for f in out.splitlines() if f.strip())
 
     return [f for f in sorted(all_files) if security.is_code_file(f)]
 
@@ -249,31 +298,15 @@ def get_uncommitted_code_files(cwd: str) -> list[str]:
     Used by the post-green-tests nudge to determine if a commit is warranted.
     Returns empty list on any git failure.
     """
-    try:
-        staged = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
-        )
-        unstaged = subprocess.run(
-            ["git", "diff", "--name-only"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
-        )
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        return []
-
     all_files: set[str] = set()
-    for result in (staged, unstaged):
-        if result.returncode == 0:
-            for f in result.stdout.strip().splitlines():
-                f = f.strip()
-                if f:
-                    all_files.add(f)
+    for cmd in (
+        ["git", "diff", "--cached", "--name-only"],
+        ["git", "diff", "--name-only"],
+    ):
+        out = _run_git(cmd, cwd)
+        if out is None:
+            return []
+        all_files.update(f.strip() for f in out.splitlines() if f.strip())
 
     if not all_files:
         return []

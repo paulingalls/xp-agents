@@ -334,6 +334,156 @@ class TestGetStagedDiff(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# get_filenames_from_diff
+# ---------------------------------------------------------------------------
+
+
+class TestGetFilenamesFromDiff(unittest.TestCase):
+    """Test parsing of post-image filenames from a unified diff."""
+
+    def test_empty_string(self):
+        self.assertEqual(commits.get_filenames_from_diff(""), [])
+
+    def test_modified_file(self):
+        diff = (
+            "diff --git a/src/a.py b/src/a.py\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["src/a.py"])
+
+    def test_added_file(self):
+        """New file: --- /dev/null, +++ b/path → emit path."""
+        diff = (
+            "diff --git a/src/new.py b/src/new.py\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/src/new.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            "+new line\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["src/new.py"])
+
+    def test_deleted_file(self):
+        """Deleted file: --- a/path, +++ /dev/null → emit path from --- line."""
+        diff = (
+            "diff --git a/src/old.py b/src/old.py\n"
+            "deleted file mode 100644\n"
+            "--- a/src/old.py\n"
+            "+++ /dev/null\n"
+            "@@ -1,1 +0,0 @@\n"
+            "-deleted line\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["src/old.py"])
+
+    def test_pure_rename_no_content_change(self):
+        """Rename with no content change has no +++/---; uses rename to."""
+        diff = (
+            "diff --git a/src/old_name.py b/src/new_name.py\n"
+            "similarity index 100%\n"
+            "rename from src/old_name.py\n"
+            "rename to src/new_name.py\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["src/new_name.py"])
+
+    def test_rename_with_content_change(self):
+        """Rename + edit: emit only the new path (matches --name-only)."""
+        diff = (
+            "diff --git a/src/old.py b/src/new.py\n"
+            "similarity index 95%\n"
+            "rename from src/old.py\n"
+            "rename to src/new.py\n"
+            "--- a/src/old.py\n"
+            "+++ b/src/new.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["src/new.py"])
+
+    def test_multiple_files_mixed(self):
+        diff = (
+            "diff --git a/src/a.py b/src/a.py\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-x\n"
+            "+y\n"
+            "diff --git a/src/b.py b/src/b.py\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/src/b.py\n"
+            "@@ -0,0 +1,1 @@\n"
+            "+content\n"
+            "diff --git a/src/c.py b/src/c.py\n"
+            "deleted file mode 100644\n"
+            "--- a/src/c.py\n"
+            "+++ /dev/null\n"
+            "@@ -1,1 +0,0 @@\n"
+            "-bye\n"
+        )
+        self.assertEqual(
+            commits.get_filenames_from_diff(diff),
+            ["src/a.py", "src/b.py", "src/c.py"],
+        )
+
+    def test_dedupes_repeated_paths(self):
+        """Same file appearing twice (shouldn't normally happen) is deduped."""
+        diff = (
+            "diff --git a/x.py b/x.py\n"
+            "--- a/x.py\n"
+            "+++ b/x.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-1\n"
+            "+2\n"
+            "diff --git a/x.py b/x.py\n"
+            "--- a/x.py\n"
+            "+++ b/x.py\n"
+            "@@ -2,1 +2,1 @@\n"
+            "-3\n"
+            "+4\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["x.py"])
+
+    def test_path_with_spaces(self):
+        diff = (
+            "diff --git a/src/has space.py b/src/has space.py\n"
+            "--- a/src/has space.py\n"
+            "+++ b/src/has space.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["src/has space.py"])
+
+    def test_lines_in_content_starting_with_plus_plus_plus_ignored(self):
+        """A diff body line like '+++ something' inside content must not match.
+
+        The +++ b/ marker is the file header; content additions begin with
+        a single '+'. We anchor on '+++ b/' / '+++ /dev/null' to avoid
+        false matches.
+        """
+        diff = (
+            "diff --git a/x.py b/x.py\n"
+            "--- a/x.py\n"
+            "+++ b/x.py\n"
+            "@@ -1,1 +1,3 @@\n"
+            " context\n"
+            "+++ this line is added content, not a header\n"
+            "+more\n"
+        )
+        self.assertEqual(commits.get_filenames_from_diff(diff), ["x.py"])
+
+
+# ---------------------------------------------------------------------------
+# get_head_commit_hash
+# ---------------------------------------------------------------------------
+
+
 class TestGetHeadCommitHash(unittest.TestCase):
     """Test HEAD commit hash retrieval."""
 
