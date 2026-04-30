@@ -50,6 +50,31 @@ class TestAppendIntegration(_TempRepoTestCase):
         self.assertEqual(events[0]["type"], "status")
         self.assertEqual(events[0]["working_on"], ["f.py"])
 
+    def test_append_prints_event_id_on_success(self):
+        # The xp-close-reviewer agent reads the event_id from stdout to
+        # populate the next commit's `Resolves-Event:` trailer. Pinning
+        # the contract so future _append_impl edits can't silently break
+        # the handoff. Assert EXACT match (not .strip()) so the post-write
+        # duplicate-debt probe can't sneak prints onto stdout — even a
+        # lone trailing newline would shift this assertion.
+        r = self._run_append(
+            "--type",
+            "status",
+            "--agent",
+            "main",
+            "--content",
+            "working",
+            "--working-on",
+            "[]",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        # Stdout must be exactly `<id>\n` — nothing before, nothing after.
+        # Confirms the probe (and any future post-write step) routes its
+        # output to stderr.
+        self.assertEqual(r.stdout, events[0]["id"] + "\n")
+
     def test_append_question_with_emoji(self):
         r = self._run_append(
             "--type",

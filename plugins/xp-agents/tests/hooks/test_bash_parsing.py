@@ -321,6 +321,22 @@ class TestIsTestRunWorkspaceFlags(unittest.TestCase):
             test_parsing.is_test_run("pnpm exec helper test-fixture-builder")
         )
 
+    def test_not_bun_build_test_extension_file(self):
+        # Free-close reviewer concern: `bun build test.ts` (a build
+        # invocation with an input file named test.ts) was satisfying
+        # the (?![\w-]) lookahead because '.' is not a word/hyphen char.
+        # Tightening to (?![\w.-]) rejects file extensions after `test`.
+        self.assertIsNone(test_parsing.is_test_run("bun build test.ts"))
+
+    def test_pnpm_install_test_blind_spot(self):
+        # KNOWN LIMITATION: `pnpm install test` (install package "test")
+        # currently matches because the 5-token flag-gap can't
+        # syntactically distinguish flags (`--filter`) from subcommands
+        # (`install`). Tightening would also reject `yarn workspace X
+        # test` which IS a valid test invocation. Pinning the false
+        # positive so a future "fix" considers the workspace trade-off.
+        self.assertEqual(test_parsing.is_test_run("pnpm install test"), "jest")
+
     def test_not_lerna_run_build(self):
         self.assertIsNone(test_parsing.is_test_run("lerna run build"))
 

@@ -16,12 +16,14 @@ import re
 # Bounded lazy-quantifier "0-5 intervening tokens" — the upper bound keeps
 # regex engines from backtracking pathologically on long arg lists.
 _FLAG_GAP = r"(?:\s+\S+){0,5}?"
-# Reject hyphen-suffixed tool names (e.g., test-fixture-builder) that would
-# otherwise satisfy a plain `\b` after `test` because `-` is non-word.
-_NOT_HYPHEN_TAIL = r"(?![\w-])"
+# Reject characters that would extend `test` into a different identifier.
+# Includes `.` (file extensions: `bun build test.ts` shouldn't match `test`),
+# `-` (kebab tool names: `pnpm exec test-fixture-builder`), and word chars
+# (script names: scripts already capture via the colon-suffix group).
+_NOT_IDENT_TAIL = r"(?![\w.-])"
 # Allow colon-suffixed script names: test, test:unit, test:e2e-live (hyphens
 # allowed within the suffix for kebab-case scripts).
-_TEST_SCRIPT_TAIL = r"test(?::[\w:-]+)?" + _NOT_HYPHEN_TAIL
+_TEST_SCRIPT_TAIL = r"test(?::[\w:-]+)?" + _NOT_IDENT_TAIL
 
 
 def is_test_run(command: str) -> str | None:
