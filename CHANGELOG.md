@@ -1,5 +1,62 @@
 # Changelog
 
+## v2.35.0 — JIT story branches + close-skill unification
+
+Twelve commits replacing eager-all branch creation with just-in-time (solo mode) and consolidating the four close skills onto a shared pipeline. 3544 tests green at every commit. Resolves Try 1 (ff-only post-step in /xp-accept) by addressing the root cause — stale chained branches — instead of patching the symptom.
+
+### New `/xp-story-close` skill
+
+- Per-story close: review (xp-close-reviewer mode=story) → merge (close_common.py) → cleanup teammate worktree if present → JIT-create next solo story's branch off merged sprint tip.
+- Invoked by `/xp-accept` per accepted story; `/xp-accept` retains the single `/xp-sprint-review` dispatch after its loop completes (decision e30e9e91e61a — single source of truth).
+- `xp-close-reviewer` agent gains a `story` mode focused on AC alignment, file_domain enforcement, story-bounded scope creep, and regression risk in unmodified stories.
+
+### Shared `scripts/close_common.py` pipeline
+
+- Four subcommands (`preflight`, `push`, `create-pr`, `merge`) replace the inline bash that the four close skills (sprint/plan/free/story) previously duplicated. Net -127 lines of SKILL.md bash.
+- Detection of "no remote" / "no gh" lives inside the script — SKILL.md no longer branches on `GH_AVAILABLE` conditionals or inlines the chained `&&` merge.
+- `cmd_create_pr` walks `gh` stdout for the URL line specifically (fix: trailing info lines no longer poison the PR-number tail).
+- `cmd_merge` chain documented + tested for the load-bearing safety property: source branch always survives a failed step.
+- `_CloseSkillTextCommonTests` mixin in `tests/_close_fixtures.py` redesigned to assert at the right abstraction level (SKILL.md invokes `close_common.py X` with right args), and `__test__`-isolated via TYPE_CHECKING base so pyright sees TestCase but pytest doesn't auto-collect.
+
+### JIT branch creation in `/xp-assign`
+
+- **Solo mode**: creates ONLY the first in-progress story branch. Subsequent stories get their branches JIT-created at `/xp-story-close` after each prior merge — chained branches always rooted at fresh sprint state, never stale.
+- **Teammate mode**: unchanged eager creation of all parallel-eligible branches (each teammate needs its own worktree+branch to spawn into).
+- Teammates run parallel work only, never chained sequential (decision teammates-parallel-only — closes debt 80889254b576).
+
+### `/xp-accept` becomes thin AC-verification + dispatch
+
+- Strips Step 2b (inline `branching.py merge-branch`) and Step 2c (auto-switch to next story branch). Both move into `/xp-story-close`.
+- After Step 2 mark-done: invokes `/xp-story-close` per just-done story via Skill tool. Loop continues for the next done story.
+- Step 5 (cleanup_teammate.py) moves into `/xp-story-close` per-story tail — per-story symmetry instead of bulk-after-loop (decision 9029c07ae198).
+
+### `sprint_cli.py` additions
+
+- `next-in-progress` — lowest-id in-progress story whose deps are all done. Cascade-defer naturally excludes blocked stories. Numeric sort by trailing `-NNN` with sentinel fallback for malformed ids (no uncaught ValueError).
+- `get-story-branch <id>` — recorded `branch_name` or empty. Mirrors `update-story-branch` setter; replaces inline `python3 -c` JSON-poking in SKILL.md.
+
+### Helper extraction
+
+- `identity.extract_story_id(branch)` — parses `<user>/story-NNN[-<slug>]` via `_STORY_BRANCH_RE`. Powers `/xp-story-close` Step 7b worktree lookup.
+- `worktree.find_teammate_worktree_for_story(story_id, cwd)` — walks `git worktree list --porcelain` for the exact `worktree-<story-id>` match. Mirrors `has_live_teammates`'s real-git-state pattern; both share `_iter_live_teammate_worktrees` generator.
+- Both exposed as `branching.py extract-story-id` / `find-teammate-worktree` subcommands so SKILL.md can call them via bash. Empty stdout + exit 0 on no-match — gates cleanly on `[ -n "$VAR" ]`.
+
+### Documentation
+
+- `PROCESS_GUIDE.md` Sprint flow + Forked skills list updated; under 1000-token budget.
+- `docs/ARCHITECTURE.md` adds `/xp-story-close` and `close_common.py` entries; describes solo JIT vs teammate eager.
+- `docs/completed/CLI_TEAMMATE_DESIGN.md` divergences section adds 2 bullets noting the M4 design changes.
+
+### Concerns resolved
+
+- Try 1 (5e9287206483 ff-only post-step in `/xp-accept`) — superseded
+- Concern 48ff3cd48345 (chained branch ff staleness) — JIT eliminates the root cause
+- Concern 58c7b441ba73 (Step 5b duplication across sprint/plan-close) — close_common.py extraction + plan-close opt-out
+- Debt 80889254b576 (teammates lack mid-chain branch switch) — teammates-parallel-only decision closes the case
+- Concern 9f9e14ddcfcc (slug-suffix grep bug caught by xp-code-reviewer mid-refactor)
+- Plan-review concerns c6c8f26d4859 (cascade-defer JIT-next safety), 65ba46d82678 (docs commit review path), 097ec3027a19 (inline shell extraction)
+- 5 PR-review concerns from xp-close-reviewer free-mode pass: 29a4ccac7110, 528c68cefa68, fbd139ad0aff, fc28f4426633, cee6343306f3
+
 ## v2.34.0 — Story Branch Lifecycle Doctrine fully shipped (M1-M4)
 
 Four sprints (044-047) delivering the complete story branch lifecycle: lazy branch creation at `/xp-assign`, teammates on story branches, and the reliability layer. 3466 tests green at every commit.
