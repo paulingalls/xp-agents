@@ -13,6 +13,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import sprint_store as store
+from sprint_schema import VALID_STORY_STATUSES
+
+# Sorted to keep argparse help output stable across runs (frozenset
+# iteration order is not guaranteed). Adding a status to the schema
+# automatically updates every choices array that uses this list.
+_STATUS_CHOICES = sorted(VALID_STORY_STATUSES)
 
 
 def _cmd_exists(args: argparse.Namespace) -> int:
@@ -29,6 +35,14 @@ def _cmd_is_complete(args: argparse.Namespace) -> int:
 
 def _cmd_next_in_progress(args: argparse.Namespace) -> int:
     story_id = store.next_in_progress_story_id(args.smm_dir)
+    if story_id is None:
+        return 1
+    print(story_id)
+    return 0
+
+
+def _cmd_next_scheduled(args: argparse.Namespace) -> int:
+    story_id = store.next_scheduled_story_id(args.smm_dir)
     if story_id is None:
         return 1
     print(story_id)
@@ -52,16 +66,13 @@ def _cmd_get_story(args: argparse.Namespace) -> int:
 
 def _cmd_count(args: argparse.Namespace) -> int:
     sprint = store.load_sprint(args.smm_dir)
-    if sprint is None:
-        print("ready=0 in-progress=0 done=0 deferred=0")
-        return 0
-    counts = store.count_by_status(sprint)
-    print(
-        f"ready={counts['ready']} "
-        f"in-progress={counts['in-progress']} "
-        f"done={counts['done']} "
-        f"deferred={counts['deferred']}"
+    counts = (
+        store.count_by_status(sprint)
+        if sprint is not None
+        else {s: 0 for s in _STATUS_CHOICES}
     )
+    # Stable order matching the schema-derived sorted list.
+    print(" ".join(f"{s}={counts.get(s, 0)}" for s in _STATUS_CHOICES))
     return 0
 
 
@@ -224,13 +235,17 @@ def main() -> None:
         "next-in-progress",
         help="Lowest-id in-progress story whose deps are all done (exit 1 if none)",
     )
+    sub.add_parser(
+        "next-scheduled",
+        help="Lowest-id scheduled story whose deps are all done (exit 1 if none)",
+    )
     sub.add_parser("count", help="Count stories by status")
     sub.add_parser("next-id", help="Next sprint ID")
 
     cs_p = sub.add_parser("count-status", help="Count stories with a specific status")
     cs_p.add_argument(
         "status",
-        choices=["ready", "in-progress", "done", "deferred"],
+        choices=_STATUS_CHOICES,
         help="Status to count",
     )
 
@@ -245,7 +260,7 @@ def main() -> None:
     )
     list_s.add_argument(
         "--status",
-        choices=["ready", "in-progress", "done", "deferred"],
+        choices=_STATUS_CHOICES,
         help="Filter by status",
     )
 
@@ -259,7 +274,7 @@ def main() -> None:
     update_p.add_argument("story_id", help="Story ID")
     update_p.add_argument(
         "status",
-        choices=["ready", "in-progress", "done", "deferred"],
+        choices=_STATUS_CHOICES,
         help="New status",
     )
 
@@ -286,6 +301,7 @@ def main() -> None:
         "has-active": _cmd_has_active,
         "is-complete": _cmd_is_complete,
         "next-in-progress": _cmd_next_in_progress,
+        "next-scheduled": _cmd_next_scheduled,
         "count": _cmd_count,
         "count-status": _cmd_count_status,
         "next-id": _cmd_next_id,

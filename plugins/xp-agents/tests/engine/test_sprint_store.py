@@ -260,6 +260,47 @@ class TestStatusChecks(_SMMTestCase):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
         self.assertTrue(sprint_store.has_ready_stories(self.smm_dir))
 
+    def test_has_scheduled(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="scheduled")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_scheduled_stories(self.smm_dir))
+
+    def test_has_scheduled_false_when_only_in_progress(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertFalse(sprint_store.has_scheduled_stories(self.smm_dir))
+
+    def test_next_scheduled_returns_lowest_id_with_deps_done(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="done"),
+                _make_story(
+                    id="story-002", status="scheduled", dependencies=["story-001"]
+                ),
+                _make_story(
+                    id="story-003", status="scheduled", dependencies=["story-002"]
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # story-002 is scheduled and its dep (story-001) is done; story-003's
+        # dep (story-002) is scheduled, not done, so story-003 is blocked.
+        nxt = sprint_store.next_scheduled_story_id(self.smm_dir)
+        self.assertEqual(nxt, "story-002")
+
+    def test_next_scheduled_none_when_no_scheduled(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
+
     def test_sprint_exists(self):
         import sprint_store
 
@@ -342,10 +383,12 @@ class TestCountByStatus(unittest.TestCase):
                 _make_story(id="s2", status="in-progress"),
                 _make_story(id="s3", status="done"),
                 _make_story(id="s4", status="deferred"),
+                _make_story(id="s5", status="scheduled"),
             ]
         )
         counts = sprint_store.count_by_status(sprint)
         self.assertEqual(counts["ready"], 1)
+        self.assertEqual(counts["scheduled"], 1)
         self.assertEqual(counts["in-progress"], 1)
         self.assertEqual(counts["done"], 1)
         self.assertEqual(counts["deferred"], 1)

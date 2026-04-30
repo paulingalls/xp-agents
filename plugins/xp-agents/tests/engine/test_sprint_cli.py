@@ -87,6 +87,43 @@ class TestCreateCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestNextScheduledCommand(_SMMTestCase):
+    def test_returns_first_scheduled_id(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="done"),
+                _make_story(id="story-002", status="scheduled"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-scheduled"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-002")
+
+    def test_no_scheduled_exits_nonzero(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["next-scheduled"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
+class TestUpdateStoryAcceptsScheduled(_SMMTestCase):
+    def test_update_story_to_scheduled(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["update-story", "story-001", "scheduled"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "scheduled")
+
+
+class TestCountStatusAcceptsScheduled(_SMMTestCase):
+    def test_count_scheduled(self):
+        sprint = _make_sprint(stories=[_make_story(status="scheduled")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["count-status", "scheduled"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+
+
 class TestGetStoryCommand(_SMMTestCase):
     def test_get_story_returns_json(self):
         sprint = _make_sprint(
