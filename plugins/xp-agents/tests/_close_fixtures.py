@@ -26,9 +26,22 @@ import shlex
 import stat
 import subprocess
 import tempfile
+import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from conftest import _extract_preload_var
+
+# Static-only base for the mixin classes below: pyright sees
+# unittest.TestCase (so self.assertEqual / self.smm_dir / etc are known
+# attributes), but at runtime the mixin is plain `object` so pytest
+# doesn't try to collect the mixin's test methods in isolation. The
+# real subclasses inherit from _IntegrationTestCase / unittest.TestCase
+# alongside the mixin and supply the actual TestCase machinery.
+if TYPE_CHECKING:
+    _MixinBase = unittest.TestCase
+else:
+    _MixinBase = object
 
 
 def stub_gh(stub_dir: str, stdout: str, exit_code: int = 0) -> dict:
@@ -62,14 +75,34 @@ def stub_no_gh(stub_dir: str) -> dict:
     return env
 
 
-class _ClosePreloadCommonTests:
+class _ClosePreloadCommonTests(_MixinBase):
     """Mixin asserting the shared preload contract.
+
+    Subclasses inherit this mixin PLUS _IntegrationTestCase (which
+    supplies smm_dir / tmpdir / _run_preload). At runtime _MixinBase
+    is `object` so pytest doesn't auto-collect the mixin's tests in
+    isolation. Statically pyright sees unittest.TestCase, so
+    self.assertEqual / etc type-check cleanly.
 
     Subclasses must define:
         _PRELOAD: Path — absolute path to the preload.sh under test.
     """
 
     _PRELOAD: Path
+    # Forward-declared fixture attrs from _IntegrationTestCase — pyright
+    # sees them via this mixin (under TYPE_CHECKING), real values come
+    # from the subclass's _IntegrationTestCase parent at setUp/setUpClass.
+    # Placed inside TYPE_CHECKING so they don't shadow the parent's real
+    # methods/attrs at runtime via Python's MRO lookup.
+    if TYPE_CHECKING:
+        smm_dir: Path
+        tmpdir: Path
+
+        def _run_preload(
+            self,
+            script_path: Path,
+            extra_env: dict | None = None,
+        ) -> subprocess.CompletedProcess: ...
 
     def setUp(self) -> None:
         super().setUp()
@@ -153,8 +186,11 @@ class _ClosePreloadCommonTests:
             )
 
 
-class _CloseSkillTextCommonTests:
+class _CloseSkillTextCommonTests(_MixinBase):
     """Mixin asserting the shared SKILL.md guard contract.
+
+    Same TYPE_CHECKING pattern as _ClosePreloadCommonTests above.
+    Subclasses inherit this mixin PLUS unittest.TestCase.
 
     Subclasses must define:
         _SKILL_MD: Path — absolute path to the close skill's SKILL.md
@@ -171,6 +207,7 @@ class _CloseSkillTextCommonTests:
 
     _SKILL_MD: Path
     _MODE: str
+    text: str  # set by setUpClass (_SKILL_MD.read_text())
     # Subclasses set False when current==target is impossible by design
     # (e.g. sprint-close uses the get-target lookup which returns a
     # different branch when on the sprint branch).
