@@ -18,13 +18,19 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
 _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 _SMM_DIR = _PLUGIN_ROOT / "smm"
+
+# Make scripts/ importable so we can default-mock commits.get_staged_diff
+# below. Mirrors the sys.path discipline every hook test file already does.
+sys.path.insert(0, str(_SCRIPTS_DIR))
 
 
 class _SMMTestCase(unittest.TestCase):
@@ -71,8 +77,30 @@ class _SMMTestCase(unittest.TestCase):
         return events
 
 
-# Alias used by hook tests
-_HookTestCase = _SMMTestCase
+class _HookTestCase(_SMMTestCase):
+    """Hook-test base. Adds a default-clean-diff mock for the Tier 1 commit
+    gate so tests that drive `pre_tool_bash.run()` from a non-git cwd
+    don't trip its fail-closed branch.
+
+    IMPORTANT: this auto-mocks `commits.get_staged_diff` to "" for
+    EVERY hook test. If you are writing a test that needs Tier 1 to
+    actually fire (against a planted secret) or to actually fail
+    (git failure path), you MUST override the patch — either with a
+    per-method `@patch("commits.get_staged_diff", return_value=...)`
+    decorator (see TestTier1SecurityScan), or by stopping
+    `self._staged_diff_patch` and starting your own. Without an
+    override, your test silently bypasses Tier 1 and may pass for
+    the wrong reason.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._staged_diff_patch = patch("commits.get_staged_diff", return_value="")
+        self._staged_diff_patch.start()
+
+    def tearDown(self):
+        self._staged_diff_patch.stop()
+        super().tearDown()
 
 
 class _IntegrationTestCase(unittest.TestCase):
@@ -163,6 +191,14 @@ class _IntegrationTestCase(unittest.TestCase):
                 shutil.rmtree(f)
             else:
                 f.unlink()
+        # Mirror the worktree scrub for the git index — without this, a
+        # sibling test's blocked-commit (file staged but commit refused)
+        # leaves a stale index entry that bleeds into the next test.
+        subprocess.run(
+            ["git", "reset", "HEAD", "--", "."],
+            cwd=self.tmpdir,
+            capture_output=True,
+        )
         keep = set(self._smm_snapshot) | {"retrospectives"}
         for f in self.smm_dir.iterdir():
             if f.name in keep:

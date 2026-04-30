@@ -289,6 +289,47 @@ class TestGetStagedFiles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# get_staged_diff
+# ---------------------------------------------------------------------------
+
+
+class TestGetStagedDiff(unittest.TestCase):
+    """Test staged unified-diff retrieval."""
+
+    @patch(_SUBPROCESS)
+    def test_returns_diff_text(self, mock_run):
+        mock_run.return_value.returncode = 0
+        diff = (
+            "diff --git a/src/a.py b/src/a.py\n"
+            "--- a/src/a.py\n"
+            "+++ b/src/a.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        mock_run.return_value.stdout = diff
+        self.assertEqual(commits.get_staged_diff("/tmp"), diff.strip())
+
+    @patch(_SUBPROCESS)
+    def test_failure_returns_none(self, mock_run):
+        """Non-zero exit → None so callers can fail closed (security gate)."""
+        mock_run.return_value.returncode = 1
+        self.assertIsNone(commits.get_staged_diff("/tmp"))
+
+    @patch(_SUBPROCESS, side_effect=OSError("no git"))
+    def test_exception_returns_none(self, _mock):
+        """OSError → None so callers can fail closed (security gate)."""
+        self.assertIsNone(commits.get_staged_diff("/tmp"))
+
+    @patch(_SUBPROCESS)
+    def test_empty_staging_returns_empty_string(self, mock_run):
+        """Git ran successfully but no staged changes → empty string (not None)."""
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        self.assertEqual(commits.get_staged_diff("/tmp"), "")
+
+
+# ---------------------------------------------------------------------------
 # get_head_commit_hash
 # ---------------------------------------------------------------------------
 
