@@ -37,7 +37,8 @@ Present recommendation via `AskUserQuestion`: mode + rationale. For teammate mod
 
 ## Branch Creation (Stage 1+)
 
-After mode selection but before execution, create story branches for all in-progress stories. This runs for both solo and teammate modes.
+After mode selection but before execution, create story branches —
+JIT in solo mode, eager in teammate mode.
 
 1. Read the branching stage:
 ```bash
@@ -51,21 +52,47 @@ If stage < 1, skip branch creation entirely.
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .
 ```
 
-3. Determine execution unit shapes from plan analysis (file_domain + interface_contracts + dependencies):
-   - **Single/independent stories**: branch off the story base
-   - **Dependent story chain**: first story off story base, subsequent stories off the previous story's branch tip via `--base`
-   - **Parallel siblings**: all branch off the story base
+3. **Solo mode** (JIT): create ONLY the first in-progress story's branch.
+Subsequent in-progress stories get their branches at /xp-story-close
+time, born off the merged sprint tip — so chained branches are never
+stale (decision df47c932fbe6 — JIT story branches eliminate the
+pre-JIT staleness that an `ff-only` post-step in /xp-accept was
+trying to patch). The just-merged-tip base is what the next story
+needs to build on.
 
-4. Checkout the story base, then for each story create its branch. The `create` command auto-records the branch name in sprint.json. The `--base` varies by shape: `<story-base>` for independent/first-in-chain, `<previous-story-branch>` for chained:
 ```bash
 git checkout <story-base>
 
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
-  create --cwd . --story <story-id> --slug <title-slug> --base <current-base>
+  create --cwd . --story <first-in-progress-story-id> \
+  --slug <title-slug> --base <story-base>
 ```
 
-After creating all branches, return to the story base for mode execution:
+4. **Teammate mode** (eager — parallel-eligible): create branches for
+EVERY in-progress story now, since each teammate needs its own
+worktree+branch to spawn into. Per design, teammates only run parallel
+work — never chained sequential — so all in-progress stories at
+/xp-assign time are parallel-eligible and unblocked. Each branches
+off the story base.
+
 ```bash
+git checkout <story-base>
+
+# For each in-progress story (parallel batch):
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
+  create --cwd . --story <story-id> --slug <title-slug> --base <story-base>
+```
+
+The `create` command auto-records `branch_name` in sprint.json.
+
+**Teammate-mode only:** after creating all parallel branches, return
+to the story base so subsequent teammate spawns have a clean starting
+point. Solo mode skips this — it stays on the single branch it just
+created (the next section's "Solo Mode" hands off from there for the
+JIT-first-story workflow).
+
+```bash
+# teammate mode only:
 git checkout <story-base>
 ```
 

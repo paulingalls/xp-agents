@@ -4,6 +4,7 @@
 Covers: preload.sh output (SMM, sprint, plan, guide), graceful degradation.
 """
 
+import re
 import sys
 import tempfile
 import unittest
@@ -204,6 +205,57 @@ class TestSkillMdCliSpawning(unittest.TestCase):
         """No Agent tool with xp-teammate subagent_type."""
         self.assertNotIn('subagent_type: "xp-teammate"', self.content)
         self.assertNotIn('subagent_type: "xp-teammate"', self.content)
+
+
+class TestSkillMdJitBranchCreation(unittest.TestCase):
+    """SKILL.md gates branch creation by execution mode (JIT for solo).
+
+    Per the JIT-branch design (decision df47c932fbe6 — JIT story
+    branches + close-skill unification): solo mode creates ONLY the
+    first in-progress story's branch at /xp-assign time; subsequent
+    branches are JIT-created at /xp-story-close after the prior story
+    merges. Teammate mode keeps eager creation — all parallel-eligible
+    branches at /xp-assign so each teammate has a worktree to spawn into.
+
+    The pre-JIT behavior (eager all-branch creation in solo too) caused
+    stale chained branches: story-002 born off the pre-001 sprint tip
+    instead of the merged tip. /xp-story-close JIT-creates resolves
+    that by creating story-002 off the just-merged code.
+    """
+
+    def setUp(self):
+        self.content = _SKILL_MD.read_text()
+
+    def test_branch_creation_section_documents_solo_jit_gating(self):
+        # Scope to the Branch Creation section so a future revert to
+        # eager-all in this section can't false-pass against the
+        # unrelated "Solo Mode" section that already says "Checkout
+        # the first in-progress story's branch".
+        bc_match = re.search(
+            r"## Branch Creation.*?\n##\s",
+            self.content,
+            re.DOTALL,
+        )
+        assert bc_match is not None, "## Branch Creation section not found"
+        branch_creation = bc_match.group(0)
+        # Solo's JIT pins on "ONLY the first in-progress" — capitalized
+        # to match the SKILL.md's emphasis and to filter out incidental
+        # prose elsewhere.
+        self.assertIn(
+            "ONLY the first in-progress",
+            branch_creation,
+            "Branch Creation section must describe creating ONLY the "
+            "first in-progress story branch in solo mode (JIT — "
+            "subsequent branches are created by /xp-story-close after "
+            "each prior merge)",
+        )
+
+    def test_references_jit_story_close_handoff(self):
+        # Solo mode hands off subsequent branch creation to
+        # /xp-story-close — the SKILL.md must mention that so a future
+        # editor doesn't reintroduce eager creation thinking it was a
+        # gap.
+        self.assertIn("/xp-story-close", self.content)
 
 
 if __name__ == "__main__":

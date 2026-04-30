@@ -2,7 +2,8 @@
 """Clean up a CLI teammate's worktree, branch, markers, and report.
 
 Verifies the teammate's branch is fully merged before removing anything.
-Called by /xp-accept after story acceptance.
+Called by /xp-story-close per closed teammate story (per-story symmetry,
+decision 9029c07ae198).
 
 Usage:
     python3 cleanup_teammate.py \

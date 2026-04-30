@@ -68,22 +68,25 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     _MODE = "plan"
 
     def test_refuses_when_current_equals_target(self):
-        # Plan-close from the primary branch is nonsensical — refuse.
+        # Plan-close from the primary branch is nonsensical — close_common.py
+        # preflight refuses, but SKILL.md still names both vars in the
+        # invocation so the orchestrator knows what it's checking.
         self.assertIn("CURRENT_BRANCH", self.text)
         self.assertIn("TARGET_BRANCH", self.text)
 
     def test_archives_plan_only_after_merge(self):
-        # plan_cli.py archive must appear AFTER the merge-branch call so
+        # plan_cli.py archive must appear AFTER close_common.py merge so
         # the plan stays intact on a failed merge.
         self.assertIn("plan_cli.py", self.text)
         self.assertIn("archive", self.text)
-        merge_idx = self.text.index("merge-branch")
+        merge_match = re.search(r"close_common\.py\s+merge", self.text)
+        assert merge_match is not None, "close_common.py merge invocation not found"
         archive_match = re.search(r"plan_cli\.py[^\n]*archive", self.text)
         assert archive_match is not None, "plan_cli.py archive call not found"
         self.assertLess(
-            merge_idx,
+            merge_match.start(),
             archive_match.start(),
-            "plan_cli.py archive must appear AFTER merge-branch",
+            "plan_cli.py archive must appear AFTER close_common.py merge",
         )
 
     def test_allowed_tools_includes_skill(self):
@@ -98,12 +101,13 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
         # project state before the next planning cycle.
         self.assertIn("xp-system-context", self.text)
         self.assertIn("Skill", self.text)
-        merge_idx = self.text.index("merge-branch")
+        merge_match = re.search(r"close_common\.py\s+merge", self.text)
+        assert merge_match is not None
         sc_idx = self.text.index("xp-system-context")
         self.assertLess(
-            merge_idx,
+            merge_match.start(),
             sc_idx,
-            "/xp-system-context must appear AFTER merge-branch",
+            "/xp-system-context must appear AFTER close_common.py merge",
         )
 
     def test_system_context_failure_does_not_block(self):
@@ -121,7 +125,6 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
 
 
 _SPRINT_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
-_CLOSE_REVIEWER_AGENT = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
 _PLAN_CLI = _PLUGIN_ROOT / "smm" / "plan_cli.py"
 
 
@@ -139,7 +142,6 @@ class TestSprintCloseToPlanCloseChainIntegrity(unittest.TestCase):
     def setUpClass(cls):
         cls.plan_close_text = _SKILL_MD.read_text()
         cls.sprint_close_text = _SPRINT_CLOSE_SKILL.read_text()
-        cls.agent_text = _CLOSE_REVIEWER_AGENT.read_text()
 
     def test_plan_close_skill_and_preload_exist(self):
         self.assertTrue(
@@ -164,15 +166,9 @@ class TestSprintCloseToPlanCloseChainIntegrity(unittest.TestCase):
         self.assertIn("xp-agents:xp-close-reviewer", self.plan_close_text)
         self.assertIn("## Mode\\nplan", self.plan_close_text)
 
-    def test_close_reviewer_agent_supports_plan_mode(self):
-        # Agent's mode-aware focus list must include plan as a distinct
-        # mode token — not just any prose containing "plan" / "planning".
-        self.assertTrue(_CLOSE_REVIEWER_AGENT.is_file())
-        self.assertRegex(
-            self.agent_text,
-            r"###\s+plan\b",
-            "xp-close-reviewer must declare a plan-mode focus section",
-        )
+    # The "agent supports plan mode" assertion lives in
+    # tests/hooks/test_xp_close_reviewer.py::TestModeFocusSections —
+    # one canonical place for all mode focus-section guards.
 
 
 class TestPlanMergeAndArchiveEndToEnd(_IntegrationTestCase):

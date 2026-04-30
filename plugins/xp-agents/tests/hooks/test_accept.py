@@ -111,6 +111,88 @@ class TestAcceptSkillTextDocumentsMarkerConsumption(unittest.TestCase):
         )
 
 
+class TestAcceptSkillTextDispatchesToStoryClose(unittest.TestCase):
+    """SKILL.md invokes /xp-story-close per done story (commit 9 of the
+    JIT/close-unification plan).
+
+    Pre-refactor /xp-accept inlined the merge logic (Step 2b) and the
+    auto-switch-to-next-branch logic (Step 2c). Post-refactor those
+    move into /xp-story-close, which mirrors /xp-sprint-close shape on
+    close_common.py + does its own JIT-create-next dispatch. /xp-accept
+    becomes a thin AC-verification + /xp-story-close dispatch step.
+
+    /xp-sprint-review trigger STAYS in /xp-accept (decision e30e9e91e61a
+    — single source of truth lives in /xp-accept, not /xp-story-close).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_invokes_story_close_per_done_story(self):
+        # /xp-accept must dispatch to /xp-story-close for each story
+        # marked done. The dispatch sentence must explicitly name the
+        # skill so a future editor can't silently inline the merge
+        # back into /xp-accept.
+        self.assertIn(
+            "/xp-story-close",
+            self.text,
+            "/xp-accept must invoke /xp-story-close per done story to "
+            "delegate the per-story review + merge + JIT-create-next "
+            "pipeline (commit 9 of the JIT/close-unification plan).",
+        )
+
+    def test_no_inline_merge_branch_logic(self):
+        # The Step 2b merge logic moved to close_common.py via
+        # /xp-story-close. /xp-accept must NOT contain merge-branch
+        # invocations anymore — that's the regression to catch.
+        self.assertNotIn(
+            "merge-branch",
+            self.text,
+            "/xp-accept must NOT inline `branching.py merge-branch` — "
+            "merge logic moved to close_common.py invoked by "
+            "/xp-story-close. Inline merge here would skip the "
+            "close-reviewer fork and PR creation.",
+        )
+
+    def test_no_inline_auto_switch_to_next_branch(self):
+        # Step 2c auto-switch moved to /xp-story-close JIT-next dispatch.
+        # /xp-accept must not branch-switch on its own.
+        self.assertNotIn(
+            "Auto-Switch",
+            self.text,
+            "/xp-accept must NOT inline 'Auto-Switch to Next Story' — "
+            "JIT-create-next moved to /xp-story-close (which uses "
+            "sprint_cli.py next-in-progress + branch_name gating).",
+        )
+
+    def test_sprint_review_trigger_remains_in_accept(self):
+        # Per decision e30e9e91e61a, /xp-accept owns the single
+        # /xp-sprint-review dispatch when the sprint completes —
+        # /xp-story-close NEVER fires it. This test pins that the
+        # dispatch stays in /xp-accept.
+        self.assertIn("/xp-sprint-review", self.text)
+
+    def test_cleanup_teammate_moved_to_story_close(self):
+        # Per decision 9029c07ae198: cleanup_teammate.py runs in
+        # /xp-story-close per closed story (per-story symmetry), not
+        # bulk-after-loop in /xp-accept. /xp-accept must NOT mention
+        # the cleanup script anymore — leaves a footgun if an editor
+        # adds it back without thinking.
+        self.assertNotIn(
+            "cleanup_teammate.py",
+            self.text,
+            "/xp-accept must NOT invoke cleanup_teammate.py — the "
+            "cleanup moved to /xp-story-close per closed story for "
+            "per-story symmetry (decision 9029c07ae198).",
+        )
+        self.assertNotIn(
+            "Cleanup Teammate Worktrees",
+            self.text,
+            "Step 5 (Cleanup Teammate Worktrees) moved to /xp-story-close",
+        )
+
+
 class TestAcceptPreloadTypes(_IntegrationTestCase):
     """Preload surfaces acceptance_execution type per in-progress story."""
 

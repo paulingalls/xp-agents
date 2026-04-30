@@ -143,3 +143,37 @@ def seed_plan(smm_dir: Path, branch: str | None = None) -> None:
     if branch is not None:
         plan["branch"] = branch
     execution_plan_store.save_plan(smm_dir, plan, enforce_budget=False)
+
+
+def add_bare_remote(td: str, remote_name: str = "origin") -> str:
+    """Initialize a bare git repo INSIDE `td` and add it as a remote.
+
+    Placing the bare repo under `td` ensures cleanup with the parent
+    TemporaryDirectory — no leaked `*-bare.git` dirs in $TMPDIR.
+    Returns the bare repo path.
+    """
+    bare = str(Path(td) / "remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", bare],
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "remote", "add", remote_name, bare],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
+    return bare
+
+
+def branch_exists(cwd: str, name: str) -> bool:
+    """Return True if `name` is a local git branch in `cwd`. Test helper."""
+    return (
+        subprocess.run(
+            ["git", "rev-parse", "--verify", name],
+            cwd=cwd,
+            capture_output=True,
+        ).returncode
+        == 0
+    )

@@ -6,6 +6,7 @@ text assertions for the dirty-tree refusal, with-gh / without-gh paths,
 and merge+cleanup sequencing.
 """
 
+import re
 import subprocess
 import sys
 import unittest
@@ -60,6 +61,12 @@ class TestSprintCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     _SKILL_MD = _SKILL_MD
     _MODE = "sprint"
 
+    # Sprint-close's preload uses get-merge-target, which returns a plan
+    # branch (or primary) — never the sprint branch itself. The
+    # same-branch case the mixin's test_refuses_when_current_equals_target
+    # asserts is not reachable here, so opt out.
+    _ASSERT_REFUSES_SAME_BRANCH = False
+
     def test_invokes_plan_close_when_plan_complete(self):
         # After a successful merge, the skill must check whether the
         # current plan is complete (all milestones delivered/deferred)
@@ -70,12 +77,13 @@ class TestSprintCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
         self.assertIn("/xp-plan-close", self.text)
         # The chain step must appear AFTER the merge — not before — so a
         # failed merge does not trigger plan-close.
-        merge_idx = self.text.index("merge-branch")
+        merge_match = re.search(r"close_common\.py\s+merge", self.text)
+        assert merge_match is not None
         chain_idx = self.text.index("/xp-plan-close")
         self.assertLess(
-            merge_idx,
+            merge_match.start(),
             chain_idx,
-            "/xp-plan-close invocation must appear AFTER merge-branch",
+            "/xp-plan-close invocation must appear AFTER close_common.py merge",
         )
 
 

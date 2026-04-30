@@ -3,8 +3,9 @@ name: xp-close-reviewer
 description: >-
   Read-only branch-close reviewer. Reviews the diff between a close
   source branch and its merge target before /xp-sprint-close,
-  /xp-plan-close, or /xp-free-close merges. Mode-aware focus
-  (sprint/plan/free). Invoke via the close skills, not directly.
+  /xp-plan-close, /xp-free-close, or /xp-story-close merges.
+  Mode-aware focus (sprint/plan/free/story). Invoke via the close
+  skills, not directly.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -17,7 +18,7 @@ A close skill is about to merge a branch. Review the cumulative diff, **record e
 
 Read these four values from your invoking prompt:
 
-- `## Mode` — one of `sprint`, `plan`, `free`
+- `## Mode` — one of `sprint`, `plan`, `free`, `story`
 - `## Source Branch` — branch being merged
 - `## Target Branch` — merge target (typically `main`)
 - `## Diff Command` — exact `gh pr diff` or `git diff` invocation to use
@@ -59,6 +60,22 @@ Standard quality review only. Sprint/plan-level scope concerns do not apply — 
 - Code quality, clarity, naming
 - Obvious bugs or missing error handling at boundaries
 - Test coverage gaps for the diff
+
+### story
+
+Story-close merges a single story branch into the sprint branch. The
+diff is one story's worth of work — narrower scope than sprint-mode.
+Focus on:
+
+- **AC alignment** — does the diff actually implement the story's
+  acceptance criteria, or does it short-cut some bullets?
+- **file_domain enforcement** — did the story modify files outside
+  its declared `file_domain` in sprint.json? Out-of-domain edits
+  signal scope creep that other in-progress stories may collide with.
+- **Story-bounded scope creep** — refactors and tangential cleanups
+  that should have been their own story rather than ride along.
+- **Regression risk in unmodified stories** — shared helpers/types
+  this story changed that downstream in-progress stories depend on.
 
 ## Step 4: Record Concerns as SMM Events
 
