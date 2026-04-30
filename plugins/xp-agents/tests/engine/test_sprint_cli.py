@@ -269,5 +269,106 @@ class TestUpdateStoryBranch(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestNextInProgressCommand(_SMMTestCase):
+    """Tests for the next-in-progress subcommand. See sprint_store
+    docstring for behavior; tests cover empty/no-sprint cases plus
+    dep-satisfaction filtering and numeric id ordering."""
+
+    def test_no_sprint_exits_one_with_empty_stdout(self):
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_no_in_progress_exits_one(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="done"),
+                _make_story(id="story-002", status="ready"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_single_in_progress_no_deps_returned(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="in-progress", dependencies=[]),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-001")
+
+    def test_picks_lowest_id_when_multiple_eligible(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-002", status="in-progress", dependencies=[]),
+                _make_story(id="story-001", status="in-progress", dependencies=[]),
+                _make_story(id="story-003", status="in-progress", dependencies=[]),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-001")
+
+    def test_numeric_sort_beats_lexical(self):
+        # story-2 < story-10 numerically, but lexical sort would pick
+        # story-10. Guards the numeric-key sort in next_in_progress.
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-10", status="in-progress", dependencies=[]),
+                _make_story(id="story-2", status="in-progress", dependencies=[]),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-2")
+
+    def test_excludes_stories_with_unmet_deps(self):
+        # story-002 depends on story-001 which is still in-progress
+        # (not done). story-002 must NOT be returned even though it's
+        # in-progress — its dep is not satisfied. story-001 IS returned.
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="in-progress", dependencies=[]),
+                _make_story(
+                    id="story-002",
+                    status="in-progress",
+                    dependencies=["story-001"],
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-001")
+
+    def test_excludes_dependent_of_deferred_story(self):
+        # When an upstream story is deferred (e.g. cascade from a
+        # failed AC), in-progress stories that depend on it must NOT
+        # be returned — their dep is not "done". Validates the JIT-next
+        # safety property the plan reviewer flagged.
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="deferred", dependencies=[]),
+                _make_story(
+                    id="story-002",
+                    status="in-progress",
+                    dependencies=["story-001"],
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["next-in-progress"], self.smm_dir)
+        # No story qualifies — story-002's dep is deferred, not done.
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

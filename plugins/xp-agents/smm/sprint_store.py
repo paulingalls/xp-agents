@@ -189,6 +189,40 @@ def is_complete(smm_dir: Path) -> bool:
     return not has_active_stories_data(sprint)
 
 
+def next_in_progress_story_id(smm_dir: Path) -> str | None:
+    """Lowest-id in-progress story whose deps are ALL done. None if none.
+
+    Powers JIT branch creation in /xp-story-close: the next story's
+    branch is born off the merged tip of the just-accepted story, but
+    only when the candidate's deps are actually satisfied. Cascade-defer
+    naturally excludes blocked stories — a deferred story's status is
+    "deferred", not "done", so any in-progress story depending on it
+    fails the "all deps done" check and is skipped.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return None
+    by_id = {s["id"]: s for s in sprint["stories"]}
+
+    def _deps_done(story: dict) -> bool:
+        return all(
+            by_id.get(dep, {}).get("status") == "done"
+            for dep in story.get("dependencies", [])
+        )
+
+    eligible = [
+        s["id"]
+        for s in sprint["stories"]
+        if s["status"] == "in-progress" and _deps_done(s)
+    ]
+    if not eligible:
+        return None
+    # Numeric sort by trailing -NNN — lexical min would order story-10
+    # before story-2. Project convention zero-pads (story-001) but a
+    # numeric key removes the latent footgun.
+    return min(eligible, key=lambda s: int(s.rsplit("-", 1)[1]))
+
+
 # -------------------------------------------------------------------
 # Computed fields (pure functions on sprint dict)
 # -------------------------------------------------------------------

@@ -27,6 +27,14 @@ def _cmd_is_complete(args: argparse.Namespace) -> int:
     return 0 if store.is_complete(args.smm_dir) else 1
 
 
+def _cmd_next_in_progress(args: argparse.Namespace) -> int:
+    story_id = store.next_in_progress_story_id(args.smm_dir)
+    if story_id is None:
+        return 1
+    print(story_id)
+    return 0
+
+
 def _cmd_count(args: argparse.Namespace) -> int:
     sprint = store.load_sprint(args.smm_dir)
     if sprint is None:
@@ -197,6 +205,10 @@ def main() -> None:
     sub.add_parser("exists", help="Check if sprint exists")
     sub.add_parser("has-active", help="Check for active stories")
     sub.add_parser("is-complete", help="Check if sprint is complete")
+    sub.add_parser(
+        "next-in-progress",
+        help="Lowest-id in-progress story whose deps are all done (exit 1 if none)",
+    )
     sub.add_parser("count", help="Count stories by status")
     sub.add_parser("next-id", help="Next sprint ID")
 
@@ -246,6 +258,7 @@ def main() -> None:
         "exists": _cmd_exists,
         "has-active": _cmd_has_active,
         "is-complete": _cmd_is_complete,
+        "next-in-progress": _cmd_next_in_progress,
         "count": _cmd_count,
         "count-status": _cmd_count_status,
         "next-id": _cmd_next_id,
