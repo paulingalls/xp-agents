@@ -110,8 +110,8 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
     # line that looks like a github PR URL so trailing confirmation
     # text doesn't poison the trailing rsplit.
     pr_url = ""
-    for line in reversed(result.stdout.splitlines()):
-        line = line.strip()
+    for raw in reversed(result.stdout.splitlines()):
+        line = raw.strip()
         if "/pull/" in line and line.startswith("http"):
             pr_url = line
             break
@@ -121,6 +121,20 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
         )
         return 1
     print(pr_url.rsplit("/", 1)[-1])
+    return 0
+
+
+def cmd_diff_command(args: argparse.Namespace) -> int:
+    """Print `gh pr diff <N>` for numeric PR_OUTPUT, else `git diff <target>...HEAD`.
+
+    Non-numeric input falls through to git diff so the reviewer never
+    sees a malformed gh invocation when create-pr skipped or emitted prose.
+    """
+    pr_output = args.pr_output.strip()
+    if pr_output.isdigit():
+        print(f"gh pr diff {pr_output}")
+    else:
+        print(f"git diff {args.target}...HEAD")
     return 0
 
 
@@ -189,6 +203,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True)
     p.add_argument("--body", required=True)
     p.set_defaults(func=cmd_create_pr)
+
+    p = sub.add_parser(
+        "diff-command",
+        help="print the diff command the close-reviewer should run",
+    )
+    p.add_argument("--pr-output", required=True)
+    p.add_argument("--target", required=True)
+    p.set_defaults(func=cmd_diff_command)
 
     p = sub.add_parser(
         "merge",
