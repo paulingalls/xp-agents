@@ -1,5 +1,41 @@
 # Changelog
 
+## v2.34.0 — Story Branch Lifecycle Doctrine fully shipped (M1-M4)
+
+Four sprints (044-047) delivering the complete story branch lifecycle: lazy branch creation at `/xp-assign`, teammates on story branches, and the reliability layer. 3466 tests green at every commit.
+
+### M1 — Schema + CLI foundations (sprint-044)
+
+- Per-story `branch_name` field in sprint.json (optional, backward-compatible). `set_story_branch` atomic read-modify-write.
+- `--base` flag on `branching.py create --story` for chain-dependent stories.
+- `update-story-branch` CLI subcommand in `sprint_cli.py`.
+
+### M2 — Lazy creation at /xp-assign (sprint-045)
+
+- Story branch creation moved from `/xp-sprint-start` Step 9 to `/xp-assign`. Sprint-start only creates the sprint branch.
+- Execution unit shapes: single (off sprint), chain (off previous tip via `--base`), siblings (parallel off sprint).
+- Stories added via `/xp-work-selection` after sprint-start get branches at next `/xp-assign`.
+
+### M3 — Worktree on story branch (sprint-046)
+
+- `spawn_teammate.py` checks out the assigned story branch directly. `teammate-*` branch namespace removed.
+- Worktree directories renamed from `teammate-step-N` to `worktree-story-NNN`.
+- `has_live_teammates`, `is_worktree_teammate`, cleanup tooling all updated. 49 files changed.
+
+### M4 — Reliability + orphan triage (sprint-047)
+
+- **Mid-chain nudge**: `PostToolUse:Bash` fires advisory nudge after commits when solo with 2+ in-progress stories. Canonical wording pinned by test assertion.
+- **Accept auto-switch**: `/xp-accept` auto-switches to next story branch after marking done (chain-aware base for dependent stories).
+- **AC-fail cascade**: When a story fails AC, all downstream dependents are cascaded to deferred.
+- **Orphan story-branch triage**: `list_story_branches()` and `list_orphan_story_branches()` in new `branch_queries.py`. Kickoff preload detects `ORPHAN_STORY_BRANCHES`, Step 2.7 triages (merge/keep/delete).
+
+### Refactoring
+
+- Extracted `lint_resolution.py` from `bash_post_tool.py` (521 to 407 lines).
+- Moved `extract_commit_message`/`is_escape_hatch_commit` from `branching.py` to `commits.py` (526 to 496 lines).
+- Unified `list_user_branches(cwd, prefix)` shared helper for `list_free_branches` and `list_story_branches`.
+- Renamed `_match_local_branches` to `match_local_branches` (public API for cross-module use).
+
 ## v2.33.1 — Story-prefix probe + lint sweep + try-id resolution + test-file splits
 
 Nine commits on `paulingalls/free-2026-04-29-questions-discussion` resolving four aged-risk questions, two chronically-deferred Trys, and shipping two new pre/post-commit mechanisms. 3422 tests green at every commit.
