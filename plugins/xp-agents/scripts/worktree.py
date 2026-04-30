@@ -71,13 +71,12 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
     )
 
 
-def has_live_teammates(cwd: str) -> bool:
-    """Return True if any non-prunable `worktree-story-*` worktree is registered.
+def _iter_live_teammate_worktrees(cwd: str):
+    """Yield worktree paths under `.claude/worktrees/worktree-story-*`
+    that are non-prunable and exist on disk.
 
-    Uses `git worktree list --porcelain` so the check reflects real git
-    state (not filesystem artifacts). Skips prunable entries — those are
-    stale registrations whose directories no longer exist. Falls back to
-    False when cwd is outside a git repo or the command fails.
+    Shared by has_live_teammates (boolean check) and
+    find_teammate_worktree_for_story (per-story lookup).
     """
     try:
         out = subprocess.check_output(
@@ -87,7 +86,7 @@ def has_live_teammates(cwd: str) -> bool:
             stderr=subprocess.DEVNULL,
         )
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
-        return False
+        return
     wt_marker = "/.claude/worktrees/worktree-story-"
     for block in out.split("\n\n"):
         if "prunable" in block:
@@ -96,8 +95,35 @@ def has_live_teammates(cwd: str) -> bool:
             if line.startswith("worktree ") and wt_marker in line:
                 wt_path = line[len("worktree ") :]
                 if Path(wt_path).is_dir():
-                    return True
-    return False
+                    yield wt_path
+
+
+def has_live_teammates(cwd: str) -> bool:
+    """Return True if any non-prunable `worktree-story-*` worktree is registered.
+
+    Uses `git worktree list --porcelain` so the check reflects real git
+    state (not filesystem artifacts). Skips prunable entries — those are
+    stale registrations whose directories no longer exist. Falls back to
+    False when cwd is outside a git repo or the command fails.
+    """
+    return any(_iter_live_teammate_worktrees(cwd))
+
+
+def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:
+    """Return the worktree NAME (e.g. `worktree-story-042`) for a teammate
+    that's working on `story_id`, or None if no live worktree matches.
+
+    Powers /xp-story-close's Step 7b cleanup gate: solo mode has no
+    matching worktree (returns None, cleanup skipped); teammate mode
+    returns the exact name to pass as `cleanup_teammate.py --name`.
+    Filters for exact `worktree-<story_id>` directory names — the
+    naming convention defined in spawn_teammate.py + identity._TEAMMATE_PREFIX.
+    """
+    target = f"worktree-{story_id}"
+    for wt_path in _iter_live_teammate_worktrees(cwd):
+        if Path(wt_path).name == target:
+            return target
+    return None
 
 
 def teammate_report_path(smm_dir: Path, name: str) -> Path:

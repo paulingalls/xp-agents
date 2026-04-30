@@ -129,21 +129,29 @@ If the story being closed was a teammate's, a worktree exists at
 worktree to clean up. Per-story symmetry (decision 9029c07ae198)
 puts the cleanup here, not bulk-after-loop in /xp-accept.
 
-Derive the story id from the just-closed `<CURRENT_BRANCH>` (form
-`<user>/story-NNN-<slug>`) and check whether a matching worktree
-exists. Teammate worktrees are named `worktree-story-NNN` exactly
-(no slug suffix — see `spawn_teammate.py` and `_TEAMMATE_PREFIX`
-in `identity.py`):
+Use `branching.py` subcommands to derive story id from the
+just-closed `<CURRENT_BRANCH>` and locate the matching live teammate
+worktree. Both subcommands print empty stdout + exit 0 when there's
+no match (story-id from a non-story branch, or no live teammate for
+this story), so an `if [ -n ... ]` shell guard handles solo mode
+without special-casing:
 
 ```bash
-STORY_ID=$(echo "<CURRENT_BRANCH>" | sed -nE 's|.*/(story-[0-9]+)-.*|\1|p')
-WORKTREE_NAME=$(ls -1 .claude/worktrees 2>/dev/null \
-  | grep -E "^worktree-${STORY_ID}$" | head -n1)
+STORY_ID=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
+  --smm-dir <SMM_DIR> extract-story-id --branch "<CURRENT_BRANCH>")
+WORKTREE_NAME=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
+  --smm-dir <SMM_DIR> find-teammate-worktree \
+  --story-id "$STORY_ID" --cwd .)
 ```
 
-Run cleanup ONLY when `WORKTREE_NAME` is non-empty (empty = solo mode,
-no worktree to clean). Use an executable guard so the gate isn't just
-prose:
+`extract-story-id` parses `<user>/story-NNN[-<slug>]` (lives in
+`identity.py::extract_story_id`); `find-teammate-worktree` walks
+`git worktree list --porcelain` and matches the exact
+`worktree-<story-id>` directory name (lives in
+`worktree.py::find_teammate_worktree_for_story`, mirrors
+`has_live_teammates`'s real-git-state pattern).
+
+Run cleanup ONLY when `WORKTREE_NAME` is non-empty:
 
 ```bash
 if [ -n "$WORKTREE_NAME" ]; then
