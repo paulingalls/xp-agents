@@ -13,112 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase, cleanup_test_worktrees
-
-
-class TestCleanupExisting(_IntegrationTestCase):
-    """cleanup_existing removes old worktree and branch, no-op when absent."""
-
-    def test_no_op_when_worktree_absent(self):
-        """No error when worktree doesn't exist."""
-        import spawn_teammate
-
-        spawn_teammate.cleanup_existing("teammate-step-99", str(self.tmpdir))
-
-    def test_removes_existing_worktree_and_branch(self):
-        """Removes worktree directory and deletes the branch."""
-        import spawn_teammate
-
-        name = "teammate-step-1"
-        wt_dir = self.tmpdir / ".claude" / "worktrees"
-        wt_dir.mkdir(parents=True, exist_ok=True)
-        wt_path = str(wt_dir / name)
-
-        subprocess.run(
-            ["git", "worktree", "add", "-b", name, wt_path, "HEAD"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        self.assertTrue(Path(wt_path).is_dir())
-
-        spawn_teammate.cleanup_existing(name, str(self.tmpdir))
-
-        self.assertFalse(Path(wt_path).is_dir(), "Worktree dir should be removed")
-        result = subprocess.run(
-            ["git", "branch", "--list", name],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.stdout.strip(), "", "Branch should be deleted")
-
-
-class TestCreateWorktree(_IntegrationTestCase):
-    """create_worktree creates correct directory and branch."""
-
-    def test_creates_worktree_directory(self):
-        """Creates .claude/worktrees/{name} directory."""
-        import spawn_teammate
-
-        wt_path = spawn_teammate.create_worktree("teammate-step-1", str(self.tmpdir))
-        self.assertTrue(Path(wt_path).is_dir())
-        self.assertIn("teammate-step-1", wt_path)
-
-    def test_creates_branch_with_same_name(self):
-        """Branch name matches the teammate name."""
-        import spawn_teammate
-
-        spawn_teammate.create_worktree("teammate-step-2", str(self.tmpdir))
-        result = subprocess.run(
-            ["git", "branch", "--list", "teammate-step-2"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-        )
-        self.assertIn("teammate-step-2", result.stdout)
-
-    def test_branches_from_current_branch(self):
-        """Worktree branches from current branch, not default."""
-        import spawn_teammate
-
-        subprocess.run(
-            ["git", "checkout", "-b", "feature/v2"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        (self.tmpdir / "v2.txt").write_text("v2")
-        subprocess.run(
-            ["git", "add", "v2.txt"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "v2"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-
-        wt_path = spawn_teammate.create_worktree("teammate-step-3", str(self.tmpdir))
-        self.assertTrue((Path(wt_path) / "v2.txt").is_file())
-
-    def test_idempotent_recreates_worktree(self):
-        """If worktree exists, cleans up and recreates."""
-        import spawn_teammate
-
-        wt_path1 = spawn_teammate.create_worktree("teammate-step-4", str(self.tmpdir))
-        self.assertTrue(Path(wt_path1).is_dir())
-
-        wt_path2 = spawn_teammate.create_worktree("teammate-step-4", str(self.tmpdir))
-        self.assertTrue(Path(wt_path2).is_dir())
-        self.assertEqual(wt_path1, wt_path2)
-
-    def tearDown(self):
-        cleanup_test_worktrees(self.tmpdir)
-        super().tearDown()
+from conftest import _IntegrationTestCase
 
 
 class TestBuildCommand(unittest.TestCase):
@@ -197,6 +92,37 @@ class TestStoryIdArg(unittest.TestCase):
         self.assertEqual(args.story_id, "story-001")
 
 
+class TestBranchArg(unittest.TestCase):
+    """--branch CLI arg for story branch checkout."""
+
+    def test_branch_arg_optional(self):
+        """--branch defaults to None when not provided."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            ["--name", "t1", "--smm-dir", "/smm", "--prompt-file", "/p.txt"]
+        )
+        self.assertIsNone(args.branch)
+
+    def test_branch_arg_accepted(self):
+        """--branch is accepted and stored."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            [
+                "--name",
+                "t1",
+                "--smm-dir",
+                "/smm",
+                "--prompt-file",
+                "/p.txt",
+                "--branch",
+                "paulingalls/story-001-schema-store",
+            ]
+        )
+        self.assertEqual(args.branch, "paulingalls/story-001-schema-store")
+
+
 class TestStoryAssignmentFile(_IntegrationTestCase):
     """spawn_teammate writes .story-assignment-{name} to SMM dir."""
 
@@ -271,7 +197,7 @@ class TestTeammateNameEnvVar(unittest.TestCase):
     """spawn_teammate sets XP_TEAMMATE_NAME env var for teammate detection."""
 
     def test_env_includes_xp_teammate_name(self):
-        """XP_TEAMMATE_NAME is set to the prefixed name in subprocess env."""
+        """XP_TEAMMATE_NAME is set to the name passed via --name."""
         import tempfile
         from unittest.mock import patch
 
@@ -295,45 +221,62 @@ class TestTeammateNameEnvVar(unittest.TestCase):
                 spawn_teammate.main(
                     [
                         "--name",
-                        "astro",
+                        "worktree-story-001",
                         "--smm-dir",
                         "/tmp/smm",
                         "--prompt-file",
                         prompt_path,
                     ]
                 )
-            self.assertEqual(captured_env.get("XP_TEAMMATE_NAME"), "teammate-astro")
+            self.assertEqual(captured_env.get("XP_TEAMMATE_NAME"), "worktree-story-001")
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
 
-class TestNameAutoPrefix(unittest.TestCase):
-    """spawn_teammate auto-prefixes teammate- when missing."""
+class TestNamePassThrough(unittest.TestCase):
+    """spawn_teammate uses --name as-is (no prefix transformation)."""
 
-    def test_name_without_prefix_gets_prefixed(self):
-        """--name astro becomes teammate-astro."""
+    def test_name_used_directly_in_main(self):
+        """--name worktree-story-001 flows through without transformation."""
+        import tempfile
+        from unittest.mock import patch
+
         import spawn_teammate
 
-        result = spawn_teammate.ensure_teammate_prefix("astro")
-        self.assertEqual(result, "teammate-astro")
+        captured_name = {}
 
-    def test_name_with_prefix_unchanged(self):
-        """--name teammate-step-1 stays teammate-step-1."""
-        import spawn_teammate
+        def capture_create(name, cwd, *, branch=None):
+            captured_name["value"] = name
+            return "/tmp/wt"
 
-        result = spawn_teammate.ensure_teammate_prefix("teammate-step-1")
-        self.assertEqual(result, "teammate-step-1")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
 
-    def test_empty_name_gets_prefixed(self):
-        """Empty name gets teammate- prefix."""
-        import spawn_teammate
-
-        result = spawn_teammate.ensure_teammate_prefix("")
-        self.assertEqual(result, "teammate-")
+        try:
+            with (
+                patch.object(
+                    spawn_teammate, "create_worktree", side_effect=capture_create
+                ),
+                patch.object(spawn_teammate, "run_with_tee"),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-001",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+            self.assertEqual(captured_name["value"], "worktree-story-001")
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
 
 
 class TestRunWithTee(unittest.TestCase):
-    """run_with_tee mirrors claude -p stdout to <log_dir>/teammate-<name>.log
+    """run_with_tee mirrors claude -p stdout to <log_dir>/<name>.log
     so a hung teammate can be inspected without aborting the run.
     """
 

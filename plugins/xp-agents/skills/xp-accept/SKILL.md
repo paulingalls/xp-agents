@@ -50,7 +50,7 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
        --type "concern" --agent "xp-accept" --severity "medium" \
        --content "Acceptance override for story-NNN: <user's reason>"
      ```
-   - **Defer** — move story to `deferred` with a reason
+   - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral: defer the failed story AND all downstream dependents. Step 3 records status events for each cascaded deferral.
 
 Do **not** retry automatically. Flaky acceptance is information — fix the harness, don't mask the signal.
 
@@ -63,7 +63,7 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
 3. For **non-E2E criteria** — ask the user to verify.
 4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
    - **done** — all acceptance criteria verified and passing
-   - **deferred** — incomplete, carry forward to next sprint
+   - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral: defer the failed story AND all downstream dependents. Step 3 records status events for each cascaded deferral.
 5. Resolve any user questions before marking.
 
 ## Step 1b: Concern Triage
@@ -118,15 +118,37 @@ If merge fails (conflict or error), report the failure and skip that story's bra
 **Stage 0 or missing:** Skip merge and cleanup entirely.
 **Deferred stories:** Do not merge — leave their branches intact for the next sprint.
 
+## Step 2c: Auto-Switch to Next Story
+
+After merging done stories and processing deferrals, check if there is a next story to work on:
+
+1. Re-read sprint.json (statuses changed in Step 2). Find the next in-progress or ready story by declaration order (lowest story ID first).
+2. If the next story **depends on the just-accepted story** (chain relationship via `dependencies` field): create-or-checkout its branch off the accepted story's tip:
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+     create --cwd . --story <next-story-id> --slug <title-slug> --base HEAD
+   ```
+3. If the next story has **no chain dependency**: create-or-checkout its branch off the sprint base:
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+     create --cwd . --story <next-story-id> --slug <title-slug>
+   ```
+4. If **no next story exists** (all done or deferred): stay on the sprint branch and report sprint-complete.
+5. Tell the agent: *"story-NNN marked done; checked out `<branch-name>` for story-MMM."*
+
+**Stage 0:** Skip auto-switch — no branch discipline.
+
 ## Step 3: Record Events
 
-For each story disposition:
+For each story disposition (including cascaded deferrals from Step 1):
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" --agent "xp-accept" \
   --content "Story story-NNN marked <done|deferred>: <brief reason>" \
   --working-on '[]'
 ```
+
+For cascaded deferrals, include the cascade reason (e.g., "deferred: depends on deferred story-MMM").
 
 ## Step 4: Summary
 
@@ -138,7 +160,7 @@ For each **done** story's worktree:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
-  --name teammate-story-NNN --smm-dir <SMM_DIR>
+  --name worktree-story-NNN --smm-dir <SMM_DIR>
 ```
 
 Verifies branch is merged before removing worktree, branch, markers, and report. **Only cleanup done stories** — leave deferred worktrees intact. If cleanup fails (unmerged commits), report and skip.

@@ -8,6 +8,7 @@ Follows the same pattern as execution_plan_schema.py.
 """
 
 from _acceptance_execution import validate_acceptance_execution
+from execution_plan_schema import VALID_BRANCH_NAME_RE
 
 SPRINT_FILENAME = "sprint.json"
 
@@ -112,6 +113,15 @@ def _validate_story(
             validate_acceptance_execution(ae, f"stories[{idx}].acceptance_execution")
         )
 
+    bn = story.get("branch_name")
+    if bn is not None:
+        if not isinstance(bn, str):
+            errors.append(f"stories[{idx}].branch_name must be a string or null")
+        elif not VALID_BRANCH_NAME_RE.match(bn):
+            errors.append(
+                f"stories[{idx}].branch_name is not a valid git branch name: {bn!r}"
+            )
+
     return errors
 
 
@@ -141,8 +151,11 @@ def validate_sprint(data: object, *, enforce_budget: bool = True) -> list[str]:
         errors.append("goal must be a string")
 
     bn = data.get("branch_name")
-    if bn is not None and not isinstance(bn, str):
-        errors.append("branch_name must be a string or null")
+    if bn is not None:
+        if not isinstance(bn, str):
+            errors.append("branch_name must be a string or null")
+        elif not VALID_BRANCH_NAME_RE.match(bn):
+            errors.append(f"branch_name is not a valid git branch name: {bn!r}")
 
     if not isinstance(data["stories"], list):
         errors.append("stories must be a list")

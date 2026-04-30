@@ -27,15 +27,15 @@ class TestResolveAgentId(unittest.TestCase):
 
     def test_worktree_cwd_extracts_name(self):
         result = identity.resolve_agent_id(
-            {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001"}
+            {"cwd": "/home/user/project/.claude/worktrees/worktree-story-001"}
         )
-        self.assertEqual(result, "teammate-story-001")
+        self.assertEqual(result, "worktree-story-001")
 
     def test_nested_worktree_cwd(self):
         result = identity.resolve_agent_id(
-            {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src/lib"}
+            {"cwd": "/home/user/project/.claude/worktrees/worktree-story-001/src/lib"}
         )
-        self.assertEqual(result, "teammate-story-001")
+        self.assertEqual(result, "worktree-story-001")
 
     def test_non_worktree_cwd_returns_main(self):
         result = identity.resolve_agent_id({"cwd": "/home/user/project/src"})
@@ -47,24 +47,27 @@ class TestResolveAgentId(unittest.TestCase):
 
     def test_empty_agent_id_falls_through_to_cwd(self):
         result = identity.resolve_agent_id(
-            {"agent_id": "", "cwd": "/x/.claude/worktrees/teammate-story-002"}
+            {"agent_id": "", "cwd": "/x/.claude/worktrees/worktree-story-002"}
         )
-        self.assertEqual(result, "teammate-story-002")
+        self.assertEqual(result, "worktree-story-002")
 
     def test_platform_agent_id_takes_precedence_over_worktree_cwd(self):
         inp = {
             "agent_id": "subagent-abc",
-            "cwd": "/x/.claude/worktrees/teammate-story-001",
+            "cwd": "/x/.claude/worktrees/worktree-story-001",
         }
         result = identity.resolve_agent_id(inp)
         self.assertEqual(result, "subagent-abc")
 
 
 class TestIsTeammateAgentId(unittest.TestCase):
-    """is_teammate_agent_id classifies an agent_id string by 'teammate-' prefix."""
+    """is_teammate_agent_id detects worktree-story-* agent IDs."""
 
-    def test_teammate_prefix_detected(self):
-        self.assertTrue(identity.is_teammate_agent_id("teammate-story-001"))
+    def test_worktree_story_detected(self):
+        self.assertTrue(identity.is_teammate_agent_id("worktree-story-001"))
+
+    def test_old_teammate_prefix_not_detected(self):
+        self.assertFalse(identity.is_teammate_agent_id("teammate-step-1"))
 
     def test_main_not_detected(self):
         self.assertFalse(identity.is_teammate_agent_id("main"))
@@ -79,13 +82,18 @@ class TestIsTeammateAgentId(unittest.TestCase):
 class TestIsWorktreeTeammate(unittest.TestCase):
     """is_worktree_teammate detects CLI teammates by cwd path or env var."""
 
-    def test_teammate_cwd_detected(self):
-        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001/src"}
+    def test_worktree_story_cwd_detected(self):
+        inp = {"cwd": "/home/user/project/.claude/worktrees/worktree-story-001/src"}
         self.assertTrue(identity.is_worktree_teammate(inp))
 
-    def test_teammate_cwd_root(self):
-        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-002"}
+    def test_worktree_story_cwd_root(self):
+        inp = {"cwd": "/home/user/project/.claude/worktrees/worktree-story-002"}
         self.assertTrue(identity.is_worktree_teammate(inp))
+
+    def test_old_teammate_worktree_not_detected(self):
+        """Old teammate-* cwd pattern is no longer detected."""
+        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-old/src"}
+        self.assertFalse(identity.is_worktree_teammate(inp))
 
     def test_non_teammate_worktree_not_detected(self):
         inp = {"cwd": "/home/user/project/.claude/worktrees/explore-abc/src"}
@@ -104,19 +112,19 @@ class TestIsWorktreeTeammate(unittest.TestCase):
     def test_env_var_fallback_when_cwd_fails(self):
         """XP_TEAMMATE_NAME env var detected when cwd has no worktree path."""
         inp = {"cwd": "/home/user/project/src"}
-        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "teammate-step-1"}):
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}):
             self.assertTrue(identity.is_worktree_teammate(inp))
 
-    def test_env_var_without_teammate_prefix_not_detected(self):
-        """XP_TEAMMATE_NAME without teammate- prefix is not detected."""
+    def test_env_var_without_prefix_not_detected(self):
+        """XP_TEAMMATE_NAME without worktree-story- prefix not detected."""
         inp = {"cwd": "/home/user/project/src"}
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "explorer-1"}):
             self.assertFalse(identity.is_worktree_teammate(inp))
 
     def test_cwd_takes_precedence_over_env_var(self):
         """CWD detection still works even when env var is set."""
-        inp = {"cwd": "/home/user/project/.claude/worktrees/teammate-story-001"}
-        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "teammate-step-2"}):
+        inp = {"cwd": "/home/user/project/.claude/worktrees/worktree-story-001"}
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-002"}):
             self.assertTrue(identity.is_worktree_teammate(inp))
 
 

@@ -343,5 +343,73 @@ class TestGetCommitMessageBody(unittest.TestCase):
         self.assertIsNone(commits.get_commit_message_body("/tmp"))
 
 
+class TestExtractCommitMessage(unittest.TestCase):
+    def test_double_quoted(self):
+        self.assertEqual(
+            commits.extract_commit_message('git commit -m "fix bug"'),
+            "fix bug",
+        )
+
+    def test_single_quoted(self):
+        self.assertEqual(
+            commits.extract_commit_message("git commit -m 'add feature'"),
+            "add feature",
+        )
+
+    def test_no_m_flag(self):
+        self.assertIsNone(commits.extract_commit_message("git commit"))
+
+    def test_heredoc_style(self):
+        cmd = """git commit -m "$(cat <<'EOF'
+[release] bump version
+
+Co-Authored-By: Claude
+EOF
+)" """
+        result = commits.extract_commit_message(cmd)
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("[release]"))
+
+    def test_empty_message(self):
+        self.assertEqual(
+            commits.extract_commit_message('git commit -m ""'),
+            "",
+        )
+
+    def test_message_with_special_chars(self):
+        self.assertEqual(
+            commits.extract_commit_message('git commit -m "[chore] update deps"'),
+            "[chore] update deps",
+        )
+
+
+class TestIsEscapeHatchCommit(unittest.TestCase):
+    def test_release_prefix(self):
+        self.assertTrue(
+            commits.is_escape_hatch_commit('git commit -m "[release] v1.0"')
+        )
+
+    def test_chore_prefix(self):
+        self.assertTrue(
+            commits.is_escape_hatch_commit('git commit -m "[chore] cleanup"')
+        )
+
+    def test_case_insensitive(self):
+        self.assertTrue(
+            commits.is_escape_hatch_commit('git commit -m "[Release] v2.0"')
+        )
+
+    def test_no_prefix(self):
+        self.assertFalse(commits.is_escape_hatch_commit('git commit -m "fix bug"'))
+
+    def test_no_m_flag(self):
+        self.assertFalse(commits.is_escape_hatch_commit("git commit"))
+
+    def test_prefix_not_at_start(self):
+        self.assertFalse(
+            commits.is_escape_hatch_commit('git commit -m "fix [release] tag"')
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

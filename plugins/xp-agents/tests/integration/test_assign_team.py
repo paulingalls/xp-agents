@@ -46,7 +46,8 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
     def _stop_input(self, **overrides) -> dict:
         data = {
             "session_id": "t",
-            "cwd": str(self.tmpdir).rstrip("/") + "/.claude/worktrees/teammate-1/src",
+            "cwd": str(self.tmpdir).rstrip("/")
+            + "/.claude/worktrees/worktree-story-1/src",
         }
         data.update(overrides)
         return data
@@ -62,17 +63,19 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/simplify", result)
 
-        markers.set_review_flag(self.smm_dir, "teammate-1", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "worktree-story-1", "simplify_done")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-        markers.set_review_flag(self.smm_dir, "teammate-1", "quality_review_done")
+        markers.set_review_flag(self.smm_dir, "worktree-story-1", "quality_review_done")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
         self.assertIn("/security-review", result)
 
-        markers.set_review_flag(self.smm_dir, "teammate-1", "security_review_done")
+        markers.set_review_flag(
+            self.smm_dir, "worktree-story-1", "security_review_done"
+        )
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
         self.assertIn("commit", result.lower())
@@ -273,7 +276,7 @@ class TestAcceptPreloadTeammate(_IntegrationTestCase):
     def test_preload_shows_teammate_worktrees(self):
         import spawn_teammate
 
-        name = "teammate-story-001"
+        name = "worktree-story-001"
         spawn_teammate.create_worktree(name, str(self.tmpdir))
 
         result = self._run_preload(_ACCEPT_PRELOAD)

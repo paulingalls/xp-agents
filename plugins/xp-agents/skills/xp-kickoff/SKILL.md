@@ -78,6 +78,16 @@ If the preload shows **ORPHAN_FREE_BRANCHES**, the user has unfinished free bran
 
 This step runs at every kickoff regardless of the session mode chosen in Step 2 — orphan detection is a safety net for free sessions ended without `/xp-free-close`.
 
+## Step 2.7: Orphan story-branch triage (ALWAYS, every kickoff)
+
+If the preload shows **ORPHAN_STORY_BRANCHES**, the user has story branches not backed by any active (ready/in-progress) sprint story. For each branch listed, ask via `AskUserQuestion`: **merge / keep / delete?**
+
+- **merge** — merge the branch into the sprint base via `branching.py merge-branch --cwd . --branch <name>`, then delete it via `branching.py delete --cwd . --branch <name>`.
+- **keep** — leave the branch alone; it will reappear at the next kickoff.
+- **delete** — drop the branch via `branching.py delete --cwd . --branch <name>` only when the user explicitly confirms; do not auto-delete branches with commits ahead of the base.
+
+This step runs at every kickoff regardless of session mode — orphan story branches accumulate when `/xp-accept` defers stories or sprints close without merging all branches.
+
 ## Step 3: System Context and Execution Plan (if NEEDS_SYSTEM_CONTEXT or NEEDS_EXECUTION_PLAN)
 
 If the preload shows "NEEDS_SYSTEM_CONTEXT" and this is a sprint session, invoke `/xp-system-context`. Wait for it to complete before proceeding.

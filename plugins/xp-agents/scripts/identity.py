@@ -10,7 +10,7 @@ import re
 import subprocess
 
 _WORKTREE_PATH_MARKER = "/.claude/worktrees/"
-_TEAMMATE_PREFIX = "teammate-"
+_TEAMMATE_PREFIX = "worktree-story-"
 _XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 
 
@@ -44,7 +44,7 @@ def extract_worktree_name(cwd: str) -> str | None:
 
 
 def is_teammate_agent_id(agent_id: str) -> bool:
-    """True if `agent_id` belongs to a CLI teammate (e.g., 'teammate-story-001')."""
+    """True if `agent_id` belongs to a CLI teammate (e.g., 'worktree-story-001')."""
     return agent_id.startswith(_TEAMMATE_PREFIX)
 
 

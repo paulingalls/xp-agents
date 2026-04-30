@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+import branch_queries
 import branching
 
 
@@ -28,7 +29,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
     name = branching.branch_name(user_ns, args.story, args.slug)
     existed = branching.branch_exists(args.cwd, name)
     result = branching.create_story_branch(
-        args.cwd, args.story, args.slug, Path(args.smm_dir)
+        args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
     )
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
@@ -101,6 +102,12 @@ def _cmd_list_free(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_list_story_orphans(args: argparse.Namespace) -> int:
+    for b in branch_queries.list_orphan_story_branches(args.cwd, Path(args.smm_dir)):
+        print(b)
+    return 0
+
+
 def _cmd_check_divergence(args: argparse.Namespace) -> int:
     result = branching.check_plan_divergence(
         args.cwd, Path(args.smm_dir), args.threshold
@@ -121,6 +128,7 @@ def main() -> int:
     p_create.add_argument("--cwd", required=True)
     p_create.add_argument("--story", required=True)
     p_create.add_argument("--slug", required=True)
+    p_create.add_argument("--base", default=None, help="Fork from this ref")
     p_create.set_defaults(func=_cmd_create)
 
     p_delete = sub.add_parser("delete", help="Delete a branch")
@@ -171,6 +179,12 @@ def main() -> int:
     p_list_free = sub.add_parser("list-free", help="List the user's free branches")
     p_list_free.add_argument("--cwd", required=True)
     p_list_free.set_defaults(func=_cmd_list_free)
+
+    p_list_orphans = sub.add_parser(
+        "list-story-orphans", help="List orphan story branches"
+    )
+    p_list_orphans.add_argument("--cwd", required=True)
+    p_list_orphans.set_defaults(func=_cmd_list_story_orphans)
 
     p_div = sub.add_parser("check-divergence", help="Check plan branch divergence")
     p_div.add_argument("--cwd", required=True)

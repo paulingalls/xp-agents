@@ -86,6 +86,39 @@ class TestPlanCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "plan_cli.py archive must appear AFTER merge-branch",
         )
 
+    def test_allowed_tools_includes_skill(self):
+        # Structural: the Skill tool must be in allowed-tools frontmatter
+        # so the LLM can actually invoke /xp-system-context in Step 8.
+        frontmatter = self.text.split("---", 2)[1]
+        self.assertIn("Skill", frontmatter)
+
+    def test_refreshes_system_context_after_merge(self):
+        # Step 8: plan-close must invoke /xp-system-context after the
+        # merge/archive chain so system_context.json reflects the new
+        # project state before the next planning cycle.
+        self.assertIn("xp-system-context", self.text)
+        self.assertIn("Skill", self.text)
+        merge_idx = self.text.index("merge-branch")
+        sc_idx = self.text.index("xp-system-context")
+        self.assertLess(
+            merge_idx,
+            sc_idx,
+            "/xp-system-context must appear AFTER merge-branch",
+        )
+
+    def test_system_context_failure_does_not_block(self):
+        # If the system-context refresh fails, plan-close must record a
+        # concern but continue — it must not block the close flow.
+        lower = self.text.lower()
+        self.assertIn("do not block", lower)
+        self.assertIn("concern", lower)
+        # The append.sh concern call must reference the failure.
+        self.assertRegex(
+            self.text,
+            r'--severity\s+"medium"',
+            "system-context failure concern must be medium severity",
+        )
+
 
 _SPRINT_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
 _CLOSE_REVIEWER_AGENT = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"

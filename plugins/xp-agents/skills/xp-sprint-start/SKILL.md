@@ -208,29 +208,6 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 **Stage 0-1:** Skip sprint branch creation.
 
-### Step 9: Create Story Branches
-
-If stage >= 1, get the base branch for story branches:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  get-base --cwd .
-```
-
-Checkout the base branch, then create each story branch:
-```bash
-git checkout <base-branch>
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
-  create --cwd . --story <story-id> --slug <title-slug>
-```
-
-After creating all branches, checkout the base branch:
-```bash
-git checkout <base-branch>
-```
-
-**Stage 0 or missing:** Skip branch creation entirely.
-**Resume:** If a branch already exists, the CLI checks out the existing branch instead of failing.
-
 ---
 
 ## Guidelines

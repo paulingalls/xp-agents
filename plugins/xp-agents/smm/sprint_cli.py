@@ -160,6 +160,15 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_update_story_branch(args: argparse.Namespace) -> int:
+    try:
+        store.set_story_branch(args.smm_dir, args.story_id, args.branch_name)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sprint CLI",
@@ -227,6 +236,10 @@ def main() -> None:
         help="New status",
     )
 
+    usb_p = sub.add_parser("update-story-branch", help="Set a story's branch name")
+    usb_p.add_argument("story_id", help="Story ID")
+    usb_p.add_argument("branch_name", help="Branch name to record")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -244,6 +257,7 @@ def main() -> None:
         "add-story": _cmd_add_story,
         "edit-story": _cmd_edit_story,
         "update-story": _cmd_update_story,
+        "update-story-branch": _cmd_update_story_branch,
     }
 
     sys.exit(dispatch[args.command](args))

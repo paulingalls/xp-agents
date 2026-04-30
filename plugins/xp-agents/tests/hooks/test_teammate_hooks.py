@@ -202,7 +202,7 @@ def _make_teammate_stop_input(**overrides) -> dict:
     """Build a canonical Stop hook input for a CLI teammate."""
     data = {
         "session_id": "t",
-        "cwd": "/proj/.claude/worktrees/teammate-1/src",
+        "cwd": "/proj/.claude/worktrees/worktree-story-1/src",
     }
     data.update(overrides)
     return data
@@ -215,9 +215,9 @@ class TestTeammateStopGate(_HookTestCase):
         """Set review cycle marker flags for teammate-1."""
         import markers
 
-        data = markers.read_review_cycle(self.smm_dir, "teammate-1")
+        data = markers.read_review_cycle(self.smm_dir, "worktree-story-1")
         data.update(flags)
-        markers.write_review_cycle(self.smm_dir, "teammate-1", data)
+        markers.write_review_cycle(self.smm_dir, "worktree-story-1", data)
 
     def test_non_teammate_skips(self):
         """Non-teammate agent_type exits cleanly."""
@@ -307,7 +307,7 @@ class TestTeammateStopGate(_HookTestCase):
 
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/teammate-abc12345",
+            "cwd": "/proj/.claude/worktrees/worktree-story-abc12345",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
@@ -318,10 +318,12 @@ class TestTeammateStopGate(_HookTestCase):
         import markers
         import teammate_stop_gate
 
-        markers.set_review_flag(self.smm_dir, "teammate-abc12345", "simplify_done")
+        markers.set_review_flag(
+            self.smm_dir, "worktree-story-abc12345", "simplify_done"
+        )
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/teammate-abc12345",
+            "cwd": "/proj/.claude/worktrees/worktree-story-abc12345",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
@@ -333,7 +335,7 @@ class TestTeammateStopGate(_HookTestCase):
 
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/teammate-ffffffff",
+            "cwd": "/proj/.claude/worktrees/worktree-story-ffffffff",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
@@ -345,7 +347,7 @@ class TestTeammateStopGate(_HookTestCase):
 
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/teammate-story-001",
+            "cwd": "/proj/.claude/worktrees/worktree-story-001",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
@@ -356,10 +358,10 @@ class TestTeammateStopGate(_HookTestCase):
         import markers
         import teammate_stop_gate
 
-        markers.set_review_flag(self.smm_dir, "teammate-story-001", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "worktree-story-001", "simplify_done")
         inp = {
             "session_id": "t",
-            "cwd": "/proj/.claude/worktrees/teammate-story-001",
+            "cwd": "/proj/.claude/worktrees/worktree-story-001",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)

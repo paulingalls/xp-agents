@@ -19,7 +19,7 @@ from conftest import _HookTestCase, write_smm_fixture
 class TestTeammateGuideSessionStart(_HookTestCase):
     """CLI teammates get TEAMMATE_GUIDE.md via SessionStart."""
 
-    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/teammate-story-001/src"
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
 
     def setUp(self):
         super().setUp()

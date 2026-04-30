@@ -67,6 +67,16 @@ if [ -n "$ORPHAN_FREE" ]; then
     echo ""
 fi
 
+# 7. Orphan story branches — story branches not backed by active sprint stories.
+ORPHAN_STORY=$(branching_list_story_orphans)
+if [ -n "$ORPHAN_STORY" ]; then
+    echo "### ORPHAN_STORY_BRANCHES"
+    echo "Orphan story branches detected. Per branch, ask merge/keep/delete."
+    echo ""
+    echo "$ORPHAN_STORY"
+    echo ""
+fi
+
 # .needs-kickoff is cleared by kickoff_gate.py (UserPromptSubmit hook)
 # which runs before this preload. The .needs-housekeeping marker is
 # written later by the xp-work-selection preload (step 5) so the stop

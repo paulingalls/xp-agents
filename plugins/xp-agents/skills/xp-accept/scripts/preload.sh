@@ -43,7 +43,7 @@ python3 "${SKILL_DIR}/scripts/acceptance_types.py" --sprint-file "${SPRINT_FILE}
 echo ""
 
 # Detect teammate worktrees
-teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/teammate-" | sed 's|.*/||' || true)
+teammate_wts=$(git worktree list --porcelain 2>/dev/null | grep "^worktree.*/worktree-story-" | sed 's|.*/||' || true)
 if [ -n "$teammate_wts" ]; then
     echo ""
     echo "### TEAMMATE_WORKTREES"

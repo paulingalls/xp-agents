@@ -71,7 +71,7 @@ def get_branching_stage(smm_dir: Path) -> int:
     return _load_branching_strategy(smm_dir).get("stage", 0)
 
 
-def _match_local_branches(cwd: str, pattern: str) -> list[str]:
+def match_local_branches(cwd: str, pattern: str) -> list[str]:
     """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
     r = _git(
         ["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{pattern}"],
@@ -100,7 +100,7 @@ def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:
         return None
     if branch_exists(cwd, plan_branch):
         return plan_branch
-    matches = sorted(_match_local_branches(cwd, f"{plan_branch}-*"))
+    matches = sorted(match_local_branches(cwd, f"{plan_branch}-*"))
     if not matches:
         return None
     drifted = matches[0]
@@ -140,36 +140,6 @@ _PROTECTED_BRANCHES = {"main", "master"}
 
 def is_protected_branch(stage: int, branch: str) -> bool:
     return stage >= 1 and branch in _PROTECTED_BRANCHES
-
-
-_HEREDOC_MSG_RE = re.compile(
-    r"-m\s+\"\$\(cat\s+<<'?\w+'?\n(.*?)\n\w+\n\)\"",
-    re.DOTALL,
-)
-_SIMPLE_MSG_RE = re.compile(
-    r"""-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')""",
-)
-
-
-def extract_commit_message(command: str) -> str | None:
-    """Extract the -m argument value from a git commit command."""
-    heredoc = _HEREDOC_MSG_RE.search(command)
-    if heredoc:
-        return heredoc.group(1)
-    m = _SIMPLE_MSG_RE.search(command)
-    if m:
-        return m.group(1) if m.group(1) is not None else m.group(2)
-    return None
-
-
-_ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore)\]", re.IGNORECASE)
-
-
-def is_escape_hatch_commit(command: str) -> bool:
-    msg = extract_commit_message(command)
-    if msg is None:
-        return False
-    return bool(_ESCAPE_HATCH_RE.match(msg))
 
 
 def is_worktree_clean(cwd: str) -> bool:
@@ -308,20 +278,30 @@ BRANCH_MIN_STAGE: dict[str, int] = {
 
 
 def create_story_branch(
-    cwd: str, story_id: str, slug: str, smm_dir: Path
+    cwd: str, story_id: str, slug: str, smm_dir: Path, *, base: str | None = None
 ) -> str | None:
     """Returns branch name or None if below story min stage.
 
-    Passes the resolved story base (sprint branch at stage 2+, otherwise
-    primary) so resume can fast-forward a stale scaffold to the current
-    base when safe — see _fast_forward_if_safe.
+    When base is provided, the story branch forks from that ref (for
+    chaining dependent stories). When omitted, uses the resolved story
+    base (sprint branch at stage 2+, otherwise primary).
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
-    base = get_story_base_branch(smm_dir, cwd)
-    return _create_or_resume_branch(
+    if base is None:
+        base = get_story_base_branch(smm_dir, cwd)
+    result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["story"], base=base
     )
+    if result is not None and sprint_store.sprint_exists(smm_dir):
+        try:
+            sprint_store.set_story_branch(smm_dir, story_id, result)
+        except ValueError:
+            sys.stderr.write(
+                f"WARN: story {story_id} not in sprint; "
+                f"branch {result} created but not recorded\n"
+            )
+    return result
 
 
 def create_sprint_branch(
@@ -398,11 +378,17 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     )
 
 
-def list_free_branches(cwd: str) -> list[str]:
-    """Return free branches owned by the current user, excluding HEAD."""
+def list_user_branches(cwd: str, prefix: str) -> list[str]:
+    """Return branches matching <user-ns>/<prefix>-*, excluding HEAD."""
     user_ns = identity.user_namespace(cwd)
     current = identity.get_current_branch(cwd)
-    return [b for b in _match_local_branches(cwd, f"{user_ns}/free-*") if b != current]
+    pattern = f"{user_ns}/{prefix}-*"
+    return [b for b in match_local_branches(cwd, pattern) if b != current]
+
+
+def list_free_branches(cwd: str) -> list[str]:
+    """Return free branches owned by the current user, excluding HEAD."""
+    return list_user_branches(cwd, "free")
 
 
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
