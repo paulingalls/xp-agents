@@ -56,4 +56,10 @@ V3_0_PATTERNS: list[Pattern] = [
         regex=re.compile(r"\b(?:eval|exec)\s*\("),
         skip_tests=True,
     ),
+    # --- URL credentials ---
+    Pattern(
+        name="url-credentials",
+        regex=re.compile(r"https?://[^\s/:@]+:[^\s/:@]+@"),
+        skip_tests=True,
+    ),
 ]

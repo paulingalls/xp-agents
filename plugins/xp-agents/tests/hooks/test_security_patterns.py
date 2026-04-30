@@ -154,5 +154,70 @@ class TestShellInjectionPatterns(unittest.TestCase):
         self.assertNotIn("eval-exec", _names(findings))
 
 
+class TestUrlCredentialPatterns(unittest.TestCase):
+    """Per-pattern coverage for the url-credentials pattern."""
+
+    def test_https_user_pass_url_positive(self):
+        findings = _scan(['url = "https://alice:s3cret@api.example.com/v1"'])
+        self.assertIn("url-credentials", _names(findings))
+
+    def test_http_user_pass_url_positive(self):
+        findings = _scan(['url = "http://bob:hunter2@internal.example.com"'])
+        self.assertIn("url-credentials", _names(findings))
+
+    def test_url_without_credentials_no_match(self):
+        findings = _scan(['url = "https://api.example.com/v1/users"'])
+        self.assertNotIn("url-credentials", _names(findings))
+
+
+class TestV30PatternsE2E(unittest.TestCase):
+    """Story-002 acceptance criterion #5 — fixture with one positive case
+    per pattern class plus matching false-positives → exactly the positive
+    cases are flagged."""
+
+    def test_combined_diff_flags_exactly_positives(self):
+        # 4 positive cases (one per pattern class + a 4th secret variety) and
+        # 4 false-positives that resemble each shape but shouldn't fire.
+        diff_lines = [
+            # POSITIVES
+            'aws_key = "AKIA1234567890ABCDEF"',
+            'gh_token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB"',
+            'subprocess.run(f"ls {dir}", shell=True)',
+            'db_url = "https://admin:s3cret@db.example.com/myapp"',
+            # FALSE-POSITIVES
+            'aws_label = "AKIASmith"',  # too short for AWS key shape
+            'name = "ghp_short"',  # too short for github token shape
+            'subprocess.run(["ls", path])',  # no shell=True
+            'public_url = "https://api.example.com/v1"',  # no credentials
+        ]
+        findings = _scan(diff_lines)
+        flagged_lines = {f.line_content for f in findings}
+        # Exactly the 4 positives are reported, no false-positives slip through.
+        self.assertEqual(len(findings), 4)
+        self.assertIn('aws_key = "AKIA1234567890ABCDEF"', flagged_lines)
+        self.assertIn(
+            'gh_token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB"',
+            flagged_lines,
+        )
+        self.assertIn('subprocess.run(f"ls {dir}", shell=True)', flagged_lines)
+        self.assertIn(
+            'db_url = "https://admin:s3cret@db.example.com/myapp"',
+            flagged_lines,
+        )
+        # None of the false-positive lines flagged
+        for fp in [
+            'aws_label = "AKIASmith"',
+            'name = "ghp_short"',
+            'subprocess.run(["ls", path])',
+            'public_url = "https://api.example.com/v1"',
+        ]:
+            self.assertNotIn(fp, flagged_lines)
+
+    def test_v30_patterns_count(self):
+        """Pin the expected v3.0 pattern count — adding/removing a pattern
+        is a deliberate decision that should fail this test until updated."""
+        self.assertEqual(len(V3_0_PATTERNS), 8)
+
+
 if __name__ == "__main__":
     unittest.main()
