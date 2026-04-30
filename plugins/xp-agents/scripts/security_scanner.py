@@ -8,7 +8,13 @@ and the pattern list; the scanner returns findings.
 """
 
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from pre_tool_write import is_test_file
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,15 +58,18 @@ def scan_diff(diff_text: str, patterns: list[Pattern]) -> list[Finding]:
     """
     findings: list[Finding] = []
     current_file = ""
+    in_test = False
     new_line = 0
     for raw in diff_text.splitlines():
         if raw.startswith("+++ b/"):
             current_file = raw[len("+++ b/") :].rstrip()
+            in_test = is_test_file(current_file)
             continue
         if raw.startswith("+++"):
             # `+++ /dev/null` (deletion) — clear context so any stray '+' lines
             # before the next file header aren't misattributed to the prior file.
             current_file = ""
+            in_test = False
             continue
         if raw.startswith("---") or not current_file:
             continue
@@ -72,9 +81,6 @@ def scan_diff(diff_text: str, patterns: list[Pattern]) -> list[Finding]:
         if raw.startswith("+"):
             line_body = raw[1:]
             if not _NOQA_RE.search(line_body):
-                from pre_tool_write import is_test_file
-
-                in_test = is_test_file(current_file)
                 for pat in patterns:
                     if pat.skip_tests and in_test:
                         continue

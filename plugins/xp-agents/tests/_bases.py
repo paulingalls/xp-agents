@@ -80,8 +80,17 @@ class _SMMTestCase(unittest.TestCase):
 class _HookTestCase(_SMMTestCase):
     """Hook-test base. Adds a default-clean-diff mock for the Tier 1 commit
     gate so tests that drive `pre_tool_bash.run()` from a non-git cwd
-    don't trip its fail-closed branch. Tests that need a specific diff
-    (TestTier1SecurityScan, TestGetStagedDiff) override the patch.
+    don't trip its fail-closed branch.
+
+    IMPORTANT: this auto-mocks `commits.get_staged_diff` to "" for
+    EVERY hook test. If you are writing a test that needs Tier 1 to
+    actually fire (against a planted secret) or to actually fail
+    (git failure path), you MUST override the patch — either with a
+    per-method `@patch("commits.get_staged_diff", return_value=...)`
+    decorator (see TestTier1SecurityScan), or by stopping
+    `self._staged_diff_patch` and starting your own. Without an
+    override, your test silently bypasses Tier 1 and may pass for
+    the wrong reason.
     """
 
     def setUp(self):

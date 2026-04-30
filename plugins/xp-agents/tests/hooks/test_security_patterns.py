@@ -90,6 +90,15 @@ class TestSecretPatterns(unittest.TestCase):
         findings = _scan(['password = "abc"'])
         self.assertNotIn("password-literal", _names(findings))
 
+    def test_password_placeholder_known_false_positive(self):
+        # KNOWN LIMITATION: the regex matches any 8+ char string after
+        # `password =`, so docs/examples with placeholders also fire.
+        # Suppress with `# noqa: secret` on intentional placeholder
+        # lines, or evolve the catalog to exclude well-known forms
+        # (e.g. negative lookahead for `your_*`, `<your-...>`, `xxx*`).
+        findings = _scan(['password = "your_password_here"'])
+        self.assertIn("password-literal", _names(findings))
+
 
 class TestShellInjectionPatterns(unittest.TestCase):
     """Per-pattern coverage for the 3 shell-injection patterns."""
@@ -168,6 +177,14 @@ class TestUrlCredentialPatterns(unittest.TestCase):
     def test_url_without_credentials_no_match(self):
         findings = _scan(['url = "https://api.example.com/v1/users"'])
         self.assertNotIn("url-credentials", _names(findings))
+
+    def test_url_credentials_docs_example_known_false_positive(self):
+        # KNOWN LIMITATION: the regex matches any user:pass@host shape,
+        # including doc examples like `https://user:pass@example.com`.
+        # Suppress with `# noqa: secret` on intentional doc lines, or
+        # evolve the catalog to exclude well-known placeholder forms.
+        findings = _scan(["# Example: https://user:pass@example.com"])
+        self.assertIn("url-credentials", _names(findings))
 
 
 class TestV30PatternsE2E(unittest.TestCase):

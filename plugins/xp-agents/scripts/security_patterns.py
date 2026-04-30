@@ -41,6 +41,14 @@ V3_0_PATTERNS: list[Pattern] = [
     # qualifier so canonical Python ordering (cmd first, kwargs last) fires.
     # Production has zero shell=True today; safe literal-string uses suppress
     # with `# noqa: secret`.
+    #
+    # KNOWN LIMITATION: the [^)]* quantifier stops at the first `)`, so a
+    # nested call like `subprocess.run(get_cmd(), shell=True)` or a `)`
+    # inside a string literal closes the regex window before reaching
+    # shell=True and silently bypasses the scan. Pinned by
+    # test_subprocess_literal_close_paren_blind_spot in test_security_patterns.py
+    # — any tightening must weigh the catastrophic-backtracking risk of
+    # an unbounded balanced-paren alternative.
     Pattern(
         name="subprocess-shell-true",
         regex=re.compile(r"subprocess\.\w+\([^)]*shell\s*=\s*True\b"),
