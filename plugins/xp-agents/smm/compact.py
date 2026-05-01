@@ -63,6 +63,31 @@ _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
 _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can compact
 
 
+def _compute_pending_retro_sprint_ids(events: list[dict]) -> set[str]:
+    """Sprint IDs started but with no sprint_retro_done event yet.
+
+    Includes both active sprints (no sprint_end) and ended-but-not-retro'd
+    sprints. Their commit events must stay in events.jsonl so the eventual
+    /xp-sprint-review can compute per-story metrics.
+    """
+    started: set[str] = set()
+    retro_done: set[str] = set()
+    for e in events:
+        meta = e.get("metadata") or {}
+        sid = meta.get("sprint_id")
+        if not sid:
+            continue
+        etype = e.get("type")
+        if etype == EVENT_TYPE_SPRINT and meta.get("action") == SPRINT_ACTION_START:
+            started.add(sid)
+        elif (
+            etype == EVENT_TYPE_STATUS
+            and meta.get("action") == STATUS_ACTION_SPRINT_RETRO_DONE
+        ):
+            retro_done.add(sid)
+    return started - retro_done
+
+
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
@@ -78,15 +103,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
         e.get("ts", "") for e in events if e.get("type") == EVENT_TYPE_SESSION_END
     ]
 
-    # Build set of ended sprint IDs for active sprint detection
-    ended_sprint_ids: set[str] = set()
-    for event in events:
-        if event.get("type") == EVENT_TYPE_SPRINT:
-            meta = event.get("metadata", {})
-            if meta.get("action") == SPRINT_ACTION_END:
-                sid = meta.get("sprint_id", "")
-                if sid:
-                    ended_sprint_ids.add(sid)
+    pending_retro_sprint_ids = _compute_pending_retro_sprint_ids(events)
 
     for event in events:
         eid = event.get("id", "")
@@ -138,15 +155,24 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 meta = event.get("metadata", {})
                 action = meta.get("action", "")
                 sprint_id = meta.get("sprint_id", "")
-                # Active sprint starts retained; ended ones archivable.
-                # Sprint ends handled by index-based retention below.
-                if action == SPRINT_ACTION_START and sprint_id not in ended_sprint_ids:
+                # Sprint starts retained until retro_done fires — keeps
+                # _compute_pending_retro_sprint_ids able to identify the
+                # sprint across multiple compaction rounds. Sprint ends
+                # handled by index-based retention below.
+                if (
+                    action == SPRINT_ACTION_START
+                    and sprint_id in pending_retro_sprint_ids
+                ):
                     referenced.add(eid)
             case "retrospective":
                 # Keep last 2 for trend detection. _find_unanalyzed_start
                 # needs the most recent as a watermark. Full archive in
                 # retrospectives/ dir. Handled below with keep_retro_indices.
                 pass
+            case "commit":
+                sid = (event.get("metadata") or {}).get("sprint_id")
+                if sid and sid in pending_retro_sprint_ids:
+                    referenced.add(eid)
 
     return referenced
 
