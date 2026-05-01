@@ -47,7 +47,7 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
    that worktree's `abs-path`; otherwise run from the main repo.
    Universal pattern — works regardless of test runner (pytest,
    jest, go test, cargo test).
-4. **Exit code 0 = pass.** Report success, proceed to mark done.
+4. **Exit code 0 = pass. Auto-proceed to Step 2 (update sprint.json) without calling `AskUserQuestion`.** The green exit code IS the confirmation. Do **not** insert an extra "mark story-NNN done?" prompt for automated acceptance — `/xp-story-close` owns merge confirmation (per Step 2b), so the user still gets a gate before the merge lands. This rule applies only to the automated-acceptance branch; manual acceptance below still prompts for `done | deferred` because there's no objective signal.
 5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
    - **Debug and re-run** — investigate the failure, fix the cause, then re-run the command
    - **Override with concern** — mark as passing despite failure. Requires a reason string. Records a `concern` event:
