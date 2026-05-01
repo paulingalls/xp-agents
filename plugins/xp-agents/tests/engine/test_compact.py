@@ -14,9 +14,27 @@ from typing import ClassVar, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+# `as es` alias is load-bearing: TestEventTypeMatchCompleteness reads
+# `es.VALID_TYPES` and uses dynamic `getattr(es, name)` to introspect
+# `EVENT_TYPE_*` constants by string name extracted from match-case AST.
+# Don't drop it just because the EVENT_TYPE_* names are also imported below.
 import event_schema as es
 import materialize
 from conftest import _SMMTestCase, make_event
+
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_ANSWER,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
 
 
 class _MatchBlockSpec(NamedTuple):
@@ -39,7 +57,7 @@ class TestCompact(_SMMTestCase):
         ts_base = f"2026-03-{session_num:02d}T00:00:00+00:00"
         events = [
             make_event(
-                "customer_input",
+                EVENT_TYPE_CUSTOMER_INPUT,
                 content=f"session {session_num} event {i}",
                 ts=ts_base,
             )
@@ -47,7 +65,7 @@ class TestCompact(_SMMTestCase):
         ]
         events.append(
             make_event(
-                "session_end",
+                EVENT_TYPE_SESSION_END,
                 content=f"end session {session_num}",
                 ts=ts_base,
                 working_on=[],
@@ -66,12 +84,21 @@ class TestCompact(_SMMTestCase):
         """compact() uses curation-watermark-based retention via delegation."""
         import compact
 
-        goal = make_event("goal", content="keep me", ts="2026-01-01T00:00:00+00:00")
-        filler = make_event("status", content="discard", ts="2026-01-01T00:00:00+00:00")
-        session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+        goal = make_event(
+            EVENT_TYPE_GOAL, content="keep me", ts="2026-01-01T00:00:00+00:00"
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        filler = make_event(
+            EVENT_TYPE_STATUS, content="discard", ts="2026-01-01T00:00:00+00:00"
+        )
+        session_end = make_event(
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([goal, filler, session_end, new_event])
         materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
 
@@ -92,14 +119,19 @@ class TestCompact(_SMMTestCase):
         import compact
 
         q = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             content="Unanswered?",
             priority="\U0001f534",
             ts="2026-01-01T00:00:00+00:00",
         )
-        filler = make_event("status", content="filler", ts="2026-01-01T00:00:00+00:00")
+        filler = make_event(
+            EVENT_TYPE_STATUS, content="filler", ts="2026-01-01T00:00:00+00:00"
+        )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
         )
         self._write_events([q, filler, session_end])
         materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
@@ -114,19 +146,22 @@ class TestCompact(_SMMTestCase):
         import compact
 
         q = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             content="Answered",
             priority="\U0001f534",
             ts="2026-01-01T00:00:00+00:00",
         )
         a = make_event(
-            "answer",
+            EVENT_TYPE_ANSWER,
             content="Yes",
             references=[q["id"]],
             ts="2026-01-01T00:00:01+00:00",
         )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
         )
         self._write_events([q, a, session_end])
         materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
@@ -141,10 +176,15 @@ class TestCompact(_SMMTestCase):
         import compact
 
         c = make_event(
-            "concern", content="Unresolved concern", ts="2026-01-01T00:00:00+00:00"
+            EVENT_TYPE_CONCERN,
+            content="Unresolved concern",
+            ts="2026-01-01T00:00:00+00:00",
         )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
         )
         self._write_events([c, session_end])
         materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeper")
@@ -159,7 +199,9 @@ class TestCompact(_SMMTestCase):
         import compact
 
         old = self._make_session(session_num=1)
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([*old, new_event])
         materialize.write_curation_watermark(self.smm_dir, len(old), "xp-housekeeper")
 
@@ -216,7 +258,9 @@ class TestCompact(_SMMTestCase):
         import compact
 
         old = self._make_session(session_num=1)
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([*old, new_event])
         materialize.write_curation_watermark(self.smm_dir, len(old), "xp-housekeeper")
 
@@ -234,12 +278,20 @@ class TestCompact(_SMMTestCase):
         import compact
 
         decision = make_event(
-            "decision", content="first", topic="t", ts="2026-01-01T00:00:00+00:00"
+            EVENT_TYPE_DECISION,
+            content="first",
+            topic="t",
+            ts="2026-01-01T00:00:00+00:00",
         )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([decision, session_end, new_event])
         materialize.write_curation_watermark(self.smm_dir, 2, "xp-housekeeper")
 

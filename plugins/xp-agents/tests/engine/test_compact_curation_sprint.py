@@ -13,6 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import materialize
 from conftest import _SMMTestCase, commit_event, make_event
+from event_schema import (
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestCompactCurationTeamAndSprint(_SMMTestCase):
@@ -22,7 +28,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         ts_base = f"2026-03-{session_num:02d}T00:00:00+00:00"
         events = [
             make_event(
-                "customer_input",
+                EVENT_TYPE_CUSTOMER_INPUT,
                 content=f"session {session_num} event {i}",
                 ts=ts_base,
             )
@@ -30,7 +36,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         ]
         events.append(
             make_event(
-                "session_end",
+                EVENT_TYPE_SESSION_END,
                 content=f"end session {session_num}",
                 ts=ts_base,
                 working_on=[],
@@ -50,7 +56,9 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         all_events = []
         for i in range(1, 4):
             all_events.extend(self._make_session(session_num=i))
-        filler = make_event("status", content="filler", ts="2026-04-01T00:00:00+00:00")
+        filler = make_event(
+            EVENT_TYPE_STATUS, content="filler", ts="2026-04-01T00:00:00+00:00"
+        )
         all_events.append(filler)
         self._write_events(all_events)
 
@@ -66,22 +74,25 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_start = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Build user API",
             ts="2026-01-01T00:00:00+00:00",
             metadata={
                 "sprint_id": "sprint-001",
                 "action": "start",
+                # intentional literal: sprint metadata key, not an event type
                 "goal": "Build user API",
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-02T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_start, session_end, new_event])
         self._set_curation_watermark(2)
 
@@ -100,13 +111,13 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_start = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Build user API",
             ts="2026-01-01T00:00:00+00:00",
             metadata={"sprint_id": "sprint-001", "action": "start"},
         )
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -118,19 +129,21 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         retro_done = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Sprint retrospective complete.",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
             metadata={"sprint_id": "sprint-001", "action": "sprint_retro_done"},
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-07T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events(
             [sprint_start, sprint_end, retro_done, session_end, new_event]
         )
@@ -146,7 +159,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -158,12 +171,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_end, session_end, new_event])
         self._set_curation_watermark(2)
 
@@ -177,7 +192,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_end_1 = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint 1 complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -189,7 +204,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         sprint_end_2 = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint 2 complete",
             ts="2026-01-15T00:00:00+00:00",
             metadata={
@@ -201,12 +216,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-16T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_end_1, sprint_end_2, session_end, new_event])
         self._set_curation_watermark(3)
 
@@ -221,7 +238,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -233,7 +250,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         sprint_retro_done = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Sprint retrospective complete.",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
@@ -243,12 +260,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-07T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_end, sprint_retro_done, session_end, new_event])
         self._set_curation_watermark(3)
 
@@ -263,7 +282,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_end_old = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint 1 complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -275,7 +294,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         retro_done_old = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Sprint retrospective complete.",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
@@ -285,7 +304,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         sprint_end_new = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint 2 complete",
             ts="2026-01-15T00:00:00+00:00",
             metadata={
@@ -297,12 +316,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-16T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events(
             [
                 sprint_end_old,
@@ -327,7 +348,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import retrospective
 
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -339,7 +360,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         retro_done = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Sprint retrospective complete.",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
@@ -349,12 +370,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-07T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_end, retro_done, session_end, new_event])
         self._set_curation_watermark(3)
 
@@ -395,12 +418,13 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_start = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Build user API",
             ts="2026-01-01T00:00:00+00:00",
             metadata={
                 "sprint_id": "sprint-001",
                 "action": "start",
+                # intentional literal: sprint metadata key, not an event type
                 "goal": "Build user API",
             },
         )
@@ -411,12 +435,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             sprint_id="sprint-001",
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-03T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_start, commit, session_end, new_event])
         self._set_curation_watermark(3)
 
@@ -430,7 +456,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_start = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Build user API",
             ts="2026-01-01T00:00:00+00:00",
             metadata={"sprint_id": "sprint-001", "action": "start"},
@@ -442,7 +468,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             sprint_id="sprint-001",
         )
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -454,12 +480,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([sprint_start, commit, sprint_end, session_end, new_event])
         self._set_curation_watermark(4)
 
@@ -473,7 +501,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_start = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Build user API",
             ts="2026-01-01T00:00:00+00:00",
             metadata={"sprint_id": "sprint-001", "action": "start"},
@@ -485,7 +513,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             sprint_id="sprint-001",
         )
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint complete",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -497,7 +525,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         retro_done = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Sprint retrospective complete.",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
@@ -507,12 +535,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-07T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events(
             [sprint_start, commit, sprint_end, retro_done, session_end, new_event]
         )
@@ -532,12 +562,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             ts="2026-01-02T00:00:00+00:00",
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-03T00:00:00+00:00",
             working_on=[],
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([commit, session_end, new_event])
         self._set_curation_watermark(2)
 
@@ -557,7 +589,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
         import compact
 
         sprint_start = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="start",
             ts="2026-01-01T00:00:00+00:00",
             metadata={"sprint_id": "sprint-001", "action": "start"},
@@ -569,7 +601,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             sprint_id="sprint-001",
         )
         se1 = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end1",
             ts="2026-01-03T00:00:00+00:00",
             working_on=[],
@@ -584,7 +616,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
 
         # Round 2: sprint ends but no retro yet — commit must still be retained
         sprint_end = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="end",
             ts="2026-01-05T00:00:00+00:00",
             metadata={
@@ -596,7 +628,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
             },
         )
         se2 = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end2",
             ts="2026-01-06T00:00:00+00:00",
             working_on=[],
@@ -609,7 +641,7 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
 
         # Round 3: another session passes, still no retro — commit still retained
         se3 = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end3",
             ts="2026-01-08T00:00:00+00:00",
             working_on=[],
@@ -622,14 +654,14 @@ class TestCompactCurationTeamAndSprint(_SMMTestCase):
 
         # Round 4: retro fires — commit may now be archived
         retro_done = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="retro complete",
             ts="2026-01-09T00:00:00+00:00",
             working_on=[],
             metadata={"sprint_id": "sprint-001", "action": "sprint_retro_done"},
         )
         se4 = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end4",
             ts="2026-01-10T00:00:00+00:00",
             working_on=[],
