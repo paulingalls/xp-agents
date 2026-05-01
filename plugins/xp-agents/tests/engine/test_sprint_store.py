@@ -290,5 +290,104 @@ class TestRenderStorySections(unittest.TestCase):
         self.assertEqual(md, "")
 
 
+class TestTransitiveInProgressDependents(_SMMTestCase):
+    """Return sorted in-progress stories transitively blocked by a given story."""
+
+    def _write(self, *stories: dict) -> None:
+        sprint = _make_sprint(stories=list(stories))
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_no_sprint_returns_empty(self):
+        import sprint_store
+
+        result = sprint_store.transitive_in_progress_dependents(
+            self.smm_dir, "story-001"
+        )
+        self.assertEqual(result, [])
+
+    def test_no_dependents_returns_empty(self):
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(id="story-002", status="in-progress"),
+        )
+        result = sprint_store.transitive_in_progress_dependents(
+            self.smm_dir, "story-001"
+        )
+        self.assertEqual(result, [])
+
+    def test_direct_in_progress_dependent_returned(self):
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                dependencies=["story-001"],
+            ),
+        )
+        self.assertEqual(
+            sprint_store.transitive_in_progress_dependents(self.smm_dir, "story-001"),
+            ["story-002"],
+        )
+
+    def test_transitive_in_progress_dependents_returned_sorted(self):
+        import sprint_store
+
+        # story-001 → story-002 → story-003; all in-progress.
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                dependencies=["story-001"],
+            ),
+            _make_story(
+                id="story-003",
+                status="in-progress",
+                dependencies=["story-002"],
+            ),
+        )
+        self.assertEqual(
+            sprint_store.transitive_in_progress_dependents(self.smm_dir, "story-001"),
+            ["story-002", "story-003"],
+        )
+
+    def test_done_dependent_excluded(self):
+        # A done dependent has already shipped — no need to defer it. The
+        # transitive walk must filter by status, not by dependency edge alone.
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(id="story-002", status="done", dependencies=["story-001"]),
+        )
+        self.assertEqual(
+            sprint_store.transitive_in_progress_dependents(self.smm_dir, "story-001"),
+            [],
+        )
+
+    def test_dependency_cycle_terminates(self):
+        # Sprint schema doesn't enforce DAG; a cycle (story depending on
+        # itself, or A↔B) must not infinite-loop the walker. Real cycles
+        # come from copy-paste typos in sprint.json.
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                dependencies=["story-001", "story-002"],
+            ),
+        )
+        result = sprint_store.transitive_in_progress_dependents(
+            self.smm_dir, "story-001"
+        )
+        self.assertEqual(result, ["story-002"])
+
+
 if __name__ == "__main__":
     unittest.main()
