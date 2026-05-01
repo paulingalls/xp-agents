@@ -83,30 +83,6 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-_GIT_PUSH_RE = re.compile(r"\bgit\s+push\b")
-
-
-def _is_git_push(command: str) -> bool:
-    """Detect git push commands."""
-    return bool(_GIT_PUSH_RE.search(command))
-
-
-def _session_end_checklist(smm_dir: Path) -> str | None:
-    """Return session-end checklist nudge if issues found."""
-    events = _common.read_events_raw(smm_dir)
-    if not events:
-        return None
-
-    parts: list[str] = []
-    unresolved = _common.count_unresolved_concerns(events)
-    if unresolved:
-        parts.append(
-            f"{unresolved} unresolved concern(s) — review before ending session."
-        )
-    parts.append("Summarize what was accomplished this session for the user.")
-    return "Session-end checklist: " + " ".join(parts)
-
-
 def _resolve_story_id(
     smm_dir: Path,
     cwd: str,
@@ -348,10 +324,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if _common.is_xp_agent(input_data):
         return None
-
-    # Git push detection — nudge session-end checklist
-    if _is_git_push(command):
-        return _session_end_checklist(smm_dir)
 
     # Test run detection
     framework = is_test_run(command)

@@ -402,11 +402,16 @@ class TestBashPostToolGreenNudge(_HookTestCase):
         self.assertIsNone(result)
 
 
-class TestBashPostToolPushWarning(_HookTestCase):
-    """Tests for git push session-end checklist nudge."""
+class TestBashPostToolPushNoLongerNudges(_HookTestCase):
+    """git push must NOT trigger the session-end checklist.
 
-    def test_push_with_unresolved_concerns_warns(self):
-        """git push with unresolved concerns returns session-end checklist."""
+    The Stop hook (session_end_warning.py) owns the legitimate single-
+    fire nudge at actual session end. Mid-session pushes were treating
+    every git push as a session-end signal — false positive that fired
+    multiple times per iteration. Dropped to fix concern 1d18655aa396.
+    """
+
+    def test_push_with_unresolved_concerns_does_not_warn(self):
         self._write_events(
             [make_event("concern", content="Open issue", severity="medium")]
         )
@@ -414,27 +419,12 @@ class TestBashPostToolPushWarning(_HookTestCase):
             _make_bash_input(command="git push origin main", stdout=""),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIn("concern", result.lower())
+        self.assertIsNone(result)
 
-    def test_push_always_nudges_summary(self):
-        """git push always nudges session summary for user."""
+    def test_push_does_not_nudge_summary(self):
         self._write_events([make_event("status", content="All done")])
         result = bash_post_tool.run(
             _make_bash_input(command="git push origin main", stdout=""),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("summarize", result.lower())
-
-    def test_push_xp_agent_skips(self):
-        """xp- agents skip push warning."""
-        result = bash_post_tool.run(
-            _make_bash_input(
-                command="git push origin main",
-                stdout="",
-                agent_type="xp-nav",
-            ),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
