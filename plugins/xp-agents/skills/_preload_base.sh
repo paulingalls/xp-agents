@@ -80,6 +80,16 @@ gh_available() {
     fi
 }
 
+# Echo "present" or "absent" — does the project run tests via a git
+# hook on commit or push? Used by the close-skill preloads to drive
+# the hook-absent fallback prose. Falls through to "absent" if the
+# helper is missing or python3 is unavailable.
+# Usage: pre_commit_hook_present
+pre_commit_hook_present() {
+    python3 "${PLUGIN_ROOT}/scripts/close_common.py" \
+        hook-present --cwd . 2>/dev/null || echo "absent"
+}
+
 # List all changed files (staged + unstaged + untracked), one per line.
 # Usage: get_changed_files
 get_changed_files() {
