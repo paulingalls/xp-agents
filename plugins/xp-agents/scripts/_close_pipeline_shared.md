@@ -34,6 +34,62 @@ When in doubt, leave the concern open — it surfaces at the next kickoff
 for manual triage. Report how many were auto-resolved alongside the
 reviewer findings before asking the user to confirm the merge.
 
+### Step 5c: Classify and act on reviewer findings
+
+For each NEW concern or block xp-close-reviewer just filed in Step 4
+(severity high "Block" or severity medium "Concern" — both apply),
+decide whether it's code-fixable. **Default to ASK if unsure** —
+better to surface a fixable item to the user than to mis-classify a
+non-code item as "fix" and silently get it wrong.
+
+**Code-fixable — fix it now, then mark resolved by including
+`Resolves-Event: <event-id>` in the fix commit body** (the auto-link
+hook closes the concern when the trailer matches):
+
+- `lint` (ruff/format errors) → `ruff format && ruff check --fix`, re-test
+- `test_failure` (pytest failures) → read pytest output, edit code at the
+  named file:line, re-run the failing test
+- `ac_coverage` (missing assertion / weak test / partial AC / brittle
+  test design / ambiguity) → add the assertion or doc named in the
+  concern
+- `file_domain_drift` (modified files outside declared `file_domain`) →
+  move file into declared dir OR amend `sprint.json` `file_domain`
+- `honesty_gap` (reviewer found a miss at file:line) → fix the named
+  code path
+- `file_split` (file >500 lines) → pick a cohesive extraction target
+  (group of related functions/classes), move group, update imports
+- `spec_drift` (plan vs SKILL.md vs sprint.json mismatch) → update the
+  doc that disagrees with the plan
+
+**Ask user — defer to Step 6's AskUserQuestion:**
+
+- `design_decision` (superseded decision, architectural call) → user
+  picks; record a decision event with the chosen option
+- `ac_amendment` (AC interpretation choice) → user re-reads the AC,
+  updates the AC reading inline in the plan/doc
+- `plan_discipline` (cadence, post-hoc unactionable, informational
+  heads-up) → acknowledge and move on; cannot be retroactively fixed
+
+When in doubt, ASK — the user can always redirect a fixable item, but
+a silent mis-fix is hard to recover.
+
+**Audit trail:** for each classified item, append a status event
+recording the decision. The spike-008 §10 prediction loop needs
+sampled classifications to measure rule precision over time, so this
+step is required for every classification (per decision 7a8d939b760b):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "main" \
+  --content "spike-008 classify <event-id>: <fix|ask> (<category>) — <one-line reason>" \
+  --working-on '[]'
+```
+
+Use the canonical "spike-008 classify" prefix so retro tooling can
+locate these events. After acting on the classification (fix-and-mark
+or queue-for-Step-6), continue to the next finding. When all findings
+are processed, proceed to Step 6.
+
 ### Step 6: Confirm the merge
 
 Use `AskUserQuestion` to ask whether to proceed with the merge. Two

@@ -100,6 +100,99 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "Step 6 body must instruct marking the Abort option '(Recommended)'",
         )
 
+    def test_emits_step5c_classify_and_act_marker(self):
+        # Commit 3: Step 5c — fix-or-ask classifier (spike-008 Path 2,
+        # LLM-side, no Python regex). Each NEW concern/block from the
+        # reviewer gets sorted into "fix it now" or "defer to user".
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "### Step 5c: Classify and act on reviewer findings",
+            result.stdout,
+            "preload must emit Step 5c (Classify and act) heading",
+        )
+
+    def test_emits_step5c_code_fixable_categories(self):
+        # The seven Class-A/B categories the LLM should fix inline
+        # (per spike-008 §3 vocabulary). Pin each so a future edit
+        # that drops one fails loudly instead of silently routing the
+        # dropped category to "ask user". subTest reports each missing
+        # category individually rather than masking after the first.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for category in (
+            "lint",
+            "test_failure",
+            "ac_coverage",
+            "file_domain_drift",
+            "honesty_gap",
+            "file_split",
+            "spec_drift",
+        ):
+            with self.subTest(category=category):
+                self.assertIn(
+                    f"`{category}`",
+                    result.stdout,
+                    f"Step 5c code-fixable bucket must list `{category}`",
+                )
+
+    def test_emits_step5c_ask_user_categories(self):
+        # The three Class-C categories that require user judgment
+        # (per spike-008 §3 vocabulary). subTest gives per-category
+        # failure visibility, same as the code-fixable test above.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for category in ("design_decision", "ac_amendment", "plan_discipline"):
+            with self.subTest(category=category):
+                self.assertIn(
+                    f"`{category}`",
+                    result.stdout,
+                    f"Step 5c ask-user bucket must list `{category}`",
+                )
+
+    def test_emits_step5c_default_to_ask(self):
+        # Safety: when the LLM can't classify, default to ASK rather
+        # than silently auto-fixing something it doesn't understand.
+        # Case-insensitive — markdown bolding may capitalize the leading
+        # word; what matters is that the policy is stated.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "default to ask",
+            result.stdout.lower(),
+            "Step 5c must instruct default-to-ASK on uncertain classification",
+        )
+
+    def test_emits_step5c_resolves_event_trailer_hook(self):
+        # Each LLM fix must commit with a Resolves-Event trailer so
+        # the auto-link hook closes the concern. Without this guidance
+        # the LLM might leave concerns open after fixing them.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "Resolves-Event:",
+            result.stdout,
+            "Step 5c must instruct adding Resolves-Event: trailer to fix commits",
+        )
+
+    def test_emits_step5c_audit_trail_append_template(self):
+        # Per decision 7a8d939b760b: each classification appends a
+        # status event so spike-008 §10 prediction loop has data to
+        # validate against. Pin the append.sh invocation template.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "spike-008 classify",
+            result.stdout,
+            "Step 5c audit trail must use the canonical 'spike-008 classify' "
+            "status content prefix so the §10 validation loop can find these",
+        )
+        self.assertIn(
+            "append.sh",
+            result.stdout,
+            "Step 5c audit trail must reference append.sh to record the event",
+        )
+
 
 class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
