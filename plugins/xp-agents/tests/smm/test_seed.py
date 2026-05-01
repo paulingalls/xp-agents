@@ -94,6 +94,34 @@ class TestDetection(unittest.TestCase):
         (self.tmpdir / ".husky" / "pre-commit").write_text("#!/bin/sh\nnpx lint-staged")
         self.assertTrue(seed_smm.has_git_hooks(self.tmpdir))
 
+    def test_has_core_hookspath_override_with_executable_hook(self):
+        """`core.hooksPath` pointing at executable hooks counts as configured.
+
+        Behavior expansion in the git_hooks consolidation: previously
+        has_git_hooks reported False here (only seed_smm.pre_commit_hook_present
+        honored core.hooksPath). This is the case lefthook hits — the surprise
+        that motivated debt e0743ac82ba9.
+        """
+        import subprocess
+
+        subprocess.run(
+            ["git", "init", "-b", "main", str(self.tmpdir)],
+            capture_output=True,
+            check=True,
+        )
+        custom = self.tmpdir / "custom-hooks"
+        custom.mkdir()
+        hook = custom / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 0\n")
+        hook.chmod(0o755)
+        subprocess.run(
+            ["git", "config", "core.hooksPath", str(custom)],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        self.assertTrue(seed_smm.has_git_hooks(self.tmpdir))
+
     def test_no_ci(self):
         self.assertFalse(seed_smm.has_ci(self.tmpdir))
 

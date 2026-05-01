@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import git_hooks
 from _probe import probe_config_file
 from smm_schema import SOURCE_SEED, empty_smm
 from smm_store import SMM_FILENAME, save_smm
@@ -177,13 +178,6 @@ _BUILTIN_FORMATTER_GLOBS = [
     "*.zig",  # zig fmt is built-in
 ]
 
-_HOOK_INDICATORS = [
-    "lefthook.yml",
-    ".lefthook.yml",
-    ".husky/pre-commit",
-    ".pre-commit-config.yaml",
-]
-
 _CI_INDICATORS = [
     ".github/workflows",
     ".gitlab-ci.yml",
@@ -264,22 +258,33 @@ def has_tests(root: Path) -> bool:
     return False
 
 
-def has_git_hooks(root: Path) -> bool:
-    """Check if git commit hooks are configured."""
-    for indicator in _HOOK_INDICATORS:
-        if (root / indicator).exists():
-            return True
-    # Check for non-sample pre-commit hook
+def _has_non_sample_pre_commit_content(root: Path) -> bool:
+    """A `.git/hooks/pre-commit` exists with real content (not the sample boilerplate).
+
+    Intent-aware fallback: catches scripts a developer wrote but forgot to
+    chmod +x. ``git_hooks.will_fire_hook`` is strict and would say False here.
+    """
     hook = root / ".git" / "hooks" / "pre-commit"
-    if hook.exists() and not hook.name.endswith(".sample"):
-        try:
-            content = hook.read_text(encoding="utf-8")
-            # Skip if it's just the sample content
-            if "This hook is invoked" not in content:
-                return True
-        except (OSError, UnicodeDecodeError):
-            pass
-    return False
+    if not hook.exists() or hook.name.endswith(".sample"):
+        return False
+    try:
+        content = hook.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return "This hook is invoked" not in content
+
+
+def has_git_hooks(root: Path) -> bool:
+    """Check if git commit hooks are configured (intent-aware).
+
+    True when git would actually fire a hook (framework markers, executable
+    pre-commit/pre-push, or a ``core.hooksPath`` override pointing at one),
+    OR when a non-executable pre-commit script exists with real content
+    (developer intent, even if it won't fire as-is).
+    """
+    return git_hooks.will_fire_hook(str(root)) or _has_non_sample_pre_commit_content(
+        root
+    )
 
 
 def has_ci(root: Path) -> bool:

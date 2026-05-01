@@ -189,9 +189,13 @@ Spawn all teammates in parallel (multiple Bash calls in one message).
 1. Wait for Bash task notifications
 2. Read task output for branch name, report path, cost
 3. Read report file for summary
-4. Merge each teammate's story branch: `git merge <story-branch> --no-ff`
-5. Run full test suite on merged result
-6. Run `/xp-accept` to verify acceptance criteria
+4. Run `/xp-accept` to verify acceptance criteria for each in-progress story
+
+The orchestrator does NOT merge teammate branches. Each story branch
+stays alive on its teammate worktree until its `/xp-story-close`
+invocation merges it (dispatched by `/xp-accept` per accepted story).
+This mirrors solo mode timing: per-story merge belongs to
+`/xp-story-close`, not `/xp-assign`.
 
 ## Recording Events
 

@@ -20,15 +20,17 @@ The preload above shows sprint state: in-progress count + `SPRINT_FILE=<path>`, 
 
 **If ERROR or NO_IN_PROGRESS**, explain and stop.
 
-## Step 0: Cross-Teammate Review (if TEAMMATE_WORKTREES shown)
+If the preload shows a **TEAMMATE_WORKTREES** section, each row is
+`story-id: abs-path`. Teammate branches are NOT merged at this point
+(per-story merge is `/xp-story-close`'s job, dispatched in Step 2b
+below). Use the path to `cd` into each story's worktree when running
+its acceptance command in Step 1 — the unmerged teammate edits live
+there, not in the orchestrator's HEAD.
 
-If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged. Run a cross-teammate review cycle on the merged code:
-
-1. `/simplify` scoped to merged teammate changes (use `args: "the merged teammate changes since before the teammate merges"`)
-2. `/xp-quality-review` — check for drift and inter-story debt
-3. `/security-review` scoped to merged teammate changes (use `args: "the merged teammate changes since before the teammate merges"`)
-
-Skip if no TEAMMATE_WORKTREES section.
+Cross-teammate review is layered: per-story `/xp-story-close` close-
+reviewer (Read access to merged-in siblings) + project pre-commit
+hook on every merge + `/xp-sprint-close` cumulative review at sprint
+boundary. No separate cross-teammate dispatch at /xp-accept time.
 
 ## Step 1: Review Each In-Progress Story
 
@@ -40,7 +42,11 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
 
 1. Present the story title and acceptance criteria.
 2. If `acceptance_execution.setup` is present, run it first via Bash.
-3. Run `acceptance_execution.command` via Bash.
+3. Run `acceptance_execution.command` via Bash. If the story's
+   `story-id` appears in TEAMMATE_WORKTREES, set the Bash `cwd` to
+   that worktree's `abs-path`; otherwise run from the main repo.
+   Universal pattern — works regardless of test runner (pytest,
+   jest, go test, cargo test).
 4. **Exit code 0 = pass.** Report success, proceed to mark done.
 5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
    - **Debug and re-run** — investigate the failure, fix the cause, then re-run the command
