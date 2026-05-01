@@ -13,9 +13,7 @@ import json
 import sys
 from itertools import combinations
 from pathlib import Path
-from typing import Any
 
-from _acceptance_execution import render_acceptance_execution
 from _append_impl import write_text_atomic
 from sprint_schema import (
     ACTIVE_STORY_STATUSES,
@@ -295,6 +293,34 @@ def _next_story_id_with_status(smm_dir: Path, status: str) -> str | None:
     return min(eligible, key=_id_sort_key)
 
 
+def transitive_in_progress_dependents(smm_dir: Path, story_id: str) -> list[str]:
+    """In-progress stories that depend (transitively) on `story_id`, sorted.
+
+    Powers cascade-deferral in /xp-accept: when a story can't ship, every
+    in-progress descendant is also blocked and should be deferred together.
+    Done dependents are excluded — they already shipped — and a self-loop
+    or A↔B cycle terminates because we only add unseen ids.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return []
+
+    blocked = {story_id}
+    changed = True
+    while changed:
+        changed = False
+        for s in sprint["stories"]:
+            if s.get("status") != "in-progress":
+                continue
+            sid = s.get("id")
+            if not sid or sid in blocked:
+                continue
+            if any(d in blocked for d in s.get("dependencies", [])):
+                blocked.add(sid)
+                changed = True
+    return sorted(blocked - {story_id})
+
+
 def next_in_progress_story_id(smm_dir: Path) -> str | None:
     """Lowest-id in-progress story whose deps are ALL done. None if none.
 
@@ -407,92 +433,3 @@ def _count_sprint_starts(smm_dir: Path) -> int:
         if e.get("type") == "sprint"
         and (e.get("metadata") or {}).get("action") == "start"
     )
-
-
-# -------------------------------------------------------------------
-# Render
-# -------------------------------------------------------------------
-
-
-def render_markdown(sprint: dict) -> str:
-    """Render a sprint dict as markdown for display."""
-    lines: list[str] = []
-
-    lines.append(f"# Sprint: {sprint['goal']}")
-    lines.append("")
-    lines.append(f"- **Sprint ID:** {sprint['sprint_id']}")
-    lines.append(f"- **Started:** {sprint['started']}")
-    if sprint.get("milestone"):
-        lines.append(f"- **Milestone:** {sprint['milestone']}")
-    lines.append("")
-
-    lines.append("## System Context")
-    lines.append("")
-    lines.append("See: system_context.json")
-    lines.append("")
-
-    lines.append("## Stories")
-    lines.append("")
-
-    for s in sprint["stories"]:
-        _render_story(lines, s)
-
-    return "\n".join(lines)
-
-
-def render_story_sections(sprint: dict, story_ids: list[str]) -> str:
-    """Render specific story sections as markdown."""
-    if not story_ids:
-        return ""
-    wanted = set(story_ids)
-    parts: list[str] = []
-    for s in sprint["stories"]:
-        if s["id"] in wanted:
-            story_lines: list[str] = []
-            _render_story(story_lines, s)
-            parts.append("\n".join(story_lines))
-    return "\n\n".join(parts)
-
-
-def _render_story(lines: list[str], s: dict[str, Any]) -> None:
-    """Render a single story to the lines list."""
-    lines.append(f"### {s['id']}: {s['title']}")
-    lines.append(f"- **Status:** {s['status']}")
-
-    deps = ", ".join(s.get("dependencies", [])) or "none"
-    lines.append(f"- **Dependencies:** {deps}")
-
-    if s.get("milestone_ref"):
-        lines.append(f"- **Milestone:** {s['milestone_ref']}")
-    if s.get("design_sources"):
-        lines.append(f"- **Design Sources:** {s['design_sources']}")
-
-    if s.get("context"):
-        lines.append("")
-        lines.append("**Context:**")
-        lines.append(s["context"])
-
-    if s.get("file_domain"):
-        lines.append("")
-        lines.append("**File Domain:**")
-        for fd in s["file_domain"]:
-            lines.append(f"- {fd}")
-
-    if s.get("interface_contracts"):
-        lines.append("")
-        lines.append("**Interface Contracts:**")
-        for ic in s["interface_contracts"]:
-            lines.append(f"- {ic}")
-
-    if s.get("acceptance_criteria"):
-        lines.append("")
-        lines.append("**Acceptance Criteria:**")
-        for ac in s["acceptance_criteria"]:
-            lines.append(f"- {ac}")
-
-    ae = s.get("acceptance_execution")
-    if ae:
-        lines.append("")
-        render_acceptance_execution(ae, lines)
-
-    lines.append("")

@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import sprint_render as render
 import sprint_store as store
 from sprint_schema import VALID_STORY_STATUSES
 
@@ -51,6 +52,13 @@ def _cmd_next_scheduled(args: argparse.Namespace) -> int:
 
 def _cmd_scheduled_overlap(args: argparse.Namespace) -> int:
     return 0 if store.scheduled_file_domains_overlap(args.smm_dir) else 1
+
+
+def _cmd_find_transitive_dependents(args: argparse.Namespace) -> int:
+    deps = store.transitive_in_progress_dependents(args.smm_dir, args.story_id)
+    if deps:
+        print(" ".join(deps))
+    return 0
 
 
 def _cmd_get_story_branch(args: argparse.Namespace) -> int:
@@ -99,7 +107,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if sprint is None:
         print("No sprint found.", file=sys.stderr)
         return 1
-    print(store.render_markdown(sprint))
+    print(render.render_markdown(sprint))
     return 0
 
 
@@ -108,7 +116,7 @@ def _cmd_render_stories(args: argparse.Namespace) -> int:
     if sprint is None:
         print("No sprint found.", file=sys.stderr)
         return 1
-    print(store.render_story_sections(sprint, args.story_ids))
+    print(render.render_story_sections(sprint, args.story_ids))
     return 0
 
 
@@ -306,6 +314,15 @@ def main() -> None:
     )
     gs_p.add_argument("story_id", help="Story ID")
 
+    ftd_p = sub.add_parser(
+        "find-transitive-dependents",
+        help=(
+            "Print space-separated in-progress story ids that depend "
+            "(transitively) on the given story; powers cascade-deferral"
+        ),
+    )
+    ftd_p.add_argument("story_id", help="Story ID to walk dependents of")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -329,6 +346,7 @@ def main() -> None:
         "update-story-branch": _cmd_update_story_branch,
         "get-story-branch": _cmd_get_story_branch,
         "get-story": _cmd_get_story,
+        "find-transitive-dependents": _cmd_find_transitive_dependents,
     }
 
     sys.exit(dispatch[args.command](args))

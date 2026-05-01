@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import event_schema as es
 import resolution
 from _append_impl import (
     LockTimeoutError,
@@ -31,16 +32,6 @@ from _append_impl import (
     write_watermark,
 )
 from append_validation import parse_jsonl, validate_smm_dir
-from event_schema import (
-    EVENT_TYPE_RETROSPECTIVE,
-    EVENT_TYPE_SESSION_END,
-    EVENT_TYPE_SPRINT,
-    EVENT_TYPE_STATUS,
-    SPRINT_ACTION_END,
-    SPRINT_ACTION_START,
-    STATUS_ACTION_SPRINT_RETRO_DONE,
-    sessions_since_event,
-)
 from materialize import read_curation_watermark, write_curation_watermark
 
 # ---------------------------------------------------------------------------
@@ -63,11 +54,41 @@ _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
 _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can compact
 
 
+def _compute_pending_retro_sprint_ids(events: list[dict]) -> set[str]:
+    """Sprint IDs started but with no sprint_retro_done event yet.
+
+    Includes both active sprints (no sprint_end) and ended-but-not-retro'd
+    sprints. Their commit events must stay in events.jsonl so the eventual
+    /xp-sprint-review can compute per-story metrics.
+    """
+    started: set[str] = set()
+    retro_done: set[str] = set()
+    for e in events:
+        meta = e.get("metadata") or {}
+        sid = meta.get("sprint_id")
+        if not sid:
+            continue
+        etype = e.get("type")
+        if (
+            etype == es.EVENT_TYPE_SPRINT
+            and meta.get("action") == es.SPRINT_ACTION_START
+        ):
+            started.add(sid)
+        elif (
+            etype == es.EVENT_TYPE_STATUS
+            and meta.get("action") == es.STATUS_ACTION_SPRINT_RETRO_DONE
+        ):
+            retro_done.add(sid)
+    return started - retro_done
+
+
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
     Active = unresolved goals, decisions/assumptions/questions (< 3 sessions old),
-    conventions, unresolved concerns/debt, open customer_intents.
+    conventions, unresolved concerns/debt, open customer_intents, sprint_starts
+    of pending-retro sprints, and commits whose sprint_id is pending-retro
+    (so /xp-sprint-review can compute per-story metrics).
     Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = resolution.compute_resolutions(events)
@@ -75,18 +96,10 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
 
     # Build session_end timestamps for decision aging
     se_timestamps = [
-        e.get("ts", "") for e in events if e.get("type") == EVENT_TYPE_SESSION_END
+        e.get("ts", "") for e in events if e.get("type") == es.EVENT_TYPE_SESSION_END
     ]
 
-    # Build set of ended sprint IDs for active sprint detection
-    ended_sprint_ids: set[str] = set()
-    for event in events:
-        if event.get("type") == EVENT_TYPE_SPRINT:
-            meta = event.get("metadata", {})
-            if meta.get("action") == SPRINT_ACTION_END:
-                sid = meta.get("sprint_id", "")
-                if sid:
-                    ended_sprint_ids.add(sid)
+    pending_retro_sprint_ids = _compute_pending_retro_sprint_ids(events)
 
     for event in events:
         eid = event.get("id", "")
@@ -95,58 +108,67 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
         etype = event.get("type", "")
 
         match etype:
-            case "goal":
+            case es.EVENT_TYPE_GOAL:
                 if eid not in resolutions["resolved_goal_ids"]:
                     referenced.add(eid)
-            case "decision":
+            case es.EVENT_TYPE_DECISION:
                 if eid in resolutions["resolved_decision_ids"]:
                     continue
                 # Age-based: keep for _DECISION_MAX_AGE sessions
                 decision_ts = event.get("ts", "")
-                sessions_after = sessions_since_event(se_timestamps, decision_ts)
+                sessions_after = es.sessions_since_event(se_timestamps, decision_ts)
                 if sessions_after < _DECISION_MAX_AGE:
                     referenced.add(eid)
-            case "convention":
+            case es.EVENT_TYPE_CONVENTION:
                 referenced.add(eid)
-            case "concern":
+            case es.EVENT_TYPE_CONCERN:
                 if eid not in resolutions["resolved_concern_ids"]:
                     referenced.add(eid)
-            case "debt":
+            case es.EVENT_TYPE_DEBT:
                 if eid not in resolutions["resolved_debt_ids"]:
                     referenced.add(eid)
-            case "question":
+            case es.EVENT_TYPE_QUESTION:
                 if eid in resolutions["answered_question_ids"]:
                     continue
                 # Age-based: compact unanswered questions
                 q_ts = event.get("ts", "")
-                q_sessions = sessions_since_event(se_timestamps, q_ts)
+                q_sessions = es.sessions_since_event(se_timestamps, q_ts)
                 if q_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
-            case "customer_intent":
+            case es.EVENT_TYPE_CUSTOMER_INTENT:
                 intent_status = event.get("intent_status", "open")
                 if intent_status == "open":
                     referenced.add(eid)
-            case "assumption":
+            case es.EVENT_TYPE_ASSUMPTION:
                 if eid in resolutions["resolved_assumption_ids"]:
                     continue
                 # Age-based: compact unresolved assumptions
                 a_ts = event.get("ts", "")
-                a_sessions = sessions_since_event(se_timestamps, a_ts)
+                a_sessions = es.sessions_since_event(se_timestamps, a_ts)
                 if a_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
-            case "sprint":
+            case es.EVENT_TYPE_SPRINT:
                 meta = event.get("metadata", {})
                 action = meta.get("action", "")
                 sprint_id = meta.get("sprint_id", "")
-                # Active sprint starts retained; ended ones archivable.
-                # Sprint ends handled by index-based retention below.
-                if action == SPRINT_ACTION_START and sprint_id not in ended_sprint_ids:
+                # Sprint starts retained until retro_done fires — keeps
+                # _compute_pending_retro_sprint_ids able to identify the
+                # sprint across multiple compaction rounds. Sprint ends
+                # handled by index-based retention below.
+                if (
+                    action == es.SPRINT_ACTION_START
+                    and sprint_id in pending_retro_sprint_ids
+                ):
                     referenced.add(eid)
-            case "retrospective":
+            case es.EVENT_TYPE_RETROSPECTIVE:
                 # Keep last 2 for trend detection. _find_unanalyzed_start
                 # needs the most recent as a watermark. Full archive in
                 # retrospectives/ dir. Handled below with keep_retro_indices.
                 pass
+            case es.EVENT_TYPE_COMMIT:
+                sid = (event.get("metadata") or {}).get("sprint_id")
+                if sid and sid in pending_retro_sprint_ids:
+                    referenced.add(eid)
 
     return referenced
 
@@ -209,20 +231,22 @@ def _classify_pre_watermark(
     pre_session_ends = [
         i
         for i, e in enumerate(pre_watermark)
-        if e.get("type") == EVENT_TYPE_SESSION_END
+        if e.get("type") == es.EVENT_TYPE_SESSION_END
     ]
     keep_session_end_indices = set(pre_session_ends[-3:])
 
     # Keep last 2 retro events across ALL events (not just pre-watermark).
     # Post-watermark retros count toward the cap so we don't accumulate 3+.
     all_retro_ids = [
-        e.get("id", "") for e in all_events if e.get("type") == EVENT_TYPE_RETROSPECTIVE
+        e.get("id", "")
+        for e in all_events
+        if e.get("type") == es.EVENT_TYPE_RETROSPECTIVE
     ]
     keep_retro_ids = set(all_retro_ids[-2:])
     pre_retro_indices = {
         i
         for i, e in enumerate(pre_watermark)
-        if e.get("type") == EVENT_TYPE_RETROSPECTIVE
+        if e.get("type") == es.EVENT_TYPE_RETROSPECTIVE
         and e.get("id", "") in keep_retro_ids
     }
 
@@ -230,8 +254,8 @@ def _classify_pre_watermark(
     # Post-watermark sprint ends count toward the cap.
     def _is_sprint_end(e: dict) -> bool:
         return (
-            e.get("type") == EVENT_TYPE_SPRINT
-            and e.get("metadata", {}).get("action") == SPRINT_ACTION_END
+            e.get("type") == es.EVENT_TYPE_SPRINT
+            and e.get("metadata", {}).get("action") == es.SPRINT_ACTION_END
         )
 
     all_sprint_end_ids = [e.get("id", "") for e in all_events if _is_sprint_end(e)]
@@ -254,11 +278,11 @@ def _classify_pre_watermark(
                 retained_sprint_ids.add(sid)
 
     def _is_paired_retro_done(e: dict) -> bool:
-        if e.get("type") != EVENT_TYPE_STATUS:
+        if e.get("type") != es.EVENT_TYPE_STATUS:
             return False
         metadata = e.get("metadata") or {}
         return (
-            metadata.get("action") == STATUS_ACTION_SPRINT_RETRO_DONE
+            metadata.get("action") == es.STATUS_ACTION_SPRINT_RETRO_DONE
             and metadata.get("sprint_id") in retained_sprint_ids
         )
 

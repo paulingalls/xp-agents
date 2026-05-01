@@ -28,7 +28,7 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-{sprint,plan,free,story}-close`, `/xp-system-context` — preload + cleanup. The four close skills share `scripts/close_common.py` (preflight, push, create-pr, merge).
+**Forked skills:** `/xp-review-plan`, `/xp-security-triage`, `/xp-sprint-review`, `/xp-{sprint,plan,free,story}-close`, `/xp-system-context` — preload + cleanup.
 
 **Tests:** Check for FAIL/ERROR first. Never re-run the full suite just to find failure names.
 
@@ -40,13 +40,7 @@ Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `ex
 
 ## CLI Tools
 
-CLIs accept `--smm-dir DIR`. Run `--help` for subcommands.
-
-- **sprint_cli.py** — sprint operations
-- **plan_cli.py** — execution plan
-- **smm_cli.py** — shared mental model
-- **retro_cli.py** — retrospective rendering
-- **append.sh** — event log writes
+CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `append.sh`) accept `--smm-dir DIR`; run `--help` for subcommands.
 
 ## Recording Events
 
@@ -92,7 +86,6 @@ Add `Resolves-Event: <id>` trailer to commit body when a commit closes an SMM ev
 ```
 append.sh --smm-dir DIR --type status --agent main --content "..." --working-on '[...]'
 append.sh --smm-dir DIR --type decision --agent main --content "..." --topic "..."
-append.sh --smm-dir DIR --type debt --agent main --content "..." --files '[...]'
 append.sh --smm-dir DIR --type concern --agent main --content "..." --severity medium
 ```
 
@@ -103,5 +96,7 @@ Declare before behavior-preserving changes. TDD metric excludes file writes unti
 ```
 append.sh --smm-dir DIR --type assumption --agent main --content "refactor mode: <description>"
 ```
+
+Existing tests cover preserved behavior. Add a behavior test for any **new primitive** the refactor extracts (module, function, class) — original-caller tests don't reach it.
 
 Read Intent and Risks before every significant action. Check Constraints when making architectural choices.

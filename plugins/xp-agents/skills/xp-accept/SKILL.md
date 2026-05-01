@@ -56,7 +56,7 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
        --type "concern" --agent "xp-accept" --severity "medium" \
        --content "Acceptance override for story-NNN: <user's reason>"
      ```
-   - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral: defer the failed story AND all downstream dependents. Step 3 records status events for each cascaded deferral.
+   - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 
 Do **not** retry automatically. Flaky acceptance is information — fix the harness, don't mask the signal.
 
@@ -69,8 +69,26 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
 3. For **non-E2E criteria** — ask the user to verify.
 4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
    - **done** — all acceptance criteria verified and passing
-   - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral: defer the failed story AND all downstream dependents. Step 3 records status events for each cascaded deferral.
+   - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 5. Resolve any user questions before marking.
+
+### Cascading a deferral
+
+When a deferred story has in-progress downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
+
+```bash
+DEFERRED="story-NNN"  # the just-deferred story id
+
+CASCADE=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  find-transitive-dependents "$DEFERRED")
+
+for sid in "$DEFERRED" $CASCADE; do
+  python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+    update-story "$sid" deferred
+done
+```
+
+Step 3 records a status event for each deferral with the cascade reason (e.g., "deferred: depends on deferred story-NNN").
 
 ## Step 1b: Concern Triage
 

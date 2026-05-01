@@ -361,6 +361,7 @@ def _compute_probe_adoption(
         "probe_escape": 0,
         "probe_divert": 0,
         "probe_silent": 0,
+        "probe_divert_details": [],
     }
     if not probes:
         return zero
@@ -373,6 +374,7 @@ def _compute_probe_adoption(
     escape = 0
     divert = 0
     silent = 0
+    divert_details: list[dict] = []
     for probe in sorted_probes:
         agent_id = probe.get("agent_id")
         probe_ts = probe.get("ts") or ""
@@ -395,15 +397,23 @@ def _compute_probe_adoption(
             silent += 1
             continue
         consumed.add(paired_index)
-        resolves = (sorted_commits[paired_index].get("metadata") or {}).get(
-            METADATA_KEY_RESOLVES
-        ) or []
+        commit = sorted_commits[paired_index]
+        resolves = (commit.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
         if any(rid in candidate_ids for rid in resolves):
             hits += 1
         elif not resolves:
             escape += 1
         else:
             divert += 1
+            divert_details.append(
+                {
+                    "agent_id": agent_id,
+                    "probe_ts": probe_ts,
+                    "commit_ts": commit.get("ts") or "",
+                    "candidates": sorted(candidate_ids),
+                    "resolves": sorted(resolves),
+                }
+            )
 
     probe_total = len(probes)
     return {
@@ -413,4 +423,5 @@ def _compute_probe_adoption(
         "probe_escape": escape,
         "probe_divert": divert,
         "probe_silent": silent,
+        "probe_divert_details": divert_details,
     }
