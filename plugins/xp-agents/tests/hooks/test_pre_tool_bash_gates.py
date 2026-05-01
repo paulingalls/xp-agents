@@ -437,9 +437,9 @@ class TestSprintBranchGate(_HookTestCase):
         """[chore] / [release] prefix bypasses the sprint-branch nudge.
 
         Closes concern ef916d0f3c65: legitimate post-merge cleanup work
-        (xp-accept Step 0 cross-teammate review fixups) is inherently
-        sprint-scope — needs an explicit escape hatch. Same convention
-        as the protected-branch gate.
+        on the sprint branch is inherently sprint-scope — needs an
+        explicit escape hatch. Same convention as the protected-branch
+        gate.
         """
         for prefix in ("[chore]", "[release]"):
             with self.subTest(prefix=prefix):

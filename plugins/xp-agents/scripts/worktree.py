@@ -109,16 +109,6 @@ def has_live_teammates(cwd: str) -> bool:
     return any(_iter_live_teammate_worktrees(cwd))
 
 
-def list_live_teammate_worktree_names(cwd: str) -> list[str]:
-    """Return the basename of every live `worktree-story-*` worktree.
-
-    Powers /xp-accept's preload (replaces an inline porcelain parser).
-    Same data source as has_live_teammates / find_teammate_worktree_for_story
-    so all three queries stay consistent if porcelain shape changes.
-    """
-    return [Path(wt_path).name for wt_path in _iter_live_teammate_worktrees(cwd)]
-
-
 def list_live_teammate_worktree_paths(cwd: str) -> list[tuple[str, str]]:
     """Return ``(story_id, abs_path)`` for every live teammate worktree.
 
