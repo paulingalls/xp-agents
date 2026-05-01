@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import sprint_render as render
 import sprint_store as store
 from sprint_schema import VALID_STORY_STATUSES
 
@@ -106,7 +107,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if sprint is None:
         print("No sprint found.", file=sys.stderr)
         return 1
-    print(store.render_markdown(sprint))
+    print(render.render_markdown(sprint))
     return 0
 
 
@@ -115,7 +116,7 @@ def _cmd_render_stories(args: argparse.Namespace) -> int:
     if sprint is None:
         print("No sprint found.", file=sys.stderr)
         return 1
-    print(store.render_story_sections(sprint, args.story_ids))
+    print(render.render_story_sections(sprint, args.story_ids))
     return 0
 
 

@@ -86,7 +86,9 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
     Active = unresolved goals, decisions/assumptions/questions (< 3 sessions old),
-    conventions, unresolved concerns/debt, open customer_intents.
+    conventions, unresolved concerns/debt, open customer_intents, sprint_starts
+    of pending-retro sprints, and commits whose sprint_id is pending-retro
+    (so /xp-sprint-review can compute per-story metrics).
     Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = resolution.compute_resolutions(events)

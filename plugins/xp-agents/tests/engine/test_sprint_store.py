@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for sprint_store.py — load/save, mutations, render.
+"""Tests for sprint_store.py — load/save and mutations.
 
-Covers: load/save, update_story_status, set_branch, set_story_branch,
-render_markdown, render_story_sections. Status checks (has_active_*,
-is_complete, scheduled_*), compute_velocity, compute_blockers, and
-count_by_status live in test_sprint_status.py (split for the 500-line
-cap). Schema validation tests live in test_sprint_schema.py.
+Covers: load/save, update_story_status, set_branch, set_story_branch.
+Render (render_markdown, render_story_sections) lives in
+test_sprint_render.py — moved with the sprint_render extraction.
+Status checks (has_active_*, is_complete, scheduled_*), compute_velocity,
+compute_blockers, and count_by_status live in test_sprint_status.py
+(split for the 500-line cap). Schema validation tests live in
+test_sprint_schema.py.
 """
 
 import json
@@ -202,92 +204,12 @@ class TestSetStoryBranch(_SMMTestCase):
 
 # Status check functions, compute_velocity, compute_blockers, count_by_status
 # tests live in test_sprint_status.py — split per the 500-line cap. Render
-# and load/save tests stay here.
+# tests live in test_sprint_render.py. Load/save and mutations stay here.
 
 
 # ===========================================================================
 # Render
 # ===========================================================================
-
-
-class TestRenderMarkdown(unittest.TestCase):
-    def test_render_includes_goal(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint(goal="Build auth"))
-        self.assertIn("# Sprint: Build auth", md)
-
-    def test_render_includes_story(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint())
-        self.assertIn("### story-001: User registration", md)
-        self.assertIn("**Status:** ready", md)
-
-    def test_render_includes_sprint_id(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint())
-        self.assertIn("sprint-001", md)
-
-    def test_render_acceptance_execution(self):
-        import sprint_store
-
-        ae = {
-            "type": "pytest",
-            "command": "pytest tests/acceptance/",
-            "setup": "docker compose up -d",
-            "notes": "Requires backend on :3000",
-        }
-        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
-        md = sprint_store.render_markdown(sprint)
-        self.assertIn("**Acceptance Execution:**", md)
-        self.assertIn("**Type:** pytest", md)
-        self.assertIn("`pytest tests/acceptance/`", md)
-        self.assertIn("`docker compose up -d`", md)
-        self.assertIn("Requires backend on :3000", md)
-
-    def test_render_acceptance_execution_minimal(self):
-        import sprint_store
-
-        ae = {"type": "bash", "command": "bash test.sh"}
-        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
-        md = sprint_store.render_markdown(sprint)
-        self.assertIn("**Type:** bash", md)
-        self.assertIn("`bash test.sh`", md)
-        self.assertNotIn("**Setup:**", md)
-        self.assertNotIn("**Notes:**", md)
-
-    def test_render_no_acceptance_execution(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint())
-        self.assertNotIn("Acceptance Execution", md)
-
-
-class TestRenderStorySections(unittest.TestCase):
-    def test_render_specific_stories(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="story-001", title="First"),
-                _make_story(id="story-002", title="Second"),
-                _make_story(id="story-003", title="Third"),
-            ]
-        )
-        md = sprint_store.render_story_sections(sprint, ["story-001", "story-003"])
-        self.assertIn("story-001", md)
-        self.assertIn("First", md)
-        self.assertIn("story-003", md)
-        self.assertIn("Third", md)
-        self.assertNotIn("story-002", md)
-
-    def test_empty_ids_returns_empty(self):
-        import sprint_store
-
-        md = sprint_store.render_story_sections(_make_sprint(), [])
-        self.assertEqual(md, "")
 
 
 class TestTransitiveInProgressDependents(_SMMTestCase):

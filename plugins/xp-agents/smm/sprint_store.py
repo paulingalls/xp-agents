@@ -433,13 +433,3 @@ def _count_sprint_starts(smm_dir: Path) -> int:
         if e.get("type") == "sprint"
         and (e.get("metadata") or {}).get("action") == "start"
     )
-
-
-# -------------------------------------------------------------------
-# Render — moved to sprint_render.py at the commit that pushed this file
-# over the 500-line cap. Re-exported here so callers don't break; new
-# imports should target sprint_render directly.
-# -------------------------------------------------------------------
-
-
-from sprint_render import render_markdown, render_story_sections  # noqa: E402, F401
