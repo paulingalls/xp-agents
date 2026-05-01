@@ -215,18 +215,8 @@ class TestRetrospectiveIntegration(_IntegrationTestCase):
 
 
 class TestNewEventTypesIntegration(_IntegrationTestCase):
-    def _run_append(self, *args: str) -> subprocess.CompletedProcess:
-        """Run append.sh with given args in the temp git repo."""
-        env = self._test_env.copy()
-        env["CLAUDE_PLUGIN_ROOT"] = str(Path(__file__).parent.parent.parent)
-        append_sh = Path(__file__).parent.parent.parent / "smm" / "append.sh"
-        return subprocess.run(
-            ["bash", str(append_sh), *args],
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=str(self.tmpdir),
-        )
+    # _run_append inherited from _IntegrationTestCase (debt 94a6b8aaca52
+    # consolidation completed by xp-code-reviewer during M-3 capstone).
 
     def test_append_goal_and_curation_data(self):
         """Goal event is recorded in the event log (current_smm stays empty
