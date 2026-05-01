@@ -163,12 +163,12 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
     def test_step_3_5_excludes_story_mode(self):
         # AC#1-3 dispatch claim: story mode is explicitly excluded
         # because Tier 2 at /xp-accept already covered the story diff.
-        # Tighten beyond "NOT" + "story" co-occurrence — bare tokens
-        # would pass even if the prose said the opposite ("NOT
-        # optional; story mode requires it"). Pin the exact "NOT story"
-        # phrasing the agent.md actually uses.
+        # Pin co-location of NOT and story so prose flipping to the
+        # opposite ("NOT optional; story mode requires it") fails;
+        # \W+ tolerates markdown bold/italic between the tokens
+        # without requiring a specific format.
         body = self._step_3_5_body()
-        self.assertIn("**NOT** story", body)
+        self.assertRegex(body, r"NOT\W+story")
 
     def test_step_3_5_invokes_security_review_skill(self):
         # AC#1-3 dispatch claim: the agent must literally invoke the
