@@ -144,24 +144,18 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
     def setUpClass(cls):
         cls.agent_text = _REVIEWER_AGENT_MD.read_text()
         # The Block-flip-default prose lives in the shared close-pipeline
-        # reference now (loaded by the preloads of close skills that have
-        # been migrated). Concatenate the shared text onto each migrated
-        # skill so assertions below see the LLM-visible union. Fail-fast
-        # on missing shared file — silent fallback would let assertions
-        # appear to pass while the close pipeline is actually broken.
+        # reference now (loaded by every close-skill preload). Concatenate
+        # the shared text onto every skill so assertions below see the
+        # LLM-visible union. Fail-fast on missing shared file — silent
+        # fallback would let assertions appear to pass while the close
+        # pipeline is actually broken.
         #
-        # Migrated in commit 2a: story, sprint. Migrated in commit 2b:
-        # plan, free. Keys here track preload-side reality so the test
-        # never grants a skill credit for shared content its preload
-        # doesn't actually emit.
+        # All four close skills were migrated by the end of commit 2b
+        # (story+sprint in 2a, plan+free in 2b); the per-mode dispatch
+        # the previous version had collapsed back to a single rule.
         shared_text = _CLOSE_PIPELINE_SHARED_MD.read_text()
-        _MIGRATED = {"story", "sprint"}
         cls.skill_texts = {
-            mode: (
-                path.read_text() + "\n\n" + shared_text
-                if mode in _MIGRATED
-                else path.read_text()
-            )
+            mode: path.read_text() + "\n\n" + shared_text
             for mode, path in _CLOSE_SKILL_MDS.items()
         }
 

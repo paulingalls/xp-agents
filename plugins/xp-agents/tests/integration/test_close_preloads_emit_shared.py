@@ -109,13 +109,64 @@ class TestSprintClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTe
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
 
 
-# Plan-close and free-close preloads do NOT yet emit the shared content
-# in this commit. Their SKILL.md still says "skip Step 5b" — having the
-# preload inject Step 5b instructions would contradict that guidance to
-# the LLM. Commit 2b removes the skip notes AND adds the cat to those
-# two preloads atomically, then introduces the matching test classes
-# here. Keeping the assertions to story+sprint here preserves the
-# pure-refactor framing of this commit.
+class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
+    """Commit 2b: plan-close preload now emits the shared content too.
+
+    Step 5b previously skipped on the rationale that story+sprint close
+    already auto-resolved everything resolvable. Multi-sprint plans
+    break that assumption — concerns from sprint N can be LIKELY-
+    ADDRESSED by commits in sprint N+1, but sprint N's close window has
+    already passed when those commits land. Plan-close is the last
+    chance to catch slipped-through matches.
+    """
+
+    _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-plan-close" / "scripts" / "preload.sh"
+
+
+class TestFreeClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
+    """Commit 2b: free-close preload now emits the shared content too.
+
+    Step 5b previously skipped on the (incorrect) rationale that free
+    branches don't carry sprint/plan-tracked concerns. Demonstrably
+    wrong — free branches routinely fix tracked concerns when used for
+    follow-up work (cleanup, docs, fixes). The triage_preload helper
+    looks for files-touched overlap with open concerns and is mode-
+    agnostic; nothing about free-mode justifies the skip.
+    """
+
+    _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh"
+
+
+_SKIP_NOTE_TARGETS = {
+    "plan": _PLUGIN_ROOT / "skills" / "xp-plan-close" / "SKILL.md",
+    "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
+}
+
+
+class TestPlanFreeCloseSkillMDDropsSkipNote(unittest.TestCase):
+    """Commit 2b removes the 'skip LIKELY ADDRESSED' notes from
+    xp-plan-close + xp-free-close SKILL.md. The shared file's Step 5b
+    now applies uniformly across all 4 close skills; leaving the skip
+    notes inline would contradict the preload-injected guidance.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.skill_lower = {
+            mode: path.read_text().lower() for mode, path in _SKIP_NOTE_TARGETS.items()
+        }
+
+    def test_close_skills_drop_skip_likely_addressed_note(self):
+        for mode in _SKIP_NOTE_TARGETS:
+            with self.subTest(mode=mode):
+                self.assertNotIn(
+                    "does not run the likely addressed",
+                    self.skill_lower[mode],
+                    f"{mode}-close SKILL.md must drop the 'skip LIKELY "
+                    f"ADDRESSED' note in commit 2b — it now contradicts "
+                    f"the shared Step 5b",
+                )
 
 
 if __name__ == "__main__":
