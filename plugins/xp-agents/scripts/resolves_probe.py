@@ -22,6 +22,11 @@ from duplicate_debt_probe import STOPWORDS
 from event_schema import (
     METADATA_KEY_CLOSE_MODE,
     METADATA_KEY_PROBE_CANDIDATES,
+    METADATA_KEY_PROBE_SELECTION_REASONS,
+    SELECTION_REASON_CLOSE_MODE,
+    SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_KEYWORD,
+    SELECTION_REASON_RECENCY,
     STATUS_CONTENT_RESOLVES_PROBE,
 )
 
@@ -89,8 +94,13 @@ def _score_candidate(
     commit_file_set: set[str],
     cwd: str,
     now_ts: str,
-) -> int:
-    """Rank score: keyword match + file overlap + recency + close-review boost.
+) -> tuple[int, list[str]]:
+    """Rank score + the signals that contributed.
+
+    Returns `(score, reasons)`. Reasons are emitted in deterministic order
+    (keyword, file_overlap, recency, close_mode) so test assertions can
+    pin shape. A signal contributes a reason iff it contributed non-zero
+    score — score and reasons are built in lockstep so they cannot drift.
 
     haystack_keywords and commit_file_set are pre-computed once per commit by
     the caller — _score_candidate runs per candidate. commit_file_set members
@@ -98,9 +108,13 @@ def _score_candidate(
     here to match (mirrors commits.open_issues_matching_commit's intersection
     semantics so abs/rel/./ path forms all match).
     """
+    reasons: list[str] = []
+
     keywords = _extract_keywords(candidate.get("content") or "")
     overlap = keywords & haystack_keywords
     keyword_score = min(len(overlap), _KEYWORD_MATCH_CAP) * 2
+    if keyword_score > 0:
+        reasons.append(SELECTION_REASON_KEYWORD)
 
     cand_files = candidate.get("files") or []
     file_overlap = 0
@@ -113,11 +127,18 @@ def _score_candidate(
                     file_overlap += 1
             except (ValueError, OSError):
                 continue
+    if file_overlap > 0:
+        reasons.append(SELECTION_REASON_FILE_OVERLAP)
 
     recency = 1 if _is_recent(candidate.get("ts") or "", now_ts) else 0
-    provenance = 1 if _close_mode(candidate) else 0
+    if recency:
+        reasons.append(SELECTION_REASON_RECENCY)
 
-    return keyword_score + file_overlap + recency + provenance
+    provenance = 1 if _close_mode(candidate) else 0
+    if provenance:
+        reasons.append(SELECTION_REASON_CLOSE_MODE)
+
+    return keyword_score + file_overlap + recency + provenance, reasons
 
 
 def changed_files(cwd: str) -> list[str]:
@@ -162,12 +183,17 @@ def find_probe_candidates(
             commit_file_set.add(worktree.normalize_path(f, cwd))
         except (ValueError, OSError):
             continue
-    scored = [
-        (_score_candidate(c, haystack_keywords, commit_file_set, cwd, resolved_now), c)
-        for c in unresolved
-    ]
-    scored.sort(key=lambda pair: (-pair[0], -_ts_sort_key(pair[1])))
-    return [c for _, c in scored[:PROBE_CANDIDATE_LIMIT]]
+    scored = []
+    for c in unresolved:
+        score, reasons = _score_candidate(
+            c, haystack_keywords, commit_file_set, cwd, resolved_now
+        )
+        scored.append((score, reasons, c))
+    scored.sort(key=lambda triple: (-triple[0], -_ts_sort_key(triple[2])))
+    selected = scored[:PROBE_CANDIDATE_LIMIT]
+    for _, reasons, c in selected:
+        c["selection_reasons"] = reasons
+    return [c for _, _, c in selected]
 
 
 def build_nudge_lines(candidates: list[dict]) -> list[str]:
@@ -213,6 +239,9 @@ def emit_probe_status(smm_dir: "Path", candidates: list[dict], agent_id: str) ->
         working_on=[],
         metadata={
             METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
+            METADATA_KEY_PROBE_SELECTION_REASONS: {
+                c["id"]: c.get("selection_reasons", []) for c in candidates
+            },
         },
     )
     _common.append_safe(smm_dir, event)
