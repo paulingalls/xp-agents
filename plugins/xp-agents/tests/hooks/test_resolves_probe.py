@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import unittest
 
 import _common
+import event_schema
 import resolves_probe
 import worktree
 from conftest import _HookTestCase, _ProbeTestHelpers, make_event
@@ -384,9 +385,10 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
     """
 
     def test_exactly_four_selection_reason_constants(self):
-        import event_schema as es
-
-        constants = {name for name in dir(es) if name.startswith("SELECTION_REASON_")}
+        # Substring match catches both public (SELECTION_REASON_*) and
+        # private (_SELECTION_REASON_*) — a private constant still grows
+        # the divert payload, so it counts toward the cap.
+        constants = {n for n in dir(event_schema) if "SELECTION_REASON_" in n}
         self.assertEqual(
             constants,
             {
