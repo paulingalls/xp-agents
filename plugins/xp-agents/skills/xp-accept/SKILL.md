@@ -20,15 +20,17 @@ The preload above shows sprint state: in-progress count + `SPRINT_FILE=<path>`, 
 
 **If ERROR or NO_IN_PROGRESS**, explain and stop.
 
-## Step 0: Cross-Teammate Review (if TEAMMATE_WORKTREES shown)
+If the preload shows a **TEAMMATE_WORKTREES** section, each row is
+`story-id: abs-path`. Teammate branches are NOT merged at this point
+(per-story merge is `/xp-story-close`'s job, dispatched in Step 2b
+below). Use the path to `cd` into each story's worktree when running
+its acceptance command in Step 1 — the unmerged teammate edits live
+there, not in the orchestrator's HEAD.
 
-If the preload shows **TEAMMATE_WORKTREES**, teammate branches were merged. Run a cross-teammate review cycle on the merged code:
-
-1. `/simplify` scoped to merged teammate changes (use `args: "the merged teammate changes since before the teammate merges"`)
-2. `/xp-quality-review` — check for drift and inter-story debt
-3. `/security-review` scoped to merged teammate changes (use `args: "the merged teammate changes since before the teammate merges"`)
-
-Skip if no TEAMMATE_WORKTREES section.
+Cross-teammate review is layered: per-story `/xp-story-close` close-
+reviewer (Read access to merged-in siblings) + project pre-commit
+hook on every merge + `/xp-sprint-close` cumulative review at sprint
+boundary. No separate cross-teammate dispatch at /xp-accept time.
 
 ## Step 1: Review Each In-Progress Story
 
@@ -40,7 +42,11 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
 
 1. Present the story title and acceptance criteria.
 2. If `acceptance_execution.setup` is present, run it first via Bash.
-3. Run `acceptance_execution.command` via Bash.
+3. Run `acceptance_execution.command` via Bash. If the story's
+   `story-id` appears in TEAMMATE_WORKTREES, set the Bash `cwd` to
+   that worktree's `abs-path`; otherwise run from the main repo.
+   Universal pattern — works regardless of test runner (pytest,
+   jest, go test, cargo test).
 4. **Exit code 0 = pass.** Report success, proceed to mark done.
 5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
    - **Debug and re-run** — investigate the failure, fix the cause, then re-run the command
@@ -50,7 +56,7 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
        --type "concern" --agent "xp-accept" --severity "medium" \
        --content "Acceptance override for story-NNN: <user's reason>"
      ```
-   - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral: defer the failed story AND all downstream dependents. Step 3 records status events for each cascaded deferral.
+   - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 
 Do **not** retry automatically. Flaky acceptance is information — fix the harness, don't mask the signal.
 
@@ -63,8 +69,26 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
 3. For **non-E2E criteria** — ask the user to verify.
 4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
    - **done** — all acceptance criteria verified and passing
-   - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral: defer the failed story AND all downstream dependents. Step 3 records status events for each cascaded deferral.
+   - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 5. Resolve any user questions before marking.
+
+### Cascading a deferral
+
+When a deferred story has in-progress downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
+
+```bash
+DEFERRED="story-NNN"  # the just-deferred story id
+
+CASCADE=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  find-transitive-dependents "$DEFERRED")
+
+for sid in "$DEFERRED" $CASCADE; do
+  python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+    update-story "$sid" deferred
+done
+```
+
+Step 3 records a status event for each deferral with the cascade reason (e.g., "deferred: depends on deferred story-NNN").
 
 ## Step 1b: Concern Triage
 

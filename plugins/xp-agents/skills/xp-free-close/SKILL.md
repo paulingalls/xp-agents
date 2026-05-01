@@ -92,6 +92,9 @@ options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 If the user picks abort, stop here. The branch and PR (if any) stay
 intact for follow-up work.
 
+If the preload included a `### HOOK_GUIDANCE` section, follow it
+before confirming the merge.
+
 ## Step 7: Merge
 
 ```bash

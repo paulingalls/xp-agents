@@ -26,8 +26,20 @@ from pathlib import Path
 
 # Resolve sibling branching module without modifying caller sys.path.
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import branching
+import git_hooks
+
+
+def pre_commit_hook_present(repo_root: str) -> bool:
+    """Return True when the project runs tests via a git hook on commit/push.
+
+    Strict — defers to ``git_hooks.will_fire_hook`` (markers + executable
+    pre-commit/pre-push, honoring ``core.hooksPath``). Non-executable
+    scripts and ``.sample`` files don't qualify because git won't fire them.
+    """
+    return git_hooks.will_fire_hook(repo_root)
 
 
 def _has_remote(cwd: str) -> bool:
@@ -124,6 +136,12 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hook_present(args: argparse.Namespace) -> int:
+    """Print 'present' or 'absent' for the close-skill preloads."""
+    print("present" if pre_commit_hook_present(args.cwd) else "absent")
+    return 0
+
+
 def cmd_diff_command(args: argparse.Namespace) -> int:
     """Print `gh pr diff <N>` for numeric PR_OUTPUT, else `git diff <target>...HEAD`.
 
@@ -203,6 +221,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True)
     p.add_argument("--body", required=True)
     p.set_defaults(func=cmd_create_pr)
+
+    p = sub.add_parser(
+        "hook-present",
+        parents=[cwd_parent],
+        help="print 'present' or 'absent' for the project's git hooks",
+    )
+    p.set_defaults(func=cmd_hook_present)
 
     p = sub.add_parser(
         "diff-command",

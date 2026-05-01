@@ -17,14 +17,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
-def _create_teammate_worktree(tmpdir: Path, name: str) -> str:
-    """Create a worktree with a commit. Returns worktree path."""
+def _create_teammate_worktree(
+    tmpdir: Path, name: str, branch: str | None = None
+) -> str:
+    """Create a worktree with a commit. Returns worktree path.
+
+    `name` is the worktree directory name. `branch` defaults to `name`
+    (matching the legacy assumption); pass a different value to model the
+    real-world case where the worktree dir name (e.g. ``worktree-story-007``)
+    differs from the checked-out branch (e.g. ``paulingalls/story-007-perf``).
+    """
+    branch = branch or name
     wt_dir = tmpdir / ".claude" / "worktrees"
     wt_dir.mkdir(parents=True, exist_ok=True)
     wt_path = str(wt_dir / name)
 
     subprocess.run(
-        ["git", "worktree", "add", "-b", name, wt_path, "HEAD"],
+        ["git", "worktree", "add", "-b", branch, wt_path, "HEAD"],
         cwd=tmpdir,
         capture_output=True,
         check=True,
@@ -85,6 +94,124 @@ class TestVerifyMerged(_IntegrationTestCase):
         self.assertFalse(
             cleanup_teammate.verify_merged("teammate-ghost", str(self.tmpdir))
         )
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
+
+
+class TestMainBranchDerivation(_IntegrationTestCase):
+    """main() derives the actual checked-out branch from the worktree.
+
+    Real teammate worktrees have dir names like ``worktree-story-007`` but
+    the branch is ``<user>/story-007-<slug>`` — they don't match. main()
+    must use the branch, not args.name, to verify the merge.
+    """
+
+    def test_succeeds_when_branch_differs_from_worktree_name(self):
+        """Merged branch detected via derived ref, not args.name."""
+        import cleanup_teammate
+
+        wt_name = "worktree-story-077"
+        branch = "paulingalls/story-077-derived-branch"
+        _create_teammate_worktree(self.tmpdir, wt_name, branch=branch)
+        # Merge the actual branch (not the worktree dir name) into main.
+        subprocess.run(
+            ["git", "merge", branch, "--no-ff", "-m", f"Merge {branch}"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+
+        rc = cleanup_teammate.main(
+            [
+                "--name",
+                wt_name,
+                "--smm-dir",
+                str(self.smm_dir),
+                "--cwd",
+                str(self.tmpdir),
+            ]
+        )
+
+        self.assertEqual(rc, 0, "main() should detect merge via derived branch")
+
+    def test_refuses_when_derived_branch_unmerged(self):
+        """name and branch differ; branch NOT merged → exit 1, stderr message."""
+        import cleanup_teammate
+
+        wt_name = "worktree-story-078"
+        branch = "paulingalls/story-078-unmerged"
+        _create_teammate_worktree(self.tmpdir, wt_name, branch=branch)
+        # Do NOT merge.
+
+        rc = cleanup_teammate.main(
+            [
+                "--name",
+                wt_name,
+                "--smm-dir",
+                str(self.smm_dir),
+                "--cwd",
+                str(self.tmpdir),
+            ]
+        )
+
+        self.assertEqual(rc, 1, "Unmerged derived branch must abort cleanup")
+
+    def test_falls_back_to_name_with_clear_message_when_worktree_missing(self):
+        """Worktree dir gone, --name doesn't match a ref → 'not found' + suffix."""
+        import contextlib
+        import io
+
+        import cleanup_teammate
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            rc = cleanup_teammate.main(
+                [
+                    "--name",
+                    "worktree-missing-079",
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--cwd",
+                    str(self.tmpdir),
+                ]
+            )
+
+        self.assertEqual(rc, 1)
+        # Distinguishes "branch not found" from "branch unmerged" so the
+        # operator's next step is clear (resolves concern 509dce34be9f).
+        self.assertIn("not found", stderr.getvalue())
+        self.assertIn("worktree gone", stderr.getvalue())
+
+    def test_distinguishes_not_found_from_unmerged(self):
+        """Unmerged-but-existing branch reports 'unmerged', not 'not found'."""
+        import contextlib
+        import io
+
+        import cleanup_teammate
+
+        wt_name = "worktree-story-080"
+        branch = "paulingalls/story-080-needs-merge"
+        _create_teammate_worktree(self.tmpdir, wt_name, branch=branch)
+        # Do NOT merge — branch exists but is unmerged.
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            rc = cleanup_teammate.main(
+                [
+                    "--name",
+                    wt_name,
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--cwd",
+                    str(self.tmpdir),
+                ]
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertIn("unmerged commits", stderr.getvalue())
+        self.assertNotIn("not found", stderr.getvalue())
 
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)

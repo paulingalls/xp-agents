@@ -7,6 +7,7 @@ now handles .accept clearing and iteration_complete recording as part
 of the PostToolUse:Skill replacement plan).
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -337,6 +338,68 @@ class TestAcceptSkillTextRunsTier2SecurityReview(unittest.TestCase):
             "Step 1c args must reference 'merge-base' (story branch vs "
             "sprint base) so the scope is unambiguous.",
         )
+
+
+class TestAcceptSkillTextInlinesCascadeDefer(unittest.TestCase):
+    """SKILL.md must inline the cascade-defer bash, not just describe it.
+
+    Both Step 1 defer paths (automated and manual) tell the agent to
+    "cascade the deferral" without showing the mechanics, so each
+    invocation re-derives the transitive-dependents bash from scratch.
+    Codified after debt 91df34477abe — inline a single shared block.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_cascade_block_present(self):
+        # The SKILL.md must contain a fenced code block that performs the
+        # cascade — pinned by the simultaneous presence of the
+        # find-transitive-dependents subcommand (which walks sprint.json)
+        # and an update-story deferred call (which marks each blocked
+        # descendant). Splitting on fences avoids accepting distant
+        # prose mentions as a "block".
+        blocks = re.findall(r"```[a-z]*\n(.*?)\n```", self.text, re.DOTALL)
+        cascade_blocks = [
+            b
+            for b in blocks
+            if (
+                "find-transitive-dependents" in b
+                and "update-story" in b
+                and "deferred" in b
+            )
+        ]
+        self.assertTrue(
+            cascade_blocks,
+            "SKILL.md must contain a fenced code block invoking "
+            "sprint_cli.py find-transitive-dependents and looping "
+            "update-story <id> deferred over the result. Without it, "
+            "both Step 1 defer paths only describe the cascade in prose "
+            "and the agent re-derives the algorithm each time — see "
+            "debt 91df34477abe.",
+        )
+
+    def test_both_step1_paths_reference_cascade_section(self):
+        # Both Step 1 sub-paths (Automated lines ~39-61, Manual lines
+        # ~63-73) describe the defer choice. Each must point the agent
+        # at the shared "Cascading a deferral" section rather than
+        # re-explaining the algorithm. Without this, the next prose edit
+        # can drift one path's description out of sync with the other.
+        # Anchor on the literal cross-reference ("Cascading a deferral")
+        # so a header rename forces a coordinated update.
+        automated = self._slice_section("### Automated acceptance")
+        manual = self._slice_section("### Manual acceptance")
+        self.assertIn("Cascading a deferral", automated)
+        self.assertIn("Cascading a deferral", manual)
+        # And the section itself must exist as a header.
+        self.assertIn("### Cascading a deferral", self.text)
+
+    def _slice_section(self, header: str) -> str:
+        idx = self.text.find(header)
+        self.assertNotEqual(idx, -1, f"SKILL.md missing header: {header}")
+        nxt = self.text.find("\n### ", idx + 1)
+        return self.text[idx : nxt if nxt != -1 else None]
 
 
 class TestAcceptPreloadTypes(_IntegrationTestCase):

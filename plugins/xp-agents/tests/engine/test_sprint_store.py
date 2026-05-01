@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for sprint_store.py.
+"""Tests for sprint_store.py — load/save and mutations.
 
-Covers: load/save, update_story_status, set_branch, status checks,
-compute_velocity, compute_blockers, render_markdown, render_story_sections.
-Schema validation tests live in test_sprint_schema.py.
+Covers: load/save, update_story_status, set_branch, set_story_branch.
+Render (render_markdown, render_story_sections) lives in
+test_sprint_render.py — moved with the sprint_render extraction.
+Status checks (has_active_*, is_complete, scheduled_*), compute_velocity,
+compute_blockers, and count_by_status live in test_sprint_status.py
+(split for the 500-line cap). Schema validation tests live in
+test_sprint_schema.py.
 """
 
 import json
@@ -198,250 +202,9 @@ class TestSetStoryBranch(_SMMTestCase):
             )
 
 
-# ===========================================================================
-# Status check functions
-# ===========================================================================
-
-
-class TestStatusChecks(_SMMTestCase):
-    def test_has_active_stories_ready(self):
-        import sprint_store
-
-        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
-        self.assertTrue(sprint_store.has_active_stories(self.smm_dir))
-
-    def test_has_active_stories_in_progress(self):
-        import sprint_store
-
-        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertTrue(sprint_store.has_active_stories(self.smm_dir))
-
-    def test_no_active_when_all_done(self):
-        import sprint_store
-
-        sprint = _make_sprint(stories=[_make_story(status="done")])
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertFalse(sprint_store.has_active_stories(self.smm_dir))
-
-    def test_no_active_when_missing(self):
-        import sprint_store
-
-        self.assertFalse(sprint_store.has_active_stories(self.smm_dir))
-
-    def test_is_complete_all_done(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="s1", status="done"),
-                _make_story(id="s2", status="deferred"),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertTrue(sprint_store.is_complete(self.smm_dir))
-
-    def test_not_complete_with_ready(self):
-        import sprint_store
-
-        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
-        self.assertFalse(sprint_store.is_complete(self.smm_dir))
-
-    def test_has_in_progress(self):
-        import sprint_store
-
-        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertTrue(sprint_store.has_in_progress_stories(self.smm_dir))
-
-    def test_has_ready(self):
-        import sprint_store
-
-        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
-        self.assertTrue(sprint_store.has_ready_stories(self.smm_dir))
-
-    def test_has_scheduled(self):
-        import sprint_store
-
-        sprint = _make_sprint(stories=[_make_story(status="scheduled")])
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertTrue(sprint_store.has_scheduled_stories(self.smm_dir))
-
-    def test_has_scheduled_false_when_only_in_progress(self):
-        import sprint_store
-
-        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertFalse(sprint_store.has_scheduled_stories(self.smm_dir))
-
-    def test_next_scheduled_returns_lowest_id_with_deps_done(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="story-001", status="done"),
-                _make_story(
-                    id="story-002", status="scheduled", dependencies=["story-001"]
-                ),
-                _make_story(
-                    id="story-003", status="scheduled", dependencies=["story-002"]
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # story-002 is scheduled and its dep (story-001) is done; story-003's
-        # dep (story-002) is scheduled, not done, so story-003 is blocked.
-        nxt = sprint_store.next_scheduled_story_id(self.smm_dir)
-        self.assertEqual(nxt, "story-002")
-
-    def test_next_scheduled_none_when_no_scheduled(self):
-        import sprint_store
-
-        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
-
-    def test_scheduled_file_domains_overlap_true_when_shared_file(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001",
-                    status="scheduled",
-                    file_domain=["src/a.py — owner", "src/b.py — shared"],
-                ),
-                _make_story(
-                    id="story-002",
-                    status="scheduled",
-                    file_domain=["src/b.py — caller", "src/c.py — owner"],
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # Path portion (before " — ") is what counts; descriptions vary.
-        self.assertTrue(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
-
-    def test_scheduled_file_domains_overlap_false_when_disjoint(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001", status="scheduled", file_domain=["src/a.py"]
-                ),
-                _make_story(
-                    id="story-002", status="scheduled", file_domain=["src/b.py"]
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
-
-    def test_scheduled_file_domains_overlap_false_when_single_scheduled(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="story-001", status="scheduled", file_domain=["a.py"]),
-                _make_story(id="story-002", status="ready", file_domain=["a.py"]),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # Only one scheduled story — no pair to overlap. Not a conflict.
-        self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
-
-    def test_sprint_exists(self):
-        import sprint_store
-
-        self.assertFalse(sprint_store.sprint_exists(self.smm_dir))
-        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
-        self.assertTrue(sprint_store.sprint_exists(self.smm_dir))
-
-
-# ===========================================================================
-# Computed fields
-# ===========================================================================
-
-
-class TestComputeVelocity(unittest.TestCase):
-    def test_velocity(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="s1", status="done"),
-                _make_story(id="s2", status="done"),
-                _make_story(id="s3", status="deferred"),
-                _make_story(id="s4", status="ready"),
-            ]
-        )
-        v = sprint_store.compute_velocity(sprint)
-        self.assertEqual(v["stories_planned"], 4)
-        self.assertEqual(v["stories_delivered"], 2)
-        self.assertEqual(v["stories_carried"], 1)
-
-
-class TestComputeBlockers(unittest.TestCase):
-    def test_blocker_detected(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001",
-                    status="ready",
-                    dependencies=["story-002"],
-                ),
-                _make_story(id="story-002", status="in-progress"),
-            ]
-        )
-        blockers = sprint_store.compute_blockers(sprint)
-        self.assertEqual(len(blockers), 1)
-        self.assertIn("story-001", blockers[0])
-
-    def test_no_blocker_when_dep_done(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001",
-                    status="ready",
-                    dependencies=["story-002"],
-                ),
-                _make_story(id="story-002", status="done"),
-            ]
-        )
-        blockers = sprint_store.compute_blockers(sprint)
-        self.assertEqual(len(blockers), 0)
-
-    def test_no_deps_no_blockers(self):
-        import sprint_store
-
-        blockers = sprint_store.compute_blockers(_make_sprint())
-        self.assertEqual(len(blockers), 0)
-
-
-class TestCountByStatus(unittest.TestCase):
-    def test_counts(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="s1", status="ready"),
-                _make_story(id="s2", status="in-progress"),
-                _make_story(id="s3", status="done"),
-                _make_story(id="s4", status="deferred"),
-                _make_story(id="s5", status="scheduled"),
-            ]
-        )
-        counts = sprint_store.count_by_status(sprint)
-        self.assertEqual(counts["ready"], 1)
-        self.assertEqual(counts["scheduled"], 1)
-        self.assertEqual(counts["in-progress"], 1)
-        self.assertEqual(counts["done"], 1)
-        self.assertEqual(counts["deferred"], 1)
+# Status check functions, compute_velocity, compute_blockers, count_by_status
+# tests live in test_sprint_status.py — split per the 500-line cap. Render
+# tests live in test_sprint_render.py. Load/save and mutations stay here.
 
 
 # ===========================================================================
@@ -449,84 +212,103 @@ class TestCountByStatus(unittest.TestCase):
 # ===========================================================================
 
 
-class TestRenderMarkdown(unittest.TestCase):
-    def test_render_includes_goal(self):
+class TestTransitiveInProgressDependents(_SMMTestCase):
+    """Return sorted in-progress stories transitively blocked by a given story."""
+
+    def _write(self, *stories: dict) -> None:
+        sprint = _make_sprint(stories=list(stories))
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_no_sprint_returns_empty(self):
         import sprint_store
 
-        md = sprint_store.render_markdown(_make_sprint(goal="Build auth"))
-        self.assertIn("# Sprint: Build auth", md)
-
-    def test_render_includes_story(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint())
-        self.assertIn("### story-001: User registration", md)
-        self.assertIn("**Status:** ready", md)
-
-    def test_render_includes_sprint_id(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint())
-        self.assertIn("sprint-001", md)
-
-    def test_render_acceptance_execution(self):
-        import sprint_store
-
-        ae = {
-            "type": "pytest",
-            "command": "pytest tests/acceptance/",
-            "setup": "docker compose up -d",
-            "notes": "Requires backend on :3000",
-        }
-        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
-        md = sprint_store.render_markdown(sprint)
-        self.assertIn("**Acceptance Execution:**", md)
-        self.assertIn("**Type:** pytest", md)
-        self.assertIn("`pytest tests/acceptance/`", md)
-        self.assertIn("`docker compose up -d`", md)
-        self.assertIn("Requires backend on :3000", md)
-
-    def test_render_acceptance_execution_minimal(self):
-        import sprint_store
-
-        ae = {"type": "bash", "command": "bash test.sh"}
-        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
-        md = sprint_store.render_markdown(sprint)
-        self.assertIn("**Type:** bash", md)
-        self.assertIn("`bash test.sh`", md)
-        self.assertNotIn("**Setup:**", md)
-        self.assertNotIn("**Notes:**", md)
-
-    def test_render_no_acceptance_execution(self):
-        import sprint_store
-
-        md = sprint_store.render_markdown(_make_sprint())
-        self.assertNotIn("Acceptance Execution", md)
-
-
-class TestRenderStorySections(unittest.TestCase):
-    def test_render_specific_stories(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="story-001", title="First"),
-                _make_story(id="story-002", title="Second"),
-                _make_story(id="story-003", title="Third"),
-            ]
+        result = sprint_store.transitive_in_progress_dependents(
+            self.smm_dir, "story-001"
         )
-        md = sprint_store.render_story_sections(sprint, ["story-001", "story-003"])
-        self.assertIn("story-001", md)
-        self.assertIn("First", md)
-        self.assertIn("story-003", md)
-        self.assertIn("Third", md)
-        self.assertNotIn("story-002", md)
+        self.assertEqual(result, [])
 
-    def test_empty_ids_returns_empty(self):
+    def test_no_dependents_returns_empty(self):
         import sprint_store
 
-        md = sprint_store.render_story_sections(_make_sprint(), [])
-        self.assertEqual(md, "")
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(id="story-002", status="in-progress"),
+        )
+        result = sprint_store.transitive_in_progress_dependents(
+            self.smm_dir, "story-001"
+        )
+        self.assertEqual(result, [])
+
+    def test_direct_in_progress_dependent_returned(self):
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                dependencies=["story-001"],
+            ),
+        )
+        self.assertEqual(
+            sprint_store.transitive_in_progress_dependents(self.smm_dir, "story-001"),
+            ["story-002"],
+        )
+
+    def test_transitive_in_progress_dependents_returned_sorted(self):
+        import sprint_store
+
+        # story-001 → story-002 → story-003; all in-progress.
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                dependencies=["story-001"],
+            ),
+            _make_story(
+                id="story-003",
+                status="in-progress",
+                dependencies=["story-002"],
+            ),
+        )
+        self.assertEqual(
+            sprint_store.transitive_in_progress_dependents(self.smm_dir, "story-001"),
+            ["story-002", "story-003"],
+        )
+
+    def test_done_dependent_excluded(self):
+        # A done dependent has already shipped — no need to defer it. The
+        # transitive walk must filter by status, not by dependency edge alone.
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(id="story-002", status="done", dependencies=["story-001"]),
+        )
+        self.assertEqual(
+            sprint_store.transitive_in_progress_dependents(self.smm_dir, "story-001"),
+            [],
+        )
+
+    def test_dependency_cycle_terminates(self):
+        # Sprint schema doesn't enforce DAG; a cycle (story depending on
+        # itself, or A↔B) must not infinite-loop the walker. Real cycles
+        # come from copy-paste typos in sprint.json.
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                dependencies=["story-001", "story-002"],
+            ),
+        )
+        result = sprint_store.transitive_in_progress_dependents(
+            self.smm_dir, "story-001"
+        )
+        self.assertEqual(result, ["story-002"])
 
 
 # ===========================================================================

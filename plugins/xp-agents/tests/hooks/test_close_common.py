@@ -394,5 +394,115 @@ class TestDiffCommand(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
 
 
+class TestHookPresent(unittest.TestCase):
+    """`hook-present` reports whether the project runs tests via a git hook.
+
+    Used by /xp-story-close and /xp-sprint-close preloads to drive a
+    fallback prose nudge ("run the project's test command before
+    confirming the merge") when no hook is wired up.
+
+    Detection covers: default `.git/hooks/pre-commit` (executable, not
+    `.sample`); `core.hooksPath` override pointing at a dir with an
+    executable hook; framework markers (`.pre-commit-config.yaml`,
+    `lefthook.yml/yaml`, `.husky/`).
+    """
+
+    def _make_executable(self, path: Path) -> None:
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+
+    def test_executable_default_pre_commit_hook_is_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            self._make_executable(Path(td) / ".git" / "hooks" / "pre-commit")
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "present")
+
+    def test_no_hook_and_no_markers_is_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "absent")
+
+    def test_non_executable_pre_commit_hook_is_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            hook = Path(td) / ".git" / "hooks" / "pre-commit"
+            hook.write_text("#!/bin/sh\nexit 0\n")
+            # Don't chmod — file exists but isn't executable.
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "absent")
+
+    def test_core_hookspath_override_with_executable_hook_is_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            override = Path(td) / "custom-hooks"
+            override.mkdir()
+            self._make_executable(override / "pre-commit")
+            subprocess.run(
+                ["git", "config", "core.hooksPath", str(override)],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "present")
+
+    def test_tilde_in_core_hookspath_is_expanded(self):
+        with tempfile.TemporaryDirectory() as home:
+            hooks_under_home = Path(home) / "dotfiles" / "hooks"
+            hooks_under_home.mkdir(parents=True)
+            self._make_executable(hooks_under_home / "pre-commit")
+            with tempfile.TemporaryDirectory() as td:
+                _bf.init_repo(td)
+                subprocess.run(
+                    ["git", "config", "core.hooksPath", "~/dotfiles/hooks"],
+                    cwd=td,
+                    capture_output=True,
+                    check=True,
+                )
+                env = {**_bf.GIT_ENV, "HOME": home}
+                result = _run(["hook-present", "--cwd", td], env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "present")
+
+    def test_executable_pre_push_hook_alone_is_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            self._make_executable(Path(td) / ".git" / "hooks" / "pre-push")
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "present")
+
+    def test_pre_commit_framework_marker_is_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            (Path(td) / ".pre-commit-config.yaml").write_text("repos: []\n")
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "present")
+
+    def test_lefthook_marker_is_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            (Path(td) / "lefthook.yml").write_text("pre-commit:\n  commands: {}\n")
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "present")
+
+    def test_husky_directory_marker_is_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            (Path(td) / ".husky").mkdir()
+            (Path(td) / ".husky" / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+            result = _run(["hook-present", "--cwd", td])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "present")
+
+
 if __name__ == "__main__":
     unittest.main()

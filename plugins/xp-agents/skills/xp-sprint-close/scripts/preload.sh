@@ -15,3 +15,6 @@ echo "CURRENT_BRANCH=${CURRENT_BRANCH}"
 echo "TARGET_BRANCH=${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
+HOOK_STATUS=$(pre_commit_hook_present)
+echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
+emit_hook_guidance "$HOOK_STATUS"

@@ -1,5 +1,80 @@
 # Changelog
 
+## v2.37.3 — Compaction retains sprint commits + cascade-defer helper + probe diagnostic pairings + match-pattern typing
+
+A free session resolving the carry-forward Tries that piled up across the last three sprint retros plus the two adopted debts. The headline is a real bug fix in `compact.py`: sprint retros were reporting `per_story.commits=0` across all done stories because curation-watermark compaction archived commit events as soon as it could, leaving `compute_story_analysis` blind by retro time. Plus the cascade-defer mechanics in `/xp-accept` finally got inlined as bash, the probe diagnostic pairings now flow through to the retro analyst, and the stringly-typed match block in `compact.py` got the typed-pattern treatment.
+
+### Compaction retains sprint commits until retro_done (the headline fix)
+
+`_collect_smm_referenced_ids` now retains commit events whose `metadata.sprint_id` belongs to a sprint with no `sprint_retro_done` event yet. New helper `_compute_pending_retro_sprint_ids` computes that set from sprint-start vs retro-done events; `case "commit"` consults it; `case "sprint"` retains sprint_starts via the same set (not `ended_sprint_ids`) so the helper can still recompute pending across multiple compaction rounds. Without this second piece the original fix would only postpone the bug by one round — caught by an independent code-reviewer subagent and verified with a multi-round regression test that compacts 4 times across the start → end → idle → retro lifecycle. Backfill of sprint-049's broken retro recovered 25 commits from `backups/archive-*.jsonl` and produced corrected per-story attribution as a status event (no commit needed — archives are SMM data, not repo state).
+
+### Cascade-defer in /xp-accept: CLI helper + inlined bash
+
+Both Step 1 defer paths (Automated and Manual) now point at a shared "Cascading a deferral" section instead of describing the cascade in prose only. New `sprint_store.transitive_in_progress_dependents(smm_dir, story_id)` does the BFS over `sprint.json` deps (excludes done dependents, terminates on cycles); exposed via new `sprint_cli.py find-transitive-dependents` subcommand. The SKILL.md cascade block is now three lines of shell instead of inlining a 16-line `python3 -c` Python walker — and that decision was driven by an in-cycle code-reviewer push: the original inline-Python version was technically correct but interpolated a shell variable into a single-quoted Python literal, and the reviewer correctly noted that the right fix wasn't to harden the quoting but to extract the helper.
+
+### Probe diagnostic pairings surfaced to retro analyst
+
+Three sprints in a row of probe-divert-dominant data — `probe_adoption_rate=0`, divert as the only miss bucket — flagged "noisy or under-specified candidate set" but the retro had only the count to act on. `_compute_probe_adoption` now also returns `probe_divert_details`: a list of side-by-side records (`agent_id`, `probe_ts`, `commit_ts`, `candidates` sorted, `resolves` sorted) — one per divert, built in the existing iteration over probes. The retro agent prompt now surfaces up to 3 examples and uses the side-by-side pairing to recommend a specific Try (e.g. "candidate set excluded the file domain agent acted on") instead of a generic "candidate set is noisy" line. Pure read-only retro-time computation — no SMM-event side effects from the metric function; the analyst is the right emitter if a divert pairing needs to outlive the retro JSON.
+
+### compact.py match patterns: typed via es.EVENT_TYPE_*
+
+The `_collect_smm_referenced_ids` match block was 11 stringly-typed `case "goal":`, `case "decision":`, etc. Refactored to `case es.EVENT_TYPE_GOAL:` value patterns. Python match patterns require dotted access (bare from-imported names become capture patterns — silent footgun), so this pulls `import event_schema as es` and converts every event_schema reference in the file (including `SPRINT_ACTION_*` and `sessions_since_event`) to the dotted form. Single import style per file — eliminates the cognitive tax of "why is this one bare and that one dotted?" and forecloses the future bug where someone moves a bare-name use into a match expression. Existing 42 compact tests serve as spec; refactor mode declared upfront.
+
+### Refactor-mode TDD prose
+
+Adopted the carry-forward Try about refactor-mode: when a refactor extracts a new primitive (module, function, class), add at least one behavior test for that primitive — original-caller tests don't reach it. PROCESS_GUIDE.md `### Refactor Mode` section gained the rule; pinned by `test_process_guide_refactor_mode_covers_new_primitives` so prose drift fails CI. To fit the 1000-token PROCESS_GUIDE.md budget after the addition, collapsed the CLI Tools section to a one-line sentence and removed a parenthetical implementation detail from the Forked skills bullet. Self-applied in this same release: the file-cap split that pushed `sprint_store.py` over to `sprint_render.py` got a direct `test_sprint_render.py` (was previously tested only through the now-deleted re-export shim).
+
+### File-cap discipline restored
+
+Two files crossed (or got worse than) the 500-line cap during this work and were split in the same commits per `feedback_proactive_file_splits.md`:
+- `sprint_store.py` 526 → 445 (extracted `sprint_render.py`).
+- `test_sprint_cli.py` 562 → 402 (extracted `test_sprint_cli_deps.py` for the dep-graph subcommand tests — `next-in-progress` and `find-transitive-dependents`).
+
+### Misc
+
+- Discovery recorded that the originally-adopted "drop redundant subprocess in pre_tool_bash.py" debt couldn't land on main: the helpers it depended on (`get_filenames_from_diff`, `get_staged_diff` from story-007) live on the unmerged sprint-049 branch. Refile post-merge with accurate scope.
+- Free session done on `paulingalls/free-2026-05-01-open-debt-concerns`; merge handled by `/xp-free-close` (PR #51).
+
+## v2.37.2 — Teammate-mode merge timing fix + adjacent fixes + hook detector consolidation
+
+End-to-end CLI-teammate run in sprint-049 surfaced 5 bugs captured in `docs/ideas/TEAMMATE_ACCEPT_BEFORE_MERGE.md`. This release implements that design plus two adjacent single-file fixes, a test-file split that was over the 500-line cap, and a refactor that consolidates two divergent hook-detector functions into a shared module.
+
+### Teammate-mode merge timing (the headline fix)
+
+`/xp-assign` post-spawn no longer eagerly merges teammate branches. Each story branch stays alive on its teammate worktree until its `/xp-story-close` invocation merges it — same pipeline as solo mode, just N branches alive simultaneously. Three concrete bugs resolved:
+
+- `/xp-accept` Step 0 (cross-teammate review) was running against an empty diff because branches had already been merged before /xp-accept fired. Step 0 deleted; layered coverage replaces it (per-story close-reviewer with Read access to merged-in siblings + project pre-commit hook on every merge + `/xp-sprint-close` cumulative review at the sprint boundary).
+- `/xp-story-close` per-story preflight refused (CURRENT_BRANCH IS TARGET_BRANCH after merge). Per-story close pipeline is now reachable in teammate mode.
+- `cleanup_teammate.py` was passing the worktree directory name as a branch to `git merge-base`. Now derives the actual checked-out branch via `identity.get_current_branch(wt_path)` with a graceful "branch not found" / "branch unmerged" distinction in the fallback path.
+
+### `/xp-accept` Step 1 worktree cwd
+
+When a story has a teammate worktree (entry in TEAMMATE_WORKTREES preload section), `/xp-accept` now runs `acceptance_execution.command` with Bash `cwd` set to that worktree's absolute path so the command runs against the unmerged teammate edits. Universal pattern — works regardless of test runner.
+
+### Hook-absent fallback prose for close skills
+
+All four close skills (story, sprint, plan, free) now emit `PRE_COMMIT_HOOK=present|absent` in their preloads. When `absent`, an `### HOOK_GUIDANCE` section is conditionally emitted nudging the operator to run the project's test command before confirming the merge — for projects that don't run tests via a git hook. Single source of truth in `_preload_base.sh::emit_hook_guidance`; SKILL.md prose just defers to "follow HOOK_GUIDANCE if present."
+
+### Adjacent fixes
+
+- **Duplicate session-end checklist** (`bash_post_tool.py`) — every `git push` triggered the same Stop-hook nudge, treating each push as a session-end signal. Dropped the duplicate path; Stop hook (`session_end_warning.py`) keeps the legitimate single-fire behavior.
+- **`[sprint-direct]` escape-hatch** — SMM constraint `b2467c56ddbf` advertised `[sprint-direct]` as the close-window bypass token but the regex only accepted `[release]` or `[chore]`. Wired `sprint-direct` into the alternation; warning prose updated to list all three tokens.
+
+### Hook detector consolidation
+
+Two divergent hook detectors (`seed_smm.has_git_hooks` and `close_common.pre_commit_hook_present`) shared `_HOOK_INDICATORS` but disagreed on which signals were authoritative — same repo could yield contradictory answers (lefthook + `core.hooksPath` was the surprising case). Extracted shared primitives into `smm/git_hooks.py`:
+
+- `has_framework_marker(repo_root)` — lefthook/husky/pre-commit-config
+- `resolved_hooks_dir(repo_root)` — honors `core.hooksPath` + tilde + relative paths
+- `has_executable_hook(repo_root)` — pre-commit/pre-push exec-bit check
+- `will_fire_hook(repo_root)` — strict composition
+
+Both consumers now compose these. `seed_smm.has_git_hooks` keeps its content-sniff fallback as the "intent-aware" extension on top of strict detection. Two pure behavior expansions (no previous True case becomes False): `seed_smm.has_git_hooks` now also returns True for `core.hooksPath` overrides AND for executable `pre-push`-only repos.
+
+### Test split
+
+`tests/engine/test_sprint_store.py` was 533 lines (over the 500-line cap). Extracted status/velocity/blockers/counts test classes into a new sibling `tests/engine/test_sprint_status.py`. Both files now ~294 lines. New file leads with a one-line shim-import test as a rename guard.
+
 ## v2.37.1 — Lint resolutions from Write/Edit now count as `lint_events`
 
 User reported that lint events appeared low/missing in retros despite lint passing. Root cause: a latent regression since the metadata.action vocabulary was introduced. Two paths emit lint-resolution events but only one tagged them with `metadata.action=lint_resolved`:

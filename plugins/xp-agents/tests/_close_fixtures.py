@@ -152,6 +152,12 @@ class _ClosePreloadCommonTests(_MixinBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(_extract_preload_var(result.stdout, "WORKTREE_CLEAN"), "false")
 
+    def test_emits_pre_commit_hook_present_or_absent(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hook = _extract_preload_var(result.stdout, "PRE_COMMIT_HOOK")
+        self.assertIn(hook, ("present", "absent"))
+
     def test_does_not_emit_review_input(self):
         # The close skill no longer creates a tempfile or echoes a
         # REVIEW_INPUT line — the four close-review fields are now passed
@@ -179,6 +185,7 @@ class _ClosePreloadCommonTests(_MixinBase):
             "TARGET_BRANCH",
             "GH_AVAILABLE",
             "WORKTREE_CLEAN",
+            "PRE_COMMIT_HOOK",
         ):
             self.assertIsNotNone(
                 _extract_preload_var(result.stdout, key),

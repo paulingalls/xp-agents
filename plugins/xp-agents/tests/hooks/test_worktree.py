@@ -392,14 +392,14 @@ class TestFindTeammateWorktreeForStory(unittest.TestCase):
             )
 
 
-class TestListLiveTeammateWorktreeNames(unittest.TestCase):
-    """list_live_teammate_worktree_names returns the basename for every
-    live (non-prunable, on-disk) `worktree-story-*` worktree.
+class TestListLiveTeammateWorktreePaths(unittest.TestCase):
+    """list_live_teammate_worktree_paths returns (story_id, abs_path) per
+    live teammate worktree.
 
-    Powers /xp-accept's preload — it currently does its own inline
-    `git worktree list --porcelain | grep | sed` parser. This helper
-    is the same data source as has_live_teammates / find_teammate_worktree_for_story
-    so all three queries stay consistent if the porcelain shape changes.
+    Used by /xp-accept's preload after the teammate-merge timing fix —
+    the SKILL prose needs to `cd <abs-path>` per story to run that
+    teammate's acceptance command in the worktree (where the work lives,
+    not in main repo HEAD which lacks the unmerged teammate edits).
     """
 
     def setUp(self):
@@ -414,11 +414,11 @@ class TestListLiveTeammateWorktreeNames(unittest.TestCase):
         porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
         with patch("worktree.subprocess.check_output", return_value=porcelain):
             self.assertEqual(
-                worktree.list_live_teammate_worktree_names(str(self.tmpdir)),
+                worktree.list_live_teammate_worktree_paths(str(self.tmpdir)),
                 [],
             )
 
-    def test_returns_names_in_porcelain_order(self):
+    def test_returns_story_id_and_abs_path_pairs(self):
         wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
         wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-042"
         wt1.mkdir(parents=True)
@@ -432,8 +432,8 @@ class TestListLiveTeammateWorktreeNames(unittest.TestCase):
         )
         with patch("worktree.subprocess.check_output", return_value=porcelain):
             self.assertEqual(
-                worktree.list_live_teammate_worktree_names(str(self.tmpdir)),
-                ["worktree-story-001", "worktree-story-042"],
+                worktree.list_live_teammate_worktree_paths(str(self.tmpdir)),
+                [("story-001", str(wt1)), ("story-042", str(wt2))],
             )
 
     def test_skips_prunable_entries(self):
@@ -448,8 +448,8 @@ class TestListLiveTeammateWorktreeNames(unittest.TestCase):
         )
         with patch("worktree.subprocess.check_output", return_value=porcelain):
             self.assertEqual(
-                worktree.list_live_teammate_worktree_names(str(self.tmpdir)),
-                ["worktree-story-001"],
+                worktree.list_live_teammate_worktree_paths(str(self.tmpdir)),
+                [("story-001", str(wt_live))],
             )
 
     def test_returns_empty_for_non_git_cwd(self):
@@ -458,7 +458,7 @@ class TestListLiveTeammateWorktreeNames(unittest.TestCase):
         non_git = Path(tempfile.mkdtemp())
         try:
             self.assertEqual(
-                worktree.list_live_teammate_worktree_names(str(non_git)),
+                worktree.list_live_teammate_worktree_paths(str(non_git)),
                 [],
             )
         finally:

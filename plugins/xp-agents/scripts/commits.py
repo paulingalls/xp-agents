@@ -338,7 +338,7 @@ def extract_commit_message(command: str) -> str | None:
     return None
 
 
-_ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore)\]", re.IGNORECASE)
+_ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore|sprint-direct)\]", re.IGNORECASE)
 
 
 def is_escape_hatch_commit(command: str) -> bool:

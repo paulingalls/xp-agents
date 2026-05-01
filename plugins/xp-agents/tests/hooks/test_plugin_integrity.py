@@ -170,6 +170,26 @@ class TestMilestone6Files(unittest.TestCase):
         self.assertNotIn("ignore quality review", content.lower())
         self.assertIn("TDD", content)
 
+    def test_process_guide_refactor_mode_covers_new_primitives(self):
+        """Refactor-mode prose must require behavior tests for new primitives.
+
+        Codified after git_hooks.py consolidation shipped without coverage
+        for its new primitives — original-caller tests left them as an
+        implicit spec.
+        """
+        path = self.plugin_root / "PROCESS_GUIDE.md"
+        if not path.exists():
+            self.skipTest("PROCESS_GUIDE.md not yet created")
+        content = path.read_text()
+        refactor_idx = content.find("### Refactor Mode")
+        self.assertNotEqual(
+            refactor_idx, -1, "PROCESS_GUIDE.md missing '### Refactor Mode' section"
+        )
+        section_end = content.find("\n### ", refactor_idx + 1)
+        section = content[refactor_idx : section_end if section_end != -1 else None]
+        self.assertIn("new primitive", section.lower())
+        self.assertIn("behavior test", section.lower())
+
 
 class TestAgentFilesM65(unittest.TestCase):
     """Verify all plugin subagent files exist with correct frontmatter."""

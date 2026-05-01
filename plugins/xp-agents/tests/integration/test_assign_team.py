@@ -282,7 +282,9 @@ class TestAcceptPreloadTeammate(_IntegrationTestCase):
         result = self._run_preload(_ACCEPT_PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("TEAMMATE_WORKTREES", result.stdout)
-        self.assertIn(name, result.stdout)
+        # New format (post-A3): `story-id: abs-path` so /xp-accept can
+        # cd into the worktree per story to run its acceptance command.
+        self.assertRegex(result.stdout, r"story-001:\s+/.*worktree-story-001")
 
     def test_preload_no_worktrees_no_section(self):
         result = self._run_preload(_ACCEPT_PRELOAD)
