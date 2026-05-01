@@ -327,6 +327,36 @@ class _CloseSkillTextCommonTests(_MixinBase):
         # step (AskUserQuestion is not a script-callable tool).
         self.assertIn("AskUserQuestion", self.text)
 
+    def test_defaults_to_abort_on_block_finding(self):
+        # xp-close-reviewer Step 3.5 contract: when the reviewer files a
+        # Block-severity finding, the close skill MUST default the merge
+        # confirmation to Abort. Receiver-side honoring lives in SKILL.md
+        # prose (LLM-only seam — no script can enforce option ordering
+        # in AskUserQuestion).
+        self.assertIn(
+            "Step 3.5",
+            self.text,
+            "SKILL.md must name the Step 3.5 contract source so the "
+            "Abort-default rule is traceable; xp-close-reviewer is "
+            "named elsewhere via the Step 4 Agent fork and not a "
+            "sufficient pin on its own",
+        )
+        lower = self.text.lower()
+        self.assertIn(
+            "block finding",
+            lower,
+            "SKILL.md must mention 'Block finding' detection so the "
+            "orchestrator knows when to flip the default; bare 'block' "
+            "would match unrelated prose",
+        )
+        self.assertIn(
+            "recommended",
+            lower,
+            "SKILL.md must instruct the orchestrator to mark the Abort "
+            "option '(Recommended)' so AskUserQuestion's first-option "
+            "default surfaces as Abort to the user",
+        )
+
     def test_documents_no_gh_skip_breadcrumb(self):
         # Operator-facing breadcrumb: SKILL.md must mention "skipped:"
         # so the human reading the skill sees what create-pr's
