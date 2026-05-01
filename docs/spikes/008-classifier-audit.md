@@ -157,7 +157,7 @@ default → unknown (route to user)
 
 ## 6. Prediction accuracy on held-out 10
 
-**100% (10/10) code-resolvable predictions match actual**. All 10 held-out concerns are Class A (lint × 4) or Class B (test_failure × 4, ac_coverage × 2). Zero Class C in held-out.
+**10/10 predictions match actual — but with a fitting caveat read below before treating this as pure predictive accuracy.** 4 of the 10 held-out IDs (`026c2c025048`, `0028128a2130`, `085772770044`, `039f65db38d6`) ALSO appear in the training table per §4's dedup note — the rule had effectively seen them during derivation. The remaining 6 truly-unseen IDs all classified correctly (lint × 3, test_failure × 1, ac_coverage × 2), giving 6/6 on the strict-held-out subset. All 10 concerns are Class A (lint × 4) or Class B (test_failure × 4, ac_coverage × 2). Zero Class C in held-out. Per concern `902161484cd4`.
 
 **Caveat**: held-out is biased toward mechanical hook-emitted concerns. Worst-case test is on the training set's reviewer concerns: **22/22 reviewer concerns correctly class-labeled** (after dropping the four cross-table duplicates from §4 — `0028128a2130`, `085772770044`, `026c2c025048`, `039f65db38d6` — though only the first two are reviewer-emitted; the other two are mechanical). The two file-size concerns (`54bebdc78307`, `629d7e644a62`) are predicted Class B/`file_split` correctly per the rule above; the only categorical fuzz is whether `5f83747fe875` and `dff3ea967ee2` are `ac_coverage` (Class B) or `ac_amendment` (Class C) — both were resolved as Class B in this spike, validating Class B.
 
@@ -224,19 +224,16 @@ for concern in remaining_open_concerns_for_this_story:
 - `ac_amendment`: "AC interpretation choice. Update the AC reading inline in the plan/doc, then mark resolved."
 - `plan_discipline`: "Process feedback — already-committed work cannot be retroactively fixed. Acknowledge and move on; consider for future plans."
 
-## 8. Schema gap finding
+## 8. Schema gap finding — RETRACTED
 
-**38/40 sprint-050 concerns have `metadata.severity` null/missing**. Spot-check of the 2 with severity confirms it: only concerns explicitly filed via `--severity` flag carry it. xp-close-reviewer's Step 4 records concerns BEFORE prose (per `agents/xp-close-reviewer.md:128`) but does NOT pass `--severity`, so the high/medium classification per Constraints `d57963f81ac1` is lost at write time.
+**Withdrawn**. The original audit checked `metadata.severity` and concluded 38/40 concerns lacked severity. That was wrong: severity is a **top-level event field** (`.severity`), not nested under metadata. Re-running the query against `.severity` shows every concern in sprint-050 has it set (10 high / 38 medium / 7 low; zero null). xp-close-reviewer at `agents/xp-close-reviewer.md:111,121` already passes `--severity` correctly. There is no schema gap to fix.
 
-**Impact**: severity-based routing in /xp-story-close (e.g., "Block flips merge default to Abort") cannot rely on `metadata.severity`. Currently the SKILL.md detection uses content-pattern fallback, which is exactly the regex-fallback anti-pattern Constraints flag.
-
-**Recommended follow-up story**: "Wire close-reviewer to pass --severity". Not in story-008 scope; filed as a new concern (medium) for next-session triage.
+The bogus concern `fe1070134219` filed during the spike has been withdrawn via triage-drop. Caught by sprint close-reviewer (concern `29256f3cc794`).
 
 ## 9. Recommended next stories
 
-1. **Class A auto-fix prototype**: implement the `if class == 1: run_fix_command()` step inside `/xp-story-close`. Small, low-risk; gated to lint only.
-2. **Severity wire-up** (per §8): close-reviewer passes `--severity high|medium` to append.sh.
-3. **Class B surface refinement**: A/B the suggested-action text against real merge cycles — does the user act on the suggestion or ignore it?
+1. **Class A auto-fix prototype** — DEFERRED. Class A today is just `lint`, and pre-commit already runs `ruff format && ruff check --fix`. Surviving lint cases are rare (non-fixable rules like `RUF012`). Wait until a second deterministic remediation surfaces (e.g., import sort, format-only test fixture regen) so the new route earns its complexity. Per concern `dc646a18de09`.
+2. **Class B surface refinement**: A/B the suggested-action text against real merge cycles — does the LLM act on the suggestion or ignore it? This is where the practical win lives (Class B is ~60% of concerns; better category-aware text reduces user-prompt fatigue).
 
 ## 10. Phase 5 sanity prediction
 
