@@ -19,7 +19,6 @@ and let the script decide whether to skip. Orchestrator-only steps
 """
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
@@ -30,30 +29,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import branching
-import identity
-from seed_smm import _HOOK_INDICATORS
-
-_HOOK_NAMES = ("pre-commit", "pre-push")
+import git_hooks
 
 
 def pre_commit_hook_present(repo_root: str) -> bool:
     """Return True when the project runs tests via a git hook on commit/push.
 
-    Detects three configurations: framework markers (lefthook,
-    pre-commit-config, husky); the default ``.git/hooks/`` dir with an
-    executable ``pre-commit`` or ``pre-push``; a ``core.hooksPath``
-    override pointing at a dir with the same. The executable bit is the
-    load-bearing check — non-executable scripts (and ``.sample`` files)
-    will never fire.
+    Strict — defers to ``git_hooks.will_fire_hook`` (markers + executable
+    pre-commit/pre-push, honoring ``core.hooksPath``). Non-executable
+    scripts and ``.sample`` files don't qualify because git won't fire them.
     """
-    root = Path(repo_root)
-    if any((root / marker).exists() for marker in _HOOK_INDICATORS):
-        return True
-    override = identity._git_config("core.hooksPath", repo_root)
-    hooks_dir = Path(override).expanduser() if override else root / ".git" / "hooks"
-    if not hooks_dir.is_absolute():
-        hooks_dir = root / hooks_dir
-    return any(os.access(hooks_dir / name, os.X_OK) for name in _HOOK_NAMES)
+    return git_hooks.will_fire_hook(repo_root)
 
 
 def _has_remote(cwd: str) -> bool:
