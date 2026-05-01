@@ -14,6 +14,7 @@ phrases. Subsequent commits add Step 5c (commit 3) and tighten Step 6
 pattern.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -411,6 +412,70 @@ class TestSharedPipelineCoherence(unittest.TestCase):
                     1,
                     f"Heading must appear exactly once: {heading}",
                 )
+
+
+class TestShippedFilesAreProjectGeneric(unittest.TestCase):
+    """Regression guard: shipped plugin files (skills, agents, the
+    shared close-pipeline reference) must not name project-internal
+    SMM event IDs (12-hex hashes wrapped in `(decision <id>)` or
+    `(Constraints \\`<id>\\`)` / `(Wisdom \\`<id>\\`)` patterns) or
+    spike-NNN names. Those are meaningful only inside the xp-agents
+    repo's own SMM event log; they're noise-or-worse to a plugin user
+    in another project.
+
+    Resolves-Event trailers in commit messages are fine (they're git
+    trailer syntax, not in shipped runtime instructions). Tests under
+    tests/ and docs under docs/ may freely reference internal IDs —
+    those don't ship.
+    """
+
+    # Walks every markdown file the plugin ships at runtime: SKILL.md
+    # bodies (skills/), agent prompts (agents/), and the shared
+    # close-pipeline reference. _preload_base.sh is shell, not LLM-
+    # facing prose, so excluded.
+    _SHIPPED_MARKDOWN_ROOTS = (
+        _PLUGIN_ROOT / "skills",
+        _PLUGIN_ROOT / "agents",
+        _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md",
+    )
+
+    # Match the parenthetical patterns that wrap an internal event ID.
+    # We deliberately don't ban bare 12-hex strings — git short-hashes
+    # and example placeholders use that shape too. The parenthetical
+    # framing is what marks the project-internal reference.
+    _BANNED_PATTERNS = (
+        re.compile(r"\(decision\s+[0-9a-f]{12}\b", re.IGNORECASE),
+        re.compile(r"\(Constraints\s+`[0-9a-f]{12}`", re.IGNORECASE),
+        re.compile(r"\(Wisdom\s+`[0-9a-f]{12}`", re.IGNORECASE),
+        re.compile(r"\bspike-\d{3}\b", re.IGNORECASE),
+    )
+
+    @classmethod
+    def _shipped_md_files(cls):
+        files = []
+        for root in cls._SHIPPED_MARKDOWN_ROOTS:
+            if root.is_file():
+                files.append(root)
+            elif root.is_dir():
+                files.extend(root.rglob("*.md"))
+        return files
+
+    def test_no_internal_smm_id_or_spike_refs_in_shipped_md(self):
+        for md_path in self._shipped_md_files():
+            text = md_path.read_text()
+            for pattern in self._BANNED_PATTERNS:
+                with self.subTest(file=str(md_path), pattern=pattern.pattern):
+                    match = pattern.search(text)
+                    self.assertIsNone(
+                        match,
+                        f"{md_path.relative_to(_PLUGIN_ROOT)} contains "
+                        f"project-internal reference matching "
+                        f"{pattern.pattern!r}: {match.group(0) if match else ''!r}. "
+                        f"Shipped files must be plugin-generic — no SMM "
+                        f"event hex IDs or spike-NNN names. Move the "
+                        f"reference to docs/ or replace with a self-"
+                        f"contained explanation.",
+                    )
 
 
 if __name__ == "__main__":

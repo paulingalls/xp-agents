@@ -21,7 +21,7 @@ Perform Keep/Fix/Try analysis on unanalyzed events from the previous session. XP
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — structured summary for analysis:
      - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions, and commits (commit events include full message body, hash in metadata, and file list)
-     - `status_summary` — `{total, file_writes, test_runs, security_checks, simplifies, quality_reviews, lint_events, commits, other}` counts. Commits are also surfaced as signal events with full message/hash/files; the `commits` count here is a quick session-tempo number that increments on every type=commit event (sprint-042 M2 closed the meta-irony where the legacy "Committed:" status regex couldn't count doctrine-session commits).
+     - `status_summary` — `{total, file_writes, test_runs, security_checks, simplifies, quality_reviews, lint_events, commits, other}` counts. Commits are also surfaced as signal events with full message/hash/files; the `commits` count here is a quick session-tempo number that increments on every type=commit event.
      - `concern_groups` — deduplicated concerns grouped by content
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
      - `work_signals` — work-level correlations (see Work Analysis below)

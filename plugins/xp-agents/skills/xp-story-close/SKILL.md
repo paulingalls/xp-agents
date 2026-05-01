@@ -4,8 +4,8 @@ description: >-
   Per-story close: review the story diff, merge into the sprint base,
   and (solo mode) JIT-create the next in-progress story's branch off
   the merged tip. Invoked by /xp-accept on each accepted story; the
-  sprint-review dispatch is /xp-accept's responsibility after its
-  loop completes (decision e30e9e91e61a — single source of truth).
+  sprint-review dispatch is owned by /xp-accept after its loop
+  completes — single source of truth lives there.
 allowed-tools:
   - Read
   - Write
@@ -132,8 +132,8 @@ survives a failed step so the user can resolve and retry.
 
 If the story being closed was a teammate's, a worktree exists at
 `.claude/worktrees/worktree-<story-id>`. Solo stories have no
-worktree to clean up. Per-story symmetry (decision 9029c07ae198)
-puts the cleanup here, not bulk-after-loop in /xp-accept.
+worktree to clean up. Per-story symmetry puts the cleanup here, not
+bulk-after-loop in /xp-accept.
 
 Use `branching.py` subcommands to derive story id from the
 just-closed `<CURRENT_BRANCH>` and locate the matching live teammate
@@ -185,8 +185,8 @@ its branch on demand. Two states to handle:
 
 Wrap each path in an explicit shell guard. If both subcommands exit
 non-zero (no in-progress AND no scheduled), the sprint is complete —
-/xp-accept's loop owns the sprint-review dispatch (decision
-e30e9e91e61a — single source of truth lives in /xp-accept).
+/xp-accept's loop owns the sprint-review dispatch (single source of
+truth lives in /xp-accept).
 
 ```bash
 if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \

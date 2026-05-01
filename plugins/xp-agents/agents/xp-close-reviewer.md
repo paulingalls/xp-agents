@@ -80,7 +80,7 @@ Focus on:
 
 For **sprint**, **plan**, and **free** close modes — **NOT** story mode — invoke the security-review skill against the cumulative close diff. Story mode is excluded because Tier 2 at `/xp-accept` already reviewed the story diff before story-close fired; running Tier 3 there would duplicate the same review on the same diff.
 
-> Note: Tier 2 itself skips `code_free` stories (Wisdom `9258988c2d2a`), so a code_free story close has no LLM security coverage — Tier 1 deterministic patterns at commit time and the Keep/Concern/Block prose review below are its only safety nets. Acceptable because code_free stories are prose/SKILL.md only.
+> Note: Tier 2 itself skips `code_free` stories (verification-only stories with no expected code), so a code_free story close has no LLM security coverage — Tier 1 deterministic patterns at commit time and the Keep/Concern/Block prose review below are its only safety nets. Acceptable because code_free stories are prose/SKILL.md only.
 
 ```
 Skill(skill: "security-review", args: "the cumulative diff on branch <SOURCE> since merge-base with <TARGET>")
@@ -90,7 +90,7 @@ Skill(skill: "security-review", args: "the cumulative diff on branch <SOURCE> si
 
 Fold the skill's findings into your Keep / Concern / Block buckets for Step 4:
 
-- **Block** findings → record at `--severity "high"` per the standard Block convention (Constraints `d57963f81ac1`). The close skill MUST default the merge confirmation to **Abort** when any Block finding was filed; the user can override with explicit confirmation.
+- **Block** findings → record at `--severity "high"` (the standard Block-level severity). The close skill MUST default the merge confirmation to **Abort** when any Block finding was filed; the user can override with explicit confirmation.
 - **Concern** findings → record at `--severity "medium"`.
 - **Keep** findings → no event, mention in prose only.
 
