@@ -98,6 +98,13 @@ def _cmd_list_teammate_worktrees(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_list_teammate_worktree_paths(args: argparse.Namespace) -> int:
+    """Print ``story-id: abs-path`` per live teammate. Empty stdout = none."""
+    for story_id, wt_path in worktree.list_live_teammate_worktree_paths(args.cwd):
+        print(f"{story_id}: {wt_path}")
+    return 0
+
+
 def _cmd_find_teammate_worktree(args: argparse.Namespace) -> int:
     """Print teammate worktree NAME for a story id, empty if none live.
 
@@ -234,6 +241,13 @@ def main() -> int:
     )
     p_ltw.add_argument("--cwd", required=True)
     p_ltw.set_defaults(func=_cmd_list_teammate_worktrees)
+
+    p_ltwp = sub.add_parser(
+        "list-teammate-worktree-paths",
+        help="List live teammate worktrees as `story-id: abs-path` rows",
+    )
+    p_ltwp.add_argument("--cwd", required=True)
+    p_ltwp.set_defaults(func=_cmd_list_teammate_worktree_paths)
 
     p_ftw = sub.add_parser(
         "find-teammate-worktree",

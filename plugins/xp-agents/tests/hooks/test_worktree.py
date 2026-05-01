@@ -465,5 +465,78 @@ class TestListLiveTeammateWorktreeNames(unittest.TestCase):
             shutil.rmtree(non_git, ignore_errors=True)
 
 
+class TestListLiveTeammateWorktreePaths(unittest.TestCase):
+    """list_live_teammate_worktree_paths returns (story_id, abs_path) per
+    live teammate worktree.
+
+    Used by /xp-accept's preload after the teammate-merge timing fix —
+    the SKILL prose needs to `cd <abs-path>` per story to run that
+    teammate's acceptance command in the worktree (where the work lives,
+    not in main repo HEAD which lacks the unmerged teammate edits).
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_returns_empty_when_no_teammate_worktrees(self):
+        porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_paths(str(self.tmpdir)),
+                [],
+            )
+
+    def test_returns_story_id_and_abs_path_pairs(self):
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-042"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt1}\nHEAD def\n"
+            "branch refs/heads/worktree-story-001\n\n"
+            f"worktree {wt2}\nHEAD ghi\n"
+            "branch refs/heads/worktree-story-042\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_paths(str(self.tmpdir)),
+                [("story-001", str(wt1)), ("story-042", str(wt2))],
+            )
+
+    def test_skips_prunable_entries(self):
+        wt_live = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt_live.mkdir(parents=True)
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            f"worktree {wt_live}\nHEAD def\n"
+            "branch refs/heads/worktree-story-001\n\n"
+            "worktree /tmp/.claude/worktrees/worktree-story-099\n"
+            "HEAD ghi\nbranch refs/heads/worktree-story-099\nprunable gitdir\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_paths(str(self.tmpdir)),
+                [("story-001", str(wt_live))],
+            )
+
+    def test_returns_empty_for_non_git_cwd(self):
+        import shutil
+
+        non_git = Path(tempfile.mkdtemp())
+        try:
+            self.assertEqual(
+                worktree.list_live_teammate_worktree_paths(str(non_git)),
+                [],
+            )
+        finally:
+            shutil.rmtree(non_git, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

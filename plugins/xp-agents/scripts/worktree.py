@@ -119,6 +119,22 @@ def list_live_teammate_worktree_names(cwd: str) -> list[str]:
     return [Path(wt_path).name for wt_path in _iter_live_teammate_worktrees(cwd)]
 
 
+def list_live_teammate_worktree_paths(cwd: str) -> list[tuple[str, str]]:
+    """Return ``(story_id, abs_path)`` for every live teammate worktree.
+
+    /xp-accept needs the absolute path to ``cd`` into the story's
+    worktree before running its acceptance command — the unmerged
+    teammate edits live there, not in the orchestrator's HEAD.
+    """
+    # `_iter_live_teammate_worktrees` already filters for the
+    # `worktree-story-*` prefix, so the slice is unconditional.
+    skip = len("worktree-")
+    return [
+        (Path(wt_path).name[skip:], wt_path)
+        for wt_path in _iter_live_teammate_worktrees(cwd)
+    ]
+
+
 def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:
     """Return the worktree NAME (e.g. `worktree-story-042`) for a teammate
     that's working on `story_id`, or None if no live worktree matches.

@@ -3,6 +3,7 @@
 prefix-fallback resolution (shared merge-target theme).
 """
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -215,6 +216,72 @@ class TestPreExistingBranchDetection(unittest.TestCase):
                 r.stdout.strip().startswith("resumed:"),
                 f"Expected 'resumed:' prefix, got: {r.stdout.strip()!r}",
             )
+
+
+class TestListTeammateWorktreePathsCli(unittest.TestCase):
+    """branching_cli list-teammate-worktree-paths emits `story-id: abs-path`.
+
+    Format consumed by /xp-accept's preload (after A3) so the SKILL prose
+    can `cd` into each story's worktree before running its acceptance
+    command. Empty stdout when no live teammate worktrees.
+    """
+
+    def _make_worktree(self, td, story_id):
+        """Create a real worktree at .claude/worktrees/worktree-<story-id>.
+
+        Returns the realpath because git porcelain resolves /var/folders
+        to /private/var/folders on macOS.
+        """
+        path = Path(td) / ".claude" / "worktrees" / f"worktree-{story_id}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "worktree", "add", "-b", f"u/{story_id}-x", str(path), "HEAD"],
+            cwd=td,
+            capture_output=True,
+            check=True,
+        )
+        return os.path.realpath(str(path))
+
+    def _run_branching(self, smm_dir, *args):
+        script = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+        return subprocess.run(
+            [sys.executable, script, "--smm-dir", str(smm_dir), *args],
+            capture_output=True,
+            text=True,
+            env=_GIT_ENV,
+        )
+
+    def test_empty_stdout_when_no_teammates(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            r = self._run_branching(
+                Path(smm), "list-teammate-worktree-paths", "--cwd", td
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "")
+
+    def test_emits_story_id_colon_path_per_worktree(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            try:
+                p1 = self._make_worktree(td, "story-001")
+                p2 = self._make_worktree(td, "story-042")
+                r = self._run_branching(
+                    Path(smm), "list-teammate-worktree-paths", "--cwd", td
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                lines = r.stdout.strip().splitlines()
+                self.assertEqual(
+                    sorted(lines),
+                    sorted([f"story-001: {p1}", f"story-042: {p2}"]),
+                )
+            finally:
+                for name in ("worktree-story-001", "worktree-story-042"):
+                    subprocess.run(
+                        ["git", "worktree", "remove", "--force", name],
+                        cwd=td,
+                        capture_output=True,
+                    )
 
 
 if __name__ == "__main__":
