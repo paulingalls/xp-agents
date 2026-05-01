@@ -25,7 +25,7 @@ import smm_cli
 import smm_store
 import sprint_state
 import system_context_store
-from system_context_cli import render_markdown as render_system_context
+from system_context_renderer import render_markdown as render_system_context
 
 # ---------------------------------------------------------------------------
 # Constants

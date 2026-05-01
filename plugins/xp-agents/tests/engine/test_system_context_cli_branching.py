@@ -21,6 +21,150 @@ from system_context_schema import SYSTEM_CONTEXT_FILENAME
 _CLI = Path(__file__).parent.parent.parent / "smm" / "system_context_cli.py"
 
 
+# ── edit-stack-field ───────────────────────────────────────────
+
+
+class TestEditStackFieldCommand(_SMMTestCase):
+    """edit-stack-field is the affordance for setting nested stack
+    fields (test_command, runtime, etc.) without rewriting the entire
+    stack object via edit-field. Top-level edit-field can't reach
+    nested keys, so this subcommand exists.
+    """
+
+    def test_edit_stack_field_sets_test_command(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["edit-stack-field", "test_command"],
+            self.smm_dir,
+            stdin_data='"pytest -n auto"',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["stack"]["test_command"], "pytest -n auto")
+
+    def test_edit_stack_field_preserves_other_stack_fields(self) -> None:
+        # Setting test_command must not clobber languages, runtime,
+        # package_manager, etc. that the user already configured.
+        doc = valid_doc()
+        doc["stack"]["runtime"] = "Python 3.11+"
+        doc["stack"]["package_manager"] = "pipx"
+        write_doc(self.smm_dir, doc=doc)
+        result = run_cli(
+            _CLI,
+            ["edit-stack-field", "test_command"],
+            self.smm_dir,
+            stdin_data='"npm test"',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["stack"]["test_command"], "npm test")
+        self.assertEqual(data["stack"]["runtime"], "Python 3.11+")
+        self.assertEqual(data["stack"]["package_manager"], "pipx")
+        self.assertEqual(data["stack"]["languages"], doc["stack"]["languages"])
+
+    def test_edit_stack_field_null_clears_field(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["test_command"] = "pytest"
+        write_doc(self.smm_dir, doc=doc)
+        result = run_cli(
+            _CLI,
+            ["edit-stack-field", "test_command"],
+            self.smm_dir,
+            stdin_data="null",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("test_command", data["stack"])
+
+    def test_edit_stack_field_validates_string_only(self) -> None:
+        # The schema rejects non-string optional stack fields. The CLI
+        # must surface that validation error rather than silently
+        # writing an invalid doc.
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["edit-stack-field", "test_command"],
+            self.smm_dir,
+            stdin_data='["pytest", "-n", "auto"]',
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Validation error", result.stderr)
+
+    def test_edit_stack_field_no_existing_context(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["edit-stack-field", "test_command"],
+            self.smm_dir,
+            stdin_data='"pytest"',
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("No system context found", result.stderr)
+
+
+# ── add-convention ─────────────────────────────────────────────
+
+
+class TestAddConventionCommand(_SMMTestCase):
+    """add-convention closes the asymmetry where add-module,
+    add-decision, and add-acceptance-surface all exist for list
+    fields but conventions had no append helper, forcing callers to
+    rewrite the whole list via edit-field conventions.
+    """
+
+    def test_add_convention_appends_to_empty_list(self) -> None:
+        # Default valid_doc() ships with a single seed convention; we
+        # extend it. The point of the test is to assert the CLI appends
+        # rather than replaces — pin via length check + tail content.
+        write_doc(self.smm_dir)
+        before = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())[
+            "conventions"
+        ]
+        result = run_cli(
+            _CLI,
+            ["add-convention"],
+            self.smm_dir,
+            stdin_data='"Use match/case for tool routing"',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())[
+            "conventions"
+        ]
+        self.assertEqual(
+            len(after),
+            len(before) + 1,
+            "add-convention must append, not replace",
+        )
+        self.assertEqual(after[-1], "Use match/case for tool routing")
+
+    def test_add_convention_preserves_existing(self) -> None:
+        # Critical contract: appending must not lose prior entries.
+        # If a future refactor accidentally turns add-convention into
+        # a setter, this test catches it.
+        doc = valid_doc()
+        doc["conventions"] = ["First", "Second"]
+        write_doc(self.smm_dir, doc=doc)
+        result = run_cli(
+            _CLI,
+            ["add-convention"],
+            self.smm_dir,
+            stdin_data='"Third"',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["conventions"], ["First", "Second", "Third"])
+
+    def test_add_convention_no_existing_context(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["add-convention"],
+            self.smm_dir,
+            stdin_data='"any"',
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("No system context found", result.stderr)
+
+
 # ── edit-branching ─────────────────────────────────────────────
 
 
