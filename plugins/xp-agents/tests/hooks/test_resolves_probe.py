@@ -369,6 +369,37 @@ class TestSelectionReasons(_ScoringHelpers, unittest.TestCase):
         )
 
 
+class TestSelectionReasonVocabularyCap(unittest.TestCase):
+    """The SELECTION_REASON_* vocabulary is capped to keep probe metadata
+    payload size bounded and force deliberate review when adding a new
+    selector signal.
+
+    Adding a 5th constant requires:
+      1. Updating _score_candidate to emit it (in deterministic order)
+      2. Bumping this expected count
+      3. Reviewing the divert-narrative payload size impact (each probe
+         records {cid: [reasons...]} for up to PROBE_CANDIDATE_LIMIT=5
+         candidates — adding a constant grows worst-case payload by 5
+         strings per probe event).
+    """
+
+    def test_exactly_four_selection_reason_constants(self):
+        import event_schema as es
+
+        constants = {name for name in dir(es) if name.startswith("SELECTION_REASON_")}
+        self.assertEqual(
+            constants,
+            {
+                "SELECTION_REASON_KEYWORD",
+                "SELECTION_REASON_FILE_OVERLAP",
+                "SELECTION_REASON_RECENCY",
+                "SELECTION_REASON_CLOSE_MODE",
+            },
+            "Selector-signal vocabulary changed — see this test's docstring "
+            "for the deliberate-review checklist before updating the expected set.",
+        )
+
+
 class TestFindProbeCandidatesSorting(_HookTestCase):
     """find_probe_candidates sorts by score descending, ts as tiebreak."""
 
