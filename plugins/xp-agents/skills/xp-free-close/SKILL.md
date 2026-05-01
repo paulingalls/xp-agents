@@ -92,10 +92,25 @@ to Step 7:
    returns zero matches for events filed since the close cycle
    started. Don't rely on recall.
 2. No Block-severity finding survived in Step 4's reviewer summary.
-3. The full automated test suite passes green AFTER all Step 5c fixes
-   landed: run `pytest -n auto` (or the project's documented test
-   command) — non-zero exit means fall through to the shared Step 6
+3. The preload above emitted a non-empty `TEST_COMMAND=...` line
+   (sourced from `system_context.stack.test_command`) AND running
+   that command AFTER all Step 5c fixes landed exits 0. Any non-zero
+   exit means tests aren't green — fall through to the shared Step 6
    prompt.
+
+When `TEST_COMMAND` is empty (the project hasn't configured a test
+command), the gate cannot fire. Print this two-line discovery hint
+before falling through to the shared Step 6 prompt:
+
+```
+Auto-merge disabled — set stack.test_command in system_context.json to enable.
+To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
+    printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
+```
+
+Substitute `<your-test-command>` with the project's test runner
+invocation. The `printf %s` form avoids shell-quoting traps when the
+command itself contains spaces or special characters.
 
 When all three conditions hold, print exactly:
 "All reviewer findings addressed and tests green — proceeding to merge
@@ -103,8 +118,8 @@ without confirmation."
 then continue to Step 7. Otherwise apply the shared Step 6
 `AskUserQuestion` as written. Free-close merges directly into primary,
 so the deterministic green-tests gate is load-bearing — LLM judgment
-from Step 5c alone is not sufficient. This matches the v2.37.4
-xp-accept auto-accept pattern.
+from Step 5c alone is not sufficient. This matches the auto-accept
+pattern in `/xp-accept`.
 
 ## Step 7: Merge
 

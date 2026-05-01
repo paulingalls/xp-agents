@@ -12,6 +12,7 @@ Usage:
     system_context_cli.py section NAME --smm-dir DIR
     system_context_cli.py edit-field NAME --smm-dir DIR  < value.json
     system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
+    system_context_cli.py get-stack-field NAME --smm-dir DIR
     system_context_cli.py add-module --smm-dir DIR       < module.json
     system_context_cli.py add-decision --smm-dir DIR     < decision.json
     system_context_cli.py add-convention --smm-dir DIR   < convention.json
@@ -180,6 +181,33 @@ def _cmd_edit_branching(args: argparse.Namespace) -> int:
     return _cmd_edit_field(args)
 
 
+def _cmd_get_stack_field(args: argparse.Namespace) -> int:
+    """Print the value of a nested stack field, or empty string if unset.
+
+    Read-only counterpart to `edit-stack-field`. Exits 0 with empty
+    stdout when system_context.json is missing OR the field is unset —
+    that uniform "absent → empty" signal lets shell callers plug the
+    value into `KEY=$(...)` without exit-code branching.
+
+    Schema-invalid files (e.g., a hand-edit that set test_command to a
+    non-string) surface as a load-time ValueError; we let that propagate
+    so the user gets a real traceback. The shell wrapper
+    `_preload_base.sh:find_test_command` traps that via
+    `2>/dev/null || echo ""` so the close-skill preload still emits
+    TEST_COMMAND= (empty) and falls through to the discovery hint —
+    but the failure isn't silenced at the CLI layer.
+
+    Used by `_preload_base.sh:find_test_command` to source the project's
+    test command for the story-close + free-close auto-merge gate.
+    """
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("")
+        return 0
+    print(data.get("stack", {}).get(args.name, ""))
+    return 0
+
+
 def _cmd_edit_stack_field(args: argparse.Namespace) -> int:
     """Set or clear an optional field nested under stack (e.g. test_command).
 
@@ -265,6 +293,12 @@ def main() -> None:
     )
     edit_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
 
+    get_stack_p = sub.add_parser(
+        "get-stack-field",
+        help="Print a nested stack field's value (or empty if unset)",
+    )
+    get_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
+
     sub.add_parser("add-module", help="Add module from stdin JSON")
     sub.add_parser("add-decision", help="Add key decision from stdin JSON")
     sub.add_parser("add-convention", help="Add convention from stdin JSON")
@@ -288,6 +322,7 @@ def main() -> None:
         "section": _cmd_section,
         "edit-field": _cmd_edit_field,
         "edit-stack-field": _cmd_edit_stack_field,
+        "get-stack-field": _cmd_get_stack_field,
         "add-module": _cmd_add_module,
         "add-decision": _cmd_add_decision,
         "add-convention": _cmd_add_convention,

@@ -102,6 +102,62 @@ class TestEditStackFieldCommand(_SMMTestCase):
         self.assertIn("No system context found", result.stderr)
 
 
+# ── get-stack-field ────────────────────────────────────────────
+
+
+class TestGetStackFieldCommand(_SMMTestCase):
+    """get-stack-field is the read-only counterpart to edit-stack-field.
+    Always exits 0 — empty stdout is the canonical "field not
+    configured" signal so shell callers can use it in `KEY=$(...)`
+    assignments without exit-code branching. Used by the close-skill
+    preloads' find_test_command wrapper.
+    """
+
+    def test_get_stack_field_returns_value(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["test_command"] = "pytest -n auto"
+        write_doc(self.smm_dir, doc=doc)
+        result = run_cli(_CLI, ["get-stack-field", "test_command"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "pytest -n auto")
+
+    def test_get_stack_field_empty_when_unset(self) -> None:
+        # When the field is not configured, the CLI must exit 0 with
+        # empty stdout — shell callers expect to plug the result into
+        # KEY=$(...) without checking exit codes.
+        write_doc(self.smm_dir)
+        result = run_cli(_CLI, ["get-stack-field", "test_command"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_get_stack_field_empty_when_no_system_context(self) -> None:
+        # Graceful for repos that haven't run /xp-system-context yet.
+        # Exit 0 + empty so close-skill preloads work pre-config.
+        result = run_cli(_CLI, ["get-stack-field", "test_command"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_get_stack_field_nonzero_when_system_context_malformed(self) -> None:
+        # Schema validation runs on load — a hand-edited file with a
+        # non-string test_command surfaces as a load-time ValueError.
+        # The CLI exits non-zero with a traceback; the shell wrapper
+        # `find_test_command` traps that via `2>/dev/null || echo ""`
+        # and the close-skill preload sees TEST_COMMAND= (empty),
+        # falling through to the discovery hint. Pin the CLI side of
+        # the contract: malformed files DON'T silently masquerade as
+        # "unset" at the CLI layer — that translation happens in shell.
+        doc = valid_doc()
+        doc["stack"]["test_command"] = ["pytest", "-n", "auto"]
+        write_doc(self.smm_dir, doc=doc)
+        result = run_cli(_CLI, ["get-stack-field", "test_command"], self.smm_dir)
+        self.assertNotEqual(
+            result.returncode,
+            0,
+            "malformed system_context.json must surface as non-zero exit "
+            "from the CLI; the shell wrapper translates that to empty",
+        )
+
+
 # ── add-convention ─────────────────────────────────────────────
 
 

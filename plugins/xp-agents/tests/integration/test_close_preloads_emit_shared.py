@@ -14,8 +14,12 @@ phrases. Subsequent commits add Step 5c (commit 3) and tighten Step 6
 pattern.
 """
 
+import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -253,6 +257,111 @@ _SKIP_NOTE_TARGETS = {
     "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
 }
 
+_TEST_COMMAND_PRELOADS = {
+    "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh",
+    "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh",
+}
+
+
+class TestStoryFreePreloadEmitsTestCommand(unittest.TestCase):
+    """Story-close + free-close preloads emit a `TEST_COMMAND=...` line
+    sourced from `system_context.stack.test_command`. The auto-merge
+    override (Step 6) reads this to decide whether the deterministic
+    test gate can fire — empty TEST_COMMAND means fall through to the
+    confirm prompt.
+
+    Tests use _IntegrationTestCase fixtures (fresh tmp SMM per test)
+    to control whether system_context.json exists and what it contains.
+    """
+
+    def _run_preload(self, preload_path: Path, smm_dir: Path) -> str:
+        env = dict(os.environ)
+        env["CLAUDE_PLUGIN_DATA"] = str(smm_dir.parent.parent)
+        env["SMM_DIR"] = str(smm_dir)
+        result = subprocess.run(
+            ["bash", str(preload_path)],
+            cwd=smm_dir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        return result.stdout
+
+    def _make_smm(self, sc_data: dict | None) -> Path:
+        # Mirror _IntegrationTestCase's SMM-dir convention: deep nested
+        # path under a tmp root so init.sh resolves it cleanly.
+        tmp = Path(tempfile.mkdtemp())
+        smm_dir = tmp / "data" / "proj" / "smm"
+        smm_dir.mkdir(parents=True)
+        (smm_dir / "events.jsonl").write_text("")
+        if sc_data is not None:
+            (smm_dir / "system_context.json").write_text(json.dumps(sc_data))
+        return smm_dir
+
+    def test_emits_test_command_when_set(self):
+        # When system_context.stack.test_command is set, the preload
+        # surfaces it verbatim so the auto-merge override can run it.
+        sc = {
+            "product": "x",
+            "architecture_overview": "x",
+            "stack": {"languages": ["Python"], "test_command": "pytest -n auto"},
+            "modules": [],
+            "conventions": [],
+            "key_decisions": [],
+            "sources": [],
+            "project_specific": [],
+        }
+        for mode, preload in _TEST_COMMAND_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = self._make_smm(sc)
+                stdout = self._run_preload(preload, smm)
+                self.assertIn(
+                    "TEST_COMMAND=pytest -n auto",
+                    stdout,
+                    f"{mode}-close preload must emit TEST_COMMAND=<stack.test_command>",
+                )
+
+    def test_emits_empty_test_command_when_unset(self):
+        # When stack.test_command is absent, TEST_COMMAND= is empty.
+        # The auto-merge override falls through to confirm prompt on
+        # empty — never guesses pytest/npm/cargo.
+        sc = {
+            "product": "x",
+            "architecture_overview": "x",
+            "stack": {"languages": ["Python"]},
+            "modules": [],
+            "conventions": [],
+            "key_decisions": [],
+            "sources": [],
+            "project_specific": [],
+        }
+        for mode, preload in _TEST_COMMAND_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = self._make_smm(sc)
+                stdout = self._run_preload(preload, smm)
+                self.assertIn(
+                    "TEST_COMMAND=\n",
+                    stdout,
+                    f"{mode}-close preload must emit empty TEST_COMMAND= "
+                    f"when stack.test_command is unset",
+                )
+
+    def test_emits_empty_test_command_when_no_system_context(self):
+        # Graceful: missing system_context.json → empty TEST_COMMAND.
+        # Plugins ship to repos that may not have run /xp-system-context
+        # yet; preload must not fail, just emit empty.
+        for mode, preload in _TEST_COMMAND_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = self._make_smm(sc_data=None)
+                stdout = self._run_preload(preload, smm)
+                self.assertIn(
+                    "TEST_COMMAND=\n",
+                    stdout,
+                    f"{mode}-close preload must emit empty TEST_COMMAND= "
+                    f"when system_context.json is missing",
+                )
+
+
 # Commit 4: auto-merge override lives in mode-specific SKILL.md files,
 # NOT in the shared file (per plan-reviewer concern fdcf62462321 —
 # asymmetric mode logic should not pollute the shared file all 4
@@ -345,6 +454,58 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
                     "green",
                     lower,
                     f"{mode}-close auto-merge override must require green tests",
+                )
+
+    def test_story_free_auto_merge_uses_test_command_var_not_hardcoded_runner(
+        self,
+    ):
+        # Per concern e343377dab19: the plugin ships to repos that may
+        # use any test runner (pytest, npm, cargo, mix, …) or none.
+        # The auto-merge gate must read TEST_COMMAND from the preload
+        # (sourced from system_context.stack.test_command), NOT
+        # hardcode `pytest -n auto`. Pin both halves so a future edit
+        # can't silently revert to a project-specific runner name.
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                text = self.auto_merge_text[mode]
+                self.assertIn(
+                    "TEST_COMMAND",
+                    text,
+                    f"{mode}-close auto-merge override must reference "
+                    f"TEST_COMMAND env var (sourced from "
+                    f"system_context.stack.test_command)",
+                )
+                self.assertNotIn(
+                    "pytest",
+                    text.lower(),
+                    f"{mode}-close auto-merge override must not hardcode "
+                    f"`pytest` — the plugin is project-generic; the test "
+                    f"runner comes from TEST_COMMAND",
+                )
+
+    def test_story_free_auto_merge_surfaces_discovery_hint_when_unset(self):
+        # Per plan-reviewer concern 4246adeaa521 + concern e343377dab19's
+        # hint-discoverability requirement: when TEST_COMMAND is empty,
+        # the override must NOT silently fall through — it must print a
+        # discoverable nudge naming the WHAT to set
+        # (system_context.stack.test_command) AND the actionable CLI
+        # invocation (edit-stack-field). Otherwise a plugin user in
+        # another repo never knows why auto-merge isn't firing.
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                text = self.auto_merge_text[mode]
+                self.assertIn(
+                    "stack.test_command",
+                    text,
+                    f"{mode}-close override must name "
+                    f"`stack.test_command` so the user knows WHAT to set",
+                )
+                self.assertIn(
+                    "edit-stack-field",
+                    text,
+                    f"{mode}-close override must reference the "
+                    f"`edit-stack-field` CLI subcommand so the user has "
+                    f"a runnable invocation to enable the gate",
                 )
 
     def test_sprint_plan_skills_lack_auto_merge_override(self):
