@@ -53,6 +53,25 @@ def _parse_events(raw: str) -> list[dict]:
 _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
 _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can compact
 
+# Event types intentionally NOT collected by _collect_smm_referenced_ids.
+# Test gate: tests/engine/test_compact.py::TestEventTypeMatchCompleteness
+# fails if a new EVENT_TYPE_* is added without either a `case` arm here
+# or an entry in this allowlist.
+#   SESSION_END    — handled by separate index-based retention (last 3)
+#   CUSTOMER_INPUT — superseded by customer_intent in the SMM
+#   STATUS         — transient (hundreds per session); never SMM-referenced
+#   ANSWER         — lifecycle tied to its referenced question; drops with it
+#   DISCOVERY      — lifecycle tied to its referenced assumption; drops with it
+_COMPACT_INTENTIONALLY_ABSENT = frozenset(
+    {
+        es.EVENT_TYPE_ANSWER,
+        es.EVENT_TYPE_CUSTOMER_INPUT,
+        es.EVENT_TYPE_DISCOVERY,
+        es.EVENT_TYPE_SESSION_END,
+        es.EVENT_TYPE_STATUS,
+    }
+)
+
 
 def _compute_pending_retro_sprint_ids(events: list[dict]) -> set[str]:
     """Sprint IDs started but with no sprint_retro_done event yet.

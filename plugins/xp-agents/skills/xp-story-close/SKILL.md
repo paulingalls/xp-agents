@@ -113,6 +113,16 @@ reviewer findings before asking the user to confirm the merge.
 Use `AskUserQuestion` to ask whether to proceed with the merge. Two
 options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 
+**If the close-reviewer's prose summary above contains any Block
+finding (recorded by xp-close-reviewer at severity high per Step 3.5),
+list "Abort — fix concerns first" as the FIRST option and append
+"(Recommended)" to its label.** This honors the xp-close-reviewer
+Step 3.5 contract: Block findings flip the merge default to Abort.
+The user can still pick Merge to override. When no Block was filed,
+keep the default ordering (Merge first). Story-close skips Step 3.5's
+Tier 3 security skill itself, but Step 4's general Block bullets are
+also recorded at severity high and trigger the same default flip.
+
 If the user picks abort, stop here. The branch and PR (if any) stay
 intact for follow-up work.
 

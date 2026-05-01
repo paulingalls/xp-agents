@@ -293,6 +293,37 @@ class _IntegrationTestCase(unittest.TestCase):
             "\n".join(lines) + ("\n" if lines else "")
         )
 
+    def _env_with_plugin_root(self) -> dict:
+        """Test env with CLAUDE_PLUGIN_ROOT injected.
+
+        append.sh and other plugin scripts resolve sibling modules via
+        CLAUDE_PLUGIN_ROOT; subprocesses launched from integration tests
+        need it set. Pulled out of test files (was duplicated 3x prior
+        to consolidation — debt 94a6b8aaca52).
+        """
+        env = self._test_env.copy()
+        env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
+        return env
+
+    def _run_append(self, *args: str) -> subprocess.CompletedProcess:
+        """Run smm/append.sh with --smm-dir prefilled.
+
+        Mirror of `_TempRepoTestCase._run_append` for the integration
+        flavor (instance method; uses self.smm_dir + self.tmpdir).
+        """
+        return subprocess.run(
+            [
+                str(_PLUGIN_ROOT / "smm" / "append.sh"),
+                "--smm-dir",
+                str(self.smm_dir),
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            env=self._env_with_plugin_root(),
+            cwd=self.tmpdir,
+        )
+
 
 class _TempRepoTestCase(unittest.TestCase):
     """Base class: creates an isolated temp git repo per test class.

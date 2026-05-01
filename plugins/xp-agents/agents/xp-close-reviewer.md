@@ -6,7 +6,7 @@ description: >-
   /xp-plan-close, /xp-free-close, or /xp-story-close merges.
   Mode-aware focus (sprint/plan/free/story). Invoke via the close
   skills, not directly.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 model: inherit
 ---
 
@@ -50,7 +50,6 @@ Plan-close merges a full milestone (multiple sprints). Focus on:
 
 - **Architectural coherence across the whole plan** — does the assembled change still match the design intent in the plan?
 - **Accumulated debt** — debt acknowledged sprint-by-sprint that has piled up without remediation
-- **Security posture of the cumulative diff** — input boundaries, secret handling, permission surfaces
 - **Decisions whose rationale weakened** — earlier decisions in the plan that later commits undermine without an explicit reversal
 
 ### free
@@ -76,6 +75,26 @@ Focus on:
   that should have been their own story rather than ride along.
 - **Regression risk in unmodified stories** — shared helpers/types
   this story changed that downstream in-progress stories depend on.
+
+## Step 3.5: Tier 3 Security Review
+
+For **sprint**, **plan**, and **free** close modes — **NOT** story mode — invoke the security-review skill against the cumulative close diff. Story mode is excluded because Tier 2 at `/xp-accept` already reviewed the story diff before story-close fired; running Tier 3 there would duplicate the same review on the same diff.
+
+> Note: Tier 2 itself skips `code_free` stories (Wisdom `9258988c2d2a`), so a code_free story close has no LLM security coverage — Tier 1 deterministic patterns at commit time and the Keep/Concern/Block prose review below are its only safety nets. Acceptable because code_free stories are prose/SKILL.md only.
+
+```
+Skill(skill: "security-review", args: "the cumulative diff on branch <SOURCE> since merge-base with <TARGET>")
+```
+
+`<SOURCE>` and `<TARGET>` come from the `## Source Branch` and `## Target Branch` sections you read in Step 1. The args string MUST name **cumulative diff** so the skill scopes to the full close diff, not a single commit (mirrors `xp-accept` Step 1c convention).
+
+Fold the skill's findings into your Keep / Concern / Block buckets for Step 4:
+
+- **Block** findings → record at `--severity "high"` per the standard Block convention (Constraints `d57963f81ac1`). The close skill MUST default the merge confirmation to **Abort** when any Block finding was filed; the user can override with explicit confirmation.
+- **Concern** findings → record at `--severity "medium"`.
+- **Keep** findings → no event, mention in prose only.
+
+Use the same `append.sh` templates as Step 4 below — no additional metadata required. (Differentiating Tier 3 events from generic close concerns is M-4's problem; the metadata key gets added when M-4 actually consumes it.)
 
 ## Step 4: Record Concerns as SMM Events
 

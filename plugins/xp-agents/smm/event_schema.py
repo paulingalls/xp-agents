@@ -155,6 +155,26 @@ METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
 
+# Per-candidate selector signals attached by resolves_probe._score_candidate
+# and persisted on probe status events so retro_metrics can attribute
+# divert events to specific signals (which selector misfired). Shape:
+#   {candidate_id: [reason1, reason2, ...]}
+# Reason vocabulary is the SELECTION_REASON_* constants below. An empty
+# list is ambiguous: it can mean either "old archived probe event predates
+# this metadata key" OR "all four signals scored zero on this candidate";
+# divert-analysis consumers must treat both cases as 'no signal data'.
+METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
+
+# Selector-signal vocabulary for resolves_probe._score_candidate. Each
+# constant names a signal that contributed to a candidate's score and
+# appears in the candidate's selection_reasons list iff that signal
+# scored non-zero. Listed in the order _score_candidate emits them
+# (deterministic for test assertions).
+SELECTION_REASON_KEYWORD = "keyword"
+SELECTION_REASON_FILE_OVERLAP = "file_overlap"
+SELECTION_REASON_RECENCY = "recency"
+SELECTION_REASON_CLOSE_MODE = "close_mode"
+
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
 # subagent_start. Centralized to prevent producer/consumer drift.
@@ -208,6 +228,21 @@ CONTENT_BUDGETS: dict[str, int | None] = {
 
 # Required fields — used by validate_event() and repair.py's fast issubset check
 REQUIRED_FIELDS = frozenset({"id", "type", "ts", "agent_id", "content"})
+
+
+# Event types with no type-specific validation beyond the universal
+# REQUIRED_FIELDS and content-budget checks. Test gate:
+# tests/engine/test_compact.py::TestEventTypeMatchCompleteness fails
+# if a new EVENT_TYPE_* is added without either a `case` arm in
+# validate_event or an entry here. Listing a type means the universal
+# checks are sufficient — explicit declaration, not oversight.
+_VALIDATE_NO_TYPE_RULES = frozenset(
+    {
+        EVENT_TYPE_ASSUMPTION,
+        EVENT_TYPE_CUSTOMER_INPUT,
+        EVENT_TYPE_GOAL,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +355,17 @@ def validate_event(event: dict) -> list[str]:
         case "commit":
             if "files" in event and not isinstance(event["files"], list):
                 errors.append("Field 'files' must be an array")
+
+        case "answer" | "discovery":
+            # Both link to the event they react to (answer→question,
+            # discovery→assumption-it-contradicts). Universal references
+            # validation already checks list-of-strings; require non-empty.
+            refs = event.get("references")
+            if not refs:
+                errors.append(
+                    f"Field 'references' is required and must be non-empty "
+                    f"for type '{event_type}'"
+                )
 
         case "session_end":
             _check = {

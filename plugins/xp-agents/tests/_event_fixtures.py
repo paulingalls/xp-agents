@@ -38,6 +38,8 @@ def make_event(event_type: str = "customer_input", **kwargs) -> dict:
             event["metadata"] = kwargs.pop(
                 "metadata", {"sprint_id": "sprint-001", "action": "start"}
             )
+        case "answer" | "discovery":
+            event["references"] = kwargs.pop("references", ["referenced-id"])
     event.update(kwargs)
     return event
 

@@ -54,8 +54,18 @@ class TestValidateEvent(unittest.TestCase):
         self.assertEqual(_append_impl.validate_event(event), [])
 
     def test_valid_discovery(self):
-        event = self._base_event(type="discovery")
+        event = self._base_event(type="discovery", references=["some-id"])
         self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_discovery_missing_references(self):
+        event = self._base_event(type="discovery")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("references" in e for e in errors))
+
+    def test_discovery_empty_references(self):
+        event = self._base_event(type="discovery", references=[])
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("references" in e for e in errors))
 
     def test_valid_question(self):
         event = self._base_event(type="question", priority="\U0001f534")
@@ -64,6 +74,16 @@ class TestValidateEvent(unittest.TestCase):
     def test_valid_answer(self):
         event = self._base_event(type="answer", references=["some-id"])
         self.assertEqual(_append_impl.validate_event(event), [])
+
+    def test_answer_missing_references(self):
+        event = self._base_event(type="answer")
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("references" in e for e in errors))
+
+    def test_answer_empty_references(self):
+        event = self._base_event(type="answer", references=[])
+        errors = _append_impl.validate_event(event)
+        self.assertTrue(any("references" in e for e in errors))
 
     def test_valid_assumption(self):
         event = self._base_event(type="assumption")
