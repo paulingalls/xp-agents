@@ -18,3 +18,9 @@ echo "WORKTREE_CLEAN=$(worktree_clean)"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 emit_hook_guidance "$HOOK_STATUS"
+
+# Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
+# sees one consistent set of shared instructions across all four close
+# skills instead of four near-duplicate inlined copies.
+echo
+cat "${PLUGIN_ROOT}/scripts/_close_pipeline_shared.md"

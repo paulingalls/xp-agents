@@ -214,16 +214,34 @@ class _CloseSkillTextCommonTests(_MixinBase):
 
     _SKILL_MD: Path
     _MODE: str
-    text: str  # set by setUpClass (_SKILL_MD.read_text())
+    text: str  # set by setUpClass — SKILL.md text + shared close-pipeline reference
     # Subclasses set False when current==target is impossible by design
     # (e.g. sprint-close uses the get-target lookup which returns a
     # different branch when on the sprint branch).
     _ASSERT_REFUSES_SAME_BRANCH: bool = True
 
+    # The shared close-pipeline reference (Steps 5, 5b, 6) was lifted
+    # out of each SKILL.md into one file each preload `cat`s. The
+    # LLM-visible context for any close skill is the union of its
+    # SKILL.md and that shared reference; assertions about the close
+    # pipeline must check the union, not just the SKILL.md.
+    _SHARED_PIPELINE: Path = (
+        Path(__file__).parent.parent / "scripts" / "_close_pipeline_shared.md"
+    )
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.text = cls._SKILL_MD.read_text()
+        # Fail-fast on missing shared file — silently falling back to
+        # SKILL.md alone would let receiver-side prose assertions
+        # (Step 3.5 / Block finding / Recommended) appear to pass while
+        # the actual close pipeline is missing the shared content.
+        skill_text = cls._SKILL_MD.read_text()
+        shared_text = cls._SHARED_PIPELINE.read_text()
+        # Concatenated with a separator so headings from each don't run
+        # together in regex/index lookups; assertions don't care about the
+        # separator itself.
+        cls.text = skill_text + "\n\n" + shared_text
 
     def _merge_invocation(self) -> "re.Match[str]":
         """Locate the close_common.py merge invocation. Asserts presence."""

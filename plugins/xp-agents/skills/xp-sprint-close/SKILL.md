@@ -84,54 +84,12 @@ Agent(
 )
 ```
 
-## Step 5: Present findings
+## Steps 5–6: Apply shared close-pipeline reference
 
-Output the reviewer's Keep / Concern / Block summary verbatim to the
-user. The tool result is not visible to them — surface it as text.
-
-## Step 5b: Resolve Addressed Concerns
-
-Scan for open concerns that were likely addressed by this sprint's work.
-Run the triage preload to find them:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/triage_preload.py \
-  --smm-dir <SMM_DIR>
-```
-
-Focus on the "Open Concerns" section of the output. For each concern
-annotated with **LIKELY ADDRESSED**: use your session context and the
-listed commits to judge whether the concern was genuinely fixed. When
-confident, auto-resolve:
-
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py \
-  triage-drop --smm-dir <SMM_DIR> --event-id <event-id>
-```
-
-When in doubt, leave the concern open — it will surface at the next
-kickoff for manual triage. Report how many concerns were auto-resolved
-alongside the reviewer findings before asking the user to confirm the
-merge.
-
-## Step 6: Confirm the merge
-
-Use `AskUserQuestion` to ask whether to proceed with the merge. Two
-options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
-
-**If the close-reviewer's prose summary above contains any Block
-finding (recorded by xp-close-reviewer at severity high per Step 3.5),
-list "Abort — fix concerns first" as the FIRST option and append
-"(Recommended)" to its label.** This honors the xp-close-reviewer
-Step 3.5 contract: Block findings flip the merge default to Abort.
-The user can still pick Merge to override. When no Block was filed,
-keep the default ordering (Merge first).
-
-If the user picks abort, stop here. The branch and PR (if any) stay
-intact for follow-up work.
-
-If the preload included a `### HOOK_GUIDANCE` section, follow it
-before confirming the merge.
+The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
+the preload at the top of this context — see
+`scripts/_close_pipeline_shared.md` for the source. Apply those three
+steps in order after Step 4, then continue with Step 7 below.
 
 ## Step 7: Merge
 
