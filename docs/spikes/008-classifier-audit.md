@@ -8,6 +8,8 @@ Can `/xp-story-close` auto-fix code-resolvable concerns/blocks without prompting
 
 **Severity is orthogonal**: a Block (severity high) and a Concern (severity medium) can both be code-resolvable when the fix is just code, and both can be non-code when they need a policy decision. The relevant axis is the *kind of remediation*, not its priority.
 
+**Refined answer (see §5, §7)**: the binary "auto-fix vs prompt" framing is too coarse. Three routes emerged: hook-auto-fix (Class A), LLM-fixes-it-with-guidance (Class B), prompt-the-user (Class C). The original question's premise — that "auto-fix" is the only alternative to prompting — assumed the hook would write code; in practice the LLM in `/xp-story-close` does the writing, and the hook just classifies and routes.
+
 ## 2. Sample
 
 - **Sprint-050 in events.jsonl: 40 concerns** (active sprint, all in current log).
@@ -165,34 +167,61 @@ default → unknown (route to user)
 
 **Where**: between Step 5b (LIKELY-ADDRESSED auto-resolve scan) and Step 6 (merge confirmation).
 
+**Architecture insight (post-spike refinement)**: the hook is a **classifier and router**, not a fixer. Code-writing belongs to the LLM running `/xp-story-close`, not to the hook. The hook returns a structured verdict naming one of three routes; the orchestrator dispatches. This extends the principle established in `docs/ideas/CODE_REVIEWER_FIXER.md` (reviewer is read-only; a dedicated fixer implements) to the close-time loop.
+
+**Implementation primitives**: `emit_guidance` and `queue_user_prompt` below are *placeholder names* in the pseudocode. The real implementation reuses primitives that already exist:
+- `auto_fix` — hook calls a deterministic command + `_common.append_safe` to record `metadata.action=lint_resolved` (precedent: `STATUS_ACTION_LINT_RESOLVED` in `smm/event_schema.py:109`, emitted by the bash-commit auto-resolve path).
+- `llm_fix` — hook prints `hookSpecificOutput.additionalContext` JSON (precedent: `_common.print_hook_specific_output`); the LLM picks it up at the next prompt and acts.
+- `user_ask` — `/xp-story-close` SKILL.md already calls `AskUserQuestion` at Step 6; route the verdict's `suggested_action` into that existing call.
+
+No new mechanism is needed — only the classifier + a small dispatch table.
+
+**Three routes**:
+
+| Route | When | Who acts | Hook verdict |
+|---|---|---|---|
+| `auto_fix` | Class A | Hook itself runs a deterministic command (no LLM, no user). Hook owns the re-test step too — caller does not. | `{"route": "auto_fix", "category": "lint", "command": "ruff format && ruff check --fix", "verify": "pytest"}` |
+| `llm_fix` | Class B | LLM in /xp-story-close reads the suggested action, makes the code change, re-runs tests, marks resolved | `{"route": "llm_fix", "category": "test_failure", "suggested_action": "Run pytest on tests/foo.py — assertion at line 45 expects X but got Y; edit code at scripts/bar.py:23"}` |
+| `user_ask` | Class C | Orchestrator calls `AskUserQuestion` with the suggested phrasing; only here does the user enter the loop | `{"route": "user_ask", "category": "design_decision", "suggested_action": "Two policy options: A (re-affirm decision X) or B (record new decision superseding X)"}` |
+
+The user only enters the conversation when judgment requires *their* input (policy, AC re-interpretation), not when judgment requires *any* input. Class B keeps the LLM in the driver's seat with a structured nudge.
+
 **Pseudocode**:
 
 ```python
 for concern in remaining_open_concerns_for_this_story:
-    class, category = classify(concern.content)
-    if class == 1:  # auto-applicable
-        run_command(category.fix_command)
-        if tests_pass():
-            resolve(concern, by="auto-fix")
-            continue
-    surface_to_user(concern, class, category, suggested_action=category.surface_text)
+    verdict = classify(concern.content)  # returns route + category + action
+    match verdict["route"]:
+        case "auto_fix":
+            # Hook owns both fix + verify; orchestrator just consumes the result.
+            if run_command(verdict["command"]) == 0 and run_command(verdict["verify"]) == 0:
+                resolve(concern, by="auto-fix")
+        case "llm_fix":
+            # Emit structured guidance into the orchestrator's context;
+            # LLM picks it up, edits code, re-runs tests, marks resolved.
+            emit_guidance(concern, verdict["category"], verdict["suggested_action"])
+        case "user_ask":
+            # Surface to user via AskUserQuestion in the merge-confirm step.
+            queue_user_prompt(concern, verdict["suggested_action"])
 ```
 
-**Fail-safe**: if auto-fix runs and tests still fail OR new concerns are emitted, escalate to user with the original + new concerns; do NOT loop. Bound at 1 auto-fix attempt per concern per close cycle.
+**Fail-safe**: if `auto_fix` runs and tests still fail OR new concerns are emitted, escalate to `llm_fix` with the original + new concerns; do NOT loop on `auto_fix`. Bound at 1 auto-fix attempt per concern per close cycle.
 
-**Class A today is just `lint`** — `ruff format && ruff check --fix` already runs in pre-commit, so /xp-story-close only sees lint concerns when they survived the hook (rare; usually means a non-fixable rule like `RUF012` that needs a code edit). Even Class A is mostly already auto-applied; the auto-fix step would mostly be a confirmation.
+**Class A today is just `lint`** — `ruff format && ruff check --fix` already runs in pre-commit, so /xp-story-close only sees lint concerns when they survived the hook (rare; usually means a non-fixable rule like `RUF012` that needs a code edit). Even Class A is mostly already auto-applied; the `auto_fix` route is mostly a confirmation.
 
-**Class B surface text per category** (copy-pasteable):
-- `test_failure`: "Test(s) failed: <command>. Run pytest, fix the code, re-test, then mark resolved."
-- `ac_coverage`: "Coverage gap: <test/file>. Add the assertion or doc, then mark resolved."
-- `file_domain_drift`: "Files outside declared domain: <list>. Move the files OR amend sprint.json file_domain."
-- `honesty_gap`: "Reviewer found a miss at <file:line>. Fix the issue, then mark resolved."
-- `file_split`: "File <path> at <N> lines exceeds 500-line max. Pick an extraction target and split."
-- `spec_drift`: "Plan and <doc> say different things about <surface>. Update <doc> to match."
+**Why keep `auto_fix` as a separate route** (not collapse into `llm_fix`)? Two reasons: (1) the rare surviving lint case is genuinely deterministic — paying LLM tokens to read "F401 unused import" and edit it would be wasteful when a script can do it in 50ms; (2) future deterministic remediations (auto-format-only test fixtures, mechanical import sorting, generated-code regen) belong in this route as they emerge. Collapsing now would force a re-split later. One route per actor is the simpler invariant.
 
-**Class C surface text**:
-- `design_decision`: "This requires a policy decision. Record it as a `decision` event and either resolve or defer."
-- `ac_amendment`: "AC interpretation choice. Update the AC reading inline in the doc, then mark resolved."
+**Class B suggested-action text per category** (LLM consumes — code-action prose, not user prose):
+- `test_failure`: "Failing test at `<file:line>`: `<assertion-text>` expects `<expected>`, got `<actual>`. Edit code referenced by the assertion, re-run `<command>`, mark resolved." (Hook templates the file/line/assertion from pytest output — not vague placeholders.)
+- `ac_coverage`: "Coverage gap at `<test/file>`. Add the assertion/doc named in the concern, mark resolved."
+- `file_domain_drift`: "Files outside declared domain: `<list>`. Either move the files into a declared dir OR amend sprint.json file_domain — pick the one that matches the original story intent."
+- `honesty_gap`: "Reviewer found a miss at `<file:line>`. Read the concern, fix the named code path, re-run tests, mark resolved."
+- `file_split`: "`<path>` at `<N>` lines exceeds 500-line max. Pick an extraction target (group of related functions/classes), move to a new file, update imports, mark resolved."
+- `spec_drift`: "Plan and `<doc>` say different things about `<surface>`. Update `<doc>` to match the plan, mark resolved."
+
+**Class C user-prompt text per category** (user consumes — decision prose):
+- `design_decision`: "Design decision needed. Record a `decision` event with the chosen option, then resolve or defer."
+- `ac_amendment`: "AC interpretation choice. Update the AC reading inline in the plan/doc, then mark resolved."
 - `plan_discipline`: "Process feedback — already-committed work cannot be retroactively fixed. Acknowledge and move on; consider for future plans."
 
 ## 8. Schema gap finding
