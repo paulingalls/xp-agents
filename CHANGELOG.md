@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.37.4 — xp-accept: forbid orchestrator confirmation prompt on green automated tests
+
+A small but high-leverage SKILL.md tightening. The xp-accept skill already said `Exit code 0 = pass. Report success, proceed to mark done.` but the wording was ambiguous enough that the orchestrator inserted an extra `Mark story-NNN done?` AskUserQuestion every story anyway — 4 redundant round-trips this session alone, with no real user-judgment content because the test had passed.
+
+`Step 1 / Automated acceptance / Step 4` now reads `Exit code 0 = pass. Auto-proceed to Step 2 (update sprint.json) without calling AskUserQuestion.` plus an explicit `Do not insert an extra "mark story-NNN done?" prompt` ban that names the failure mode literally. The user gate still exists — it lives in `/xp-story-close`'s merge-confirm step (referenced via xp-accept's own Step 2b for durability against /xp-story-close internal renumbering). Manual acceptance carve-out preserved: stories with `type=manual` still prompt for `done | deferred` because there's no objective signal.
+
+The principle is the same one that emerged in spike-008's Class A/B/C router design: only prompt the user when judgment requires THEIR input, not when judgment requires ANY input.
+
 ## v2.37.3 — Compaction retains sprint commits + cascade-defer helper + probe diagnostic pairings + match-pattern typing
 
 A free session resolving the carry-forward Tries that piled up across the last three sprint retros plus the two adopted debts. The headline is a real bug fix in `compact.py`: sprint retros were reporting `per_story.commits=0` across all done stories because curation-watermark compaction archived commit events as soon as it could, leaving `compute_story_analysis` blind by retro time. Plus the cascade-defer mechanics in `/xp-accept` finally got inlined as bash, the probe diagnostic pairings now flow through to the retro analyst, and the stringly-typed match block in `compact.py` got the typed-pattern treatment.
