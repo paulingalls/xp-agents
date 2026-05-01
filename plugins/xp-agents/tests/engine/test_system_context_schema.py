@@ -66,8 +66,22 @@ class TestValidDocument(unittest.TestCase):
         doc["stack"]["runtime"] = "Python 3.10+"
         doc["stack"]["dependencies_policy"] = "stdlib only"
         doc["stack"]["package_manager"] = "none"
+        doc["stack"]["test_command"] = "pytest -n auto"
         errors = validate_system_context(doc)
         self.assertEqual(errors, [])
+
+    def test_test_command_validates_as_optional_string(self) -> None:
+        # test_command joined the optional stack-field tuple in the
+        # spike-008 follow-up. Pin its validation alongside the other
+        # optional stack strings so a future schema change doesn't
+        # silently let through (e.g.) a list value.
+        doc = valid_doc()
+        doc["stack"]["test_command"] = ["pytest", "-n", "auto"]
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("test_command must be a string" in e for e in errors),
+            f"non-string test_command should fail validation; got {errors}",
+        )
 
     def test_valid_with_optional_module_fields(self) -> None:
         doc = valid_doc()

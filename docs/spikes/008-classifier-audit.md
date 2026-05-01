@@ -14,8 +14,8 @@ Can `/xp-story-close` auto-fix code-resolvable concerns/blocks without prompting
 
 - **Sprint-050 in events.jsonl: 40 concerns** (active sprint, all in current log).
 - **Sprint-049 archive sample: 20 concerns** drawn from `archive-2026042{8,9}*.jsonl` and `archive-20260430*.jsonl`. Reproducible: `jq` filter then `sort -t'"' -k4 | head -20` (deterministic id-sort, NOT unseeded shuf — addresses concern `5f83747fe875`).
-- **Total working set: 60 concerns**, date range `2026-04-27T22:26:00Z` → `2026-05-01T18:12:57Z`.
-- **Split**: training set = newest 50; **held-out test set = oldest 10**. Held-out chosen BEFORE rule derivation to prevent fitting bias (per assumption `1fb523fd4990`).
+- **Total working set: 60 unique concern event IDs**, date range `2026-04-27T22:26:00Z` → `2026-05-01T18:12:57Z`. (Sprint-050 + sprint-049 archive queries are time-disjoint, so no inter-query duplicates; the 60 raw count is also the unique count.)
+- **Split**: training set = newest 50; **held-out test set = oldest 10**. The audit table physically lists 54 training rows because the split was applied before checking for cross-table overlap with the held-out 10; 4 IDs appear in both subsets and are dropped from the *effective* training count, leaving **50 unique-to-training + 10 held-out = 60 unique IDs total** (see §4 footnote for the 4 IDs and rationale). Held-out chosen BEFORE rule derivation to prevent fitting bias (per assumption `1fb523fd4990`).
 
 **Sample bias acknowledged**: held-out 10 is biased toward mechanical hook-emitted concerns (8 of 10 are `agent=main` or `teammate-*` lint/test_failure events). It tests rule precision on the easy cases; reviewer-concern precision is measured on the training set where the mix is richer (27 reviewer concerns out of 50). With ~58 events across 10 categories some per-category claims rest on <3 examples — small-sample caveat applies (per reviewer item 5).
 
@@ -39,7 +39,7 @@ Established in this spike (no prior taxonomy existed):
 
 ## 4. Audit table
 
-Training set (50 concerns; YES = code-resolvable per §3 vocabulary):
+Training set table — **54 rows below**, of which 4 are duplicates with the held-out 10 listed lower in this section (see footer note); **effective training n = 50 unique** after dropping those duplicates. YES = code-resolvable per §3 vocabulary:
 
 | ID | Agent | Category | YES | Reasoning |
 |---|---|---|---|---|
@@ -233,18 +233,24 @@ The bogus concern `fe1070134219` filed during the spike has been withdrawn via t
 ## 9. Recommended next stories
 
 1. **Class A auto-fix prototype** — DEFERRED. Class A today is just `lint`, and pre-commit already runs `ruff format && ruff check --fix`. Surviving lint cases are rare (non-fixable rules like `RUF012`). Wait until a second deterministic remediation surfaces (e.g., import sort, format-only test fixture regen) so the new route earns its complexity. Per concern `dc646a18de09`.
-2. **Class B surface refinement**: A/B the suggested-action text against real merge cycles — does the LLM act on the suggestion or ignore it? This is where the practical win lives (Class B is ~60% of concerns; better category-aware text reduces user-prompt fatigue).
+2. **Class B surface refinement**: A/B the suggested-action text against real merge cycles — does the LLM act on the suggestion or ignore it? This is where the practical win lives (Class B is ~65% of concerns; better category-aware text reduces user-prompt fatigue).
+
+_Note: an earlier draft of this section also listed "severity wire-up" as item #2. That item was retracted in §8 (no schema gap exists; severity is already wired correctly). The corresponding concern (`fe1070134219`) was withdrawn. Closes redundancy concern `d46b4e637d2d` — the recommendation list and the now-withdrawn concern collapse together rather than competing for canonical-record status._
 
 ## 10. Phase 5 sanity prediction
 
-_Forward-pointer: filled in at next /xp-kickoff, not at commit time._
+**Predictions recorded 2026-05-01** (post-sprint-050 close, pre-next-sprint). Method: rank empirical category frequencies across all 60 unique IDs (training 50 + held-out 10): `lint` 17, `test_failure` 17, `ac_coverage` 14, `file_domain_drift` 3, `plan_discipline` 3, `file_split` 2, `honesty_gap` 2, `spec_drift` 1, `design_decision` 1. Top-3 categories cover 80% of mass. Class shares: **Class A 28%, Class B 65%, Class C 7%**.
 
-Predict the category + class of the next 5 concerns that arrive after this spike commits. Record predictions here, then check after they materialize. (No automated recurring task — manual sanity check at the next /xp-kickoff.)
+A retro Try has been adopted ([refs: 8f13500f2192]) so the kickoff *after* the next 5 concerns land will populate the Actual columns and assess match rate. Closes the prediction-vs-actual loop without an automated recurring task — the loop is owned by the next-but-one kickoff.
 
 | # | Predicted category | Predicted class | Actual category | Actual class | Match? |
 |---|---|---|---|---|---|
-| 1 | _(pending)_ | | | | |
-| 2 | _(pending)_ | | | | |
-| 3 | _(pending)_ | | | | |
-| 4 | _(pending)_ | | | | |
-| 5 | _(pending)_ | | | | |
+| 1 | `lint` | A | _(pending)_ | | |
+| 2 | `test_failure` | B | _(pending)_ | | |
+| 3 | `ac_coverage` | B | _(pending)_ | | |
+| 4 | `test_failure` | B | _(pending)_ | | |
+| 5 | `lint` | A | _(pending)_ | | |
+
+Predicted distribution: A 2/5 = 40%, B 3/5 = 60%, C 0/5 = 0%. Slightly over-weights A and under-weights C versus empirical (A 28%, B 65%, C 7%); with only 5 samples and Class C at ~7%, expect ≈0 Class C in the window.
+
+**Validation criteria**: 3/5 matches = rule holds; 2/5 = revisit weights; ≤1/5 = rule misclassifies on real-world drift, re-derive on a fresh sample. Class match (A/B/C) is the primary metric; category match is secondary (Class B has 6 categories, getting the right *class* matters more than picking the exact category).

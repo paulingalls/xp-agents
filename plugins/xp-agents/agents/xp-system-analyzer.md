@@ -154,6 +154,44 @@ Concerns must be **actionable**: state what surface was detected, what is missin
 
 **Update mode:** If `acceptance_surfaces` already exists, compare detected surfaces against existing entries. Add new surfaces, update signals for existing ones, but do not remove surfaces the user may have manually added.
 
+### Step 3.7: Test Command Detection
+
+Detect the project's full automated-test command and populate
+`stack.test_command`. The story-close + free-close auto-merge gate
+(Step 6 override) reads this field via the preload — empty / unset
+means the gate cannot fire and those closes will always prompt the
+user to confirm. Detecting it correctly here unlocks the auto-merge
+ergonomics.
+
+**Detection signals (read these files, in order — first hit wins):**
+
+| Signal | Test command |
+|--------|--------------|
+| `package.json` with `"test"` script | `npm test` (or `yarn test` / `pnpm test` if lockfile dictates) |
+| `pyproject.toml` with `[tool.pytest]` or `[tool.poetry.scripts.test]` | `pytest` (add `-n auto` if `pytest-xdist` is in deps) |
+| `pytest.ini` / `tox.ini` `[pytest]` section | `pytest` (add `-n auto` if `pytest-xdist` is in deps) |
+| `Cargo.toml` workspace | `cargo test` |
+| `go.mod` | `go test ./...` |
+| `mix.exs` | `mix test` |
+| `Gemfile` with `rspec` | `bundle exec rspec` |
+| `Makefile` with a `test:` target | `make test` |
+| `lefthook.yml` / `pre-commit` config invoking tests | extract the actual command from the config |
+
+**When uncertain, leave `test_command` unset.** A wrong test command is
+worse than none — it would either fail spuriously and block the
+auto-merge gate, or skip real tests and let bad merges through. If the
+project uses a non-canonical runner, no testing infrastructure, or
+multiple parallel test pipelines, omit the field and let the close
+skill prompt the user.
+
+**Update mode:** if `test_command` already exists in `stack`, leave it
+alone unless detection signals strongly contradict it (e.g., the
+project switched runners). Test commands are stable; the user may
+have set this field deliberately.
+
+**Optional, not required.** The schema treats `test_command` as
+optional; leaving it unset is a valid system_context.
+
 ### Step 4: Build system_context JSON
 
 Build a JSON object matching this schema:
@@ -166,7 +204,8 @@ Build a JSON object matching this schema:
     "languages": ["Python", "TypeScript"],
     "runtime": "<optional, max 100 chars>",
     "dependencies_policy": "<optional, max 100 chars>",
-    "package_manager": "<optional, max 100 chars>"
+    "package_manager": "<optional, max 100 chars>",
+    "test_command": "<optional, max 100 chars — see Step 3.7 above>"
   },
   "modules": [
     {"name": "module-name", "path": "src/module", "purpose": "<max 200 chars>"}

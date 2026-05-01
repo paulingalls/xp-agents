@@ -53,7 +53,16 @@ _REQUIRED_FIELDS = frozenset(
     }
 )
 
-_STACK_OPTIONAL_FIELDS = ("runtime", "dependencies_policy", "package_manager")
+# `test_command` is the full automated-test command (e.g.,
+# "pytest -n auto", "npm test"). Read by close-skill preloads to gate
+# the story-close + free-close auto-merge override; empty / unset →
+# no auto-merge.
+STACK_OPTIONAL_FIELDS = (
+    "runtime",
+    "dependencies_policy",
+    "package_manager",
+    "test_command",
+)
 
 _MODULE_REQUIRED = frozenset({"name", "purpose", "path"})
 
@@ -88,7 +97,7 @@ def _validate_stack(stack: object, *, enforce_budget: bool = True) -> list[str]:
             if not isinstance(lang, str):
                 errors.append(f"stack.languages[{idx}] must be a string")
 
-    for field in _STACK_OPTIONAL_FIELDS:
+    for field in STACK_OPTIONAL_FIELDS:
         if field not in stack:
             continue
         if not isinstance(stack[field], str):

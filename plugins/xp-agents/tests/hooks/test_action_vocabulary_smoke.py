@@ -266,6 +266,16 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # at sprint-retro completion, or remove the constant and rewrite the
     # consumers against retrospective-type events.
     "STATUS_ACTION_SPRINT_RETRO_DONE": "ef03cbc32f1e",
+    # STATUS_ACTION_CONCERN_CLASSIFY is intentionally emitted by the LLM
+    # running close skills' Step 5c (via append.sh from
+    # _close_pipeline_shared.md), NOT by a Python hook. There's no
+    # producer to drive in this canary because the producer is prose
+    # in a SKILL.md that the LLM executes. Consumer is
+    # smm_cli.py count-classifications, exercised by
+    # tests/engine/test_smm_cli_count_classifications.py.
+    # Not a debt — this is an intentional LLM-via-SKILL.md producer
+    # pattern, the first STATUS_ACTION_* of its kind.
+    "STATUS_ACTION_CONCERN_CLASSIFY": "LLM-via-SKILL.md (not a debt)",
 }
 
 

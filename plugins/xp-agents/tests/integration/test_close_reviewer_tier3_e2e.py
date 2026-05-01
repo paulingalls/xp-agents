@@ -33,6 +33,11 @@ _CLOSE_SKILL_MDS = {
     "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
     "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md",
 }
+# The shared close-pipeline reference (Steps 5, 5b, 6) was lifted out
+# of each SKILL.md into one file each preload `cat`s. Receiver-side
+# Block-flip-default prose (Step 3.5 contract honoring) lives there
+# now; effective close-skill text is the union of SKILL.md + shared.
+_CLOSE_PIPELINE_SHARED_MD = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
 
 
 class TestCloseReviewerTier3Runtime(_IntegrationTestCase):
@@ -138,8 +143,20 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.agent_text = _REVIEWER_AGENT_MD.read_text()
+        # The Block-flip-default prose lives in the shared close-pipeline
+        # reference now (loaded by every close-skill preload). Concatenate
+        # the shared text onto every skill so assertions below see the
+        # LLM-visible union. Fail-fast on missing shared file — silent
+        # fallback would let assertions appear to pass while the close
+        # pipeline is actually broken.
+        #
+        # All four close skills were migrated by the end of commit 2b
+        # (story+sprint in 2a, plan+free in 2b); the per-mode dispatch
+        # the previous version had collapsed back to a single rule.
+        shared_text = _CLOSE_PIPELINE_SHARED_MD.read_text()
         cls.skill_texts = {
-            mode: path.read_text() for mode, path in _CLOSE_SKILL_MDS.items()
+            mode: path.read_text() + "\n\n" + shared_text
+            for mode, path in _CLOSE_SKILL_MDS.items()
         }
 
     def _step_3_5_body(self) -> str:

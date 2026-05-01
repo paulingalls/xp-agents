@@ -4,8 +4,8 @@ description: >-
   Per-story close: review the story diff, merge into the sprint base,
   and (solo mode) JIT-create the next in-progress story's branch off
   the merged tip. Invoked by /xp-accept on each accepted story; the
-  sprint-review dispatch is /xp-accept's responsibility after its
-  loop completes (decision e30e9e91e61a — single source of truth).
+  sprint-review dispatch is owned by /xp-accept after its loop
+  completes — single source of truth lives there.
 allowed-tools:
   - Read
   - Write
@@ -79,55 +79,65 @@ Agent(
 )
 ```
 
-## Step 5: Present findings
+## Steps 5–6: Apply shared close-pipeline reference
 
-Output the reviewer's Keep / Concern / Block summary verbatim to the
-user. The tool result is not visible to them — surface it as text.
+The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
+the preload at the top of this context — see
+`scripts/_close_pipeline_shared.md` for the source. Apply those three
+steps in order after Step 4, then continue with Step 7 below.
 
-## Step 5b: Resolve Addressed Concerns
+**Story-close addendum to Step 6 (Tier 3 exclusion):** story-close is
+excluded from the Tier 3 security skill (per `agents/xp-close-reviewer.md`
+"Step 3.5: Tier 3 Security Review" — Tier 3 = sprint/plan/free).
+The shared Step 6's Block-flip-default rule still fires here — Step 4's
+general Block bullets are recorded at severity high by the
+close-reviewer and trigger the same Abort-default flip — but no Tier 3
+security findings will appear in the reviewer's summary for a story.
 
-Per recorded auto-resolve-per-mode policy (story+sprint YES, plan+free
-NO), scan for open concerns this story's commits likely addressed:
+**Story-close override for Step 6 (auto-merge gate):** if ALL of these
+hold, skip the shared Step 6's `AskUserQuestion` and proceed directly
+to Step 7:
+1. Step 5c queued zero ask-user items. Verify deterministically via
+   the canonical structured filter:
+   ```bash
+   ASK_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-classifications \
+     --route ask --since-ts <CLOSE_START_TS>)
+   ```
+   `<CLOSE_START_TS>` is emitted by the preload above (captured at
+   close-cycle start). The CLI filters on
+   `metadata.action == "concern_classify"` + `metadata.route == "ask"`
+   + `ts >= CLOSE_START_TS` — structured fields, not regex. Test
+   numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared
+   Step 6 prompt.
+2. No Block-severity finding survived in Step 4's reviewer summary.
+3. The preload above emitted a non-empty `TEST_COMMAND=...` line
+   (sourced from `system_context.stack.test_command`) AND running
+   that command AFTER all Step 5c fixes landed exits 0. Any non-zero
+   exit means tests aren't green — fall through to the shared Step 6
+   prompt.
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/triage_preload.py \
-  --smm-dir <SMM_DIR>
+When `TEST_COMMAND` is empty (the project hasn't configured a test
+command), the gate cannot fire. Print this two-line discovery hint
+before falling through to the shared Step 6 prompt:
+
+```
+Auto-merge disabled — set stack.test_command in system_context.json to enable.
+To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
+    printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
 ```
 
-Focus on the "Open Concerns" section. For each concern annotated with
-**LIKELY ADDRESSED**: use your session context and the listed commits
-to judge whether the concern was genuinely fixed. When confident,
-auto-resolve:
+Substitute `<your-test-command>` with the project's test runner
+invocation. The `printf %s` form avoids shell-quoting traps when the
+command itself contains spaces or special characters.
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py \
-  triage-drop --smm-dir <SMM_DIR> --event-id <event-id>
-```
-
-When in doubt, leave open — it surfaces at the next kickoff for
-manual triage. Report how many were auto-resolved alongside the
-reviewer findings before asking the user to confirm the merge.
-
-## Step 6: Confirm the merge
-
-Use `AskUserQuestion` to ask whether to proceed with the merge. Two
-options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
-
-**If the close-reviewer's prose summary above contains any Block
-finding (recorded by xp-close-reviewer at severity high per Step 3.5),
-list "Abort — fix concerns first" as the FIRST option and append
-"(Recommended)" to its label.** This honors the xp-close-reviewer
-Step 3.5 contract: Block findings flip the merge default to Abort.
-The user can still pick Merge to override. When no Block was filed,
-keep the default ordering (Merge first). Story-close skips Step 3.5's
-Tier 3 security skill itself, but Step 4's general Block bullets are
-also recorded at severity high and trigger the same default flip.
-
-If the user picks abort, stop here. The branch and PR (if any) stay
-intact for follow-up work.
-
-If the preload included a `### HOOK_GUIDANCE` section, follow it
-before confirming the merge.
+When all three conditions hold, print exactly:
+"All reviewer findings addressed and tests green — proceeding to merge
+without confirmation."
+then continue to Step 7. Otherwise apply the shared Step 6
+`AskUserQuestion` as written. The deterministic green-tests gate
+matches the auto-accept pattern in `/xp-accept`; LLM judgment from
+Step 5c alone is not sufficient to skip user confirmation.
 
 ## Step 7: Merge
 
@@ -144,8 +154,8 @@ survives a failed step so the user can resolve and retry.
 
 If the story being closed was a teammate's, a worktree exists at
 `.claude/worktrees/worktree-<story-id>`. Solo stories have no
-worktree to clean up. Per-story symmetry (decision 9029c07ae198)
-puts the cleanup here, not bulk-after-loop in /xp-accept.
+worktree to clean up. Per-story symmetry puts the cleanup here, not
+bulk-after-loop in /xp-accept.
 
 Use `branching.py` subcommands to derive story id from the
 just-closed `<CURRENT_BRANCH>` and locate the matching live teammate
@@ -197,8 +207,8 @@ its branch on demand. Two states to handle:
 
 Wrap each path in an explicit shell guard. If both subcommands exit
 non-zero (no in-progress AND no scheduled), the sprint is complete —
-/xp-accept's loop owns the sprint-review dispatch (decision
-e30e9e91e61a — single source of truth lives in /xp-accept).
+/xp-accept's loop owns the sprint-review dispatch (single source of
+truth lives in /xp-accept).
 
 ```bash
 if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
