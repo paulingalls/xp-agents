@@ -19,6 +19,7 @@ and let the script decide whether to skip. Orchestrator-only steps
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -26,8 +27,33 @@ from pathlib import Path
 
 # Resolve sibling branching module without modifying caller sys.path.
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import branching
+import identity
+from seed_smm import _HOOK_INDICATORS
+
+_HOOK_NAMES = ("pre-commit", "pre-push")
+
+
+def pre_commit_hook_present(repo_root: str) -> bool:
+    """Return True when the project runs tests via a git hook on commit/push.
+
+    Detects three configurations: framework markers (lefthook,
+    pre-commit-config, husky); the default ``.git/hooks/`` dir with an
+    executable ``pre-commit`` or ``pre-push``; a ``core.hooksPath``
+    override pointing at a dir with the same. The executable bit is the
+    load-bearing check — non-executable scripts (and ``.sample`` files)
+    will never fire.
+    """
+    root = Path(repo_root)
+    if any((root / marker).exists() for marker in _HOOK_INDICATORS):
+        return True
+    override = identity._git_config("core.hooksPath", repo_root)
+    hooks_dir = Path(override).expanduser() if override else root / ".git" / "hooks"
+    if not hooks_dir.is_absolute():
+        hooks_dir = root / hooks_dir
+    return any(os.access(hooks_dir / name, os.X_OK) for name in _HOOK_NAMES)
 
 
 def _has_remote(cwd: str) -> bool:
@@ -124,6 +150,12 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hook_present(args: argparse.Namespace) -> int:
+    """Print 'present' or 'absent' for the close-skill preloads."""
+    print("present" if pre_commit_hook_present(args.cwd) else "absent")
+    return 0
+
+
 def cmd_diff_command(args: argparse.Namespace) -> int:
     """Print `gh pr diff <N>` for numeric PR_OUTPUT, else `git diff <target>...HEAD`.
 
@@ -203,6 +235,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True)
     p.add_argument("--body", required=True)
     p.set_defaults(func=cmd_create_pr)
+
+    p = sub.add_parser(
+        "hook-present",
+        parents=[cwd_parent],
+        help="print 'present' or 'absent' for the project's git hooks",
+    )
+    p.set_defaults(func=cmd_hook_present)
 
     p = sub.add_parser(
         "diff-command",
