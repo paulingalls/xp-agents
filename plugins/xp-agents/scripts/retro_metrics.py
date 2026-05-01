@@ -343,6 +343,7 @@ def _compute_probe_adoption(
     """
     from event_schema import (
         METADATA_KEY_PROBE_CANDIDATES,
+        METADATA_KEY_PROBE_SELECTION_REASONS,
         STATUS_CONTENT_RESOLVES_PROBE,
     )
 
@@ -405,13 +406,20 @@ def _compute_probe_adoption(
             escape += 1
         else:
             divert += 1
+            reasons_map = (probe.get("metadata") or {}).get(
+                METADATA_KEY_PROBE_SELECTION_REASONS
+            ) or {}
+            sorted_candidates = sorted(candidate_ids)
             divert_details.append(
                 {
                     "agent_id": agent_id,
                     "probe_ts": probe_ts,
                     "commit_ts": commit.get("ts") or "",
-                    "candidates": sorted(candidate_ids),
+                    "candidates": sorted_candidates,
                     "resolves": sorted(resolves),
+                    "selection_reasons": {
+                        cid: reasons_map.get(cid, []) for cid in sorted_candidates
+                    },
                 }
             )
 

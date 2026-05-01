@@ -155,6 +155,26 @@ METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
 
+# Per-candidate selector signals attached by resolves_probe._score_candidate
+# and persisted on probe status events so retro_metrics can attribute
+# divert events to specific signals (which selector misfired). Shape:
+#   {candidate_id: [reason1, reason2, ...]}
+# Reason vocabulary is the SELECTION_REASON_* constants below. An empty
+# list is ambiguous: it can mean either "old archived probe event predates
+# this metadata key" OR "all four signals scored zero on this candidate";
+# divert-analysis consumers must treat both cases as 'no signal data'.
+METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
+
+# Selector-signal vocabulary for resolves_probe._score_candidate. Each
+# constant names a signal that contributed to a candidate's score and
+# appears in the candidate's selection_reasons list iff that signal
+# scored non-zero. Listed in the order _score_candidate emits them
+# (deterministic for test assertions).
+SELECTION_REASON_KEYWORD = "keyword"
+SELECTION_REASON_FILE_OVERLAP = "file_overlap"
+SELECTION_REASON_RECENCY = "recency"
+SELECTION_REASON_CLOSE_MODE = "close_mode"
+
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
 # subagent_start. Centralized to prevent producer/consumer drift.
