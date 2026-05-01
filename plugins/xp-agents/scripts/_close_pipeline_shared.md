@@ -74,20 +74,20 @@ When in doubt, ASK — the user can always redirect a fixable item, but
 a silent mis-fix is hard to recover.
 
 **Audit trail:** for each classified item, append a status event
-recording the decision. The spike-008 §10 prediction loop needs
-sampled classifications to measure rule precision over time, so this
-step is required for every classification (per decision 7a8d939b760b):
+recording the decision. Retrospective tooling samples these events to
+measure classifier rule precision over time, so this step is required
+for every classification:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" --agent "main" \
-  --content "spike-008 classify <event-id>: <fix|ask> (<category>) — <one-line reason>" \
+  --content "concern-classify <event-id>: <fix|ask> (<category>) — <one-line reason>" \
   --working-on '[]'
 ```
 
-Use the canonical "spike-008 classify" prefix so retro tooling can
-locate these events. After acting on the classification (fix-and-mark
-or queue-for-Step-6), continue to the next finding. When all findings
+Use the canonical `concern-classify` prefix so the audit trail is
+greppable. After acting on the classification (fix-and-mark or
+queue-for-Step-6), continue to the next finding. When all findings
 are processed, proceed to Step 6.
 
 ### Step 6: Confirm the merge

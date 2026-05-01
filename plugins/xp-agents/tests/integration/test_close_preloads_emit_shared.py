@@ -176,21 +176,38 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
         )
 
     def test_emits_step5c_audit_trail_append_template(self):
-        # Per decision 7a8d939b760b: each classification appends a
-        # status event so spike-008 §10 prediction loop has data to
-        # validate against. Pin the append.sh invocation template.
+        # Each classification appends a status event so retrospective
+        # tooling can sample classifications to measure rule precision.
+        # Pin the canonical content prefix + append.sh invocation. The
+        # prefix must be plugin-generic (no spike-NNN names) since the
+        # plugin ships to projects that have no notion of spike-008.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            "spike-008 classify",
+            "concern-classify",
             result.stdout,
-            "Step 5c audit trail must use the canonical 'spike-008 classify' "
-            "status content prefix so the §10 validation loop can find these",
+            "Step 5c audit trail must use the plugin-generic "
+            "'concern-classify' status content prefix",
         )
         self.assertIn(
             "append.sh",
             result.stdout,
             "Step 5c audit trail must reference append.sh to record the event",
+        )
+
+    def test_step5c_does_not_leak_project_internal_refs(self):
+        # The shared file ships to other projects; it must not mention
+        # project-internal naming (spike numbers, sprint numbers, SMM
+        # event hex IDs) that would be meaningless out-of-context.
+        # Tests under tests/ and docs/ may freely reference spike-008
+        # — those don't ship.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(
+            "spike-008",
+            result.stdout.lower(),
+            "Shared close-pipeline content must not name 'spike-008' — "
+            "the plugin ships to other projects",
         )
 
 
@@ -235,6 +252,20 @@ _SKIP_NOTE_TARGETS = {
     "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
 }
 
+# Commit 4: auto-merge override lives in mode-specific SKILL.md files,
+# NOT in the shared file (per plan-reviewer concern fdcf62462321 —
+# asymmetric mode logic should not pollute the shared file all 4
+# skills consume).
+_AUTO_MERGE_SKILL_MDS = {
+    "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md",
+    "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
+}
+_NO_AUTO_MERGE_SKILL_MDS = {
+    "sprint": _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md",
+    "plan": _PLUGIN_ROOT / "skills" / "xp-plan-close" / "SKILL.md",
+}
+_SHARED_CLOSE_PIPELINE = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
+
 
 class TestPlanFreeCloseSkillMDDropsSkipNote(unittest.TestCase):
     """Commit 2b removes the 'skip LIKELY ADDRESSED' notes from
@@ -259,6 +290,126 @@ class TestPlanFreeCloseSkillMDDropsSkipNote(unittest.TestCase):
                     f"{mode}-close SKILL.md must drop the 'skip LIKELY "
                     f"ADDRESSED' note in commit 2b — it now contradicts "
                     f"the shared Step 5b",
+                )
+
+
+class TestStoryFreeAutoMergeOverride(unittest.TestCase):
+    """Commit 4: story-close + free-close add a Step 6 override that
+    auto-merges when (no Step 5c ask-user items queued) AND (no Block)
+    AND (automated tests green). Sprint-close + plan-close do NOT —
+    those are terminal merges into primary with bigger blast radius
+    where the user expects to confirm.
+
+    Per plan-reviewer concern ecc57a98b410: gating on green automated
+    tests (deterministic, like v2.37.4 xp-accept) — not just LLM
+    judgment from Step 5c — is what makes the auto-merge safe for the
+    free-close primary-merge case.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.auto_merge_text = {
+            mode: path.read_text() for mode, path in _AUTO_MERGE_SKILL_MDS.items()
+        }
+        cls.no_auto_merge_text = {
+            mode: path.read_text() for mode, path in _NO_AUTO_MERGE_SKILL_MDS.items()
+        }
+
+    def test_story_free_skills_carry_auto_merge_override(self):
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                lower = self.auto_merge_text[mode].lower()
+                self.assertIn(
+                    "auto-merge",
+                    lower,
+                    f"{mode}-close SKILL.md must add an auto-merge "
+                    f"override section (commit 4)",
+                )
+
+    def test_story_free_auto_merge_gates_on_tests_green(self):
+        # Per concern ecc57a98b410: auto-merge must require deterministic
+        # green-tests signal, not just LLM judgment from Step 5c. Pin
+        # the gate so a future edit can't drop the deterministic check
+        # and silently widen the blast radius.
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                lower = self.auto_merge_text[mode].lower()
+                self.assertIn(
+                    "tests",
+                    lower,
+                    f"{mode}-close auto-merge override must mention tests",
+                )
+                self.assertIn(
+                    "green",
+                    lower,
+                    f"{mode}-close auto-merge override must require green tests",
+                )
+
+    def test_sprint_plan_skills_lack_auto_merge_override(self):
+        # Sprint+plan close into primary as terminal merges. The user
+        # confirms there. Auto-merge in those modes would be a
+        # behavior regression.
+        for mode in _NO_AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                lower = self.no_auto_merge_text[mode].lower()
+                self.assertNotIn(
+                    "auto-merge",
+                    lower,
+                    f"{mode}-close SKILL.md must NOT carry an auto-merge "
+                    f"override — terminal merges keep explicit confirm",
+                )
+
+
+class TestSharedPipelineCoherence(unittest.TestCase):
+    """Per plan-reviewer concern ee1db2bd2f8a: each preceding commit's
+    smoke test only checks that commit's marker text. After commits 2,
+    3, AND 4 land, the shared file's section ordering should still
+    flow: Step 5 → Step 5b → Step 5c → Step 6. A scrambled or
+    duplicated heading would break LLM execution but no per-commit
+    smoke test would catch it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.shared_text = _SHARED_CLOSE_PIPELINE.read_text()
+
+    def test_step_headings_appear_in_expected_order(self):
+        expected = [
+            "### Step 5: Present findings",
+            "### Step 5b: Resolve Addressed Concerns",
+            "### Step 5c: Classify and act on reviewer findings",
+            "### Step 6: Confirm the merge",
+        ]
+        positions = [self.shared_text.find(heading) for heading in expected]
+        for heading, pos in zip(expected, positions, strict=True):
+            self.assertNotEqual(
+                pos,
+                -1,
+                f"Shared close-pipeline file missing required heading: {heading}",
+            )
+        self.assertEqual(
+            positions,
+            sorted(positions),
+            f"Shared close-pipeline headings out of order. "
+            f"Expected {expected}; got positions {positions}",
+        )
+
+    def test_each_step_heading_appears_exactly_once(self):
+        # Duplicate headings would confuse the LLM about which body
+        # block to follow. Pin uniqueness alongside ordering.
+        for heading in (
+            "### Step 5: Present findings",
+            "### Step 5b: Resolve Addressed Concerns",
+            "### Step 5c: Classify and act on reviewer findings",
+            "### Step 6: Confirm the merge",
+        ):
+            with self.subTest(heading=heading):
+                self.assertEqual(
+                    self.shared_text.count(heading),
+                    1,
+                    f"Heading must appear exactly once: {heading}",
                 )
 
 

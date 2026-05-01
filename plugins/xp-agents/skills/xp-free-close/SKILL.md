@@ -82,6 +82,30 @@ the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
 steps in order after Step 4, then continue with Step 7 below.
 
+**Free-close override for Step 6 (auto-merge gate):** if ALL of these
+hold, skip the shared Step 6's `AskUserQuestion` and proceed directly
+to Step 7:
+1. Step 5c queued zero ask-user items. Verify deterministically by
+   counting Step 5c audit events: every classification appended a
+   `concern-classify <id>: <fix|ask>` status event, so a clean run
+   means `grep 'concern-classify .*: ask ' <SMM_DIR>/events.jsonl`
+   returns zero matches for events filed since the close cycle
+   started. Don't rely on recall.
+2. No Block-severity finding survived in Step 4's reviewer summary.
+3. The full automated test suite passes green AFTER all Step 5c fixes
+   landed: run `pytest -n auto` (or the project's documented test
+   command) — non-zero exit means fall through to the shared Step 6
+   prompt.
+
+When all three conditions hold, print exactly:
+"All reviewer findings addressed and tests green — proceeding to merge
+without confirmation."
+then continue to Step 7. Otherwise apply the shared Step 6
+`AskUserQuestion` as written. Free-close merges directly into primary,
+so the deterministic green-tests gate is load-bearing — LLM judgment
+from Step 5c alone is not sufficient. This matches the v2.37.4
+xp-accept auto-accept pattern.
+
 ## Step 7: Merge
 
 ```bash
