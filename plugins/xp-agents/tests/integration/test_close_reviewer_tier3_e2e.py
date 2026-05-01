@@ -163,11 +163,12 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
     def test_step_3_5_excludes_story_mode(self):
         # AC#1-3 dispatch claim: story mode is explicitly excluded
         # because Tier 2 at /xp-accept already covered the story diff.
+        # Tighten beyond "NOT" + "story" co-occurrence — bare tokens
+        # would pass even if the prose said the opposite ("NOT
+        # optional; story mode requires it"). Pin the exact "NOT story"
+        # phrasing the agent.md actually uses.
         body = self._step_3_5_body()
-        # Lowercased substring check — the prose says "NOT story mode"
-        # with NOT capitalized for emphasis; allow either case.
-        self.assertIn("NOT", body)
-        self.assertIn("story", body.lower())
+        self.assertIn("**NOT** story", body)
 
     def test_step_3_5_invokes_security_review_skill(self):
         # AC#1-3 dispatch claim: the agent must literally invoke the
@@ -207,6 +208,17 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
     def test_close_skills_default_abort_on_block_free(self):
         # AC#3 trailing Abort claim.
         text = self.skill_texts["free"]
+        self.assertIn("Step 3.5", text)
+        self.assertIn("block finding", text.lower())
+        self.assertIn("recommended", text.lower())
+
+    def test_close_skills_default_abort_on_block_story(self):
+        # Story-close also carries the Abort-default prose (the mixin
+        # test in _close_fixtures.py covers all 4 close skills, but
+        # we re-pin from the M-3 capstone perspective so a future
+        # edit that drops it from xp-story-close fails this story-003
+        # suite too — defense in depth across the same contract).
+        text = self.skill_texts["story"]
         self.assertIn("Step 3.5", text)
         self.assertIn("block finding", text.lower())
         self.assertIn("recommended", text.lower())
