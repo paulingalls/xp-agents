@@ -90,6 +90,26 @@ pre_commit_hook_present() {
         hook-present --cwd . 2>/dev/null || echo "absent"
 }
 
+# Print current UTC time in ISO 8601 format matching events.jsonl's
+# `ts` field shape ("YYYY-MM-DDTHH:MM:SS.ffffff+00:00"). Used by
+# close-skill preloads to capture CLOSE_START_TS for the Step 6
+# auto-merge gate's `count-classifications --since-ts` bound. Python
+# (not `date`) for portability — `date -u --iso-8601=seconds` is
+# GNU-only; macOS BSD `date` rejects the long flag form.
+#
+# Mirrors smm/_append_impl.py:now_iso() (the source-of-truth used
+# by append.sh when stamping events.jsonl entries). This shell
+# variant exists because preload.sh runs before any Python module
+# is imported; calling _append_impl directly would force preload to
+# set up sys.path. Lexicographic comparison against event ts values
+# is safe because both sides use the same fixed-width zero-padded
+# fields produced by datetime.isoformat().
+#
+# Usage: now_iso
+now_iso() {
+    python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat())"
+}
+
 # Look up the project's test command from system_context.stack.test_command.
 # Returns the value (e.g. "pytest -n auto", "npm test", "cargo test")
 # or empty string when unset / system_context.json missing.

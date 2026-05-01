@@ -200,6 +200,36 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "Step 5c audit trail must reference append.sh to record the event",
         )
 
+    def test_emits_step5c_audit_metadata_action(self):
+        # Per concern cd3b361020ca: the canonical signal for retro/gate
+        # consumers is metadata.action, not content-prefix regex. The
+        # Step 5c append.sh template must set metadata.action +
+        # route + category + concern_id so the count-classifications
+        # subcommand can filter on structured fields. Content prefix
+        # stays for human readability (covered by the test above).
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "--metadata",
+            result.stdout,
+            "Step 5c append.sh template must include --metadata flag "
+            "for the canonical structured signal",
+        )
+        for marker in (
+            '"action"',
+            "concern_classify",  # the STATUS_ACTION_CONCERN_CLASSIFY value
+            '"route"',
+            '"category"',
+            '"concern_id"',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(
+                    marker,
+                    result.stdout,
+                    f"Step 5c metadata block must include `{marker}` so the "
+                    f"count-classifications subcommand can filter on it",
+                )
+
     def test_step5c_does_not_leak_project_internal_refs(self):
         # The shared file ships to other projects; it must not mention
         # project-internal naming (spike numbers, sprint numbers, SMM
@@ -361,6 +391,30 @@ class TestStoryFreePreloadEmitsTestCommand(unittest.TestCase):
                     f"when system_context.json is missing",
                 )
 
+    def test_emits_close_start_ts_iso_timestamp(self):
+        # The auto-merge override's count-classifications invocation
+        # bounds events by --since-ts <CLOSE_START_TS>. Pin that the
+        # preload emits a CLOSE_START_TS line with an ISO 8601-shaped
+        # value (YYYY-MM-DDTHH:MM:SS...) so lexicographic comparison
+        # against event ts values works. Format match doesn't need to
+        # be exact: assert leading 4-digit year, T separator, and a
+        # +00:00 / Z trailer.
+        iso_pattern = re.compile(
+            r"^CLOSE_START_TS=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*(\+00:00|Z)$",
+            re.MULTILINE,
+        )
+        for mode, preload in _TEST_COMMAND_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = self._make_smm(sc_data=None)
+                stdout = self._run_preload(preload, smm)
+                self.assertRegex(
+                    stdout,
+                    iso_pattern,
+                    f"{mode}-close preload must emit CLOSE_START_TS=<ISO 8601 "
+                    f"UTC timestamp> for the auto-merge gate's --since-ts "
+                    f"bound",
+                )
+
 
 # Commit 4: auto-merge override lives in mode-specific SKILL.md files,
 # NOT in the shared file (per plan-reviewer concern fdcf62462321 —
@@ -506,6 +560,44 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
                     f"{mode}-close override must reference the "
                     f"`edit-stack-field` CLI subcommand so the user has "
                     f"a runnable invocation to enable the gate",
+                )
+
+    def test_story_free_auto_merge_uses_count_classifications_not_grep(self):
+        # Per concern cd3b361020ca: the verification recipe for
+        # condition 1 must use the structured count-classifications
+        # CLI (filtering on metadata.action + route + ts), NOT a
+        # grep over event content. Pin both halves: the new CLI is
+        # mentioned, AND the legacy grep recipe is gone.
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                text = self.auto_merge_text[mode]
+                self.assertIn(
+                    "count-classifications",
+                    text,
+                    f"{mode}-close auto-merge override must invoke the "
+                    f"`count-classifications` CLI subcommand for "
+                    f"structured verification",
+                )
+                self.assertIn(
+                    "--route ask",
+                    text,
+                    f"{mode}-close override must filter the count to "
+                    f"--route ask (the auto-merge gate cares about "
+                    f"ask-routed items, not fix-routed)",
+                )
+                self.assertIn(
+                    "CLOSE_START_TS",
+                    text,
+                    f"{mode}-close override must scope the count to events "
+                    f"since CLOSE_START_TS (from the preload) so prior "
+                    f"close cycles' classifications don't leak in",
+                )
+                self.assertNotIn(
+                    "grep 'concern-classify",
+                    text,
+                    f"{mode}-close override must NOT grep event content "
+                    f"prefix anymore — count-classifications is the "
+                    f"canonical structured replacement",
                 )
 
     def test_sprint_plan_skills_lack_auto_merge_override(self):

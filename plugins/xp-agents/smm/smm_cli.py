@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import marker_names
 import smm_store
+from append_validation import parse_jsonl
+from event_schema import STATUS_ACTION_CONCERN_CLASSIFY
 from smm_schema import PILLAR_RISKS, PILLARS
 
 _PILLAR_TITLES = {
@@ -184,6 +186,49 @@ def _cmd_remove_item(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_count_classifications(args: argparse.Namespace) -> int:
+    """Count concern_classify events matching --route, optionally
+    bounded by --since-ts (ISO 8601 timestamp).
+
+    Filters each event by:
+      - metadata.action == "concern_classify"
+      - metadata.route == args.route (when provided)
+      - ts >= args.since_ts (lexicographic ISO comparison; safe because
+        all event ts values use the same fixed-width "YYYY-MM-DDTHH:MM:SS+00:00"
+        shape per append.sh)
+
+    Always exits 0 — empty event log returns 0, missing events.jsonl
+    returns 0, malformed lines are skipped. The "absent → 0" semantics
+    let the auto-merge gate's `ASK_COUNT=$(...)` invocation work
+    without exit-code branching, mirroring system_context_cli.py
+    get-stack-field's "absent → empty" pattern.
+
+    Used by story-close + free-close auto-merge override condition 1
+    to verify Step 5c queued zero ask-user items via structured
+    metadata instead of regex over LLM-authored content.
+    """
+    events_path = Path(args.smm_dir) / "events.jsonl"
+    if not events_path.exists():
+        print(0)
+        return 0
+    # Delegate to the canonical JSONL parser used by all events.jsonl
+    # readers (materialize.py, compact.py, …) — handles blank lines,
+    # malformed JSON, and non-dict values uniformly.
+    events, _skipped = parse_jsonl(events_path.read_text())
+    count = 0
+    for event in events:
+        meta = event.get("metadata", {})
+        if meta.get("action") != STATUS_ACTION_CONCERN_CLASSIFY:
+            continue
+        if args.route and meta.get("route") != args.route:
+            continue
+        if args.since_ts and event.get("ts", "") < args.since_ts:
+            continue
+        count += 1
+    print(count)
+    return 0
+
+
 def _cmd_get_event(args: argparse.Namespace) -> int:
     try:
         _, event = smm_store.lookup_event(args.smm_dir, args.event_id)
@@ -297,6 +342,22 @@ def main() -> None:
     get_p = sub.add_parser("get-event", help="Print event by ID or prefix")
     get_p.add_argument("event_id", help="Event UUID or prefix")
 
+    count_p = sub.add_parser(
+        "count-classifications",
+        help="Count concern_classify events filtered by route + since-ts",
+    )
+    count_p.add_argument(
+        "--route",
+        choices=["fix", "ask"],
+        default=None,
+        help="Filter by metadata.route (omit to count all routes)",
+    )
+    count_p.add_argument(
+        "--since-ts",
+        default=None,
+        help="ISO 8601 timestamp; events with ts < this are excluded",
+    )
+
     prm_p = sub.add_parser("promote-event", help="Promote event to SMM")
     prm_p.add_argument("event_id", help="Event UUID or prefix")
     prm_p.add_argument(
@@ -318,6 +379,7 @@ def main() -> None:
         "update-item": _cmd_update_item,
         "remove-item": _cmd_remove_item,
         "get-event": _cmd_get_event,
+        "count-classifications": _cmd_count_classifications,
         "promote-event": _cmd_promote_event,
     }
 

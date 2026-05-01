@@ -85,12 +85,18 @@ steps in order after Step 4, then continue with Step 7 below.
 **Free-close override for Step 6 (auto-merge gate):** if ALL of these
 hold, skip the shared Step 6's `AskUserQuestion` and proceed directly
 to Step 7:
-1. Step 5c queued zero ask-user items. Verify deterministically by
-   counting Step 5c audit events: every classification appended a
-   `concern-classify <id>: <fix|ask>` status event, so a clean run
-   means `grep 'concern-classify .*: ask ' <SMM_DIR>/events.jsonl`
-   returns zero matches for events filed since the close cycle
-   started. Don't rely on recall.
+1. Step 5c queued zero ask-user items. Verify deterministically via
+   the canonical structured filter:
+   ```bash
+   ASK_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-classifications \
+     --route ask --since-ts <CLOSE_START_TS>)
+   ```
+   `<CLOSE_START_TS>` is emitted by the preload above (captured at
+   close-cycle start). The CLI filters on
+   `metadata.action == "concern_classify"` + `metadata.route == "ask"`
+   + `ts >= CLOSE_START_TS` — structured fields, not regex. If
+   `ASK_COUNT > 0`, fall through to the shared Step 6 prompt.
 2. No Block-severity finding survived in Step 4's reviewer summary.
 3. The preload above emitted a non-empty `TEST_COMMAND=...` line
    (sourced from `system_context.stack.test_command`) AND running

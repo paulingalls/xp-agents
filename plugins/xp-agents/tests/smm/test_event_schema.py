@@ -39,7 +39,20 @@ class TestStatusActionConstants(unittest.TestCase):
         "STATUS_ACTION_PLAN_EXITED": "plan_exited",
     }
 
-    EXPECTED: ClassVar[dict[str, str]] = {**M1_EXPECTED, **M2_EXPECTED, **M3_EXPECTED}
+    # Step 5c (close skills) — concern classification per finding.
+    # Producer is the LLM running story-close + free-close at Step 5c
+    # via append.sh; consumer is the Step 6 auto-merge gate's
+    # count-classifications subcommand.
+    STEP_5C_EXPECTED: ClassVar[dict[str, str]] = {
+        "STATUS_ACTION_CONCERN_CLASSIFY": "concern_classify",
+    }
+
+    EXPECTED: ClassVar[dict[str, str]] = {
+        **M1_EXPECTED,
+        **M2_EXPECTED,
+        **M3_EXPECTED,
+        **STEP_5C_EXPECTED,
+    }
 
     def test_each_constant_exists_with_expected_value(self):
         for name, expected in self.EXPECTED.items():

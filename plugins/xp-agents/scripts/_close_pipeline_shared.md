@@ -75,20 +75,29 @@ a silent mis-fix is hard to recover.
 
 **Audit trail:** for each classified item, append a status event
 recording the decision. Retrospective tooling samples these events to
-measure classifier rule precision over time, so this step is required
-for every classification:
+measure classifier rule precision over time, AND the Step 6
+auto-merge gate (story-close + free-close) counts the ask-routed
+events to verify whether it can fire — so this step is required for
+every classification:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" --agent "main" \
   --content "concern-classify <event-id>: <fix|ask> (<category>) — <one-line reason>" \
+  --metadata '{"action":"concern_classify","route":"<fix|ask>","category":"<category>","concern_id":"<event-id>"}' \
   --working-on '[]'
 ```
 
-Use the canonical `concern-classify` prefix so the audit trail is
-greppable. After acting on the classification (fix-and-mark or
-queue-for-Step-6), continue to the next finding. When all findings
-are processed, proceed to Step 6.
+The `--metadata` block is the canonical signal: `action="concern_classify"`
+is what `smm_cli.py count-classifications` filters on, and `route` is
+the fix/ask discriminator the auto-merge gate counts. The
+`concern-classify` content prefix stays for human readability
+(retros + grep-by-eye); structured consumers read `metadata.action`,
+never the content string.
+
+After acting on the classification (fix-and-mark or queue-for-Step-6),
+continue to the next finding. When all findings are processed,
+proceed to Step 6.
 
 ### Step 6: Confirm the merge
 
