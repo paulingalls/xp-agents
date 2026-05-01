@@ -189,7 +189,14 @@ class TestAppendIntegration(_TempRepoTestCase):
 
     def test_event_has_id_and_timestamp(self):
         r = self._run_append(
-            "--type", "discovery", "--agent", "main", "--content", "found it"
+            "--type",
+            "discovery",
+            "--agent",
+            "main",
+            "--content",
+            "found it",
+            "--references",
+            '["assumption-id"]',
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         events = self._read_events()
@@ -237,7 +244,16 @@ class TestAppendIntegration(_TempRepoTestCase):
             ["--type", "decision", "--agent", "m", "--content", "x", "--topic", "t"],
             ["--type", "convention", "--agent", "m", "--content", "x", "--topic", "t"],
             ["--type", "concern", "--agent", "m", "--content", "x"],
-            ["--type", "discovery", "--agent", "m", "--content", "x"],
+            [
+                "--type",
+                "discovery",
+                "--agent",
+                "m",
+                "--content",
+                "x",
+                "--references",
+                '["assumption-id"]',
+            ],
             [
                 "--type",
                 "question",
@@ -248,7 +264,16 @@ class TestAppendIntegration(_TempRepoTestCase):
                 "--priority",
                 "\U0001f7e1",
             ],
-            ["--type", "answer", "--agent", "m", "--content", "x"],
+            [
+                "--type",
+                "answer",
+                "--agent",
+                "m",
+                "--content",
+                "x",
+                "--references",
+                '["question-id"]',
+            ],
             ["--type", "assumption", "--agent", "m", "--content", "x"],
             ["--type", "session_end", "--agent", "m", "--content", "x"],
             ["--type", "retrospective", "--agent", "m", "--content", "x"],

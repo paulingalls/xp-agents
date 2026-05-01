@@ -220,6 +220,29 @@ def _normalize_customer_input(summary: dict) -> dict:
     return summary
 
 
+# Event types intentionally NOT bucketed into new_since_last_curation.
+# Test gate: tests/engine/test_compact.py::TestEventTypeMatchCompleteness
+# fails if a new EVENT_TYPE_* is added without either a `case` arm in
+# _bucket_new_events or an entry here. Each excluded type is handled
+# elsewhere (separate retro_history extraction, sprint metrics,
+# persistent SMM pillars, or transient activity the housekeeper does
+# not curate as a "new since last curation" pillar).
+_BUCKET_INTENTIONALLY_ABSENT = frozenset(
+    {
+        event_schema.EVENT_TYPE_ANSWER,
+        event_schema.EVENT_TYPE_COMMIT,
+        event_schema.EVENT_TYPE_CONVENTION,
+        event_schema.EVENT_TYPE_CUSTOMER_INTENT,
+        event_schema.EVENT_TYPE_DISCOVERY,
+        event_schema.EVENT_TYPE_GOAL,
+        event_schema.EVENT_TYPE_RETROSPECTIVE,
+        event_schema.EVENT_TYPE_SESSION_END,
+        event_schema.EVENT_TYPE_SPRINT,
+        event_schema.EVENT_TYPE_STATUS,
+    }
+)
+
+
 def _bucket_new_events(
     new_events: list[dict],
     resolved_concern_ids: set,
