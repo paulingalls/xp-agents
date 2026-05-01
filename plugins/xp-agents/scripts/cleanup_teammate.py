@@ -41,6 +41,16 @@ def verify_merged(branch: str, cwd: str) -> bool:
     return result.returncode == 0
 
 
+def branch_exists(branch: str, cwd: str) -> bool:
+    """Return True if the given ref resolves locally."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+        cwd=cwd,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def cleanup(name: str, cwd: str, smm_dir: Path) -> None:
     """Remove worktree, branch, agent markers, and report file."""
     worktree.remove_worktree(name, cwd)
@@ -70,10 +80,19 @@ def main(argv: list[str] | None = None) -> int:
     derived = identity.get_current_branch(str(wt_path))
     branch = derived or args.name
 
-    if not verify_merged(branch, cwd):
+    if not branch_exists(branch, cwd):
+        # Fallback to --name hit a non-existent ref. Distinguish from
+        # "exists but unmerged" so the operator knows the right next step.
         suffix = "" if derived else " (worktree gone — fell back to --name)"
         print(
-            f"Branch {branch} has unmerged commits. Merge before cleanup.{suffix}",
+            f"Branch {branch} not found.{suffix}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not verify_merged(branch, cwd):
+        print(
+            f"Branch {branch} has unmerged commits. Merge before cleanup.",
             file=sys.stderr,
         )
         return 1

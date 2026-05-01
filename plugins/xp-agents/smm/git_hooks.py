@@ -39,13 +39,16 @@ def resolved_hooks_dir(repo_root: str) -> Path:
     Honors tilde expansion and resolves relative paths against the repo root,
     matching git's own semantics.
     """
-    result = subprocess.run(
-        ["git", "config", "core.hooksPath"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    override = result.stdout.strip() if result.returncode == 0 else ""
+    try:
+        result = subprocess.run(
+            ["git", "config", "core.hooksPath"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        override = result.stdout.strip() if result.returncode == 0 else ""
+    except (subprocess.SubprocessError, OSError):
+        override = ""
     if not override:
         return Path(repo_root) / ".git" / "hooks"
     path = Path(override).expanduser()

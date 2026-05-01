@@ -100,6 +100,19 @@ class TestResolvedHooksDir(unittest.TestCase):
             self.tmpdir / "relative-hooks",
         )
 
+    def test_returns_default_when_git_call_fails(self):
+        """Missing git OR cwd outside a repo → fall back to <root>/.git/hooks
+        without raising. Mirrors identity._git_config error tolerance."""
+        from unittest.mock import patch
+
+        with patch(
+            "git_hooks.subprocess.run", side_effect=FileNotFoundError("git not found")
+        ):
+            self.assertEqual(
+                git_hooks.resolved_hooks_dir(str(self.tmpdir)),
+                self.tmpdir / ".git" / "hooks",
+            )
+
     def test_tilde_in_override_is_expanded(self):
         with tempfile.TemporaryDirectory() as home:
             tilde_target = Path(home) / "dotfiles" / "hooks"

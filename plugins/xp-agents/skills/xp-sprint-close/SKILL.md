@@ -122,11 +122,8 @@ options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 If the user picks abort, stop here. The branch and PR (if any) stay
 intact for follow-up work.
 
-If the preload reports `PRE_COMMIT_HOOK=absent`, the merge in Step 7
-won't fire any project tests. Before confirming, run the project's
-test command (look in CLAUDE.md) so the merged state is verified.
-When `PRE_COMMIT_HOOK=present` the project's hook runs on the merge
-commit and this step is unnecessary.
+If the preload included a `### HOOK_GUIDANCE` section, follow it
+before confirming the merge.
 
 ## Step 7: Merge
 

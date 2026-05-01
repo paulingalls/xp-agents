@@ -90,6 +90,21 @@ pre_commit_hook_present() {
         hook-present --cwd . 2>/dev/null || echo "absent"
 }
 
+# Conditionally emit a HOOK_GUIDANCE section when no hook will fire on
+# the close skill's merge. Single source of truth — replaces 4 copies
+# of identical prose previously inlined in each close skill's SKILL.md.
+# Usage: emit_hook_guidance "$(pre_commit_hook_present)"
+emit_hook_guidance() {
+    if [ "$1" = "absent" ]; then
+        echo ""
+        echo "### HOOK_GUIDANCE"
+        echo "PRE_COMMIT_HOOK=absent — the merge in Step 7 won't fire"
+        echo "any project tests. Before confirming the merge, run the"
+        echo "project's test command (look in CLAUDE.md) so the merged"
+        echo "state is verified."
+    fi
+}
+
 # List all changed files (staged + unstaged + untracked), one per line.
 # Usage: get_changed_files
 get_changed_files() {

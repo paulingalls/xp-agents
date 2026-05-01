@@ -159,19 +159,11 @@ class TestMainBranchDerivation(_IntegrationTestCase):
         self.assertEqual(rc, 1, "Unmerged derived branch must abort cleanup")
 
     def test_falls_back_to_name_with_clear_message_when_worktree_missing(self):
-        """Worktree dir gone → fall back to --name; error message says so."""
+        """Worktree dir gone, --name doesn't match a ref → 'not found' + suffix."""
         import contextlib
         import io
 
         import cleanup_teammate
-
-        # Create a branch but no worktree dir at the expected path.
-        subprocess.run(
-            ["git", "branch", "ghost-branch-079"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
 
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
@@ -187,7 +179,39 @@ class TestMainBranchDerivation(_IntegrationTestCase):
             )
 
         self.assertEqual(rc, 1)
+        # Distinguishes "branch not found" from "branch unmerged" so the
+        # operator's next step is clear (resolves concern 509dce34be9f).
+        self.assertIn("not found", stderr.getvalue())
         self.assertIn("worktree gone", stderr.getvalue())
+
+    def test_distinguishes_not_found_from_unmerged(self):
+        """Unmerged-but-existing branch reports 'unmerged', not 'not found'."""
+        import contextlib
+        import io
+
+        import cleanup_teammate
+
+        wt_name = "worktree-story-080"
+        branch = "paulingalls/story-080-needs-merge"
+        _create_teammate_worktree(self.tmpdir, wt_name, branch=branch)
+        # Do NOT merge — branch exists but is unmerged.
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            rc = cleanup_teammate.main(
+                [
+                    "--name",
+                    wt_name,
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--cwd",
+                    str(self.tmpdir),
+                ]
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertIn("unmerged commits", stderr.getvalue())
+        self.assertNotIn("not found", stderr.getvalue())
 
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)

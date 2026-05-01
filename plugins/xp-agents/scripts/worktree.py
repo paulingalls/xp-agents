@@ -13,6 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+_WORKTREE_PREFIX = "worktree-"
+
 _git_root_cache: dict[str, str | None] = {}
 
 
@@ -87,7 +89,7 @@ def _iter_live_teammate_worktrees(cwd: str):
         )
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
         return
-    wt_marker = "/.claude/worktrees/worktree-story-"
+    wt_marker = f"/.claude/worktrees/{_WORKTREE_PREFIX}story-"
     for block in out.split("\n\n"):
         if "prunable" in block:
             continue
@@ -116,9 +118,10 @@ def list_live_teammate_worktree_paths(cwd: str) -> list[tuple[str, str]]:
     worktree before running its acceptance command — the unmerged
     teammate edits live there, not in the orchestrator's HEAD.
     """
-    # `_iter_live_teammate_worktrees` already filters for the
-    # `worktree-story-*` prefix, so the slice is unconditional.
-    skip = len("worktree-")
+    # `_iter_live_teammate_worktrees` filters for paths under
+    # `.claude/worktrees/worktree-story-*`, so every yielded basename
+    # starts with `_WORKTREE_PREFIX` and the slice is unconditional.
+    skip = len(_WORKTREE_PREFIX)
     return [
         (Path(wt_path).name[skip:], wt_path)
         for wt_path in _iter_live_teammate_worktrees(cwd)
@@ -135,7 +138,7 @@ def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:
     Filters for exact `worktree-<story_id>` directory names — the
     naming convention defined in spawn_teammate.py + identity._TEAMMATE_PREFIX.
     """
-    target = f"worktree-{story_id}"
+    target = f"{_WORKTREE_PREFIX}{story_id}"
     for wt_path in _iter_live_teammate_worktrees(cwd):
         if Path(wt_path).name == target:
             return target
