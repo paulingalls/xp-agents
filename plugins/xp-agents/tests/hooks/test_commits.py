@@ -394,6 +394,15 @@ class TestIsEscapeHatchCommit(unittest.TestCase):
             commits.is_escape_hatch_commit('git commit -m "[chore] cleanup"')
         )
 
+    def test_sprint_direct_prefix(self):
+        # Constraint b2467c56ddbf names [sprint-direct] as the close-window
+        # bypass token. More honest than [chore] for direct-to-sprint work.
+        self.assertTrue(
+            commits.is_escape_hatch_commit(
+                'git commit -m "[sprint-direct] post-merge cleanup"'
+            )
+        )
+
     def test_case_insensitive(self):
         self.assertTrue(
             commits.is_escape_hatch_commit('git commit -m "[Release] v2.0"')

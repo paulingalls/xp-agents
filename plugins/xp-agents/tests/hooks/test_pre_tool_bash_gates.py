@@ -373,6 +373,20 @@ class TestMainBranchGate(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    @patch("identity.get_current_branch", return_value="main")
+    @patch("branching.get_branching_stage", return_value=1)
+    @patch("security.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("security.has_staged_code_files", return_value=False)
+    def test_escape_hatch_sprint_direct(self, *_mocks):
+        # [sprint-direct] is the close-window bypass token per
+        # constraint b2467c56ddbf. Should bypass the protected-branch gate.
+        result = pre_tool_bash.run(
+            _make_bash_input(command='git commit -m "[sprint-direct] cleanup"'),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(result)
+
     @patch("identity.get_current_branch", return_value="master")
     @patch("branching.get_branching_stage", return_value=2)
     @patch("security.is_git_commit", return_value=True)
@@ -434,14 +448,14 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("security.has_staged_code_files", return_value=False)
     def test_escape_hatch_bypasses_sprint_branch_gate(self, *_mocks):
-        """[chore] / [release] prefix bypasses the sprint-branch nudge.
+        """[chore] / [release] / [sprint-direct] bypass the sprint-branch nudge.
 
         Closes concern ef916d0f3c65: legitimate post-merge cleanup work
         on the sprint branch is inherently sprint-scope — needs an
-        explicit escape hatch. Same convention as the protected-branch
-        gate.
+        explicit escape hatch. [sprint-direct] is the canonical token
+        for the close-window flow per constraint b2467c56ddbf.
         """
-        for prefix in ("[chore]", "[release]"):
+        for prefix in ("[chore]", "[release]", "[sprint-direct]"):
             with self.subTest(prefix=prefix):
                 result = pre_tool_bash.run(
                     _make_bash_input(
