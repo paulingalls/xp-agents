@@ -1,5 +1,45 @@
 # Changelog
 
+## v2.37.2 — Teammate-mode merge timing fix + adjacent fixes + hook detector consolidation
+
+End-to-end CLI-teammate run in sprint-049 surfaced 5 bugs captured in `docs/ideas/TEAMMATE_ACCEPT_BEFORE_MERGE.md`. This release implements that design plus two adjacent single-file fixes, a test-file split that was over the 500-line cap, and a refactor that consolidates two divergent hook-detector functions into a shared module.
+
+### Teammate-mode merge timing (the headline fix)
+
+`/xp-assign` post-spawn no longer eagerly merges teammate branches. Each story branch stays alive on its teammate worktree until its `/xp-story-close` invocation merges it — same pipeline as solo mode, just N branches alive simultaneously. Three concrete bugs resolved:
+
+- `/xp-accept` Step 0 (cross-teammate review) was running against an empty diff because branches had already been merged before /xp-accept fired. Step 0 deleted; layered coverage replaces it (per-story close-reviewer with Read access to merged-in siblings + project pre-commit hook on every merge + `/xp-sprint-close` cumulative review at the sprint boundary).
+- `/xp-story-close` per-story preflight refused (CURRENT_BRANCH IS TARGET_BRANCH after merge). Per-story close pipeline is now reachable in teammate mode.
+- `cleanup_teammate.py` was passing the worktree directory name as a branch to `git merge-base`. Now derives the actual checked-out branch via `identity.get_current_branch(wt_path)` with a graceful "branch not found" / "branch unmerged" distinction in the fallback path.
+
+### `/xp-accept` Step 1 worktree cwd
+
+When a story has a teammate worktree (entry in TEAMMATE_WORKTREES preload section), `/xp-accept` now runs `acceptance_execution.command` with Bash `cwd` set to that worktree's absolute path so the command runs against the unmerged teammate edits. Universal pattern — works regardless of test runner.
+
+### Hook-absent fallback prose for close skills
+
+All four close skills (story, sprint, plan, free) now emit `PRE_COMMIT_HOOK=present|absent` in their preloads. When `absent`, an `### HOOK_GUIDANCE` section is conditionally emitted nudging the operator to run the project's test command before confirming the merge — for projects that don't run tests via a git hook. Single source of truth in `_preload_base.sh::emit_hook_guidance`; SKILL.md prose just defers to "follow HOOK_GUIDANCE if present."
+
+### Adjacent fixes
+
+- **Duplicate session-end checklist** (`bash_post_tool.py`) — every `git push` triggered the same Stop-hook nudge, treating each push as a session-end signal. Dropped the duplicate path; Stop hook (`session_end_warning.py`) keeps the legitimate single-fire behavior.
+- **`[sprint-direct]` escape-hatch** — SMM constraint `b2467c56ddbf` advertised `[sprint-direct]` as the close-window bypass token but the regex only accepted `[release]` or `[chore]`. Wired `sprint-direct` into the alternation; warning prose updated to list all three tokens.
+
+### Hook detector consolidation
+
+Two divergent hook detectors (`seed_smm.has_git_hooks` and `close_common.pre_commit_hook_present`) shared `_HOOK_INDICATORS` but disagreed on which signals were authoritative — same repo could yield contradictory answers (lefthook + `core.hooksPath` was the surprising case). Extracted shared primitives into `smm/git_hooks.py`:
+
+- `has_framework_marker(repo_root)` — lefthook/husky/pre-commit-config
+- `resolved_hooks_dir(repo_root)` — honors `core.hooksPath` + tilde + relative paths
+- `has_executable_hook(repo_root)` — pre-commit/pre-push exec-bit check
+- `will_fire_hook(repo_root)` — strict composition
+
+Both consumers now compose these. `seed_smm.has_git_hooks` keeps its content-sniff fallback as the "intent-aware" extension on top of strict detection. Two pure behavior expansions (no previous True case becomes False): `seed_smm.has_git_hooks` now also returns True for `core.hooksPath` overrides AND for executable `pre-push`-only repos.
+
+### Test split
+
+`tests/engine/test_sprint_store.py` was 533 lines (over the 500-line cap). Extracted status/velocity/blockers/counts test classes into a new sibling `tests/engine/test_sprint_status.py`. Both files now ~294 lines. New file leads with a one-line shim-import test as a rename guard.
+
 ## v2.37.1 — Lint resolutions from Write/Edit now count as `lint_events`
 
 User reported that lint events appeared low/missing in retros despite lint passing. Root cause: a latent regression since the metadata.action vocabulary was introduced. Two paths emit lint-resolution events but only one tagged them with `metadata.action=lint_resolved`:
