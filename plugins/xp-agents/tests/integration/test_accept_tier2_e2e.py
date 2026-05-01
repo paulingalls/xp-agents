@@ -28,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _IntegrationTestCase, _make_bash_input, _s, _sprint_json
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
-_APPEND_SH = _PLUGIN_ROOT / "smm" / "append.sh"
 _SPRINT_CLI = _PLUGIN_ROOT / "smm" / "sprint_cli.py"
 _ACCEPT_SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-accept" / "SKILL.md"
 
@@ -52,33 +51,19 @@ class TestAcceptTier2Runtime(_IntegrationTestCase):
             )
         )
 
-    def _env(self) -> dict:
-        env = self._test_env.copy()
-        env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
-        return env
-
-    def _append(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [str(_APPEND_SH), "--smm-dir", str(self.smm_dir), *args],
-            capture_output=True,
-            text=True,
-            env=self._env(),
-            cwd=self.tmpdir,
-        )
-
     def _run_sprint_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             ["python3", str(_SPRINT_CLI), "--smm-dir", str(self.smm_dir), *args],
             capture_output=True,
             text=True,
-            env=self._env(),
+            env=self._env_with_plugin_root(),
         )
 
     def test_block_recording_via_append_emits_high_severity_concern(self):
         # AC#1 trailing claim: "the test asserts a concern event with
         # severity high was filed" — verifies the Step 1c "Block path"
         # append.sh template is invokable and produces the right shape.
-        result = self._append(
+        result = self._run_append(
             "--type",
             "concern",
             "--agent",
@@ -98,7 +83,7 @@ class TestAcceptTier2Runtime(_IntegrationTestCase):
 
     def test_concern_recording_via_append_emits_medium_severity_concern(self):
         # AC#2 trailing claim: medium-severity finding records correctly.
-        result = self._append(
+        result = self._run_append(
             "--type",
             "concern",
             "--agent",
