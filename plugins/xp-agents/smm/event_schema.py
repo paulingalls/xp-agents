@@ -210,6 +210,23 @@ CONTENT_BUDGETS: dict[str, int | None] = {
 REQUIRED_FIELDS = frozenset({"id", "type", "ts", "agent_id", "content"})
 
 
+# Event types with no type-specific validation beyond the universal
+# REQUIRED_FIELDS and content-budget checks. Test gate:
+# tests/engine/test_compact.py::TestEventTypeMatchCompleteness fails
+# if a new EVENT_TYPE_* is added without either a `case` arm in
+# validate_event or an entry here. Listing a type means the universal
+# checks are sufficient — explicit declaration, not oversight.
+_VALIDATE_NO_TYPE_RULES = frozenset(
+    {
+        EVENT_TYPE_ANSWER,
+        EVENT_TYPE_ASSUMPTION,
+        EVENT_TYPE_CUSTOMER_INPUT,
+        EVENT_TYPE_DISCOVERY,
+        EVENT_TYPE_GOAL,
+    }
+)
+
+
 # ---------------------------------------------------------------------------
 # Event validation (single source of truth for required-field checks)
 # ---------------------------------------------------------------------------
