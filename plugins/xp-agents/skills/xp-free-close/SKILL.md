@@ -95,8 +95,9 @@ to Step 7:
    `<CLOSE_START_TS>` is emitted by the preload above (captured at
    close-cycle start). The CLI filters on
    `metadata.action == "concern_classify"` + `metadata.route == "ask"`
-   + `ts >= CLOSE_START_TS` — structured fields, not regex. If
-   `ASK_COUNT > 0`, fall through to the shared Step 6 prompt.
+   + `ts >= CLOSE_START_TS` — structured fields, not regex. Test
+   numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared
+   Step 6 prompt.
 2. No Block-severity finding survived in Step 4's reviewer summary.
 3. The preload above emitted a non-empty `TEST_COMMAND=...` line
    (sourced from `system_context.stack.test_command`) AND running

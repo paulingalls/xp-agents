@@ -205,7 +205,7 @@ Build a JSON object matching this schema:
     "runtime": "<optional, max 100 chars>",
     "dependencies_policy": "<optional, max 100 chars>",
     "package_manager": "<optional, max 100 chars>",
-    "test_command": "<optional, max 100 chars — see Step 3.6 below>"
+    "test_command": "<optional, max 100 chars — see Step 3.7 above>"
   },
   "modules": [
     {"name": "module-name", "path": "src/module", "purpose": "<max 200 chars>"}
