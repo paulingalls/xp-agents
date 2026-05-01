@@ -443,11 +443,18 @@ class TestShippedFilesAreProjectGeneric(unittest.TestCase):
     # We deliberately don't ban bare 12-hex strings — git short-hashes
     # and example placeholders use that shape too. The parenthetical
     # framing is what marks the project-internal reference.
+    #
+    # `M-N` matches project-internal milestone labels (M-1, M-2, …)
+    # which only make sense inside this repo's execution_plan.json
+    # phasing. Word-boundary anchored so it doesn't false-positive on
+    # tokens like "M-Audit" or "M-x".
     _BANNED_PATTERNS = (
         re.compile(r"\(decision\s+[0-9a-f]{12}\b", re.IGNORECASE),
         re.compile(r"\(Constraints\s+`[0-9a-f]{12}`", re.IGNORECASE),
         re.compile(r"\(Wisdom\s+`[0-9a-f]{12}`", re.IGNORECASE),
+        re.compile(r"\(Risks\s+`[0-9a-f]{12}`", re.IGNORECASE),
         re.compile(r"\bspike-\d{3}\b", re.IGNORECASE),
+        re.compile(r"\bM-\d+\b"),
     )
 
     @classmethod

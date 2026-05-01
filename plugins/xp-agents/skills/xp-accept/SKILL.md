@@ -107,7 +107,7 @@ File overlap alone does not mean a concern is resolved. Use your judgment based 
 
 ## Step 1c: Tier 2 Security Review
 
-M-2 tiered-migration gate: fire `/security-review` against the cumulative story diff before marking the story done.
+Tier 2 security gate: fire `/security-review` against the cumulative story diff before marking the story done.
 
 **Skip when the story is `code_free`** (empty `file_domain` — verification-only / prose-only). The cumulative diff has no code worth reviewing.
 

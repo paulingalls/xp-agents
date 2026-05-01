@@ -94,7 +94,7 @@ Fold the skill's findings into your Keep / Concern / Block buckets for Step 4:
 - **Concern** findings → record at `--severity "medium"`.
 - **Keep** findings → no event, mention in prose only.
 
-Use the same `append.sh` templates as Step 4 below — no additional metadata required. (Differentiating Tier 3 events from generic close concerns is M-4's problem; the metadata key gets added when M-4 actually consumes it.)
+Use the same `append.sh` templates as Step 4 below — no additional metadata required. (A future change may add a metadata key to differentiate Tier 3 events from generic close concerns; the key gets added when a consumer actually reads it.)
 
 ## Step 4: Record Concerns as SMM Events
 
