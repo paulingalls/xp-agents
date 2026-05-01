@@ -203,6 +203,48 @@ class TestProbeAdoptionRate(unittest.TestCase):
         self.assertEqual(result["probe_divert"], 1)
         self.assertEqual(result["probe_silent"], 0)
 
+    def test_divert_emits_diagnostic_detail(self):
+        """Each divert must produce a side-by-side record (candidates +
+        resolves + agent + ts) so the retro can inspect WHY the agent
+        diverted, not just that it happened. Counts alone read as
+        'noisy candidates' or 'agent had its own context' — the data to
+        decide is in the pairing.
+        """
+        import retro_metrics
+
+        events = [
+            self._probe_event(
+                ["aaa", "bbb"], "2026-04-05T10:00:00+00:00", agent_id="paul"
+            ),
+            self._code_commit(["zzz"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["probe_divert"], 1)
+        details = result.get("probe_divert_details")
+        self.assertIsNotNone(
+            details, "divert classification must surface details for the retro"
+        )
+        self.assertEqual(len(details), 1)
+        d = details[0]
+        self.assertEqual(sorted(d["candidates"]), ["aaa", "bbb"])
+        self.assertEqual(d["resolves"], ["zzz"])
+        self.assertEqual(d["agent_id"], "paul")
+        self.assertEqual(d["probe_ts"], "2026-04-05T10:00:00+00:00")
+        self.assertEqual(d["commit_ts"], "2026-04-05T10:01:00+00:00")
+
+    def test_no_divert_no_details(self):
+        """Hits/escapes/silents must not appear in probe_divert_details —
+        only diverts do, and only diverts get inspected."""
+        import retro_metrics
+
+        events = [
+            self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit(["aaa"], "2026-04-05T10:01:00+00:00"),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["probe_divert"], 0)
+        self.assertEqual(result.get("probe_divert_details", []), [])
+
     def test_miss_classified_as_silent(self):
         """Probe fires; no subsequent commit by same agent in the window."""
         import retro_metrics
