@@ -272,7 +272,6 @@ def _handle_commit(
     lint_resolution.sweep_orphan_lint_concerns(
         smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
     )
-    security.consume_security_triaged(smm_dir, agent_id)
 
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)

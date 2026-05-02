@@ -15,7 +15,6 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── .needs-kickoff                    ← gate marker, cleared by /xp-kickoff
 ├── .plan-awaiting-review             ← plan review gate marker, cleared by plan reviewer preload
 ├── .review-cycle-{agent_id}.json     ← commit-gated review cycle state (per-agent)
-├── .security-triaged                 ← security triage completion marker
 ├── events.lock                       ← flock for atomic appends
 └── retrospectives/                   ← Keep/Fix/Try session artifacts (.json)
 ```
@@ -88,7 +87,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
-| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset, security marker consume), test result parsing. `async: true` |
+| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing. `async: true` |
 | **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done) when review skills complete. Nudges next step via `additionalContext` |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **PostToolUse** | `AskUserQuestion` | `question_answered.py` | Record user answer to clarification question |
@@ -118,7 +117,6 @@ Plugin subagents with full tool access. Each wrapped by a forked skill with `!` 
 | `xp-code-reviewer` | `/xp-quality-review` skill (inline) | Agent tool | Independent code review — simplify accountability, drift management, debt awareness, XP-lens review |
 | `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
 | `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
-| `xp-security-reviewer` | `/xp-security-triage` skill | Fork | Security review of staged changes |
 | `xp-housekeeper` | `/xp-housekeeping` skill | Fork | Four-pillar SMM curation with LLM judgment |
 | `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
 | `xp-close-reviewer` | `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` | Fork | Holistic close-review at sprint/plan/free integration points (mode-aware) |
@@ -242,7 +240,7 @@ SubagentStart → subagent_start.py: tiered context injection + watermark
                 CLI teammates: use SessionStart path instead (XP Values + TEAMMATE_GUIDE + rendered SMM)
                 Default (Plan/general-purpose): full SMM + process guide
                 xp-* agents not in dispatch: skipped (use own preloads)
-SubagentStop  → subagent_stop.py: record, conflicts, security check
+SubagentStop  → subagent_stop.py: record completion, conflict detection
               → Write .plan-awaiting-review marker file for Plan
 ```
 

@@ -21,8 +21,6 @@ from conftest import (
 )
 from event_schema import (
     STATUS_ACTION_FILE_WRITE,
-    STATUS_ACTION_SECURITY_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
 
@@ -136,77 +134,6 @@ class TestHonestySignals(unittest.TestCase):
         # Window resets after the action event, so the post-test write
         # is counted in a fresh window.
         self.assertEqual(signals["max_unique_files_without_test"], 2)
-
-
-class TestSecurityCheckCounting(unittest.TestCase):
-    """Tests for commits_without_security_check counting in _build_honesty_signals."""
-
-    def test_commit_event_without_security_check_counted(self):
-        """Commit event without preceding security check is counted."""
-        import honesty_signals
-
-        events = [
-            make_event(
-                "commit",
-                content="Add feature",
-                metadata={"code_commit": True, "commit_hash": "abc123"},
-            ),
-        ]
-        signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_security_check"], 1)
-        self.assertEqual(signals["total_commits"], 1)
-
-    def test_commit_event_with_triage_not_counted(self):
-        """Commit preceded by /xp-security-triage event is not counted."""
-        import honesty_signals
-
-        events = [
-            make_event(
-                "status",
-                content="Security triage started \u2014 reviewing staged changes",
-                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_STARTED},
-            ),
-            make_event(
-                "commit",
-                content="Add feature",
-                metadata={"code_commit": True, "commit_hash": "abc123"},
-            ),
-        ]
-        signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_security_check"], 0)
-
-    def test_commit_event_with_security_review_not_counted(self):
-        """Commit preceded by /security-review event is not counted."""
-        import honesty_signals
-
-        events = [
-            make_event(
-                "status",
-                content="Security review complete \u2014 full review performed",
-                metadata={"action": STATUS_ACTION_SECURITY_COMPLETE},
-            ),
-            make_event(
-                "commit",
-                content="Add feature",
-                metadata={"code_commit": True, "commit_hash": "abc123"},
-            ),
-        ]
-        signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_security_check"], 0)
-
-    def test_non_code_commit_event_not_counted(self):
-        """Non-code commit (docs-only) without security check is NOT counted."""
-        import honesty_signals
-
-        events = [
-            make_event(
-                "commit",
-                content="Update docs",
-                metadata={"code_commit": False},
-            ),
-        ]
-        signals = honesty_signals.build_honesty_signals(events)
-        self.assertEqual(signals["commits_without_security_check"], 0)
 
 
 class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
