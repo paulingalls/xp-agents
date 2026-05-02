@@ -263,14 +263,12 @@ def _create_or_resume_branch(
             return None
         sys.exit(1)
 
-    # Push freshly-created branch (resume path skipped — diverged remotes
-    # would fail-noisy on every kickoff). Push failure is non-fatal —
-    # branch exists locally, user can retry push manually.
+    # Push freshly-created branch only — resumed branches may have
+    # diverged from remote and would fail-noisy every kickoff. Push
+    # failure is non-fatal: branch exists locally, retry hint below
+    # covers recovery (don't add a second error message).
     if not git_remote.push_branch(cwd, name):
-        print(
-            f"  (push failed for {name} — retry with: git push -u origin {name})",
-            file=sys.stderr,
-        )
+        print(f"  retry: git push -u origin {name}", file=sys.stderr)
 
     return name
 
