@@ -53,7 +53,12 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         return data
 
     def test_full_review_cycle_sequence(self):
-        """Walk through the 5-step stop gate sequence end-to-end."""
+        """Walk through the M-4 stop gate sequence end-to-end.
+
+        Post-M-4 ladder: simplify → quality-review → commit. The security
+        rung was removed when the per-commit security gate moved to Tier 2/3
+        (at /xp-accept and close).
+        """
         import markers
         import teammate_stop_gate
 
@@ -69,13 +74,6 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         self.assertIn("/xp-quality-review", result)
 
         markers.set_review_flag(self.smm_dir, "worktree-story-1", "quality_review_done")
-        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
-        self.assertIn("/security-review", result)
-
-        markers.set_review_flag(
-            self.smm_dir, "worktree-story-1", "security_review_done"
-        )
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         self.assertIsNotNone(result)
         self.assertIn("commit", result.lower())

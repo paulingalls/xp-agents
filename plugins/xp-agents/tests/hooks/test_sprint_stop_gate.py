@@ -73,7 +73,6 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
             {
                 "simplify_done": True,
                 "quality_review_done": False,
-                "security_review_done": False,
                 "last_review_commit": "abc123",
             },
         )
@@ -120,7 +119,6 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
             {
                 "simplify_done": True,
                 "quality_review_done": True,
-                "security_review_done": True,
                 "last_review_commit": "abc123",
             },
         )
@@ -288,7 +286,6 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
             {
                 "simplify_done": True,
                 "quality_review_done": False,
-                "security_review_done": False,
                 "last_review_commit": "abc123",
             },
         )

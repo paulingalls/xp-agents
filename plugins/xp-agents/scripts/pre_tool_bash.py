@@ -131,12 +131,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts: list[str] = []
 
     # Commit gate: review cycle enforcement
-    # Above threshold (3+ code files): simplify → quality review → security triage
-    # Below threshold: security triage only for production code commits
+    # Above threshold (3+ code files): simplify → quality review.
+    # Below threshold: no per-commit security gate (Tier 2/3 cover at
+    # /xp-accept and close).
     if smm_dir is not None and security.is_git_commit(command):
         # Tier 1 fires before the review-cycle gate so deterministic patterns
-        # block even when /simplify, /xp-quality-review, /xp-security-triage
-        # have all been satisfied.
+        # block even when /simplify and /xp-quality-review have been satisfied.
         diff = commits.get_staged_diff(cwd)
         if diff is None:
             raise _common.BlockedError(
@@ -183,22 +183,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 raise _common.BlockedError(
                     "Run /xp-quality-review before committing.",
                     "Quality review required before committing.",
-                )
-            elif not cycle.get("security_review_done"):
-                raise _common.BlockedError(
-                    "Run /xp-security-triage before committing.",
-                    "Security triage required before committing.",
-                )
-        elif not security.security_triaged_exists(smm_dir, agent_id):
-            has_code = security.has_staged_code_files(cwd, command, staged_diff=diff)
-            if has_code:
-                raise _common.BlockedError(
-                    "Run /xp-security-triage before committing.",
-                    "Security triage required before committing.",
-                )
-            else:
-                security.write_security_triaged(
-                    smm_dir, agent_id, exempt_reason="no-code-files"
                 )
 
         stage = branching.get_branching_stage(smm_dir)

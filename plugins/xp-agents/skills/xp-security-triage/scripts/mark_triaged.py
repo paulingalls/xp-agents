@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 import _common
 import event_schema
 import identity
-import markers
 import security
 
 parser = argparse.ArgumentParser(description="Write security triage marker")
@@ -37,8 +36,8 @@ if security.security_triaged_exists(smm_dir, agent_id):
     print("Security triage marker already exists.")
 else:
     security.write_security_triaged(smm_dir, agent_id)
-    # Set review cycle flag for commit gate
-    markers.set_review_flag(smm_dir, agent_id, "security_review_done")
+    # M-4: per-commit security_review_done flag is gone; only the marker is
+    # written here (kept until M-5 removes the security_triaged_* helpers).
     # Record triage in the event log so the retro can see it happened.
     # Content is neutral — the agent decides next steps after seeing the diff.
     # agent_id is teammate-resolved attribution per the agent-id-semantics
@@ -51,4 +50,4 @@ else:
         metadata={"action": event_schema.STATUS_ACTION_SECURITY_TRIAGE_STARTED},
     )
     _common.append_safe(smm_dir, event)
-    print("Security triage marker written. Commit gate cleared.")
+    print("Security triage marker written.")

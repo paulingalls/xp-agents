@@ -3,7 +3,7 @@
 
 Blocks CLI teammates (detected via worktree cwd path) from stopping if
 they have uncommitted changes without completing the review cycle
-(/simplify → quality-review → security-review) and committing.
+(/simplify → quality-review) and committing.
 """
 
 import subprocess
@@ -58,8 +58,6 @@ def run(
         return "You have uncommitted changes. Run /simplify before stopping."
     if not cycle.get("quality_review_done"):
         return "Simplify complete. Run /xp-quality-review before stopping."
-    if not cycle.get("security_review_done"):
-        return "Quality review complete. Run /security-review before stopping."
 
     return "Review cycle complete. Commit your changes before stopping."
 

@@ -271,19 +271,6 @@ class TestTeammateStopGate(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-    def test_quality_done_blocks_security(self):
-        """simplify + quality done but not security → block: run /security-review."""
-        import teammate_stop_gate
-
-        self._set_review_flags(simplify_done=True, quality_review_done=True)
-        result = teammate_stop_gate.run(
-            _make_teammate_stop_input(),
-            smm_dir=self.smm_dir,
-            has_uncommitted=True,
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("/security-review", result)
-
     def test_full_review_blocks_commit(self):
         """Full review cycle done but uncommitted → block: commit."""
         import teammate_stop_gate
@@ -291,7 +278,6 @@ class TestTeammateStopGate(_HookTestCase):
         self._set_review_flags(
             simplify_done=True,
             quality_review_done=True,
-            security_review_done=True,
         )
         result = teammate_stop_gate.run(
             _make_teammate_stop_input(),
@@ -299,7 +285,9 @@ class TestTeammateStopGate(_HookTestCase):
             has_uncommitted=True,
         )
         self.assertIsNotNone(result)
-        self.assertIn("commit", result.lower())
+        self.assertEqual(
+            result, "Review cycle complete. Commit your changes before stopping."
+        )
 
     def test_worktree_cwd_detected_as_teammate(self):
         """Worktree cwd without agent_type is detected as teammate."""
