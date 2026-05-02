@@ -158,11 +158,11 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate blocks writes until `/xp-review-plan` clears marker | TDD, Planning Game |
-| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review → security triage), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
+| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
-| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review, security triage), kickoff completion (process guide injection + compaction) | Coding Standards, Refactoring, Communication |
+| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review), kickoff completion (process guide injection + compaction) | Coding Standards, Refactoring, Communication |
 | **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
 | **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + process guide) | Collective Code Ownership |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
@@ -374,7 +374,7 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | **Pair Programming** | Skill: quality review after simplify (courage + drift + debt awareness). | `/xp-quality-review` |
 | **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Three-layer enforcement via PostToolUse:ExitPlanMode, SubagentStop:Plan, and PreToolUse write block. Skill: work selection (goals, questions, Try items). | `xp-plan-reviewer`, `/xp-work-selection` |
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
-| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security triage before commit. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
+| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, Tier 1 secret-pattern scan on staged diffs. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
 | **Refactoring** | Commit gate: `/simplify` required before commit if code files changed, quality review checks skipped recommendations. Enforced by `pre_tool_bash.py` + `markers.py`. | `/xp-quality-review`, `pre_tool_bash.py` |
 | **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` required at commit for code changes. | `xp-plan-reviewer`, `pre_tool_bash.py` |

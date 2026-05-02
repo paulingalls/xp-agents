@@ -109,6 +109,104 @@ class TestM4CutoverE2E(_IntegrationTestCase):
             + "\n".join(offenders),
         )
 
+    def test_no_three_step_cycle_phrase_in_shipped_surfaces(self):
+        """Sibling of the named-flag grep above: catches stale prose
+        descriptions of the retired three-step review cycle. Per-story
+        doc-grep missed runtime nudge strings, seeded wisdom, hook
+        tables, and design-doc bullets; this widens the net to every
+        shipped script/doc/agent/skill, with active design notes and
+        historical records allowlisted.
+
+        Predicate: scans whole-file text (so multi-line Python string
+        literals are joined) for any window that mentions simplify,
+        quality, AND a security-triage token in close proximity — the
+        signature of the retired three-step cycle. Also flags the
+        bare-words "security triage before commit" drift form."""
+        roots = [
+            _PLUGIN_ROOT / "scripts",
+            _PLUGIN_ROOT / "smm",
+            _PLUGIN_ROOT / "agents",
+            _PLUGIN_ROOT / "skills",
+            _PLUGIN_ROOT / "PROCESS_GUIDE.md",
+            _PLUGIN_ROOT / "TEAMMATE_GUIDE.md",
+            _REPO_ROOT / "README.md",
+            _REPO_ROOT / "CLAUDE.md",
+            _REPO_ROOT / "docs",
+        ]
+        # Allowlist:
+        # - docs/ideas/ — design notes / future-feature exploration
+        # - docs/completed/ — archived plans
+        # - docs/handoffs/ — timestamped historical records
+        # - tests/ — assert against the old behavior we're confirming is gone
+        allowlist_substrings = (
+            "/docs/ideas/",
+            "/docs/completed/",
+            "/docs/handoffs/",
+            "/tests/",
+        )
+        # Two drift signatures, both whole-file (not line-by-line) so
+        # multi-line string literals can't smuggle the trio past us:
+        #   (a) cycle-trio: simplify ... quality ... security-triage
+        #       within ~120 chars, AND the trio appears in cycle-listing
+        #       context (arrow operator OR the word "cycle" within ~30
+        #       chars of the trio). This filters legitimate skill
+        #       enumerations (e.g. dispatcher docstrings) from prose
+        #       that describes the retired three-step cycle.
+        #   (b) bare drift phrase "security triage before commit".
+        import re
+
+        # Match the trio with comma/arrow separators in cycle context.
+        # Arrow form: simplify → quality → security-triage
+        # Comma form: simplify, /xp-quality-review, /xp-security-triage
+        # Both require either a "→" arrow somewhere in the window, or
+        # the literal word "cycle" within ~80 chars before the match.
+        # Char class excludes "." (sentence boundary) but allows
+        # newlines and quotes so multi-line Python string literals
+        # ("cycle "\n"(/simplify…") still match.
+        cycle_trio_arrow = re.compile(
+            r"simplify[^.]{1,120}?→[^.]{1,120}?quality"
+            r"[^.]{1,120}?→[^.]{1,120}?security[ \-/]?triage",
+            re.IGNORECASE,
+        )
+        cycle_trio_cycle_word = re.compile(
+            r"cycle[^.]{0,80}?simplify[^.]{1,120}?quality"
+            r"[^.]{1,120}?security[ \-/]?triage",
+            re.IGNORECASE,
+        )
+        bare_drift = re.compile(
+            r"security[ \-]triage before commit",
+            re.IGNORECASE,
+        )
+        offenders = []
+        for root in roots:
+            if root.is_dir():
+                paths = (
+                    list(root.rglob("*.md"))
+                    + list(root.rglob("*.py"))
+                    + list(root.rglob("*.sh"))
+                )
+            else:
+                paths = [root]
+            for f in paths:
+                if not f.is_file():
+                    continue
+                if any(s in str(f) for s in allowlist_substrings):
+                    continue
+                try:
+                    text = f.read_text()
+                except (UnicodeDecodeError, OSError):
+                    continue
+                for pattern in (cycle_trio_arrow, cycle_trio_cycle_word, bare_drift):
+                    for m in pattern.finditer(text):
+                        line_no = text.count("\n", 0, m.start()) + 1
+                        offenders.append(f"{f}:{line_no}: {m.group(0)!r}")
+        self.assertEqual(
+            offenders,
+            [],
+            "Stale three-step review-cycle prose found in shipped "
+            "surfaces:\n" + "\n".join(offenders),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
