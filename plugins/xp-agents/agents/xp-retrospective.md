@@ -163,9 +163,12 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 ## Security Practices (Courage Lens)
 
-- **Security triage** — were commits preceded by `/xp-security-triage`? Consistent triage is a Keep item.
-- **Proactive security** — voluntary `/security-review` before the gate forced triage? Keep item under Courage.
-- **Triage quality** — were security-relevant changes correctly identified and reviewed? Misclassification is a Fix item.
+Tiered model (v3.0+): Tier 1 patterns at commit time; Tier 2 LLM review at `/xp-accept`; Tier 3 at close. `STATUS_ACTION_SECURITY_COMPLETE` events are folded into `digest.status_summary.security_checks` as an aggregate count — per-window (per-story / per-close) correlation is not yet exposed in the digest:
+
+- **Tier 2 + Tier 3 activity** — `digest.status_summary.security_checks` counts all SECURITY_COMPLETE events this session. Zero with story-done or close commits present is a Fix under Courage; non-zero is Keep context.
+- **Proactive security** — voluntary `/security-review` outside Tier 2/3 windows. Mention in Keep under Courage when commit messages show it.
+- **Tier 1 hits** — directional only; the digest has no dedicated field. Look for security-pattern mentions in commit messages or blocked-action narrative.
+- **Coverage gap (Try)** — request per-tier coverage flags (covered_done_stories / total per tier) in retro_metrics digest so future retros can compute Tier 2/3 coverage% directly. Track this Try until shipped.
 
 ## Actions
 
