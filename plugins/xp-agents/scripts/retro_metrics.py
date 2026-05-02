@@ -21,8 +21,6 @@ from event_schema import (
     STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_SECURITY_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
     STATUS_ACTION_SIMPLIFY_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
@@ -55,16 +53,13 @@ _SIGNAL_TYPES = frozenset(
 
 # Action-based dispatch for lifecycle events. Hook is the canonical producer;
 # consumers read metadata.action exactly so LLM-authored content drift cannot
-# zero the counters. Started + complete triage both increment security_checks
-# (one triage run = two ticks). STATUS_ACTION_BASH_FAILED has no counter —
-# failures surface via concerns. Commits are counted via type=commit (handled
-# by the early branch in the loop), not by STATUS_ACTION_COMMIT_SUCCESS.
+# zero the counters. STATUS_ACTION_BASH_FAILED has no counter — failures
+# surface via concerns. Commits are counted via type=commit (handled by the
+# early branch in the loop), not by STATUS_ACTION_COMMIT_SUCCESS.
 _ACTION_TO_COUNTER: dict[str, str] = {
     STATUS_ACTION_SIMPLIFY_COMPLETE: "simplifies",
     STATUS_ACTION_QR_COMPLETE: "quality_reviews",
     STATUS_ACTION_SECURITY_COMPLETE: "security_checks",
-    STATUS_ACTION_SECURITY_TRIAGE_STARTED: "security_checks",
-    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE: "security_checks",
     STATUS_ACTION_FILE_WRITE: "file_writes",
     STATUS_ACTION_TEST_RUN_COMPLETE: "test_runs",
     STATUS_ACTION_LINT_RESOLVED: "lint_events",

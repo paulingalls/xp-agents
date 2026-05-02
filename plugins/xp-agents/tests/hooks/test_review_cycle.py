@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import markers
 import review_cycle_done
-import security
 import subagent_stop
 from conftest import _HookTestCase, _make_agent_input, _make_skill_input
 from event_schema import event_action
@@ -24,20 +23,10 @@ from event_schema import event_action
 class TestReviewCycleDone(_HookTestCase):
     """PostToolUse:Skill|Agent hook sets flags after review skills or xp-housekeeper."""
 
-    def test_security_review_writes_marker(self):
-        """M-4: /security-review writes triage marker (kept until M-5) but
-        no longer sets a per-commit review-cycle flag."""
-        review_cycle_done.run(
-            _make_skill_input("security-review"), smm_dir=self.smm_dir
-        )
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
-
     def test_simplify_sets_flag(self):
         review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
-        # Simplify should NOT write security marker
-        self.assertFalse(security.security_triaged_exists(self.smm_dir))
 
     def test_quality_review_sets_flag(self):
         review_cycle_done.run(

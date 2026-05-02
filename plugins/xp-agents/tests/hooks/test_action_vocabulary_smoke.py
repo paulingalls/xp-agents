@@ -24,7 +24,6 @@ auditable; silent exclusions are not allowed.
 """
 
 import shutil
-import subprocess
 import sys
 import unittest
 from collections.abc import Callable
@@ -58,11 +57,8 @@ from conftest import (
 )
 from event_schema import event_action
 
-_MARK_TRIAGED = (
-    _PLUGIN_ROOT / "skills" / "xp-security-triage" / "scripts" / "mark_triaged.py"
-)
 sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
-import save_sprint  # noqa: E402
+import save_sprint
 
 Driver = Callable[[Path], list[dict]]
 
@@ -208,21 +204,6 @@ def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     return _events(smm_dir)
 
 
-def _drive_security_triage_started(smm_dir: Path) -> list[dict]:
-    # mark_triaged.py runs at module-import top-level — invoke it as a
-    # subprocess. The script honors --smm-dir so we can pin the temp SMM.
-    result = subprocess.run(
-        ["python3", str(_MARK_TRIAGED), "--smm-dir", str(smm_dir)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"mark_triaged failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-        )
-    return _events(smm_dir)
-
-
 # ---------------------------------------------------------------------------
 # Producer-case map: constant *name* -> driver callable.
 # Keyed by name (not value) so the missing-coverage canary cannot be silenced
@@ -242,11 +223,9 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("simplify"),
     "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
-    "STATUS_ACTION_SECURITY_TRIAGE_COMPLETE": _drive_review_cycle("xp-security-triage"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
-    "STATUS_ACTION_SECURITY_TRIAGE_STARTED": _drive_security_triage_started,
 }
 
 
