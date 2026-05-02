@@ -177,3 +177,14 @@ def branch_exists(cwd: str, name: str) -> bool:
         ).returncode
         == 0
     )
+
+
+def remote_has_branch(cwd: str, branch: str, remote: str = "origin") -> bool:
+    """True iff `branch` exists on `remote` (asks the remote via ls-remote)."""
+    r = subprocess.run(
+        ["git", "ls-remote", "--heads", remote, branch],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    return branch in r.stdout
