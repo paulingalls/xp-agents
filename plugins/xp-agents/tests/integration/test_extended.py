@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
-"""Integration tests: extended and commit gate tests.
+"""Integration tests: bash failure, lint check, bash post-tool, and the
+security-triage marker write/consume lifecycle."""
 
-Tests for bash failure, lint check extended, bash post tool extended,
-and commit security triage gate.
-"""
-
-import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -15,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import security
 from conftest import _IntegrationTestCase
 
 
@@ -256,61 +252,15 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         self.assertTrue(len(statuses) >= 1)
 
 
-class TestCommitGateIntegration(_IntegrationTestCase):
-    """Integration tests for commit security triage gate."""
-
-    def _stage_code_file(self) -> None:
-        """Stage a code file so the commit gate sees production code."""
-        code_file = self.tmpdir / "src" / "app.ts"
-        code_file.parent.mkdir(parents=True, exist_ok=True)
-        code_file.write_text("export const x = 1;\n")
-        subprocess.run(
-            ["git", "add", "src/app.ts"],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
-
-    def _write_triage_marker(self) -> None:
-        """Write a .security-triaged-main marker in the SMM dir."""
-        marker = self.smm_dir / ".security-triaged-main"
-        marker.write_text(json.dumps({"ts": "2026-03-19T00:00:00"}))
-
-    def test_git_commit_passes_with_marker(self):
-        """git commit passes when triage marker exists."""
-        self._write_triage_marker()
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'test'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-
-    def test_git_push_not_gated(self):
-        """git push is not gated anymore."""
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git push origin main"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+class TestSecurityTriageMarkerLifecycle(_IntegrationTestCase):
+    """End-to-end coverage of the security-triage marker write/consume cycle
+    through the subprocess hook layer (units in tests/hooks/ cover the call
+    sites directly)."""
 
     def test_marker_consumed_after_commit(self):
-        """Triage marker is consumed after a successful git commit."""
-        self._write_triage_marker()
-        marker = self.smm_dir / ".security-triaged-main"
-        self.assertTrue(marker.exists())
+        security.write_security_triaged(self.smm_dir, "main")
+        marker = security.security_triaged_path(self.smm_dir, "main")
 
-        # Simulate successful commit via bash_post_tool
         result = self._run_script(
             "bash_post_tool.py",
             {
@@ -326,7 +276,6 @@ class TestCommitGateIntegration(_IntegrationTestCase):
         self.assertFalse(marker.exists(), "Marker should be consumed after commit")
 
     def test_security_review_skill_writes_marker(self):
-        """PostToolUse:Skill for /security-review writes triage marker."""
         result = self._run_script(
             "review_cycle_done.py",
             {
@@ -337,36 +286,7 @@ class TestCommitGateIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        marker = self.smm_dir / ".security-triaged-main"
-        self.assertTrue(marker.exists(), "Marker should exist after /security-review")
-
-    def test_release_prefix_no_code_files_auto_exempted(self):
-        """[release] commits touching only docs auto-exempt without triage.
-
-        v2.28.1 only changed CHANGELOG.md + plugin.json — no code files.
-        has_staged_code_files returns False, so the triage gate writes the
-        exempt marker and the commit proceeds. Pin that exemption: a flagged
-        commit_without_security_check is not a defect when there are no
-        code files to triage.
-        """
-        doc_file = self.tmpdir / "CHANGELOG.md"
-        doc_file.write_text("## v9.9.9\n- bump\n")
-        subprocess.run(
-            ["git", "add", "CHANGELOG.md"],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m '[release] v9.9.9'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+        self.assertTrue(security.security_triaged_exists(self.smm_dir, "main"))
 
 
 if __name__ == "__main__":
