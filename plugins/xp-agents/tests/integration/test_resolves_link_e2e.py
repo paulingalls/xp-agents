@@ -20,15 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import security
 from conftest import _IntegrationTestCase, _s, _sprint_json, make_event
 
 
 class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
-    def _seed_commit_gates(self) -> None:
-        """Seed markers to bypass commit gates (security triage)."""
-        security.write_security_triaged(self.smm_dir, agent_id="main")
-
     def test_pre_commit_emits_probe_event_on_file_overlap(self):
         """E2E: pre-commit with staged files overlapping concern → probe event."""
         concern = make_event(
@@ -39,7 +34,6 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
             severity="medium",
         )
         self._seed_events([concern])
-        self._seed_commit_gates()
 
         (self.tmpdir / "scripts").mkdir(exist_ok=True)
         (self.tmpdir / "scripts" / "foo.py").write_text("print('hi')\n")

@@ -15,7 +15,6 @@ markdown output.
 KICKOFF = ".needs-kickoff"
 NEEDS_SPRINT = ".needs-sprint"
 ACCEPT = ".accept"
-SECURITY_TRIAGED = ".security-triaged-{agent_id}"
 PLAN_AWAITING_REVIEW = ".plan-awaiting-review"
 QUESTION_GATE = ".question-gate"
 ASKING_USER = ".asking-user"

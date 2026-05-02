@@ -53,7 +53,6 @@ NEEDS_EXECUTION_PLAN = MarkerDef(marker_names.NEEDS_EXECUTION_PLAN, "text")
 NEEDS_SYSTEM_CONTEXT = MarkerDef(marker_names.NEEDS_SYSTEM_CONTEXT, "text")
 NEEDS_SPRINT = MarkerDef(marker_names.NEEDS_SPRINT, "text")
 ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
-SECURITY_TRIAGED = MarkerDef(marker_names.SECURITY_TRIAGED, "json", agent_scoped=True)
 PLAN_AWAITING_REVIEW = MarkerDef(marker_names.PLAN_AWAITING_REVIEW, "text")
 QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
@@ -188,7 +187,6 @@ def set_review_flag(
 # ---------------------------------------------------------------------------
 
 _AGENT_SCOPED_MARKERS: tuple[MarkerDef, ...] = (
-    SECURITY_TRIAGED,
     TDD_TRACKER,
     REVIEW_CYCLE,
     QUESTION_NUDGED,

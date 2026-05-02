@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_post_tool
 import markers
-import security
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 from event_schema import STATUS_ACTION_QR_COMPLETE
@@ -122,31 +121,6 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
         )
         self.assertIsNone(result)
         self.assertEqual(self._read_events(), [])
-
-    def test_xp_agent_type_does_not_consume_main_security_marker(self):
-        """Leaked agent_type must not consume main's security marker.
-
-        Under the original hoist (commit 44698fe), a Bash tagged with leaked
-        agent_type drove _handle_commit to completion — including
-        security.consume_security_triaged(agent_id), which would wipe main's
-        marker when agent_id resolved to 'main' in the leak path. The
-        commit event must still land (recording is the priority), but
-        marker mutations under wrong identity are unsafe.
-        """
-        security.write_security_triaged(self.smm_dir, "main")
-        self.assertTrue(security.security_triaged_exists(self.smm_dir, "main"))
-
-        with self._patch_commit_lookups():
-            self._run_leaked_commit()
-
-        # Commit event still recorded — the bug fix is preserved.
-        commit_events = [e for e in self._read_events() if e.get("type") == "commit"]
-        self.assertEqual(len(commit_events), 1)
-        # Side effect blocked: security marker still present.
-        self.assertTrue(
-            security.security_triaged_exists(self.smm_dir, "main"),
-            "leaked-type Bash should not consume main's security marker",
-        )
 
     def test_xp_agent_type_does_not_run_lint_resolution(self):
         """Leaked agent_type must not invoke lint_resolution.resolve_lint_on_commit.
@@ -260,24 +234,9 @@ class TestBashPostToolReviewCycle(_HookTestCase):
         self.assertTrue(cycle["simplify_done"])
         self.assertTrue(cycle["quality_review_done"])
 
-    def test_failed_commit_preserves_security_marker(self):
-        """Pre-commit hook failure must not consume the security-triaged marker."""
-        security.write_security_triaged(self.smm_dir)
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
-        with patch("commits.get_head_commit_hash", return_value="prevhash"):
-            bash_post_tool.run(
-                _make_bash_input(
-                    command="git commit -m 'test'",
-                    stdout="ruff-check >\n\nFAILED\npre-commit hook failed",
-                ),
-                smm_dir=self.smm_dir,
-            )
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
-
     def test_empty_stdout_preserves_markers(self):
         """Content-agnostic guard: any non-success stdout short-circuits effects."""
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        security.write_security_triaged(self.smm_dir)
         with patch("commits.get_head_commit_hash", return_value="prevhash"):
             bash_post_tool.run(
                 _make_bash_input(command="git commit -m 'test'", stdout=""),
@@ -285,7 +244,6 @@ class TestBashPostToolReviewCycle(_HookTestCase):
             )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
 
 class TestBashPostToolWorktreeAgentId(_HookTestCase):

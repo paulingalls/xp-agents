@@ -17,7 +17,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-import security
 from conftest import _IntegrationTestCase, _make_bash_input
 
 _AKIA_LINE = 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n'
@@ -42,7 +41,6 @@ class TestSecurityPreCommitE2E(_IntegrationTestCase):
 
     def test_aws_key_in_staged_file_blocks_commit(self):
         """AC #1: planted AKIA → exit 2, stderr names pattern + file:line."""
-        security.write_security_triaged(self.smm_dir)
         self._stage("secrets.py", _AKIA_LINE)
 
         result = self._run_script("pre_tool_bash.py", self._commit_input())
@@ -53,7 +51,6 @@ class TestSecurityPreCommitE2E(_IntegrationTestCase):
 
     def test_clean_staged_file_passes(self):
         """AC #2: clean staged code → exit 0, no Tier 1 message."""
-        security.write_security_triaged(self.smm_dir)
         self._stage("app.py", _CLEAN_LINE)
 
         result = self._run_script("pre_tool_bash.py", self._commit_input())
@@ -63,7 +60,6 @@ class TestSecurityPreCommitE2E(_IntegrationTestCase):
 
     def test_noqa_secret_suppression_respected(self):
         """AC #3: AKIA + `# noqa: secret` → exit 0 (suppression honored)."""
-        security.write_security_triaged(self.smm_dir)
         self._stage("intentional.py", _NOQA_LINE)
 
         result = self._run_script("pre_tool_bash.py", self._commit_input())
@@ -73,7 +69,6 @@ class TestSecurityPreCommitE2E(_IntegrationTestCase):
 
     def test_full_pipeline_blocks_then_passes_after_fix(self):
         """AC #4: developer workflow — secret blocks, suppression unblocks."""
-        security.write_security_triaged(self.smm_dir)
 
         self._stage("workflow.py", _AKIA_LINE)
         blocked = self._run_script("pre_tool_bash.py", self._commit_input())
@@ -86,18 +81,6 @@ class TestSecurityPreCommitE2E(_IntegrationTestCase):
         unblocked = self._run_script("pre_tool_bash.py", self._commit_input())
         self.assertEqual(unblocked.returncode, 0, unblocked.stderr)
         self.assertNotIn("aws-access-key", unblocked.stderr)
-
-    def test_tier1_fires_before_security_triage_gate(self):
-        """AC #4 (gate ordering): planted secret + NO triage marker → still
-        blocks with the Tier 1 message, not the triage-required message."""
-        # Deliberately do NOT write the security-triaged marker.
-        self._stage("ordering.py", _AKIA_LINE)
-
-        result = self._run_script("pre_tool_bash.py", self._commit_input())
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("aws-access-key", result.stderr)
-        self.assertNotIn("xp-security-triage", result.stderr)
 
 
 if __name__ == "__main__":
