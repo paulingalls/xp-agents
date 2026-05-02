@@ -61,7 +61,7 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
     """Commit events must record even when agent_type leaks an xp- prefix.
 
     Defensive against subagent identity leak: if a Bash tool call is tagged
-    with `agent_type="xp-security-reviewer"` (or similar) the early-return on
+    with `agent_type="xp-housekeeper"` (or similar xp- agent) the early-return on
     `is_xp_agent` would otherwise drop the commit event. Recording is not
     recursion-inducing — every git commit must leave a trace, regardless of
     which agent's stack the Bash call originated from.

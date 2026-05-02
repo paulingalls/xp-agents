@@ -70,7 +70,6 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         result = self._run_teammate()
         self.assertIn("/simplify", result)
         self.assertIn("/xp-quality-review", result)
-        self.assertIn("/xp-security-triage", result)
 
     def test_teammate_guide_has_event_recording(self):
         """Teammate guide shows how to record events."""
