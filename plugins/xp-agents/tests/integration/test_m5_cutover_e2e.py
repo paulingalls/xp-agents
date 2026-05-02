@@ -38,31 +38,34 @@ _SCAN_ROOTS = (
     _PLUGIN_ROOT / "agents",
     _PLUGIN_ROOT / "skills",
     _PLUGIN_ROOT / "hooks",
+    _PLUGIN_ROOT / ".claude-plugin",
     _PLUGIN_ROOT / "PROCESS_GUIDE.md",
     _PLUGIN_ROOT / "TEAMMATE_GUIDE.md",
     _PLUGIN_ROOT / "XP_VALUES.md",
     _REPO_ROOT / "README.md",
     _REPO_ROOT / "CLAUDE.md",
+    _REPO_ROOT / "lefthook.yml",
     # Scan all of docs/ as a directory (matches M-4 precedent) so newly
     # added design docs / spikes get coverage automatically. Historical
     # subtrees (ideas/, completed/, handoffs/) are filtered by
-    # _ALLOWLIST_SUBSTRINGS below.
+    # _ALLOWLIST_PREFIXES below.
     _REPO_ROOT / "docs",
 )
 
-# Allowlist substrings: paths containing any of these are skipped. Tests
-# routinely assert the absence of these terms; historical doc paths
-# preserve the migration record. The capstone test file itself names
-# the terms as data and must allowlist itself.
-_ALLOWLIST_SUBSTRINGS = (
-    "/tests/",
-    "/docs/ideas/",
-    "/docs/completed/",
-    "/docs/handoffs/",
+# Allowlist by path-prefix (anchored to repo root). Path.is_relative_to
+# is the right primitive — substring matches would catch unintended
+# paths like a future vendored `*/tests/*` or a nested `notes/ideas/`.
+# Tests routinely assert absence of these terms; historical doc paths
+# preserve the migration record.
+_ALLOWLIST_PREFIXES = (
+    _PLUGIN_ROOT / "tests",
+    _REPO_ROOT / "docs" / "ideas",
+    _REPO_ROOT / "docs" / "completed",
+    _REPO_ROOT / "docs" / "handoffs",
 )
 
-# File extensions worth scanning for prose / source content.
-_SCAN_EXTENSIONS = (".md", ".py", ".sh", ".json")
+# File extensions worth scanning for prose / source / config content.
+_SCAN_EXTENSIONS = (".md", ".py", ".sh", ".json", ".yml", ".yaml")
 
 
 def _iter_scan_paths():
@@ -78,16 +81,16 @@ def _iter_scan_paths():
 def _scan_for_terms(roots, terms, allowlist=()):
     """Return list of "<path>:<line>: <line text>" hits across `roots`.
 
-    Allowlist suppresses paths whose string contains any allowlisted
-    substring. Each term is matched literally; one hit per line is
-    enough — `break` short-circuits after the first match so multi-term
-    lines don't inflate the offender count.
+    `allowlist` is a tuple of `Path` prefixes; any path under one is
+    skipped (via `Path.is_relative_to`). Each term is matched literally;
+    one hit per line is enough — `break` short-circuits after the first
+    match so multi-term lines don't inflate the offender count.
     """
     offenders = []
     for path in roots:
         if not path.is_file():
             continue
-        if any(s in str(path) for s in allowlist):
+        if any(path.is_relative_to(p) for p in allowlist):
             continue
         try:
             text = path.read_text()
@@ -106,7 +109,7 @@ class TestM5CutoverZeroReferences(unittest.TestCase):
 
     def test_zero_references_in_shipped_surfaces(self):
         offenders = _scan_for_terms(
-            _iter_scan_paths(), _SEARCH_TERMS, _ALLOWLIST_SUBSTRINGS
+            _iter_scan_paths(), _SEARCH_TERMS, _ALLOWLIST_PREFIXES
         )
         self.assertEqual(
             offenders,
@@ -119,9 +122,10 @@ class TestM5CutoverZeroReferences(unittest.TestCase):
         """If the scan ever silently breaks, this fails loud.
 
         Writes a temp file with a known offender and runs the predicate
-        against it directly. Doesn't touch the real scan roots — keeps
-        the negative-assertion test above honest without polluting the
-        repo.
+        against it directly. Sprint AC named PROCESS_GUIDE.md as the
+        injection target; tempfile is a deliberate improvement — no
+        repo pollution, no stash discipline, predicate exercised in
+        isolation.
         """
         with tempfile.TemporaryDirectory() as td:
             offender_path = Path(td) / "stub.md"
