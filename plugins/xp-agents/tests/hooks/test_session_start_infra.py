@@ -334,10 +334,11 @@ class TestTeammateGuideContent(unittest.TestCase):
         assert cls.guide, "load_teammate_guide() returned None"
 
     def test_has_full_review_cycle(self):
-        """Guide includes full review cycle commands."""
+        """Guide includes review cycle commands and tier-only security framing."""
         self.assertIn("/simplify", self.guide)
         self.assertIn("/xp-quality-review", self.guide)
-        self.assertIn("/xp-security-triage", self.guide)
+        self.assertNotIn("/xp-security-triage", self.guide)
+        self.assertIn("/xp-accept", self.guide)
 
     def test_has_tdd_discipline(self):
         """Guide includes TDD discipline."""

@@ -28,7 +28,7 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
-**Forked skills:** `/xp-review-plan`, `/xp-sprint-review`, `/xp-{sprint,plan,free,story}-close`, `/xp-system-context` — preload + cleanup. (`/xp-security-triage` no longer required per commit.)
+**Forked skills:** `/xp-review-plan`, `/xp-sprint-review`, `/xp-{sprint,plan,free,story}-close`, `/xp-system-context` — preload + cleanup.
 
 **Tests:** Check for FAIL/ERROR first. Never re-run the full suite just to find failure names.
 

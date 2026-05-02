@@ -21,7 +21,7 @@ Run before each commit:
 2. `/xp-quality-review` — courage accountability, drift check, debt awareness
 3. Commit — pre-commit hooks enforce test-passing and formatting
 
-Tier 2 security review fires at `/xp-accept`; Tier 3 at close. `/xp-security-triage` is on-demand only.
+Security review is tiered: Tier 1 secret/pattern scan runs automatically on staged diffs at commit; Tier 2 LLM review fires at `/xp-accept`; Tier 3 close-reviewer runs at sprint/plan/free close. There is no on-demand triage skill — the tiered gates own security.
 
 ## Commit Conventions
 
