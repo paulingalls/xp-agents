@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import branching
 import git_hooks
+import git_remote
 
 
 def pre_commit_hook_present(repo_root: str) -> bool:
@@ -40,11 +41,6 @@ def pre_commit_hook_present(repo_root: str) -> bool:
     scripts and ``.sample`` files don't qualify because git won't fire them.
     """
     return git_hooks.will_fire_hook(repo_root)
-
-
-def _has_remote(cwd: str) -> bool:
-    result = subprocess.run(["git", "remote"], cwd=cwd, capture_output=True, text=True)
-    return bool(result.stdout.strip())
 
 
 def _run_or_relay(argv: list[str], cwd: str, success_msg: str | None = None) -> int:
@@ -83,7 +79,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
 
 def cmd_push(args: argparse.Namespace) -> int:
-    if not _has_remote(args.cwd):
+    if not git_remote.has_remote(args.cwd):
         print("skipped: no remote configured")
         return 0
     return _run_or_relay(
@@ -170,7 +166,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
     branching.merge_branch(args.cwd, args.source, target=args.target)
     print(f"merged: {args.source} -> {args.target}")
 
-    if _has_remote(args.cwd):
+    if git_remote.has_remote(args.cwd):
         rc = _run_or_relay(
             ["git", "push", "origin", args.target],
             cwd=args.cwd,
