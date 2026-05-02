@@ -15,12 +15,13 @@ Take small steps. Don't try to implement everything at once.
 
 ## Review Cycle
 
-Run the full review cycle before each commit:
+Run before each commit:
 
 1. `/simplify` — code reuse, quality, and efficiency review
 2. `/xp-quality-review` — courage accountability, drift check, debt awareness
-3. `/xp-security-triage` — security review of pending changes
-4. Commit — pre-commit hooks enforce test-passing and formatting
+3. Commit — pre-commit hooks enforce test-passing and formatting
+
+Tier 2 security review fires at `/xp-accept`; Tier 3 at close. `/xp-security-triage` is on-demand only.
 
 ## Commit Conventions
 

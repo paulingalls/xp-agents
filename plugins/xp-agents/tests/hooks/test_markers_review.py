@@ -28,14 +28,12 @@ class TestReviewCycle(_HookTestCase):
         self.assertEqual(data["last_review_commit"], "")
         self.assertFalse(data["simplify_done"])
         self.assertFalse(data["quality_review_done"])
-        self.assertFalse(data["security_review_done"])
 
     def test_write_and_read_roundtrip(self):
         expected = {
             "last_review_commit": "abc123",
             "simplify_done": True,
             "quality_review_done": False,
-            "security_review_done": False,
         }
         markers.write_review_cycle(self.smm_dir, "main", expected)
         result = markers.read_review_cycle(self.smm_dir, "main")
@@ -49,7 +47,6 @@ class TestReviewCycle(_HookTestCase):
                 "last_review_commit": "old",
                 "simplify_done": True,
                 "quality_review_done": True,
-                "security_review_done": True,
             },
         )
         markers.reset_review_cycle(self.smm_dir, "main", "newcommit")
@@ -57,7 +54,6 @@ class TestReviewCycle(_HookTestCase):
         self.assertEqual(data["last_review_commit"], "newcommit")
         self.assertFalse(data["simplify_done"])
         self.assertFalse(data["quality_review_done"])
-        self.assertFalse(data["security_review_done"])
 
     def test_set_flag_simplify(self):
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
@@ -69,14 +65,12 @@ class TestReviewCycle(_HookTestCase):
         data = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(data["quality_review_done"])
 
-    def test_set_flag_security_review(self):
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
-        data = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertTrue(data["security_review_done"])
-
     def test_set_flag_invalid_raises(self):
         with self.assertRaises(ValueError):
             markers.set_review_flag(self.smm_dir, "main", "bogus_flag")
+        # M-4: security_review_done is no longer a valid flag.
+        with self.assertRaises(ValueError):
+            markers.set_review_flag(self.smm_dir, "main", "security_review_done")
 
     def test_set_flag_preserves_other_flags(self):
         markers.reset_review_cycle(self.smm_dir, "main", "abc")
@@ -86,13 +80,17 @@ class TestReviewCycle(_HookTestCase):
         self.assertEqual(data["last_review_commit"], "abc")
         self.assertTrue(data["simplify_done"])
         self.assertTrue(data["quality_review_done"])
-        self.assertFalse(data["security_review_done"])
 
     def test_set_flag_to_false(self):
         markers.set_review_flag(self.smm_dir, "main", "simplify_done", True)
         markers.set_review_flag(self.smm_dir, "main", "simplify_done", False)
         data = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(data["simplify_done"])
+
+    def test_security_review_done_no_longer_in_review_flags(self):
+        """M-4: security_review_done is gone from defaults and valid flags."""
+        self.assertNotIn("security_review_done", markers._REVIEW_FLAGS)
+        self.assertNotIn("security_review_done", markers._DEFAULT_REVIEW_CYCLE)
 
 
 # ---------------------------------------------------------------------------

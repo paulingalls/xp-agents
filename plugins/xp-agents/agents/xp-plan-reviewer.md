@@ -31,7 +31,7 @@ Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constrain
 
 #### 2b. Commit Cadence
 - Check that the plan includes a commit step after each green phase (tests passing).
-- If multiple red/green cycles occur without a commit between them, flag it: commits trigger the review cycle (/simplify, /xp-quality-review, /xp-security-triage), so skipping commits skips quality checks.
+- If multiple red/green cycles occur without a commit between them, flag it: commits trigger the review cycle (/simplify, /xp-quality-review), so skipping commits skips quality checks.
 - Example flag: "Steps 3-7 implement 3 features without any commit step — add commits after each green phase."
 
 ### 3. Milestone Boundaries

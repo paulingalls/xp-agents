@@ -147,12 +147,9 @@ _DEFAULT_REVIEW_CYCLE: dict = {
     "last_review_commit": "",
     "simplify_done": False,
     "quality_review_done": False,
-    "security_review_done": False,
 }
 
-_REVIEW_FLAGS = frozenset(
-    {"simplify_done", "quality_review_done", "security_review_done"}
-)
+_REVIEW_FLAGS = frozenset({"simplify_done", "quality_review_done"})
 
 
 def read_review_cycle(smm_dir: Path, agent_id: str) -> dict:

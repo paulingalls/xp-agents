@@ -24,12 +24,12 @@ from event_schema import event_action
 class TestReviewCycleDone(_HookTestCase):
     """PostToolUse:Skill|Agent hook sets flags after review skills or xp-housekeeper."""
 
-    def test_security_review_sets_flag_and_marker(self):
+    def test_security_review_writes_marker(self):
+        """M-4: /security-review writes triage marker (kept until M-5) but
+        no longer sets a per-commit review-cycle flag."""
         review_cycle_done.run(
             _make_skill_input("security-review"), smm_dir=self.smm_dir
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertTrue(cycle["security_review_done"])
         self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
     def test_simplify_sets_flag(self):
@@ -45,14 +45,6 @@ class TestReviewCycleDone(_HookTestCase):
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["quality_review_done"])
-
-    def test_security_triage_sets_flag(self):
-        review_cycle_done.run(
-            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
-        )
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertTrue(cycle["security_review_done"])
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
     def _action_events(self, action: str) -> list[dict]:
         events = _common.read_events_raw(self.smm_dir)
@@ -85,16 +77,6 @@ class TestReviewCycleDone(_HookTestCase):
         # in metadata.action. _make_skill_input defaults agent_id to "main".
         self.assertEqual(emitted[0]["agent_id"], "main")
 
-    def test_security_triage_emits_complete_action(self):
-        """Triage emits security_triage_complete and NEVER security_complete."""
-        review_cycle_done.run(
-            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
-        )
-        triage = self._action_events("security_triage_complete")
-        review = self._action_events("security_complete")
-        self.assertEqual(len(triage), 1, "expected one security_triage_complete")
-        self.assertEqual(len(review), 0, "triage must not emit security_complete")
-
     def test_plan_review_emits_action_event(self):
         """/xp-review-plan completion appends action=plan_reviewed."""
         review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)
@@ -120,7 +102,6 @@ class TestReviewCycleDone(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
-        self.assertFalse(cycle["security_review_done"])
 
     def test_xp_agent_skips(self):
         result = review_cycle_done.run(
@@ -136,22 +117,6 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-    def test_quality_review_nudges_security_review(self):
-        """After /xp-quality-review, nudge to run /security-review."""
-        result = review_cycle_done.run(
-            _make_skill_input("xp-quality-review"), smm_dir=self.smm_dir
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("/security-review", result)
-
-    def test_security_triage_nudges_commit(self):
-        """After /xp-security-triage, nudge to commit."""
-        result = review_cycle_done.run(
-            _make_skill_input("xp-security-triage"), smm_dir=self.smm_dir
-        )
-        self.assertIsNotNone(result)
-        self.assertIn("commit", result.lower())
-
     def test_plan_review_nudges_task_creation(self):
         """After /xp-review-plan, nudge to create tasks."""
         result = review_cycle_done.run(
@@ -166,7 +131,6 @@ class TestReviewCycleDone(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
-        self.assertFalse(cycle["security_review_done"])
 
     def test_qualified_plan_review_name(self):
         """Plugin-qualified /xp-review-plan also triggers nudge."""
@@ -198,7 +162,6 @@ class TestReviewCycleDone(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
-        self.assertFalse(cycle["security_review_done"])
 
     def test_worktree_cwd_scopes_markers(self):
         """Worktree cwd uses resolve_agent_id for marker scoping."""

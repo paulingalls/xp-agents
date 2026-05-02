@@ -200,7 +200,7 @@ class TestBashPostToolReviewCycle(_HookTestCase):
     def test_commit_resets_review_cycle(self):
         """After commit, review cycle marker has new hash and cleared flags."""
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
         with (
             patch("commits.get_committed_files", return_value=["a.py"]),
             patch("commits.get_head_commit_hash", return_value="newcommit123"),
@@ -216,7 +216,6 @@ class TestBashPostToolReviewCycle(_HookTestCase):
         self.assertEqual(cycle["last_review_commit"], "newcommit123")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
-        self.assertFalse(cycle["security_review_done"])
 
     def test_commit_no_hash_skips_reset(self):
         """If git rev-parse fails, no marker written (no crash)."""
@@ -249,7 +248,6 @@ class TestBashPostToolReviewCycle(_HookTestCase):
         """Pre-commit hook failure must not reset review flags."""
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
         with patch("commits.get_head_commit_hash", return_value="prevhash"):
             bash_post_tool.run(
                 _make_bash_input(
@@ -261,7 +259,6 @@ class TestBashPostToolReviewCycle(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
         self.assertTrue(cycle["quality_review_done"])
-        self.assertTrue(cycle["security_review_done"])
 
     def test_failed_commit_preserves_security_marker(self):
         """Pre-commit hook failure must not consume the security-triaged marker."""
@@ -298,7 +295,7 @@ class TestBashPostToolWorktreeAgentId(_HookTestCase):
         """After commit, worktree-scoped markers are reset."""
         agent_id = "teammate-story-001"
         markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
-        markers.set_review_flag(self.smm_dir, agent_id, "security_review_done")
+        markers.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
         inp = _make_bash_input(
             command="git commit -m 'test'",
             stdout="[main abc123] test\n 1 file changed",

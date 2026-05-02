@@ -425,12 +425,14 @@ def generate_smm(root: Path) -> dict:
             "wisdom",
             "Commit after every green test run — "
             "frequent commits keep review cycle "
-            "(/simplify, /xp-quality-review, /xp-security-triage) small",
+            "(/simplify, /xp-quality-review) small",
         ),
         _seed_entry(
             "wisdom",
             "Complete the review cycle before committing code changes "
-            "— /simplify → /xp-quality-review → /xp-security-triage → commit",
+            "— /simplify → /xp-quality-review → commit. Tier 1 patterns "
+            "scan staged diffs; Tier 2 LLM review fires at /xp-accept; "
+            "Tier 3 fires at close.",
         ),
         _seed_entry(
             "wisdom",
