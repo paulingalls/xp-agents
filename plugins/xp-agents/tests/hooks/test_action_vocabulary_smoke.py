@@ -230,10 +230,16 @@ _PRODUCER_CASES: dict[str, Driver] = {
 
 
 # ---------------------------------------------------------------------------
-# Doctrine gaps: action_value -> debt event ID. Constants here are declared
-# in event_schema.py but have no producer hook. The debt event records the
-# gap so it shows up in retro / housekeeping queues until the producer
-# lands or the constant is removed.
+# Doctrine gaps: action_value -> tracking note. Constants here are declared
+# in event_schema.py but have no producer hook. Three categories of gap:
+#   1. Debt-tracked: value is a debt event ID; gap shows up in retro /
+#      housekeeping queues until the producer lands or the constant is
+#      removed (e.g. STATUS_ACTION_SPRINT_RETRO_DONE).
+#   2. Intentional: value explains why the gap is permanent (e.g.
+#      LLM-via-SKILL.md producer pattern).
+#   3. Transient cutover: value is a concern ID tracking a multi-story
+#      removal where the producer is deleted before the constant; the
+#      entry disappears with the constant (e.g. sprint-052 M-5).
 # ---------------------------------------------------------------------------
 
 _DOCTRINE_GAPS: dict[str, str] = {
