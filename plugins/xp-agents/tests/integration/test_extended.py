@@ -275,22 +275,6 @@ class TestCommitGateIntegration(_IntegrationTestCase):
         marker = self.smm_dir / ".security-triaged-main"
         marker.write_text(json.dumps({"ts": "2026-03-19T00:00:00"}))
 
-    def test_git_commit_blocked_no_triage(self):
-        """git commit blocked without security triage marker."""
-        self._stage_code_file()
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'test'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("/xp-security-triage", result.stderr)
-
     def test_git_commit_passes_with_marker(self):
         """git commit passes when triage marker exists."""
         self._write_triage_marker()
@@ -356,44 +340,6 @@ class TestCommitGateIntegration(_IntegrationTestCase):
         marker = self.smm_dir / ".security-triaged-main"
         self.assertTrue(marker.exists(), "Marker should exist after /security-review")
 
-    def test_release_prefix_does_not_bypass_triage_for_code(self):
-        """[release] commits with code files still route through security triage.
-
-        The escape-hatch prefix only bypasses the protected-branch warning,
-        NOT the security-triage gate. Pin the contract so a future refactor
-        cannot silently route release commits around triage (this has been
-        flagged on consecutive retros).
-        """
-        self._stage_code_file()
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m '[release] v9.9.9'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 2, f"stderr: {result.stderr}")
-        self.assertIn("/xp-security-triage", result.stderr)
-
-    def test_chore_prefix_does_not_bypass_triage_for_code(self):
-        """[chore] commits with code files still route through security triage."""
-        self._stage_code_file()
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m '[chore] tidy'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 2, f"stderr: {result.stderr}")
-        self.assertIn("/xp-security-triage", result.stderr)
-
     def test_release_prefix_no_code_files_auto_exempted(self):
         """[release] commits touching only docs auto-exempt without triage.
 
@@ -421,61 +367,6 @@ class TestCommitGateIntegration(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-
-    def test_full_flow(self):
-        """Full flow: commit blocked → triage → commit passes → marker consumed."""
-        self._stage_code_file()
-        # Step 1: commit is blocked
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'test'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 2)
-
-        # Step 2: security review skill writes marker
-        self._run_script(
-            "review_cycle_done.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Skill",
-                "tool_input": {"skill": "security-review"},
-                "agent_id": "main",
-            },
-        )
-
-        # Step 3: commit now passes
-        result = self._run_script(
-            "pre_tool_bash.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'test'"},
-                "agent_id": "main",
-                "cwd": str(self.tmpdir),
-            },
-        )
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-
-        # Step 4: marker is consumed after commit
-        self._run_script(
-            "bash_post_tool.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'test'"},
-                "tool_response": {"stdout": "[main abc1234] test"},
-                "cwd": str(self.tmpdir),
-                "agent_id": "main",
-            },
-        )
-        marker = self.smm_dir / ".security-triaged-main"
-        self.assertFalse(marker.exists(), "Marker should be consumed after commit")
 
 
 if __name__ == "__main__":

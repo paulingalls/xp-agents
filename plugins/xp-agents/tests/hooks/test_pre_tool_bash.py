@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
-import markers
 import pre_tool_bash
 import security
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
@@ -109,31 +108,6 @@ class TestPreToolBashCommitGate(_HookTestCase):
         heredoc_unquoted = "cat <<EOF | python3 smm_cli.py\nbefore git commit\nEOF"
         self.assertFalse(security.is_git_commit(heredoc_unquoted))
 
-    def test_commit_with_code_blocked_without_marker(self):
-        """git commit with staged code and no triage marker is blocked."""
-        # _HookTestCase auto-mocks get_staged_diff to "" — override so a
-        # real code file appears staged, otherwise the gate (correctly)
-        # treats this as a no-code commit.
-        diff = (
-            "diff --git a/src/a.py b/src/a.py\n"
-            "--- a/src/a.py\n"
-            "+++ b/src/a.py\n"
-            "@@ -1 +1 @@\n"
-            "-x\n"
-            "+y\n"
-        )
-        with (
-            patch("commits.get_staged_diff", return_value=diff),
-            self.assertRaises(_common.BlockedError) as ctx,
-        ):
-            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        self.assertIn("/xp-security-triage", str(ctx.exception))
-
-    def test_commit_passes_with_marker(self):
-        """git commit passes when triage marker exists."""
-        security.write_security_triaged(self.smm_dir)
-        pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-
     def test_commit_no_smm_degrades(self):
         """git commit with no SMM dir passes through (no crash)."""
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
@@ -156,26 +130,6 @@ class TestPreToolBashCommitGate(_HookTestCase):
         inp = self._commit_input(command="git push origin main")
         # Should not raise, even without marker
         pre_tool_bash.run(inp, smm_dir=self.smm_dir)
-
-    def test_marker_symlink_rejected_when_code_staged(self):
-        """Symlink marker is rejected -- commit is blocked when code staged."""
-        real_file = self.smm_dir / "real_target"
-        real_file.write_text("x")
-        link = security.security_triaged_path(self.smm_dir)
-        link.symlink_to(real_file)
-        diff = (
-            "diff --git a/src/a.py b/src/a.py\n"
-            "--- a/src/a.py\n"
-            "+++ b/src/a.py\n"
-            "@@ -1 +1 @@\n"
-            "-x\n"
-            "+y\n"
-        )
-        with (
-            patch("commits.get_staged_diff", return_value=diff),
-            self.assertRaises(_common.BlockedError),
-        ):
-            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
 
 
 class TestCommitGateCodeFilesOnly(_HookTestCase):
@@ -261,58 +215,6 @@ class TestCommitGateCodeFilesOnly(_HookTestCase):
         self.assertFalse(security.is_code_file("Dockerfile"))
 
 
-class TestTriageExemption(_HookTestCase):
-    """Non-code commits auto-set triage marker with exempt_reason."""
-
-    _CODE_FILES_PATCH = "commits.get_code_files_for_review"
-    _STAGED_PATCH = "security.has_staged_code_files"
-
-    def _commit_input(self, **overrides) -> dict:
-        data = {
-            "session_id": "t",
-            "tool_name": "Bash",
-            "tool_input": {"command": "git commit -m 'docs update'"},
-            "cwd": "/tmp",
-            "agent_id": "main",
-        }
-        data.update(overrides)
-        return data
-
-    def test_no_code_files_auto_sets_marker(self):
-        """Doc-only commit auto-sets triage marker with exempt_reason."""
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=[]),
-            patch(self._STAGED_PATCH, return_value=False),
-        ):
-            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
-        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
-        self.assertEqual(data["exempt_reason"], "no-code-files")
-
-    def test_code_files_still_require_triage(self):
-        """Commit with code files still requires manual triage."""
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=[]),
-            patch(self._STAGED_PATCH, return_value=True),
-            self.assertRaises(_common.BlockedError),
-        ):
-            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-
-    def test_write_security_triaged_with_exempt_reason(self):
-        """write_security_triaged accepts optional exempt_reason."""
-        security.write_security_triaged(self.smm_dir, exempt_reason="no-code-files")
-        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
-        self.assertIn("ts", data)
-        self.assertEqual(data["exempt_reason"], "no-code-files")
-
-    def test_write_security_triaged_without_exempt_reason(self):
-        """write_security_triaged without exempt_reason has no key."""
-        security.write_security_triaged(self.smm_dir)
-        data = markers.marker_read(self.smm_dir, markers.SECURITY_TRIAGED, "main")
-        self.assertIn("ts", data)
-        self.assertNotIn("exempt_reason", data)
-
-
 class TestResolvesTrailerReminder(_HookTestCase):
     """Always remind about Resolves-Event trailer on commits."""
 
@@ -395,7 +297,6 @@ class TestTier1SecurityScan(_HookTestCase):
                 "last_review_commit": "",
                 "simplify_done": True,
                 "quality_review_done": True,
-                "security_review_done": True,
             },
         )
 

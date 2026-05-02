@@ -7,9 +7,11 @@ Detects /simplify, /xp-quality-review, /security-review, /xp-security-triage,
 /xp-review-plan skill completions via tool_input.skill, and the xp-housekeeper
 inline agent via tool_input.subagent_type. For each, appends a canonical
 status event with metadata.action so consumers can detect skill completions
-without regex-matching LLM-authored content. For the commit-review-cycle
-targets, also sets the marker that clears the commit gate; security paths
-additionally write the .security-triaged marker.
+without regex-matching LLM-authored content. Per-commit review-cycle flags
+are set only for /simplify and /xp-quality-review (M-4: security review moved
+to Tier 2 at /xp-accept and Tier 3 at close). Security skills still write the
+.security-triaged marker so Tier 2/3 paths can observe triage history; the
+marker helpers are slated for removal in M-5.
 """
 
 import sys
@@ -95,15 +97,12 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
 _TARGET_FLAG: dict[str, str] = {
     _TARGET_SIMPLIFY: "simplify_done",
     _TARGET_QUALITY_REVIEW: "quality_review_done",
-    _TARGET_SECURITY_REVIEW: "security_review_done",
-    _TARGET_SECURITY_TRIAGE: "security_review_done",
 }
 
 
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
-    "quality_review_done": "Run /security-review next.",
-    "security_review_done": "Review cycle complete — commit your changes now.",
+    "quality_review_done": "Review cycle complete — commit your changes now.",
 }
 
 

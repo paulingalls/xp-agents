@@ -32,11 +32,13 @@ class TestPreToolBashWorktreeAgentId(_HookTestCase):
     """Commit gate reads markers under worktree-derived agent_id."""
 
     def test_worktree_cwd_reads_correct_markers(self):
-        """Worktree cwd resolves agent_id for commit gate markers."""
+        """Worktree cwd resolves agent_id for commit gate markers.
+
+        With only simplify_done set under the worktree-derived agent_id,
+        the gate must block on /xp-quality-review (proves it read the
+        worktree-scoped marker, not main's empty cycle).
+        """
         markers.set_review_flag(self.smm_dir, "teammate-story-001", "simplify_done")
-        markers.set_review_flag(
-            self.smm_dir, "teammate-story-001", "quality_review_done"
-        )
         inp = _make_bash_input(
             command=_COMMIT_CMD,
             cwd="/proj/.claude/worktrees/teammate-story-001",
@@ -48,7 +50,7 @@ class TestPreToolBashWorktreeAgentId(_HookTestCase):
         ):
             with self.assertRaises(_common.BlockedError) as ctx:
                 pre_tool_bash.run(inp, smm_dir=self.smm_dir)
-            self.assertIn("/xp-security-triage", str(ctx.exception))
+            self.assertIn("/xp-quality-review", str(ctx.exception))
 
 
 class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):

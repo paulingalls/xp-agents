@@ -52,42 +52,18 @@ class TestPreToolBashReviewCycle(_HookTestCase):
                 )
             self.assertIn("/xp-quality-review", str(ctx.exception))
 
-    def test_above_threshold_blocks_no_security(self):
-        """simplify + quality done -> blocks for /xp-security-triage."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
-            with self.assertRaises(_common.BlockedError) as ctx:
-                pre_tool_bash.run(
-                    _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
-                )
-            self.assertIn("/xp-security-triage", str(ctx.exception))
-
     def test_above_threshold_passes_all_done(self):
-        """All 3 flags True -> commit allowed."""
+        """All flags True -> commit allowed."""
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
             )
 
-    def test_below_threshold_blocks_without_security(self):
-        """1 code file, staged code present, no security marker -> blocks."""
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
-            patch("security.has_staged_code_files", return_value=True),
-        ):
-            with self.assertRaises(_common.BlockedError) as ctx:
-                pre_tool_bash.run(
-                    _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
-                )
-            self.assertIn("/xp-security-triage", str(ctx.exception))
-
-    def test_below_threshold_passes_with_security(self):
-        """1 code file, security marker exists -> commit allowed."""
-        security.write_security_triaged(self.smm_dir)
+    def test_below_threshold_passes(self):
+        """M-4: below-threshold commits (<3 code files) skip the review-cycle
+        gate entirely. Tier 2/3 cover security at /xp-accept and close."""
         with (
             patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
             patch("security.has_staged_code_files", return_value=True),
@@ -132,7 +108,6 @@ class TestPreToolBashReviewCycle(_HookTestCase):
         markers.reset_review_cycle(self.smm_dir, "main", "abc123")
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
         with patch(
             self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]
         ) as mock:
