@@ -24,7 +24,6 @@ auditable; silent exclusions are not allowed.
 """
 
 import shutil
-import subprocess
 import sys
 import unittest
 from collections.abc import Callable
@@ -58,11 +57,8 @@ from conftest import (
 )
 from event_schema import event_action
 
-_MARK_TRIAGED = (
-    _PLUGIN_ROOT / "skills" / "xp-security-triage" / "scripts" / "mark_triaged.py"
-)
 sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
-import save_sprint  # noqa: E402
+import save_sprint
 
 Driver = Callable[[Path], list[dict]]
 
@@ -208,21 +204,6 @@ def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     return _events(smm_dir)
 
 
-def _drive_security_triage_started(smm_dir: Path) -> list[dict]:
-    # mark_triaged.py runs at module-import top-level — invoke it as a
-    # subprocess. The script honors --smm-dir so we can pin the temp SMM.
-    result = subprocess.run(
-        ["python3", str(_MARK_TRIAGED), "--smm-dir", str(smm_dir)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"mark_triaged failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-        )
-    return _events(smm_dir)
-
-
 # ---------------------------------------------------------------------------
 # Producer-case map: constant *name* -> driver callable.
 # Keyed by name (not value) so the missing-coverage canary cannot be silenced
@@ -246,15 +227,20 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
-    "STATUS_ACTION_SECURITY_TRIAGE_STARTED": _drive_security_triage_started,
 }
 
 
 # ---------------------------------------------------------------------------
-# Doctrine gaps: action_value -> debt event ID. Constants here are declared
-# in event_schema.py but have no producer hook. The debt event records the
-# gap so it shows up in retro / housekeeping queues until the producer
-# lands or the constant is removed.
+# Doctrine gaps: action_value -> tracking note. Constants here are declared
+# in event_schema.py but have no producer hook. Three categories of gap:
+#   1. Debt-tracked: value is a debt event ID; gap shows up in retro /
+#      housekeeping queues until the producer lands or the constant is
+#      removed (e.g. STATUS_ACTION_SPRINT_RETRO_DONE).
+#   2. Intentional: value explains why the gap is permanent (e.g.
+#      LLM-via-SKILL.md producer pattern).
+#   3. Transient cutover: value is a concern ID tracking a multi-story
+#      removal where the producer is deleted before the constant; the
+#      entry disappears with the constant (e.g. sprint-052 M-5).
 # ---------------------------------------------------------------------------
 
 _DOCTRINE_GAPS: dict[str, str] = {
@@ -276,6 +262,13 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # Not a debt — this is an intentional LLM-via-SKILL.md producer
     # pattern, the first STATUS_ACTION_* of its kind.
     "STATUS_ACTION_CONCERN_CLASSIFY": "LLM-via-SKILL.md (not a debt)",
+    # STATUS_ACTION_SECURITY_TRIAGE_STARTED — producer (mark_triaged.py) was
+    # deleted in sprint-052 / story-001 alongside the xp-security-triage
+    # skill. The constant itself is owned by event_schema.py and is
+    # scheduled for removal in story-002. Transient cutover gap; this entry
+    # disappears with the constant. Coordination is tracked in concern
+    # 43b7d01d2b13.
+    "STATUS_ACTION_SECURITY_TRIAGE_STARTED": "sprint-052 cutover (43b7d01d2b13)",
 }
 
 
@@ -303,10 +296,9 @@ class TestActionVocabularySmoke(_HookTestCase):
         """Wipe smm_dir back to the setUp baseline (events.jsonl + lock).
 
         Per-subTest reset prevents marker leakage across drivers — e.g.
-        ``_drive_iteration_complete`` writes ``.accept`` and
-        ``_drive_security_triage_started`` writes ``.security-triaged-*``
-        and a review flag. Without this reset, a later driver's behavior
-        would depend on dict-iteration order of ``_PRODUCER_CASES``.
+        ``_drive_iteration_complete`` writes ``.accept``. Without this
+        reset, a later driver's behavior would depend on dict-iteration
+        order of ``_PRODUCER_CASES``.
         """
         for child in self.smm_dir.iterdir():
             if child.name == "events.lock":
