@@ -195,7 +195,6 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
-| `/xp-security-triage` | Ad-hoc security review (Tier 2/3 cover the standard cycle) | On demand |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
 | `/xp-sprint-close` | Push sprint branch, fork close-reviewer, merge into target, cleanup | After sprint review |
@@ -349,7 +348,7 @@ A standup where agents report "everything is fine" when tests are failing is wor
 
 xp-agents enforces honesty through data, not aspiration:
 
-- **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, commits without security triage, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
+- **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, code commits without a recorded security check at story/close boundaries, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
 - **Quality review skill** — post-simplify courage check: were recommendations skipped? Drift management: do code changes contradict recorded decisions?
 - **Conflict detector** — catches convention violations, superseded decisions, and unacknowledged contradictions
 - **Process guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
