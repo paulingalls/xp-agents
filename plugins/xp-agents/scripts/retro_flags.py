@@ -56,19 +56,6 @@ def evaluate_flags(
             )
         )
 
-    without_security_check = honesty_signals.get("commits_without_security_check", 0)
-    if without_security_check > 0:
-        flags.append(
-            _flag(
-                "commits_without_security_check",
-                without_security_check,
-                0,
-                "Honesty",
-                f"{without_security_check} code commit(s) without a security check "
-                f"(triage or review)",
-            )
-        )
-
     writes = honesty_signals.get("code_file_writes", 0)
     concerns = honesty_signals.get("concerns_raised", 0)
     if writes >= 10 and concerns == 0:

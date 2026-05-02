@@ -18,8 +18,6 @@ class TestStatusActionConstants(unittest.TestCase):
         "STATUS_ACTION_SIMPLIFY_COMPLETE": "simplify_complete",
         "STATUS_ACTION_QR_COMPLETE": "qr_complete",
         "STATUS_ACTION_SECURITY_COMPLETE": "security_complete",
-        "STATUS_ACTION_SECURITY_TRIAGE_STARTED": "security_triage_started",
-        "STATUS_ACTION_SECURITY_TRIAGE_COMPLETE": "security_triage_complete",
         "STATUS_ACTION_PLAN_REVIEWED": "plan_reviewed",
         "STATUS_ACTION_HOUSEKEEPING_COMPLETE": "housekeeping_complete",
     }

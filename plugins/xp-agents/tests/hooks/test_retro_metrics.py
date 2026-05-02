@@ -18,8 +18,6 @@ from event_schema import (
     STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_SECURITY_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
     STATUS_ACTION_SIMPLIFY_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
@@ -121,26 +119,6 @@ class TestClassifyLifecycleEvents(unittest.TestCase):
         ]
         counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["security_checks"], 1)
-
-    def test_security_triage_actions_increment_security_checks(self):
-        """Both started and complete triage actions count toward security_checks
-        (preserves legacy regex semantics; double-counts a single triage run)."""
-        import retro_metrics
-
-        events = [
-            make_event(
-                "status",
-                content="ignored",
-                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_STARTED},
-            ),
-            make_event(
-                "status",
-                content="ignored",
-                metadata={"action": STATUS_ACTION_SECURITY_TRIAGE_COMPLETE},
-            ),
-        ]
-        counts = retro_metrics._classify_lifecycle_events(events)
-        self.assertEqual(counts["security_checks"], 2)
 
     def test_simplify_complete_action_increments_simplifies(self):
         """New counter — no equivalent existed in the regex era."""

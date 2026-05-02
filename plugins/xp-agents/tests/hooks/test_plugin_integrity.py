@@ -19,7 +19,6 @@ _SUBAGENT_NAMES = (
     "xp-housekeeper",
     "xp-plan-reviewer",
     "xp-retrospective",
-    "xp-security-reviewer",
     "xp-sprint-reviewer",
     "xp-system-analyzer",
 )
@@ -31,7 +30,6 @@ _ALL_SKILL_NAMES = (
     "xp-quality-review",
     "xp-review-plan",
     "xp-scaffold-acceptance",
-    "xp-security-triage",
     "xp-assign",
     "xp-sprint-review",
     "xp-sprint-start",
@@ -231,13 +229,7 @@ class TestAgentFilesM65(unittest.TestCase):
 
     def test_body_mentions_append_sh(self):
         """Every subagent should reference append.sh for event writing."""
-        # xp-security-reviewer's only event (security_complete) is emitted
-        # by the PostToolUse:Skill hook (review_cycle_done.py) — the agent
-        # body must NOT instruct the LLM to author it (sprint-041 / story-003).
-        skip = {"xp-security-reviewer"}
         for name in _SUBAGENT_NAMES:
-            if name in skip:
-                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             # Body is after the second ---
             parts = content.split("---", 2)
@@ -246,11 +238,7 @@ class TestAgentFilesM65(unittest.TestCase):
 
     def test_body_mentions_smm_content_trust(self):
         """Subagents that read SMM data should have the content trust section."""
-        # xp-security-reviewer doesn't read the SMM — no trust section needed
-        skip = {"xp-security-reviewer"}
         for name in _SUBAGENT_NAMES:
-            if name in skip:
-                continue
             content = (self.agents_dir / f"{name}.md").read_text()
             self.assertIn(
                 "SMM Content Trust", content, f"{name} missing SMM Content Trust"

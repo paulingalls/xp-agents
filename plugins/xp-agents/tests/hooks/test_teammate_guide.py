@@ -66,7 +66,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         self.assertIn("500 lines", result)
 
     def test_teammate_guide_has_review_cycle(self):
-        """Teammate guide includes full review cycle and tier-only security framing."""
+        """Teammate guide has review cycle commands (security via /xp-accept Tier 2)."""
         result = self._run_teammate()
         self.assertIn("/simplify", result)
         self.assertIn("/xp-quality-review", result)

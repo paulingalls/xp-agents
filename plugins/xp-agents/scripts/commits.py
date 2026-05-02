@@ -277,7 +277,7 @@ def get_code_files_for_review(
         )
 
     # If the command includes 'git add' or 'git commit -a', also check
-    # unstaged tracked changes (same pattern as security.has_staged_code_files)
+    # unstaged tracked changes — those will be staged by the command itself.
     if re.search(r"\bgit\s+add\b", command) or re.search(
         r"\bgit\s+commit\s+-a", command
     ):
