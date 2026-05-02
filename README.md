@@ -102,7 +102,7 @@ $ claude
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
 - **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate blocks writes until `/xp-review-plan` runs
-- **Before every commit** — review cycle gate blocks until `/simplify`, `/xp-quality-review`, and `/xp-security-triage` complete (for commits with code changes)
+- **Before every commit** — review cycle gate blocks until `/simplify` and `/xp-quality-review` complete (for commits with code changes); security review runs at story (`/xp-accept`, Tier 2) and close (Tier 3) boundaries
 - **After every write** — status auto-updated, linter runs
 - **After plan mode exits** — `PostToolUse:ExitPlanMode` nudges `/xp-review-plan` to extract assumptions, decisions, and risks
 - **At stop** — TDD gate blocks if tests failing
@@ -195,7 +195,7 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
-| `/xp-security-triage` | Security review of pending changes | Before commits |
+| `/xp-security-triage` | Ad-hoc security review (Tier 2/3 cover the standard cycle) | On demand |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
 | `/xp-sprint-close` | Push sprint branch, fork close-reviewer, merge into target, cleanup | After sprint review |
@@ -216,7 +216,6 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── .curation-watermark       ← last-curated event position
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .plan-awaiting-review     ← plan review gate marker
-├── .security-triaged         ← security triage gate marker
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
@@ -275,7 +274,7 @@ After planning, the `/xp-assign` skill analyzes the plan's steps and selects an 
 
 **Solo** (sequential) — the lead executes stories one at a time. Best when stories have dependencies between them, overlapping file domains, or are all small (S-sized). This is the default and most common mode.
 
-**CLI Teammates** (parallel) — each independent step group gets its own `claude -p` process running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`, `/xp-security-triage`), and commit independently. The lead merges branches after all teammates complete.
+**CLI Teammates** (parallel) — each independent step group gets its own `claude -p` process running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`), and commit independently. Tier 2/3 security review fires at story acceptance and close. The lead merges branches after all teammates complete.
 
 `/xp-assign` chooses CLI teammates when two or more step groups are substantial, have no dependencies between them, and have non-overlapping file domains. The mode decision is presented to the user for confirmation before spawning.
 

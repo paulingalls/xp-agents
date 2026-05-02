@@ -1,8 +1,8 @@
 ---
 name: xp-security-triage
 description: >-
-  Run /security-review on pending changes and clear the commit gate.
-  The built-in command does its own diff analysis.
+  Run /security-review on pending changes for ad-hoc mid-flight checks.
+  The standard cycle is covered by Tier 2 (/xp-accept) and Tier 3 (close).
 effort: high
 context: fork
 agent: xp-agents:xp-security-reviewer
