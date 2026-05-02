@@ -82,15 +82,13 @@ STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
 # Review-cycle lifecycle actions — vocabulary for the deterministic-event
-# doctrine (sprint-041). Producers (review_cycle_done.py, mark_triaged.py)
-# will set metadata.action to these values so consumers (retro_metrics,
+# doctrine (sprint-041). The sole producer is review_cycle_done.py, which
+# sets metadata.action to one of these values so consumers (retro_metrics,
 # bash_post_tool) can detect skill completions without regex-matching
-# LLM-authored content. Producer/consumer wiring lands in story-004.
+# LLM-authored content.
 STATUS_ACTION_SIMPLIFY_COMPLETE = "simplify_complete"
 STATUS_ACTION_QR_COMPLETE = "qr_complete"
 STATUS_ACTION_SECURITY_COMPLETE = "security_complete"
-STATUS_ACTION_SECURITY_TRIAGE_STARTED = "security_triage_started"
-STATUS_ACTION_SECURITY_TRIAGE_COMPLETE = "security_triage_complete"
 STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
 STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 

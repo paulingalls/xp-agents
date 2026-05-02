@@ -223,7 +223,6 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("simplify"),
     "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
-    "STATUS_ACTION_SECURITY_TRIAGE_COMPLETE": _drive_review_cycle("xp-security-triage"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
@@ -262,13 +261,6 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # Not a debt — this is an intentional LLM-via-SKILL.md producer
     # pattern, the first STATUS_ACTION_* of its kind.
     "STATUS_ACTION_CONCERN_CLASSIFY": "LLM-via-SKILL.md (not a debt)",
-    # STATUS_ACTION_SECURITY_TRIAGE_STARTED — producer (mark_triaged.py) was
-    # deleted in sprint-052 / story-001 alongside the xp-security-triage
-    # skill. The constant itself is owned by event_schema.py and is
-    # scheduled for removal in story-002. Transient cutover gap; this entry
-    # disappears with the constant. Coordination is tracked in concern
-    # 43b7d01d2b13.
-    "STATUS_ACTION_SECURITY_TRIAGE_STARTED": "sprint-052 cutover (43b7d01d2b13)",
 }
 
 
@@ -296,9 +288,9 @@ class TestActionVocabularySmoke(_HookTestCase):
         """Wipe smm_dir back to the setUp baseline (events.jsonl + lock).
 
         Per-subTest reset prevents marker leakage across drivers — e.g.
-        ``_drive_iteration_complete`` writes ``.accept``. Without this
-        reset, a later driver's behavior would depend on dict-iteration
-        order of ``_PRODUCER_CASES``.
+        ``_drive_iteration_complete`` writes ``.accept`` and review-cycle
+        drivers write a review flag. Without this reset, a later driver's
+        behavior would depend on dict-iteration order of ``_PRODUCER_CASES``.
         """
         for child in self.smm_dir.iterdir():
             if child.name == "events.lock":

@@ -49,8 +49,6 @@ class TestPreToolBashNoDelta(_HookTestCase):
         """Bash with git commit no longer gets delta."""
         events = [make_event("decision", content="Use REST", topic="api-style")]
         self._write_events(events)
-        # Write triage marker so commit isn't blocked
-        security.write_security_triaged(self.smm_dir)
         result = pre_tool_bash.run(
             _make_bash_input(command="git commit -m 'test'"),
             smm_dir=self.smm_dir,
@@ -61,7 +59,7 @@ class TestPreToolBashNoDelta(_HookTestCase):
 
 
 class TestPreToolBashCommitGate(_HookTestCase):
-    """Tests for git commit security triage gate in pre_tool_bash.py."""
+    """Tests for the is_git_commit detector in pre_tool_bash.py."""
 
     def _commit_input(self, command: str = "git commit -m 'test'", **overrides) -> dict:
         data = {
@@ -132,24 +130,8 @@ class TestPreToolBashCommitGate(_HookTestCase):
         pre_tool_bash.run(inp, smm_dir=self.smm_dir)
 
 
-class TestCommitGateCodeFilesOnly(_HookTestCase):
-    """Security triage gate only fires for commits with code files."""
-
-    def test_has_staged_code_files_no_git(self):
-        """Non-git directory returns True (err on requiring triage)."""
-        self.assertTrue(security.has_staged_code_files("/tmp"))
-
-    def test_has_staged_code_files_with_add_command(self):
-        """Command with git add checks unstaged files too."""
-        # Can't easily test the actual git behavior in unit tests,
-        # but verify the command parameter is accepted
-        self.assertTrue(
-            security.has_staged_code_files("/tmp", "git add . && git commit -m 'x'")
-        )
-
-    def test_has_staged_code_files_with_commit_a(self):
-        """Command with git commit -am checks unstaged files too."""
-        self.assertTrue(security.has_staged_code_files("/tmp", "git commit -am 'x'"))
+class TestIsCodeFile(_HookTestCase):
+    """is_code_file classifies files for code-vs-doc routing."""
 
     def test_is_code_file_classification(self):
         """is_code_file correctly classifies code files."""
@@ -220,7 +202,6 @@ class TestResolvesTrailerReminder(_HookTestCase):
 
     @patch("commits.get_staged_files", return_value=["src/app.py"])
     def test_commit_without_trailer_gets_reminder(self, _mock):
-        security.write_security_triaged(self.smm_dir)
         result = pre_tool_bash.run(
             _make_bash_input(command="git commit -m 'fix bug'"),
             smm_dir=self.smm_dir,
@@ -230,7 +211,6 @@ class TestResolvesTrailerReminder(_HookTestCase):
 
     @patch("commits.get_staged_files", return_value=["src/app.py"])
     def test_commit_with_trailer_no_reminder(self, _mock):
-        security.write_security_triaged(self.smm_dir)
         result = pre_tool_bash.run(
             _make_bash_input(command="git commit -m 'fix bug\n\nResolves-Event: none'"),
             smm_dir=self.smm_dir,
@@ -245,7 +225,6 @@ class TestPreToolBashPassesCommitMessage(_ProbeTestHelpers, _HookTestCase):
     def test_keyword_in_commit_message_ranks_matching_concern_first(self, _mock):
         cid_no_keyword = self._seed_auth_concern("zzz cleanup")
         cid_keyword = self._seed_auth_concern("tokens leak")
-        security.write_security_triaged(self.smm_dir)
 
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(
@@ -289,7 +268,6 @@ class TestTier1SecurityScan(_HookTestCase):
 
     def _satisfy_review_cycle(self) -> None:
         """Write all markers so the existing review-cycle gate would pass."""
-        security.write_security_triaged(self.smm_dir)
         write_review_cycle(
             self.smm_dir,
             "main",
@@ -304,7 +282,6 @@ class TestTier1SecurityScan(_HookTestCase):
     def test_tier1_blocks_aws_key_in_staged_diff(self, mock_diff):
         """AC #1: staged AKIA literal raises BlockedError naming pattern + file:line."""
         mock_diff.return_value = self._AKIA_DIFF
-        security.write_security_triaged(self.smm_dir)
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception)
@@ -315,7 +292,6 @@ class TestTier1SecurityScan(_HookTestCase):
     def test_tier1_passes_clean_diff(self, mock_diff):
         """AC #2: a clean staged diff does not raise a Tier 1 BlockedError."""
         mock_diff.return_value = self._CLEAN_DIFF
-        security.write_security_triaged(self.smm_dir)
         # May still return an additional-context string (e.g. trailer reminder),
         # but must not raise BlockedError from Tier 1.
         try:
@@ -347,7 +323,6 @@ class TestTier1SecurityScan(_HookTestCase):
     def test_tier1_fails_closed_on_git_failure(self, mock_diff):
         """git diff failure (None) must block, not silently bypass Tier 1."""
         mock_diff.return_value = None
-        security.write_security_triaged(self.smm_dir)
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         self.assertIn("git diff", str(ctx.exception).lower())

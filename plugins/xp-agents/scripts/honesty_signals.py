@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Honesty signal computation for retrospective analysis.
 
-Analyzes event sequences for TDD discipline, security triage coverage,
-planning activity, and other process health indicators. Extracted from
-retrospective.py to keep modules under 500 lines.
+Analyzes event sequences for TDD discipline, planning activity, and other
+process health indicators. Extracted from retrospective.py to keep modules
+under 500 lines.
 """
 
 import re
@@ -18,23 +18,12 @@ import security
 from commits import REVIEW_CYCLE_THRESHOLD
 from event_schema import (
     STATUS_ACTION_FILE_WRITE,
-    STATUS_ACTION_SECURITY_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
-    STATUS_ACTION_SECURITY_TRIAGE_STARTED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
 
 _PLAN_RE = re.compile(r"plan_awaiting_review:", re.IGNORECASE)
 _REFACTOR_MODE_RE = re.compile(r"refactor.mode", re.IGNORECASE)
-
-_SECURITY_CHECK_ACTIONS = frozenset(
-    {
-        STATUS_ACTION_SECURITY_COMPLETE,
-        STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
-        STATUS_ACTION_SECURITY_TRIAGE_STARTED,
-    }
-)
 
 
 def build_honesty_signals(events: list[dict]) -> dict:
@@ -47,11 +36,9 @@ def build_honesty_signals(events: list[dict]) -> dict:
 
     unique_files_since_test: set[str] = set()
     max_unique_files_without_test = 0
-    commits_without_security_check = 0
     total_commits = 0
     code_commits = 0
     review_required_commits = 0
-    last_security_check_seen = False
     concern_count = 0
     assumption_count = 0
     file_write_count = 0
@@ -74,14 +61,9 @@ def build_honesty_signals(events: list[dict]) -> dict:
                 cfc = e.get("metadata", {}).get("code_file_count")
                 if cfc is None or cfc >= REVIEW_CYCLE_THRESHOLD:
                     review_required_commits += 1
-            if not last_security_check_seen and is_code:
-                commits_without_security_check += 1
-            last_security_check_seen = False
         elif etype == _common.STATUS:
             action = event_action(e)
-            if action in _SECURITY_CHECK_ACTIONS:
-                last_security_check_seen = True
-            elif action == STATUS_ACTION_FILE_WRITE:
+            if action == STATUS_ACTION_FILE_WRITE:
                 # Path comes from metadata.files[0] — content is opaque.
                 files = (e.get("metadata") or {}).get("files") or []
                 path = files[0] if files else None
@@ -115,7 +97,6 @@ def build_honesty_signals(events: list[dict]) -> dict:
 
     signals["max_unique_files_without_test"] = max_unique_files_without_test
     signals["refactor_mode_excluded_files"] = len(refactor_mode_excluded)
-    signals["commits_without_security_check"] = commits_without_security_check
     signals["total_commits"] = total_commits
     signals["code_file_writes"] = file_write_count
     signals["concerns_raised"] = concern_count

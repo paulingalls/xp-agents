@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests: bash failure, lint check, bash post-tool, and the
-security-triage marker write/consume lifecycle."""
+"""Integration tests: bash failure, lint check, bash post-tool."""
 
 import sys
 import unittest
@@ -10,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import security
 from conftest import _IntegrationTestCase
 
 
@@ -250,43 +248,6 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         events = self._read_events()
         statuses = [e for e in events if e.get("type") == "status"]
         self.assertTrue(len(statuses) >= 1)
-
-
-class TestSecurityTriageMarkerLifecycle(_IntegrationTestCase):
-    """End-to-end coverage of the security-triage marker write/consume cycle
-    through the subprocess hook layer (units in tests/hooks/ cover the call
-    sites directly)."""
-
-    def test_marker_consumed_after_commit(self):
-        security.write_security_triaged(self.smm_dir, "main")
-        marker = security.security_triaged_path(self.smm_dir, "main")
-
-        result = self._run_script(
-            "bash_post_tool.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git commit -m 'test'"},
-                "tool_response": {"stdout": "[main abc1234] test"},
-                "cwd": str(self.tmpdir),
-                "agent_id": "main",
-            },
-        )
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        self.assertFalse(marker.exists(), "Marker should be consumed after commit")
-
-    def test_security_review_skill_writes_marker(self):
-        result = self._run_script(
-            "review_cycle_done.py",
-            {
-                "session_id": "int-test",
-                "tool_name": "Skill",
-                "tool_input": {"skill": "security-review"},
-                "agent_id": "main",
-            },
-        )
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        self.assertTrue(security.security_triaged_exists(self.smm_dir, "main"))
 
 
 if __name__ == "__main__":

@@ -15,7 +15,6 @@ def _healthy_signals():
     """Return signal dicts where no flags should fire."""
     honesty = {
         "max_unique_files_without_test": 2,
-        "commits_without_security_check": 0,
         "total_commits": 3,
         "code_commits": 3,
         "review_required_commits": 3,
@@ -88,15 +87,6 @@ class TestTDDStreak(unittest.TestCase):
         tdd = [f for f in flags if f["metric"] == "max_unique_files_without_test"]
         self.assertEqual(len(tdd), 1)
         self.assertNotIn("excluded as refactor-mode", tdd[0]["message"])
-
-
-class TestCommitsWithoutSecurityCheck(unittest.TestCase):
-    def test_fires_when_nonzero(self):
-        h, w, s, ss = _healthy_signals()
-        h["commits_without_security_check"] = 1
-        flags = retro_flags.evaluate_flags(h, w, s, ss)
-        names = [f["metric"] for f in flags]
-        self.assertIn("commits_without_security_check", names)
 
 
 class TestWritesWithoutConcerns(unittest.TestCase):
@@ -321,14 +311,14 @@ class TestDecisionAwareSuppression(unittest.TestCase):
 
     def test_other_flags_unaffected_by_kickoff_decision(self):
         h, w, s, ss = _healthy_signals()
-        h["commits_without_security_check"] = 2
+        w["unaddressed_concerns"] = 2
         w["max_events_to_commit"] = 80
         flags = retro_flags.evaluate_flags(
             h, w, s, ss, decisions=["retro-try-kickoff-exemption"]
         )
         names = [f["metric"] for f in flags]
         self.assertNotIn("max_events_to_commit", names)
-        self.assertIn("commits_without_security_check", names)
+        self.assertIn("unaddressed_concerns", names)
 
     def test_backward_compat_no_decisions_param(self):
         h, w, s, ss = _healthy_signals()

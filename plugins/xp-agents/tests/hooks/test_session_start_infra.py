@@ -337,7 +337,6 @@ class TestTeammateGuideContent(unittest.TestCase):
         """Guide includes full review cycle commands."""
         self.assertIn("/simplify", self.guide)
         self.assertIn("/xp-quality-review", self.guide)
-        self.assertIn("/xp-security-triage", self.guide)
 
     def test_has_tdd_discipline(self):
         """Guide includes TDD discipline."""

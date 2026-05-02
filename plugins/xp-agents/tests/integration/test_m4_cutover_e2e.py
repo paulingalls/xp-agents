@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
-import security
 from conftest import _PLUGIN_ROOT, _IntegrationTestCase, _make_bash_input
 
 _REPO_ROOT = _PLUGIN_ROOT.parent.parent
@@ -72,15 +71,16 @@ class TestM4CutoverE2E(_IntegrationTestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("aws-access-key", result.stderr)
 
-    def test_below_threshold_no_marker_auto_written(self):
-        """Absorbs close-reviewer concern 26d40317ed82: the deleted
-        exemption fallback no longer auto-writes a security marker."""
+    def test_below_threshold_passes_without_marker(self):
+        """Absorbs close-reviewer concern 26d40317ed82: below-threshold
+        commits pass cleanly without any security gate. The marker
+        subsystem itself was removed in M-5 so there is no marker to
+        check for absence."""
         self._stage("solo.py", _CLEAN_LINE)
 
         result = self._run_script("pre_tool_bash.py", self._commit_input())
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(security.security_triaged_exists(self.smm_dir, "main"))
 
     def test_review_flags_no_longer_contain_security(self):
         self.assertNotIn("security_review_done", markers._REVIEW_FLAGS)
