@@ -77,6 +77,34 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("orchestrated", result.lower())
 
+    def test_security_review_for_xp_agent_emits_event_and_returns_nudge(self):
+        """xp-* subagents invoking /security-review (e.g. xp-close-reviewer for
+        Tier 3 close) MUST receive both the SECURITY_COMPLETE event and the
+        continuation nudge — the recursion-prevention skip excludes
+        /security-review because the close-reviewer is the primary intended
+        caller.
+        """
+        input_data = _make_skill_input(
+            "security-review", agent_type="xp-close-reviewer"
+        )
+        result = review_cycle_done.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        self.assertIn("orchestrated", result.lower())
+        emitted = self._action_events("security_complete")
+        self.assertEqual(len(emitted), 1)
+
+    def test_xp_agent_skips_simplify(self):
+        """The recursion-prevention skip remains in effect for /simplify
+        invocations from xp-* subagents — only /security-review is excepted.
+        """
+        input_data = _make_skill_input("simplify", agent_type="xp-test")
+        result = review_cycle_done.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        emitted = self._action_events("simplify_complete")
+        self.assertEqual(len(emitted), 0)
+
     def test_plan_review_emits_action_event(self):
         """/xp-review-plan completion appends action=plan_reviewed."""
         review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)
@@ -102,12 +130,6 @@ class TestReviewCycleDone(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
-
-    def test_xp_agent_skips(self):
-        result = review_cycle_done.run(
-            _make_skill_input(agent_type="xp-test"), smm_dir=self.smm_dir
-        )
-        self.assertIsNone(result)
 
     def test_simplify_nudges_quality_review(self):
         """After /simplify, nudge to run /xp-quality-review."""
