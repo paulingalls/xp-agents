@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.0.0 — Tiered security review (breaking)
+
+The headline change of v3.0 is the migration from per-commit LLM security review to a three-tier model. The full design lives in `docs/ideas/security_review_doctrine.md` and shipped across sprint-048 → sprint-053; this entry summarizes what changed for users and which usage patterns are now broken.
+
+### The three tiers
+
+- **Tier 1 — deterministic regex at commit time.** A pattern set in `scripts/security_patterns.py` scans the staged diff before every commit and blocks on literal secrets (AWS access keys, GitHub tokens, PEM private-key headers, `password|passwd|pwd` literal assignments) and dangerous-call shapes (`subprocess.<call>(... shell=True ...)`, any `os.system(`, any `eval(`/`exec(`, and `http(s)://user:pass@` URLs). Per-line `# noqa: secret` suppression. Near-zero false-positive in this codebase's idiom; new test fixtures cover each pattern positive case + false-positive resistance. No LLM, no token cost — fires every commit.
+- **Tier 2 — LLM `/security-review` at `/xp-accept`.** Before a story transitions from `in-progress` to `done`, the accept skill computes the cumulative story diff (story branch vs sprint base) and invokes the built-in `/security-review` against it. Block findings stop the transition; Concern findings file as SMM events. Free-mode skips Tier 2 (no story container) — Tier 3 covers it.
+- **Tier 3 — LLM `/security-review` at close.** The `xp-close-reviewer` agent invokes `/security-review` against the cumulative close diff for sprint, plan, and free close modes. Findings fold into the existing Keep / Concern / Block summary; Block findings cause the merge confirmation to default to Abort. Story-mode close skips Tier 3 because Tier 2 already covered the same diff.
+
+### Breaking changes
+
+- **Review cycle is now `/simplify → /xp-quality-review → commit`.** The `/xp-security-triage` step is gone. The pre-tool gate no longer enforces `security_review_done` per commit; security review fires at story and close boundaries instead. Agents that scripted the old four-step cycle need to drop the `/xp-security-triage` call.
+- **`/xp-security-triage` skill deleted.** For mid-flight security checks (e.g. ad-hoc review of a draft change), call `/security-review` directly — that's the built-in skill the wrapper used to invoke. The wrapper added no value once the per-commit gate was removed.
+- **`xp-security-reviewer` agent deleted.** The forked subagent that backed `/xp-security-triage` is gone alongside its skill; nothing references it.
+- **Internal markers + constants removed.** `SECURITY_TRIAGED` marker, `security_review_done` flag in `REVIEW_CYCLE`, `STATUS_ACTION_SECURITY_TRIAGE_*` constants, and `security.has_staged_code_files()` are all gone. `STATUS_ACTION_SECURITY_COMPLETE` stays — Tier 2/3 still emit it. The retro now tracks tier coverage instead of per-commit adherence (count of `security_complete` events per story-window / close-window).
+
+The migration was hard-cutover at v3.0 by design: M-1 through M-3 added the tiers additively (new and old coexisted across sprint-048 → sprint-050), M-4 flipped the switch (sprint-051), M-5 deleted dead code (sprint-052), and this M-6 release closes the migration. The long-running concern that "security triage was skipped on some commits" is resolved at the doctrine level — the tiered model removes the failure mode rather than adding more enforcement around it.
+
+### Related fix in this release
+
+Story-002 of sprint-053 repaired a silent post-commit hook bug that was invalidating `Resolves-Event:` auto-close discipline. The detector regex `\bgit\s+commit\b` only matched bare `git commit`; it missed `git -C <path> commit ...` (the form agents adopt to avoid cd-poisoning Stop hooks) and `git merge` (also commit-producing). When the hook never fired, four mechanisms went silent at once: review-cycle gate, branch protection, commit-event recording, and review-cycle marker reset. Confirmed via transcript inspection that 14 commits + 1 merge in a recent free session landed with zero corresponding events. Fix is a shared `GIT_PREFIX = r"\bgit(?:\s+-\S+(?:\s+\S+)?)*\s+"` regex covering all global option shapes (`-C`, `-c`, `--git-dir=`, `--work-tree=`, `--paginate`), plus `(?:commit|merge)\b(?!-)` to track merges and reject `commit-tree`/`merge-tree` plumbing false positives. Same `GIT_PREFIX` reused in `commits.py` for the parallel `git add` / `git commit -a` detection that had the identical bug. 13 new unit tests + 5 multi-commit integration tests including verbatim real-world fixtures from the failed session.
+
 ## v2.37.4 — xp-accept: forbid orchestrator confirmation prompt on green automated tests
 
 A small but high-leverage SKILL.md tightening. The xp-accept skill already said `Exit code 0 = pass. Report success, proceed to mark done.` but the wording was ambiguous enough that the orchestrator inserted an extra `Mark story-NNN done?` AskUserQuestion every story anyway — 4 redundant round-trips this session alone, with no real user-judgment content because the test had passed.
