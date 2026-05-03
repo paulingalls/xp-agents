@@ -194,6 +194,9 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
       - metadata.action == "concern_classify"
       - metadata.route == args.route (when provided)
       - metadata.category == args.category (when provided)
+      - metadata.close_cycle_id == args.cycle_id (when provided —
+        events without the key never match, so pre-cycle-id events
+        don't leak into a scoped count)
       - ts >= args.since_ts (lexicographic ISO comparison; safe because
         all event ts values use the same fixed-width "YYYY-MM-DDTHH:MM:SS+00:00"
         shape per append.sh)
@@ -227,6 +230,8 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         if args.route and meta.get("route") != args.route:
             continue
         if args.category and meta.get("category") != args.category:
+            continue
+        if args.cycle_id and meta.get("close_cycle_id") != args.cycle_id:
             continue
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
@@ -363,6 +368,13 @@ def main() -> None:
         default=None,
         help="Filter by metadata.category (e.g. design_decision); "
         "omit to count all categories",
+    )
+    count_p.add_argument(
+        "--cycle-id",
+        default=None,
+        help="Filter by metadata.close_cycle_id (12-hex from preload "
+        "CLOSE_CYCLE_ID); strict close-cycle scoping that prevents "
+        "concurrent-close leakage. Events without the key never match.",
     )
     count_p.add_argument(
         "--since-ts",

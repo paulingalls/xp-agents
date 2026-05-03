@@ -102,11 +102,16 @@ to Step 7:
    ```bash
    ASK_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-classifications \
-     --route ask --since-ts <CLOSE_START_TS>)
+     --route ask --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
-   `<CLOSE_START_TS>` is emitted by the preload above (captured at
-   close-cycle start). The CLI filters on
-   `metadata.action == "concern_classify"` + `metadata.route == "ask"`
+   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload
+   above (captured at close-cycle start). `--cycle-id` is the strict
+   scoper — it prevents concurrent close-cycles in other teammate
+   worktrees from leaking concern_classify events into this count
+   (SMM is shared across worktrees). `--since-ts` is belt-and-
+   suspenders defense for the same-worktree resume case. The CLI
+   filters on `metadata.action == "concern_classify"` +
+   `metadata.route == "ask"` + `metadata.close_cycle_id == CLOSE_CYCLE_ID`
    + `ts >= CLOSE_START_TS` — structured fields, not regex. Test
    numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared
    Step 6 prompt.

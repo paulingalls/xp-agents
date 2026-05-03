@@ -259,6 +259,7 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             '"route"',
             '"category"',
             '"concern_id"',
+            '"close_cycle_id"',  # per concern 1cf66a58205d: cycle scoper
         ):
             with self.subTest(marker=marker):
                 self.assertIn(
@@ -281,6 +282,24 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             result.stdout.lower(),
             "Shared close-pipeline content must not name 'spike-008' — "
             "the plugin ships to other projects",
+        )
+
+    def test_emits_close_cycle_id_12_hex(self):
+        # Per concern 1cf66a58205d: every close preload emits
+        # CLOSE_CYCLE_ID=<12-hex>. Story+free use it as the strict
+        # scoper for the auto-merge gate's count-classifications query;
+        # sprint+plan write it into Step 5c metadata so downstream
+        # retrospective queries can slice classifications by cycle.
+        # Pin all 4 so a future preload edit can't silently drop the
+        # emission for one mode.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(
+            result.stdout,
+            re.compile(r"^CLOSE_CYCLE_ID=[0-9a-f]{12}$", re.MULTILINE),
+            "preload must emit CLOSE_CYCLE_ID=<12-hex> for the Step 5c "
+            "audit-trail close_cycle_id metadata field "
+            "(concern 1cf66a58205d)",
         )
 
 
@@ -683,6 +702,25 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
             "free-close auto-merge must capture DESIGN_DECISION_COUNT "
             "and gate on it (concern 28f5e1b919d6)",
         )
+
+    def test_story_free_auto_merge_uses_cycle_id(self):
+        # Per concern 1cf66a58205d: since-ts is time-scoped, not
+        # cycle-scoped — concurrent close-cycles in other teammate
+        # worktrees could leak concern_classify events into this
+        # cycle's count. The auto-merge gate must invoke
+        # count-classifications with --cycle-id <CLOSE_CYCLE_ID> so
+        # the close_cycle_id metadata field strict-scopes the count.
+        # --since-ts stays as belt-and-suspenders defense.
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                text = self.auto_merge_text[mode]
+                self.assertIn(
+                    "--cycle-id <CLOSE_CYCLE_ID>",
+                    text,
+                    f"{mode}-close auto-merge must invoke "
+                    f"count-classifications with --cycle-id "
+                    f"<CLOSE_CYCLE_ID> (concern 1cf66a58205d)",
+                )
 
     def test_story_close_auto_merge_lacks_design_decision_guard(self):
         # Story-close merges into the sprint branch (not primary), so
