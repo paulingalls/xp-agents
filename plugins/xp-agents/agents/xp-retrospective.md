@@ -88,6 +88,8 @@ When you emit a flag concern in the Fix list, attach `references=[root_id]` stru
 ### Keep / Fix / Try
 Each item: one observation + event ref(s) + XP value. Keep = positive practice. Fix = value violation. Try = actionable experiment specific enough to evaluate ("add Resolves-Event trailers to commits closing concerns" not "be better at linking").
 
+**Verify before proposing.** When a Try names a specific symbol, file, function, flag, or constant, confirm it still exists in current code before proposing. Run `git grep -n '<symbol>'` or `git log --all -S '<distinctive-string>'` from the repo root. If grep returns nothing, the work is already done — record under Keep ("honest cleanup discovered when verifying retro proposals: <what>") with the resolving-commit ref instead of re-proposing. Free-form Trys without specific symbols ("be better at linking") need no verification.
+
 ## Sprint Analysis (conditional)
 
 If `.retro-input.json` contains a `sizing_analysis` key, a sprint has just ended. Produce a **Sprint Analysis** section in your output, between Session Accomplishments and Keep/Fix/Try.
