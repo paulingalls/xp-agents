@@ -107,6 +107,13 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
 
 
 def get_branching_stage(smm_dir: Path) -> int:
+    """Return the branching stage. NOT side-effect free under M-7.
+
+    A stage=1 read triggers a one-time auto-promotion (file mutation
+    + decision event) via `_maybe_auto_promote`. Read-only or locked
+    SMMs fail soft and return 1 unpromoted; the next call retries.
+    Stage 0/2/3 reads remain pure.
+    """
     stage = _load_branching_strategy(smm_dir).get("stage", 0)
     return _maybe_auto_promote(smm_dir, stage)
 
