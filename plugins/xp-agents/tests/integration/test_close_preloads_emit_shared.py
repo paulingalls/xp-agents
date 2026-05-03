@@ -481,12 +481,17 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
         }
 
     def test_story_free_skills_carry_auto_merge_override(self):
+        # Pin the structural marker, not the literal keyword: the override
+        # section opens with `override for Step 6 (auto-merge gate)` in both
+        # story+free SKILL.md. Sprint+plan close test the absence of the
+        # same marker (test_sprint_plan_skills_lack_auto_merge_override),
+        # so a header rename cannot silently pass both halves.
         for mode in _AUTO_MERGE_SKILL_MDS:
             with self.subTest(mode=mode):
-                lower = self.auto_merge_text[mode].lower()
+                text = self.auto_merge_text[mode]
                 self.assertIn(
-                    "auto-merge",
-                    lower,
+                    "override for Step 6 (auto-merge gate)",
+                    text,
                     f"{mode}-close SKILL.md must add an auto-merge "
                     f"override section (commit 4)",
                 )
@@ -604,14 +609,21 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
         # Sprint+plan close into primary as terminal merges. The user
         # confirms there. Auto-merge in those modes would be a
         # behavior regression.
+        #
+        # Test the structural marker, not the literal word: the
+        # override section in story/free-close opens with the exact
+        # header `override for Step 6 (auto-merge gate)`. Sprint+plan
+        # close are free to mention "auto-merge" in prose explaining
+        # the absence (per concern a4e03dbeefcb) — what they must not
+        # carry is the override section itself.
         for mode in _NO_AUTO_MERGE_SKILL_MDS:
             with self.subTest(mode=mode):
-                lower = self.no_auto_merge_text[mode].lower()
+                text = self.no_auto_merge_text[mode]
                 self.assertNotIn(
-                    "auto-merge",
-                    lower,
+                    "override for Step 6 (auto-merge gate)",
+                    text,
                     f"{mode}-close SKILL.md must NOT carry an auto-merge "
-                    f"override — terminal merges keep explicit confirm",
+                    f"override section — terminal merges keep explicit confirm",
                 )
 
 

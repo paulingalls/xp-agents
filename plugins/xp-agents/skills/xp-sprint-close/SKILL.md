@@ -91,6 +91,15 @@ the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
 steps in order after Step 4, then continue with Step 7 below.
 
+**No auto-merge override here.** Sprint-close uses the shared Step 6
+`AskUserQuestion` confirmation as written. Only `/xp-story-close` and
+`/xp-free-close` consume the since-ts gate to skip confirmation when
+all reviewer findings are clean. Sprint merges aggregate every
+story's diff cumulatively; the human checkpoint at sprint boundary is
+load-bearing — confirmation cost is amortized across the whole sprint
+and the customer review of `/xp-sprint-review` is the right place to
+catch any lingering surprise.
+
 ## Step 7: Merge
 
 ```bash
