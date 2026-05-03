@@ -92,6 +92,8 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
    - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 5. Resolve any user questions before marking.
 
+**Manual flow has no debug-and-fix branch.** If the user wants to fix issues mid-acceptance, pick `deferred` and revisit in a future iteration. The story stays in `reviewing` only briefly between Step 1.0's promote and the `done`/`deferred` mark; if neither is chosen, manually revert to `in-progress` via `update-story story-NNN in-progress` so subsequent Edits re-arm the `.accept` marker.
+
 ### Cascading a deferral
 
 When a deferred story has in-motion (in-progress or reviewing) downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
