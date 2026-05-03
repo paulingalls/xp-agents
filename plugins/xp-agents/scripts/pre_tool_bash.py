@@ -13,10 +13,10 @@ import _common
 import branching
 import commits
 import coordination
+import git_commits
 import identity
 import markers
 import resolves_probe
-import security
 import security_patterns
 import security_scanner
 import story_probe
@@ -134,7 +134,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Above threshold (3+ code files): simplify → quality review.
     # Below threshold: no per-commit security gate (Tier 2/3 cover at
     # /xp-accept and close).
-    if smm_dir is not None and security.is_git_commit(command):
+    if smm_dir is not None and git_commits.is_git_commit(command):
         # Tier 1 fires before the review-cycle gate so deterministic patterns
         # block even when /simplify and /xp-quality-review have been satisfied.
         diff = commits.get_staged_diff(cwd)

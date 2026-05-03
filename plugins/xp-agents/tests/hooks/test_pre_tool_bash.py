@@ -13,8 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import code_files
+import git_commits
 import pre_tool_bash
-import security
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
 import security_scanner  # noqa: F401 - shim import: fail loudly if module renamed
 from conftest import (
@@ -74,25 +75,25 @@ class TestPreToolBashCommitGate(_HookTestCase):
 
     def test_is_git_commit_positive(self):
         """is_git_commit detects various git commit commands."""
-        self.assertTrue(security.is_git_commit("git commit"))
-        self.assertTrue(security.is_git_commit("git commit -m 'msg'"))
-        self.assertTrue(security.is_git_commit("git commit --amend"))
+        self.assertTrue(git_commits.is_git_commit("git commit"))
+        self.assertTrue(git_commits.is_git_commit("git commit -m 'msg'"))
+        self.assertTrue(git_commits.is_git_commit("git commit --amend"))
 
     def test_is_git_commit_negative(self):
         """is_git_commit rejects non-commit commands."""
-        self.assertFalse(security.is_git_commit("git push origin main"))
-        self.assertFalse(security.is_git_commit("git pull"))
-        self.assertFalse(security.is_git_commit("echo commit"))
+        self.assertFalse(git_commits.is_git_commit("git push origin main"))
+        self.assertFalse(git_commits.is_git_commit("git pull"))
+        self.assertFalse(git_commits.is_git_commit("echo commit"))
 
     def test_is_git_commit_ignores_quoted_strings(self):
         """is_git_commit must not match 'git commit' inside quoted args."""
         self.assertFalse(
-            security.is_git_commit('append.sh --content "before git commit"')
+            git_commits.is_git_commit('append.sh --content "before git commit"')
         )
-        self.assertFalse(security.is_git_commit("echo 'git commit is great'"))
-        self.assertFalse(security.is_git_commit('echo "not a git commit"'))
+        self.assertFalse(git_commits.is_git_commit("echo 'git commit is great'"))
+        self.assertFalse(git_commits.is_git_commit('echo "not a git commit"'))
         # But real git commit with quoted message still matches
-        self.assertTrue(security.is_git_commit('git commit -m "fix bug"'))
+        self.assertTrue(git_commits.is_git_commit('git commit -m "fix bug"'))
 
     def test_is_git_commit_ignores_heredocs(self):
         """is_git_commit must not match 'git commit' in heredoc content."""
@@ -101,10 +102,10 @@ class TestPreToolBashCommitGate(_HookTestCase):
             "- Run swiftlint before git commit\n"
             "SMMEOF"
         )
-        self.assertFalse(security.is_git_commit(heredoc_cmd))
+        self.assertFalse(git_commits.is_git_commit(heredoc_cmd))
         # Unquoted delimiter too
         heredoc_unquoted = "cat <<EOF | python3 smm_cli.py\nbefore git commit\nEOF"
-        self.assertFalse(security.is_git_commit(heredoc_unquoted))
+        self.assertFalse(git_commits.is_git_commit(heredoc_unquoted))
 
     def test_commit_no_smm_degrades(self):
         """git commit with no SMM dir passes through (no crash)."""
@@ -136,65 +137,65 @@ class TestIsCodeFile(_HookTestCase):
     def test_is_code_file_classification(self):
         """is_code_file correctly classifies code files."""
         # Python
-        self.assertTrue(security.is_code_file("main.py"))
-        self.assertTrue(security.is_code_file("src/utils.pyi"))
+        self.assertTrue(code_files.is_code_file("main.py"))
+        self.assertTrue(code_files.is_code_file("src/utils.pyi"))
         # JavaScript / TypeScript
-        self.assertTrue(security.is_code_file("src/app.ts"))
-        self.assertTrue(security.is_code_file("src/app.js"))
-        self.assertTrue(security.is_code_file("src/App.tsx"))
-        self.assertTrue(security.is_code_file("src/App.jsx"))
+        self.assertTrue(code_files.is_code_file("src/app.ts"))
+        self.assertTrue(code_files.is_code_file("src/app.js"))
+        self.assertTrue(code_files.is_code_file("src/App.tsx"))
+        self.assertTrue(code_files.is_code_file("src/App.jsx"))
         # Go
-        self.assertTrue(security.is_code_file("cmd/server.go"))
+        self.assertTrue(code_files.is_code_file("cmd/server.go"))
         # Rust
-        self.assertTrue(security.is_code_file("src/main.rs"))
+        self.assertTrue(code_files.is_code_file("src/main.rs"))
         # Java / Kotlin / Scala
-        self.assertTrue(security.is_code_file("src/Main.java"))
-        self.assertTrue(security.is_code_file("src/Main.kt"))
-        self.assertTrue(security.is_code_file("src/Main.scala"))
+        self.assertTrue(code_files.is_code_file("src/Main.java"))
+        self.assertTrue(code_files.is_code_file("src/Main.kt"))
+        self.assertTrue(code_files.is_code_file("src/Main.scala"))
         # Ruby
-        self.assertTrue(security.is_code_file("lib/app.rb"))
+        self.assertTrue(code_files.is_code_file("lib/app.rb"))
         # C / C++
-        self.assertTrue(security.is_code_file("src/main.c"))
-        self.assertTrue(security.is_code_file("src/main.cpp"))
-        self.assertTrue(security.is_code_file("include/header.h"))
+        self.assertTrue(code_files.is_code_file("src/main.c"))
+        self.assertTrue(code_files.is_code_file("src/main.cpp"))
+        self.assertTrue(code_files.is_code_file("include/header.h"))
         # C#
-        self.assertTrue(security.is_code_file("src/Program.cs"))
+        self.assertTrue(code_files.is_code_file("src/Program.cs"))
         # Swift
-        self.assertTrue(security.is_code_file("Sources/App.swift"))
+        self.assertTrue(code_files.is_code_file("Sources/App.swift"))
         # PHP
-        self.assertTrue(security.is_code_file("src/index.php"))
+        self.assertTrue(code_files.is_code_file("src/index.php"))
         # Dart
-        self.assertTrue(security.is_code_file("lib/main.dart"))
+        self.assertTrue(code_files.is_code_file("lib/main.dart"))
         # Elixir
-        self.assertTrue(security.is_code_file("lib/app.ex"))
-        self.assertTrue(security.is_code_file("lib/app.exs"))
+        self.assertTrue(code_files.is_code_file("lib/app.ex"))
+        self.assertTrue(code_files.is_code_file("lib/app.exs"))
         # Shell
-        self.assertTrue(security.is_code_file("scripts/build.sh"))
+        self.assertTrue(code_files.is_code_file("scripts/build.sh"))
 
     def test_is_code_file_excludes_non_code(self):
         """is_code_file excludes docs, config, images, lock files."""
         # Docs
-        self.assertFalse(security.is_code_file("README.md"))
-        self.assertFalse(security.is_code_file("docs/guide.txt"))
-        self.assertFalse(security.is_code_file("docs/api.rst"))
+        self.assertFalse(code_files.is_code_file("README.md"))
+        self.assertFalse(code_files.is_code_file("docs/guide.txt"))
+        self.assertFalse(code_files.is_code_file("docs/api.rst"))
         # Config
-        self.assertFalse(security.is_code_file("package.json"))
-        self.assertFalse(security.is_code_file("config.yaml"))
-        self.assertFalse(security.is_code_file("pyproject.toml"))
-        self.assertFalse(security.is_code_file(".gitignore"))
-        self.assertFalse(security.is_code_file(".env"))
-        self.assertFalse(security.is_code_file(".editorconfig"))
-        self.assertFalse(security.is_code_file(".prettierignore"))
-        self.assertFalse(security.is_code_file(".eslintignore"))
+        self.assertFalse(code_files.is_code_file("package.json"))
+        self.assertFalse(code_files.is_code_file("config.yaml"))
+        self.assertFalse(code_files.is_code_file("pyproject.toml"))
+        self.assertFalse(code_files.is_code_file(".gitignore"))
+        self.assertFalse(code_files.is_code_file(".env"))
+        self.assertFalse(code_files.is_code_file(".editorconfig"))
+        self.assertFalse(code_files.is_code_file(".prettierignore"))
+        self.assertFalse(code_files.is_code_file(".eslintignore"))
         # Images
-        self.assertFalse(security.is_code_file("logo.png"))
-        self.assertFalse(security.is_code_file("icon.svg"))
+        self.assertFalse(code_files.is_code_file("logo.png"))
+        self.assertFalse(code_files.is_code_file("icon.svg"))
         # Lock files
-        self.assertFalse(security.is_code_file("package-lock.json"))
+        self.assertFalse(code_files.is_code_file("package-lock.json"))
         # Special names
-        self.assertFalse(security.is_code_file("LICENSE"))
-        self.assertFalse(security.is_code_file("Makefile"))
-        self.assertFalse(security.is_code_file("Dockerfile"))
+        self.assertFalse(code_files.is_code_file("LICENSE"))
+        self.assertFalse(code_files.is_code_file("Makefile"))
+        self.assertFalse(code_files.is_code_file("Dockerfile"))
 
 
 class TestResolvesTrailerReminder(_HookTestCase):

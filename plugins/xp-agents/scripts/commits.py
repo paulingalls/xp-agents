@@ -14,8 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import code_files
+import git_commits
 import resolution
-import security
 import worktree
 from smm_schema import EVENT_ID_RE
 
@@ -252,7 +253,7 @@ def get_code_files_for_review(
     """Get deduplicated code files changed since last review + staged.
 
     Combines staged filenames with git diff --name-only {last_review_commit}..HEAD
-    (if a prior commit exists). Filters through security.is_code_file().
+    (if a prior commit exists). Filters through code_files.is_code_file().
     Returns empty list on git failure.
 
     When ``staged_diff`` is provided (the unified-diff text from
@@ -279,8 +280,8 @@ def get_code_files_for_review(
     # If the command includes 'git add' or 'git commit -a', also check
     # unstaged tracked changes — those will be staged by the command itself.
     # GIT_PREFIX tolerates `git -C <path>` for both subcommands.
-    if re.search(security.GIT_PREFIX + r"add\b", command) or re.search(
-        security.GIT_PREFIX + r"commit\s+-a", command
+    if re.search(git_commits.GIT_PREFIX + r"add\b", command) or re.search(
+        git_commits.GIT_PREFIX + r"commit\s+-a", command
     ):
         extra_commands.append(["git", "diff", "--name-only"])
 
@@ -290,7 +291,7 @@ def get_code_files_for_review(
             return []
         all_files.update(f.strip() for f in out.splitlines() if f.strip())
 
-    return [f for f in sorted(all_files) if security.is_code_file(f)]
+    return [f for f in sorted(all_files) if code_files.is_code_file(f)]
 
 
 def get_uncommitted_code_files(cwd: str) -> list[str]:
@@ -315,7 +316,9 @@ def get_uncommitted_code_files(cwd: str) -> list[str]:
     from pre_tool_write import is_test_file
 
     return [
-        f for f in sorted(all_files) if security.is_code_file(f) and not is_test_file(f)
+        f
+        for f in sorted(all_files)
+        if code_files.is_code_file(f) and not is_test_file(f)
     ]
 
 

@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Code-file classification — distinguishes source code from docs/config/
+images for the per-commit review cycle and commit tagging.
+
+Used by pre_tool_write for the code-vs-doc gate, by commits/work_signals/
+honesty_signals for filtering, and by bash_post_tool for code-vs-doc
+tagging on commit events.
+"""
+
+from pathlib import Path
+
+# Non-code suffixes used by is_code_file() for consistent classification
+_NON_CODE_SUFFIXES = frozenset(
+    {
+        ".md",
+        ".txt",
+        ".rst",
+        ".adoc",
+        ".tex",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".webp",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".csv",
+        ".plist",
+        ".pbxproj",
+        ".xcworkspacedata",
+        ".xcscheme",
+        ".lock",
+        ".license",
+    }
+)
+
+# Dotfiles and special names — matched by full filename (case-insensitive).
+# Dotfiles like .gitignore have no suffix in Python (Path(".gitignore").suffix == "").
+_NON_CODE_NAMES = frozenset(
+    {
+        "license",
+        "changelog",
+        "readme",
+        "makefile",
+        "dockerfile",
+        ".gitignore",
+        ".gitattributes",
+        ".env",
+        ".env.example",
+        ".dockerignore",
+        ".editorconfig",
+        ".prettierignore",
+        ".eslintignore",
+    }
+)
+
+
+def is_code_file(path: str) -> bool:
+    """Return True if the file is likely code (not docs/config/images)."""
+    suffix = Path(path).suffix.lower()
+    if suffix in _NON_CODE_SUFFIXES:
+        return False
+    return Path(path).name.lower() not in _NON_CODE_NAMES

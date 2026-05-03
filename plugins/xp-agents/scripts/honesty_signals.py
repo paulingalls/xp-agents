@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import security
+import code_files
 from commits import REVIEW_CYCLE_THRESHOLD
 from event_schema import (
     STATUS_ACTION_FILE_WRITE,
@@ -67,7 +67,7 @@ def build_honesty_signals(events: list[dict]) -> dict:
                 # Path comes from metadata.files[0] — content is opaque.
                 files = (e.get("metadata") or {}).get("files") or []
                 path = files[0] if files else None
-                if path and security.is_code_file(path):
+                if path and code_files.is_code_file(path):
                     file_write_count += 1
                     if not is_test_file(path):
                         target = (

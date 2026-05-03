@@ -107,7 +107,7 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
             self.assertNotIn("quality review", result.lower())
 
     def test_config_only_commit_does_not_warn(self):
-        # JSON/YAML config files are also non-code per security.is_code_file.
+        # JSON/YAML config files are also non-code per code_files.is_code_file.
         self._seed_commit_event()
         result = self._run_commit(committed_files=["package.json", "config.yaml"])
         if result:

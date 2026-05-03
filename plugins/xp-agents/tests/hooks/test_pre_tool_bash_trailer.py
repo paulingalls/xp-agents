@@ -62,7 +62,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         return event["id"]
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_blocks_when_overlap_concern_and_no_trailer(self, *_mocks):
         """Staged files overlap an open concern AND the commit message lacks
@@ -79,7 +79,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertIn("Resolves-Event", str(ctx.exception))
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_explicit_none_trailer_bypasses_block(self, *_mocks):
         """`Resolves-Event: none` is the universal escape — the agent has
@@ -93,7 +93,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertIsNone(result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_mismatched_trailer_id_bypasses_block(self, *_mocks):
         """Any trailer presence (even with IDs that don't match the
@@ -112,7 +112,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertIsNone(result)
 
     @patch("commits.get_staged_files", return_value=["scripts/other.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_no_concern_nudge_when_no_overlap(self, *_mocks):
         """No concern-specific nudge, but trailer reminder still appears."""
@@ -126,7 +126,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertIn("Resolves-Event:", result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_no_nudge_when_trailer_present(self, *_mocks):
         cid = self._write_concern("auth bypass risk", ["scripts/auth.py"])
@@ -147,7 +147,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertIsNone(result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_probe_status_event_emitted_before_block(self, *_mocks):
         """The probe status event is still written even when the commit
@@ -163,7 +163,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(self._probes()[0]["metadata"]["probe_candidates"], [cid])
 
     @patch("commits.get_staged_files", return_value=["scripts/other.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_no_probe_status_event_when_no_overlap(self, *_mocks):
         """No probe status event when staged files don't overlap concerns."""
@@ -202,7 +202,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
     """Pre-commit story-prefix nudge wired alongside the resolves-trailer probe."""
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
     def test_multi_story_no_prefix_dominant_overlap_emits_nudge(
@@ -219,7 +219,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
         self.assertIn("story-001", result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
     def test_multi_story_with_bracket_prefix_silent(self, mock_load, *_mocks):
@@ -232,7 +232,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
             self.assertNotIn(_STORY_NUDGE_PREFIX, result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
     def test_single_story_silent(self, mock_load, *_mocks):
@@ -247,7 +247,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
             self.assertNotIn(_STORY_NUDGE_PREFIX, result)
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
     def test_combined_with_resolves_block(self, mock_load, *_mocks):
@@ -275,7 +275,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
         )
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
     def test_combined_soft_nudge_no_block(self, mock_load, *_mocks):
@@ -297,7 +297,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
         )
 
     @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
     def test_worktree_teammate_silent(self, mock_load, *_mocks):
