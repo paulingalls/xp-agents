@@ -355,7 +355,8 @@ def main() -> None:
 
     count_p = sub.add_parser(
         "count-classifications",
-        help="Count concern_classify events filtered by route + since-ts",
+        help="Count concern_classify events filtered by "
+        "route + category + cycle-id + since-ts",
     )
     count_p.add_argument(
         "--route",

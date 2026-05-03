@@ -115,7 +115,7 @@ now_iso() {
 # scoper for the Step 6 auto-merge gate's count-classifications query.
 # Cycle-id (not just since-ts) prevents concurrent close-cycles in
 # other teammate worktrees from leaking concern_classify events into
-# this cycle's count (per concern 1cf66a58205d).
+# this cycle's count.
 #
 # Usage: generate_id
 generate_id() {
