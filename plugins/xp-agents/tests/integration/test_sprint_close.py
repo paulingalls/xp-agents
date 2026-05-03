@@ -17,7 +17,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _branching_fixtures import seed_plan, write_system_context
-from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
+from _close_fixtures import (
+    _ClosePreloadCommonTests,
+    _CloseSkillTextCommonTests,
+    _Step4_5SecurityIncludeTests,
+)
 from conftest import _extract_preload_var, _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -116,6 +120,14 @@ class TestSprintReviewChainsToClose(unittest.TestCase):
             close_idx,
             "/xp-sprint-close instruction should follow the main-agent block",
         )
+
+
+class TestSprintCloseStep4_5(_Step4_5SecurityIncludeTests, _IntegrationTestCase):
+    """Step 4.5 (Security Review) wired into xp-sprint-close."""
+
+    _SKILL_MD = _SKILL_MD
+    _MODE = "sprint"
+    _SKILL_NAME = "xp-sprint-close"
 
 
 if __name__ == "__main__":

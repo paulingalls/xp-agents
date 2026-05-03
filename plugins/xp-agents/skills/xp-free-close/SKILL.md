@@ -84,10 +84,6 @@ substitute `<close-mode>` → `free` and `<close-skill-name>` → `xp-free-close
 The remaining placeholders (`<CLOSE_CYCLE_ID>`, `<SMM_DIR>`, etc.) come from
 the preload values per the template's own substitution note.
 
-Surface the security review prose to the user before falling through to
-Steps 5–6 below — they need to see what the abort-default count is
-reacting to.
-
 ## Steps 5–6: Apply shared close-pipeline reference
 
 The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
