@@ -34,7 +34,25 @@ boundary. No separate cross-teammate dispatch at /xp-accept time.
 
 ## Step 1: Review Each In-Progress Story
 
-Read the sprint file at `SPRINT_FILE`. For each in-progress story, check its `acceptance_execution` field (the preload's `### Acceptance Types` section shows the type per story for quick reference):
+Read the sprint file at `SPRINT_FILE`. For each in-progress story, check its `acceptance_execution` field (the preload's `### Acceptance Types` section shows the type per story for quick reference).
+
+### Step 1.0: Promote to `reviewing`
+
+Before running the story's acceptance command, promote it from `in-progress` to `reviewing`:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  update-story story-NNN reviewing
+```
+
+**Why this matters.** The 5-state lifecycle (`ready → scheduled → in-progress → reviewing → done/deferred`) carves the story out of `has_in_progress_stories` while it's under acceptance. `pre_tool_write` then does NOT re-arm the `.accept` marker on Edits during fix-cycles inside `/xp-story-close`, so the subsequent `update-story story-NNN done` is not blocked. This is the fix for the marker re-arm bug; the per-story promote is the trigger.
+
+If acceptance later fails and the user picks **Debug and re-run** (Step 1's automated-fail branch), revert the promotion before fixing — the story is no longer under review, it's actively-worked again:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  update-story story-NNN in-progress
+```
 
 ### Automated acceptance (type != "manual")
 
@@ -43,13 +61,17 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
 1. Present the story title and acceptance criteria.
 2. If `acceptance_execution.setup` is present, run it first via Bash.
 3. Run `acceptance_execution.command` via Bash. If the story's
-   `story-id` appears in TEAMMATE_WORKTREES, set the Bash `cwd` to
-   that worktree's `abs-path`; otherwise run from the main repo.
-   Universal pattern — works regardless of test runner (pytest,
-   jest, go test, cargo test).
+   `story-id` appears in TEAMMATE_WORKTREES, wrap the command in a
+   subshell so the parent shell's cwd does NOT persist into
+   subsequent Bash calls: `(cd <abs-path> && <command>)`. Otherwise
+   run the bare command from the main repo. The subshell isolates
+   the cwd change to that one invocation — without it, a later Bash
+   call inherits the worktree cwd and can mislead about branch
+   state. Universal pattern — works regardless of test runner
+   (pytest, jest, go test, cargo test).
 4. **Exit code 0 = pass. Auto-proceed to Step 2 (update sprint.json) without calling `AskUserQuestion`.** The green exit code IS the confirmation. Do **not** insert an extra "mark story-NNN done?" prompt for automated acceptance — `/xp-story-close` owns merge confirmation (per Step 2b), so the user still gets a gate before the merge lands. This rule applies only to the automated-acceptance branch; manual acceptance below still prompts for `done | deferred` because there's no objective signal.
 5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
-   - **Debug and re-run** — investigate the failure, fix the cause, then re-run the command
+   - **Debug and re-run** — revert the story to `in-progress` (per Step 1.0's revert command), investigate the failure, fix the cause, then re-run the command. The revert lets `pre_tool_write` re-arm the `.accept` marker on subsequent fix-cycle Edits.
    - **Override with concern** — mark as passing despite failure. Requires a reason string. Records a `concern` event:
      ```bash
      ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
@@ -74,9 +96,11 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
    - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 5. Resolve any user questions before marking.
 
+**Manual flow has no debug-and-fix branch.** If the user wants to fix issues mid-acceptance, pick `deferred` and revisit in a future iteration. The story stays in `reviewing` only briefly between Step 1.0's promote and the `done`/`deferred` mark; if neither is chosen, manually revert to `in-progress` via `update-story story-NNN in-progress` so subsequent Edits re-arm the `.accept` marker.
+
 ### Cascading a deferral
 
-When a deferred story has in-progress downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
+When a deferred story has in-motion (in-progress or reviewing) downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
 
 ```bash
 DEFERRED="story-NNN"  # the just-deferred story id

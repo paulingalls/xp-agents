@@ -3,13 +3,17 @@
 lifecycle events, and inject post-completion context after review skills
 or the xp-housekeeper agent run.
 
-Detects /simplify, /xp-quality-review, /security-review, /xp-review-plan
-skill completions via tool_input.skill, and the xp-housekeeper inline agent
-via tool_input.subagent_type. For each, appends a canonical status event
-with metadata.action so consumers can detect skill completions without
-regex-matching LLM-authored content. Per-commit review-cycle flags are set
-only for /simplify and /xp-quality-review (M-4: security review moved to
-Tier 2 at /xp-accept and Tier 3 at close).
+Detects /simplify, /xp-quality-review, /security-review, /xp-review-plan,
+/xp-assign skill completions via tool_input.skill, and the xp-housekeeper
+inline agent via tool_input.subagent_type. For each, appends a canonical
+status event with metadata.action so consumers can detect skill completions
+without regex-matching LLM-authored content. Per-commit review-cycle flags
+are set only for /simplify and /xp-quality-review (M-4: security review
+moved to Tier 2 at /xp-accept and Tier 3 at close).
+
+The TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
+execution mode (solo vs teammates) is decided by xp-assign — the nudge can
+then describe mode-appropriate task shapes (per-step vs coordination).
 """
 
 import sys
@@ -29,6 +33,7 @@ _TARGET_SIMPLIFY = "simplify"
 _TARGET_QUALITY_REVIEW = "quality-review"
 _TARGET_SECURITY_REVIEW = "security-review"
 _TARGET_PLAN_REVIEW = "review-plan"
+_TARGET_ASSIGN = "assign"
 _TARGET_HOUSEKEEPING = "housekeeping"
 
 
@@ -42,6 +47,8 @@ def _detect_target(target_name: str) -> str | None:
         return _TARGET_SECURITY_REVIEW
     if "review-plan" in target_name:
         return _TARGET_PLAN_REVIEW
+    if "assign" in target_name:
+        return _TARGET_ASSIGN
     if "housekeeping" in target_name or "housekeeper" in target_name:
         return _TARGET_HOUSEKEEPING
     return None
@@ -70,6 +77,10 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
         event_schema.STATUS_ACTION_PLAN_REVIEWED,
         "Plan reviewed",
     ),
+    _TARGET_ASSIGN: (
+        event_schema.STATUS_ACTION_ASSIGN_COMPLETE,
+        "Assign complete",
+    ),
     _TARGET_HOUSEKEEPING: (
         event_schema.STATUS_ACTION_HOUSEKEEPING_COMPLETE,
         "Housekeeping complete",
@@ -93,9 +104,11 @@ _NEXT_STEP: dict[str, str] = {
 
 
 _TASK_CREATION_NUDGE = (
-    "Use TaskCreate to break your plan into tasks before implementing. "
-    "Each task should be one red-green-commit cycle. "
-    "Mark tasks in_progress when you start them and completed when done."
+    "Use TaskCreate to track the upcoming work. Solo mode: one task per "
+    "planned step (each = a red-green-commit cycle). Teammate mode: "
+    "coordination tasks for waiting on each teammate, running /xp-accept "
+    "per accepted story, and /xp-story-close per merged branch. Mark tasks "
+    "in_progress when you start them and completed when done."
 )
 
 
@@ -168,7 +181,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Return appropriate context.
     if target == _TARGET_HOUSEKEEPING:
         return plugin_loader.load_process_guide() or None
-    if target == _TARGET_PLAN_REVIEW:
+    if target == _TARGET_ASSIGN:
         return _TASK_CREATION_NUDGE
     if target == _TARGET_SECURITY_REVIEW:
         return _SECURITY_CONTINUATION_NUDGE

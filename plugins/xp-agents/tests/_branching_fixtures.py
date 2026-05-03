@@ -14,9 +14,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import execution_plan_store
+from _system_context_fixtures import valid_doc
 
 GIT_ENV = {
     **os.environ,
@@ -127,9 +129,22 @@ def append_commit(cwd: str, filename: str = "feature.txt") -> None:
 
 
 def write_system_context(smm_dir: Path, stage: int) -> None:
-    """Write a minimal system_context.json with the given branching stage."""
-    ctx = {"project_name": "test", "branching_strategy": {"stage": stage}}
-    (smm_dir / "system_context.json").write_text(json.dumps(ctx))
+    """Write a fully-valid system_context.json with the given branching stage.
+
+    Uses `valid_doc` so the doc passes schema validation on save. The
+    earlier minimal shape (project_name + branching_strategy only) failed
+    save validation, which `_maybe_auto_promote`'s broad except silently
+    swallowed — masking the real auto-promote behavior in every test.
+
+    Note for stage=1 callers: the auto-promote will fire on the first
+    `get_branching_stage` read, mutating this fixture to stage=2 and
+    emitting one `decision` event with topic `branching-stage-auto-promote`.
+    Tests that assert on event-log contents must account for this; use
+    `stage=2` directly when the test is not specifically exercising the
+    auto-promote path.
+    """
+    doc = valid_doc(branching_strategy={"stage": stage})
+    (smm_dir / "system_context.json").write_text(json.dumps(doc))
 
 
 def seed_plan(smm_dir: Path, branch: str | None = None) -> None:

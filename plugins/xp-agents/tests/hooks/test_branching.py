@@ -16,7 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
 import execution_plan_store
+from _system_context_fixtures import valid_doc
+from conftest import _SMMTestCase
 
 
 class TestBranchName(unittest.TestCase):
@@ -231,6 +233,96 @@ class TestGetMergeTarget(unittest.TestCase):
             (smm / "system_context.json").write_text(json.dumps(ctx))
             result = branching.get_merge_target(smm, cwd=td)
             self.assertEqual(result, "develop")
+
+
+class TestAutoPromote(_SMMTestCase):
+    """Stage 1 -> Stage 2 auto-promotion (M-7 plugin floor)."""
+
+    def _write_ctx(self, stage: int) -> None:
+        doc = valid_doc(branching_strategy={"stage": stage})
+        (self.smm_dir / "system_context.json").write_text(json.dumps(doc))
+
+    def _stage_in_file(self) -> int:
+        ctx = json.loads((self.smm_dir / "system_context.json").read_text())
+        return ctx["branching_strategy"]["stage"]
+
+    def _promote_events(self) -> list[dict]:
+        return [
+            e
+            for e in self._read_events()
+            if e.get("topic") == "branching-stage-auto-promote"
+        ]
+
+    def test_promotes_stage_1_to_2_in_file(self):
+        self._write_ctx(1)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(self._stage_in_file(), 2)
+
+    def test_emits_one_decision_event(self):
+        self._write_ctx(1)
+        branching.get_branching_stage(self.smm_dir)
+        events = self._promote_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "decision")
+        self.assertEqual(events[0]["agent_id"], "branching")
+
+    def test_idempotent_no_duplicate_event(self):
+        self._write_ctx(1)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(self._stage_in_file(), 2)
+        self.assertEqual(len(self._promote_events()), 1)
+
+    def test_stage_0_unchanged(self):
+        self._write_ctx(0)
+        before = (self.smm_dir / "system_context.json").read_text()
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 0)
+        self.assertEqual((self.smm_dir / "system_context.json").read_text(), before)
+        self.assertEqual(self._promote_events(), [])
+
+    def test_stage_2_unchanged(self):
+        self._write_ctx(2)
+        before = (self.smm_dir / "system_context.json").read_text()
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual((self.smm_dir / "system_context.json").read_text(), before)
+        self.assertEqual(self._promote_events(), [])
+
+    def test_missing_system_context_returns_zero(self):
+        self.assertFalse((self.smm_dir / "system_context.json").exists())
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 0)
+        self.assertEqual(self._promote_events(), [])
+
+    def test_create_sprint_branch_promotes_stage_1_e2e(self):
+        """E2E AC for story-001: a Stage 1 fixture, when create_sprint_branch
+        runs (which reads stage internally via get_branching_stage), the
+        sprint branch IS created (the stage>=2 floor gate passes because
+        auto-promote ran transparently) AND the persisted file now reads
+        stage=2 for subsequent reads.
+
+        Mocks the git subprocess + identity + push surfaces so the test
+        exercises the composition (_create_or_resume_branch -> stage gate
+        -> get_branching_stage -> auto-promote) without a real git repo.
+        """
+        self._write_ctx(1)
+
+        fake_proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("branching.identity.user_namespace", return_value="paul"),
+            patch("branching.branch_exists", return_value=False),
+            patch("branching.is_worktree_clean", return_value=True),
+            patch("branching._git", return_value=fake_proc),
+            patch("branching.git_remote.push_branch", return_value=True),
+        ):
+            result = branching.create_sprint_branch(
+                cwd=str(self.smm_dir),
+                sprint_id="sprint-001",
+                slug="e2e",
+                smm_dir=self.smm_dir,
+            )
+        self.assertEqual(result, "paul/sprint-001-e2e")
+        self.assertEqual(self._stage_in_file(), 2)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(len(self._promote_events()), 1)
 
 
 if __name__ == "__main__":

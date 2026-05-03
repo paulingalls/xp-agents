@@ -275,6 +275,125 @@ class TestNamePassThrough(unittest.TestCase):
             Path(prompt_path).unlink(missing_ok=True)
 
 
+class TestWorktreePreamble(unittest.TestCase):
+    """_worktree_preamble injects worktree-context guidance ahead of the
+    teammate prompt body, so the teammate sees the path-rerooting rule
+    before any potentially misleading absolute paths the lead embedded.
+    """
+
+    def test_preamble_includes_worktree_path(self):
+        """The actual worktree path appears verbatim in the preamble."""
+        import spawn_teammate
+
+        text = spawn_teammate._worktree_preamble("/some/wt/path")
+        self.assertIn("/some/wt/path", text)
+
+    def test_preamble_instructs_path_rerooting(self):
+        """Preamble names the rule (re-root absolute paths to the worktree)."""
+        import spawn_teammate
+
+        text = spawn_teammate._worktree_preamble("/some/wt/path")
+        self.assertIn("worktree", text.lower())
+        self.assertIn("RELATIVE", text)
+        self.assertIn("Re-root", text)
+
+    def test_preamble_distinguishes_smm_from_worktree(self):
+        """Preamble exempts the SMM dir from the re-rooting rule."""
+        import spawn_teammate
+
+        text = spawn_teammate._worktree_preamble("/some/wt/path")
+        self.assertIn("SMM", text)
+        self.assertIn("OUTSIDE", text)
+
+    def test_preamble_derives_main_repo_from_worktree_layout(self):
+        """main_repo path is derived from wt_path's <repo>/.claude/worktrees/<name>
+        layout — not hardcoded to any platform-specific prefix."""
+        import spawn_teammate
+
+        text = spawn_teammate._worktree_preamble(
+            "/some/repo/.claude/worktrees/worktree-story-005"
+        )
+        # main_repo is wt_path.parent.parent.parent
+        self.assertIn("/some/repo", text)
+        # No macOS-specific assumption baked in.
+        self.assertNotIn("/Users/", text)
+
+    def test_preamble_lands_first_in_stdin(self):
+        """main() prepends the preamble before the prompt body in stdin."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        captured = {}
+        wt = "/tmp/repo/.claude/worktrees/worktree-story-005"
+
+        def capture_tee(cmd, *, cwd=None, env=None, stdin=None, name=None, **kw):
+            captured["stdin_text"] = stdin.read()
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("PROMPT_BODY_MARKER")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value=wt),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_tee),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-005",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        text = captured["stdin_text"]
+        # Preamble at position 0, prompt body strictly after.
+        expected_preamble = spawn_teammate._worktree_preamble(wt)
+        self.assertTrue(
+            text.startswith(expected_preamble),
+            "stdin must begin with the preamble verbatim",
+        )
+        self.assertIn("PROMPT_BODY_MARKER", text)
+        self.assertLess(text.index(wt), text.index("PROMPT_BODY_MARKER"))
+
+    def test_unlink_preserved_after_spawn(self):
+        """The original prompt file is still removed after main() runs."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("body")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee"),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-005",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+            self.assertFalse(Path(prompt_path).exists())
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+
 class TestRunWithTee(unittest.TestCase):
     """run_with_tee mirrors claude -p stdout to <log_dir>/<name>.log
     so a hung teammate can be inspected without aborting the run.

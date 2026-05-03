@@ -19,6 +19,7 @@ import pre_tool_write
 from conftest import (
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
+    SPRINT_REVIEWING_ONLY,
     _HookTestCase,
     _make_write_input,
 )
@@ -165,6 +166,22 @@ class TestAcceptMarker(_HookTestCase):
     def test_no_marker_when_no_in_progress(self):
         """Write + all ready stories -> no marker."""
         (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_no_marker_when_only_reviewing_stories(self):
+        # Regression guard for the .accept marker re-arm carve-out: a
+        # story in 'reviewing' status is mid-acceptance; xp-accept (and
+        # its child xp-story-close) legitimately Edit during fix-cycles.
+        # Pre_tool_write must NOT re-arm the .accept marker on those
+        # Edits — otherwise the subsequent update-story done call is
+        # blocked. The fix relies on has_in_progress_stories exact-
+        # matching "in-progress" only; this test pins that exact-match
+        # contract going forward.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
