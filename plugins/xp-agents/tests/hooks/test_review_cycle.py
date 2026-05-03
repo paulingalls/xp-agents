@@ -66,6 +66,17 @@ class TestReviewCycleDone(_HookTestCase):
         # in metadata.action. _make_skill_input defaults agent_id to "main".
         self.assertEqual(emitted[0]["agent_id"], "main")
 
+    def test_security_review_returns_continuation_nudge(self):
+        """/security-review completion returns continuation context so orchestrated
+        callers (xp-accept Tier 2, close-skill Tier 3) can proceed past the skill's
+        'reply with markdown report only' stop-instruction.
+        """
+        result = review_cycle_done.run(
+            _make_skill_input("security-review"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("orchestrated", result.lower())
+
     def test_plan_review_emits_action_event(self):
         """/xp-review-plan completion appends action=plan_reviewed."""
         review_cycle_done.run(_make_skill_input("xp-review-plan"), smm_dir=self.smm_dir)

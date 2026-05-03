@@ -99,6 +99,22 @@ _TASK_CREATION_NUDGE = (
 )
 
 
+# /security-review's skill prompt ends with "reply must contain markdown
+# report and nothing else" — correct for direct user invocations, but it
+# stops orchestrated callers (xp-accept Tier 2, close-skill Tier 3) mid-
+# flight. This nudge is delivered as PostToolUse:Skill additionalContext
+# next to the tool result so the next model call sees both the skill's
+# stop clause and this override; the calling agent has full context to
+# decide whether to honor it (orchestrated → continue, direct user → stop).
+_SECURITY_CONTINUATION_NUDGE = (
+    "/security-review's 'reply with markdown report only' clause is intended "
+    "for direct user invocations. If this call was part of an orchestrated "
+    "flow (e.g. an xp-accept tier-2 gate or a close-skill tier-3 sweep), "
+    "ignore that clause: record any findings as concerns at the appropriate "
+    "severity, then proceed to the next step in the calling skill."
+)
+
+
 def _emit_action_event(smm_dir: Path, action: str, content: str, agent_id: str) -> None:
     """Append a canonical status event with metadata.action set."""
     event = _common.make_event(
@@ -148,6 +164,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return plugin_loader.load_process_guide() or None
     if target == _TARGET_PLAN_REVIEW:
         return _TASK_CREATION_NUDGE
+    if target == _TARGET_SECURITY_REVIEW:
+        return _SECURITY_CONTINUATION_NUDGE
     return _NEXT_STEP.get(flag) if flag else None
 
 

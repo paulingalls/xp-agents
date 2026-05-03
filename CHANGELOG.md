@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.0.1 — Unblock orchestrated /security-review + record story design decisions
+
+Two surgical fixes targeting wear in the v3.0 tiered-review workflow, both adopted from the sprint-053 retro.
+
+### PostToolUse:Skill nudge unblocks orchestrated /security-review
+
+The built-in `/security-review` skill ends its reply with a "report only" stop clause that is correct for direct user invocations but halts the Tier 2 (`/xp-accept`) and Tier 3 (close-skill) orchestrations mid-flight, forcing a manual re-prompt each time. `scripts/review_cycle_done.py` now appends an `additionalContext` advisory after `/security-review` runs, telling orchestrated callers to continue past the stop clause; direct invocations still see the stop because the calling agent decides whether the override applies.
+
+### /xp-accept records design decisions per story
+
+Four consecutive retros flagged "too few decisions recorded with significant work." `/xp-accept` now has an explicit Step 2b.i that fires before `/xp-story-close`: for each accepted story, record qualifying design decisions OR an explicit-zero status event ("no design decisions to record"). The criterion is intentionally demanding — architectural choices and contracts, not refactor sequences or lint-driven cleanups — and the explicit-zero path includes friction so retros can distinguish ran-and-found-none from skipped. Step 1c's Block-override path also gained a decision event alongside the existing severity-high concern: concern records the risk, decision records the architectural choice to ship despite the Block.
+
 ## v3.0.0 — Tiered security review (breaking)
 
 The headline change of v3.0 is the migration from per-commit LLM security review to a three-tier model. The full design lives in `docs/ideas/security_review_doctrine.md` and shipped across sprint-048 → sprint-053; this entry summarizes what changed for users and which usage patterns are now broken.
