@@ -224,6 +224,7 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
+    "STATUS_ACTION_ASSIGN_COMPLETE": _drive_review_cycle("xp-assign"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
 }
