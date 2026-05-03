@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
 import execution_plan_store
+from _system_context_fixtures import valid_doc
+from conftest import _SMMTestCase
 
 
 class TestBranchName(unittest.TestCase):
@@ -231,6 +233,64 @@ class TestGetMergeTarget(unittest.TestCase):
             (smm / "system_context.json").write_text(json.dumps(ctx))
             result = branching.get_merge_target(smm, cwd=td)
             self.assertEqual(result, "develop")
+
+
+class TestAutoPromote(_SMMTestCase):
+    """Stage 1 -> Stage 2 auto-promotion (M-7 plugin floor)."""
+
+    def _write_ctx(self, stage: int) -> None:
+        doc = valid_doc(branching_strategy={"stage": stage})
+        (self.smm_dir / "system_context.json").write_text(json.dumps(doc))
+
+    def _stage_in_file(self) -> int:
+        ctx = json.loads((self.smm_dir / "system_context.json").read_text())
+        return ctx["branching_strategy"]["stage"]
+
+    def _promote_events(self) -> list[dict]:
+        return [
+            e
+            for e in self._read_events()
+            if e.get("topic") == "branching-stage-auto-promote"
+        ]
+
+    def test_promotes_stage_1_to_2_in_file(self):
+        self._write_ctx(1)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(self._stage_in_file(), 2)
+
+    def test_emits_one_decision_event(self):
+        self._write_ctx(1)
+        branching.get_branching_stage(self.smm_dir)
+        events = self._promote_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "decision")
+        self.assertEqual(events[0]["agent_id"], "branching")
+
+    def test_idempotent_no_duplicate_event(self):
+        self._write_ctx(1)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(self._stage_in_file(), 2)
+        self.assertEqual(len(self._promote_events()), 1)
+
+    def test_stage_0_unchanged(self):
+        self._write_ctx(0)
+        before = (self.smm_dir / "system_context.json").read_text()
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 0)
+        self.assertEqual((self.smm_dir / "system_context.json").read_text(), before)
+        self.assertEqual(self._promote_events(), [])
+
+    def test_stage_2_unchanged(self):
+        self._write_ctx(2)
+        before = (self.smm_dir / "system_context.json").read_text()
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual((self.smm_dir / "system_context.json").read_text(), before)
+        self.assertEqual(self._promote_events(), [])
+
+    def test_missing_system_context_returns_zero(self):
+        self.assertFalse((self.smm_dir / "system_context.json").exists())
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 0)
+        self.assertEqual(self._promote_events(), [])
 
 
 if __name__ == "__main__":

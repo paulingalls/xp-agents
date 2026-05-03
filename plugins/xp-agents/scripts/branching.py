@@ -15,10 +15,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import _common
 import execution_plan_store
 import git_remote
 import identity
 import sprint_store
+import system_context_store
 
 
 def _slugify(s: str) -> str:
@@ -69,8 +71,44 @@ def _load_branching_strategy(smm_dir: Path) -> dict:
     return ctx.get("branching_strategy") or {}
 
 
+def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
+    """Auto-promote Stage 1 -> Stage 2 (M-7 plugin floor). Idempotent.
+
+    Mutates system_context.json's branching_strategy.stage in place
+    and emits a one-time decision event. Returns 2 on success; on a
+    load/save/append failure returns the original stage so the next
+    call to get_branching_stage retries the promotion.
+    """
+    if current != 1:
+        return current
+    try:
+        ctx = system_context_store.load_system_context(smm_dir)
+        if ctx is None:
+            return current
+        ctx.setdefault("branching_strategy", {})["stage"] = 2
+        system_context_store.save_system_context(smm_dir, ctx)
+        event = _common.make_event(
+            "decision",
+            "branching",
+            "Auto-promoted branching stage 1 -> 2 (M-7 plugin floor)",
+            topic="branching-stage-auto-promote",
+            metadata={"action": "stage_auto_promote", "from_stage": 1, "to_stage": 2},
+        )
+        _common.append_safe(smm_dir, event)
+        return 2
+    except (OSError, ValueError) as e:
+        _common._log_hook_error(
+            f"branching auto-promote failed: {e}",
+            error_class=type(e).__name__,
+            from_stage=1,
+            to_stage=2,
+        )
+        return current
+
+
 def get_branching_stage(smm_dir: Path) -> int:
-    return _load_branching_strategy(smm_dir).get("stage", 0)
+    stage = _load_branching_strategy(smm_dir).get("stage", 0)
+    return _maybe_auto_promote(smm_dir, stage)
 
 
 def match_local_branches(cwd: str, pattern: str) -> list[str]:
