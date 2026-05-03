@@ -256,7 +256,10 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # smm_cli.py count-classifications, exercised by
     # tests/engine/test_smm_cli_count_classifications.py.
     # Not a debt — this is an intentional LLM-via-SKILL.md producer
-    # pattern, the first STATUS_ACTION_* of its kind.
+    # pattern, the first STATUS_ACTION_* of its kind. When the 2nd
+    # LLM-producer constant lands, lift these to _LLM_PRODUCERS:set[str]
+    # so the dict stays single-purpose (debt-id values only). Tracked
+    # by debt 730e9a0dbe9c.
     "STATUS_ACTION_CONCERN_CLASSIFY": "LLM-via-SKILL.md (not a debt)",
 }
 
