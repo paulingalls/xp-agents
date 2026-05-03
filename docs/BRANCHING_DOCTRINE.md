@@ -3,136 +3,222 @@
 ## Purpose
 
 Define how branches and integration flow map to the plugin's work units
-(story → sprint → milestone), and how projects migrate from ad-hoc flow
-toward production-grade branching discipline as they mature.
+(story → sprint → milestone), what discipline the plugin enforces, and
+how projects that arrived from a looser configuration migrate to the
+supported floor.
 
 ---
 
 ## Principle
 
-Branching discipline is a spectrum. Every project sits somewhere on it
-and may migrate toward higher discipline as it matures. The plugin's
-job is to meet the project where it is and nudge it forward — not to
-impose release-flow ceremony on a weekend prototype, nor to silently
-tolerate "commit-straight-to-main" on a production system with four
-contributors and CI.
+The plugin is opinionated about the floor. Projects that adopt
+xp-agents are typically building a production product with multiple
+contributors, CI, and review discipline — not a weekend prototype. The
+floor reflects that.
 
-**The plugin's floor is Stage 2.** Projects that adopt this plugin are
-typically building a production product, not a proof-of-concept. Stage 0
-is named for completeness and describes the state of repos before the
-plugin adopts them. Stage 1 is a deprecated waystation between Stage 0
-(below floor) and Stage 2 (current floor): projects on Stage 1 are
-auto-promoted to Stage 2 the next time `branching.py` resolves the
-project's stage, and projects still on Stage 0 receive a migration
-prompt at session start (Step 2.4 in xp-kickoff). A project explicitly
-declaring Stage 0 is tolerated but will keep receiving migration
-concerns if signals suggest otherwise.
+- **Stage 2 — Integration** is the **enforced floor**. Every project
+  the plugin actively manages operates at Stage 2 or higher.
+  Sprint branches off `main`; story branches off the sprint branch;
+  milestones land on `main` via PR.
+- **Stage 3 — Release flow** is **supported and recommended** for
+  projects with multiple environments (dev/staging/prod), scheduled
+  releases, downtime sensitivity, or regulated release discipline.
+  Stage 3 layers an integration branch (`develop`/`staging`) between
+  sprint branches and `main`.
+- **Stages 0 and 1 are not supported targets.** Stage 0 (trunk
+  commits straight to `main`) sits below the floor and receives a
+  migration prompt at session start. Stage 1 (story branches off
+  `main`, no sprint integration) is auto-promoted to Stage 2 the next
+  time `branching.py` resolves the project's stage. Both are
+  documented in the "Legacy / Migration" section below for migration
+  purposes only.
 
-**Free sessions remain available** for quick exploratory work without
-sprint scaffolding, regardless of stage. A free session creates a
-single `<user>/free-YYYY-MM-DD-<slug>` branch directly off the primary
-branch and merges back via `/xp-free-close`. It is the low-ceremony
-escape hatch from sprint discipline, not a stage downgrade.
+**Free sessions are the lightweight escape hatch**, available at every
+stage. A free session creates a single `<user>/free-YYYY-MM-DD-<slug>`
+branch off the primary branch and merges back via `/xp-free-close`. It
+is the right answer for a five-minute fix, a one-off chore, or
+exploratory work that doesn't justify a sprint — the path users should
+reach for instead of dropping the project to a lower stage.
 
 ---
 
-## Stages
+## Supported Stages
 
-Four named stages. Each is a discrete, coherent package of branching
-behavior.
-
-### Stage 0 — Trunk (below plugin floor)
-
-**Structure.** Everything commits to `main`. No branches, no PRs, no
-integration step.
-
-**Appropriate for.** Solo prototype, throwaway experiment, "what if"
-exploration before the project is really a project.
-
-**Plugin behavior.** Tolerated when declared, but the plugin does not
-enforce Stage 0 as a target. Migration concerns continue if signals
-suggest the project has grown past it.
-
-### Stage 1 — Story branches
-
-> **Deprecated as of v3.1 (M-7).** Stage 1 is no longer the plugin
-> floor — Stage 2 is. Projects on Stage 1 are auto-promoted to Stage 2
-> the next time `branching.py` resolves the project's stage; explicit
-> Stage 0 declarations get a kickoff prompt at session start (Step
-> 2.4 in xp-kickoff). For users who adopted Stage 1 specifically to
-> keep ceremony low, **free sessions provide that same lightweight
-> flow** — a single branch off the primary, no sprint scaffolding —
-> while the project's stable discipline lives at Stage 2.
->
-> The Structure / Appropriate for / Plugin behavior subsections below
-> remain accurate descriptions of legacy Stage 1 behavior, retained
-> for historical reference.
-
-**Structure (legacy).**
-- Every story gets its own branch: `<user>/story-NNN-<slug>` off `main`.
-- Story done (acceptance green) → merge-commit directly to `main`.
-- No sprint branch. No PRs.
-- Merge style: merge-commit (preserves TDD granularity in history).
-
-**Appropriate for (legacy).** Solo serious work, trusted two-person
-teams, private codebases with no CI dependency.
-
-**Plugin behavior (legacy).**
-- Auto-creates `<user>/story-NNN-<slug>` on story transition to
-  `in-progress`.
-- Gates direct `main` commits with an actionable concern, with a
-  commit-message escape hatch for legitimate main commits (see below).
-- `/xp-accept` green → merge story branch into `main` (merge-commit),
-  delete story branch.
-- No milestone PRs — acceptance is the quality gate; merge follows.
-
-### Stage 2 — Integration
+### Stage 2 — Integration (enforced floor)
 
 **Structure.**
 - Sprint gets its own branch: `<user>/sprint-NNN-<slug>` off `main`.
 - Stories branch off the sprint branch.
-- Story done → merge-commit into sprint branch (local, direct).
+- Story done (acceptance green) → merge-commit into sprint branch
+  (local, direct).
 - Milestone delivery (sprint-review flips milestone to `delivered`) →
   **PR** from sprint branch to `main`. CI gates the merge.
-- Merge style: merge-commit everywhere.
+- Merge style: merge-commit (`--no-ff`) at every integration point.
 
-**Appropriate for.** Team projects, open source, any repo with CI/CD
-workflows, any repo with branch protection rules.
+**Why this is the floor.** Stage 2 is the lowest configuration that
+delivers all four production-discipline guarantees the plugin assumes:
+
+1. **Per-sprint integration boundary.** A sprint branch collects N
+   stories before they land on `main`, so reviewers see one coherent
+   PR per milestone instead of N micro-PRs.
+2. **PR-gated review.** Milestone delivery goes through a PR, which is
+   where CI runs, where branch-protection rules apply, and where
+   stakeholders comment.
+3. **Per-story rollback granularity.** Story branches preserve TDD
+   commit history; reverts target story merge-commits cleanly.
+4. **Recoverable if a sprint goes sideways.** The sprint branch can
+   be abandoned without polluting `main`.
 
 **Plugin behavior.**
-- Auto-creates sprint branch on `/xp-sprint-start`.
-- Auto-creates story branches off the sprint branch.
-- Gates `main` + sprint-branch commits (sprint branch only accepts
-  merges from story branches, not direct commits).
-- `/xp-accept` green → merge story branch into sprint branch, delete
-  story branch.
-- `/xp-sprint-review` milestone → `delivered` → opens PR from sprint
-  branch to `main`. PR merge happens outside the plugin (human/CI).
+- Auto-creates the sprint branch on `/xp-sprint-start`.
+- Auto-creates story branches off the sprint branch on story start.
+- Gates `main` and sprint-branch commits — `main` is PR-only; the
+  sprint branch only accepts merges from story branches, not direct
+  commits.
+- `/xp-accept` green → merges the story branch into the sprint
+  branch, deletes the story branch.
+- `/xp-sprint-review` milestone → `delivered` → opens a PR from the
+  sprint branch to `main`. PR merge happens outside the plugin
+  (human review + CI).
 
-### Stage 3 — Release flow
+### Stage 3 — Release flow (supported, optional)
 
 **Structure.**
-- `main` holds released code (tagged releases only).
-- An integration branch holds current development: `develop` or
-  `staging`.
-- Sprint branches off the integration branch; stories branch off sprint
-  as in Stage 2.
+- `main` holds released code only (typically tagged releases).
+- An **integration branch** holds current development:
+  `develop` or `staging`.
+- Sprint branches off the integration branch; stories branch off the
+  sprint branch as in Stage 2.
 - Milestone delivery → PR from sprint branch to the **integration
   branch**, not `main`.
-- Release cut: separate PR from integration branch → `main`, typically
-  tagged, typically gated by release criteria.
+- Release cut: separate PR from integration branch → `main`,
+  typically tagged, typically gated by release criteria.
 
-**Appropriate for.** Production systems with multiple environments
-(dev/staging/prod), downtime sensitivity, scheduled releases, or
-regulated release discipline.
+**Recommended when** any of these apply:
+
+- Multiple deployed environments need to be kept in sync.
+- Releases are scheduled (weekly/monthly), not continuous.
+- Compliance or change-management policy requires a release record
+  separate from the integration log.
+- The project ships SDKs or libraries where consumers depend on
+  stable tagged versions.
 
 **Plugin behavior.**
 - All Stage 2 behaviors, plus:
 - PR target for milestone delivery is the integration branch (name
-  declared in `system_context.md`).
+  declared in `system_context.json`).
+- Direct commits gated on **both** `main` and the integration branch.
 - Release cuts are customer-initiated; the plugin does not auto-cut
   releases in v1.
-- Gates direct commits to both `main` and the integration branch.
+
+---
+
+## Free Sessions
+
+Free sessions exist at every stage as the **low-ceremony escape
+hatch** for work that doesn't fit a sprint:
+
+- A typo fix, a dependency bump, a docs tweak.
+- An exploratory spike to learn whether an approach is viable before
+  committing to a sprint.
+- A one-off chore: regenerating a fixture, rotating a test secret,
+  cleaning up a stale ignore file.
+
+**Branch shape.** `<user>/free-YYYY-MM-DD-<slug>` cut directly off the
+primary branch (Stage 2: `main`; Stage 3: the integration branch). No
+sprint branch, no plan branch, no milestone.
+
+**Merge path.** `/xp-free-close` runs review, pushes the branch, and
+opens a PR (or merges locally if `gh` is unavailable). Same review
+gates as a sprint-derived PR — free does not mean unreviewed.
+
+**When to use a free session vs starting a sprint.**
+
+- **Free.** Single concern, one or two commits, no need to coordinate
+  with a milestone, fits in one session.
+- **Sprint.** Multiple stories, acceptance criteria worth tracking,
+  cross-story dependencies, or work that benefits from milestone
+  framing.
+
+If you find yourself reaching for "Stage 1 because the sprint setup
+feels heavy for this," reach for a free session instead. That is the
+ceremony-light path the plugin supports.
+
+---
+
+## Legacy / Migration
+
+The two stages below are **not supported as adoption targets**. They
+exist in this document so projects arriving from them know what they
+look like, why the plugin moved past them, and how to migrate.
+
+### Stage 0 — Trunk (below floor)
+
+**What it looks like.** Everything commits to `main`. No branches,
+no PRs, no integration step. Solo workflows or pre-project
+prototypes typically start here.
+
+**Why it is not a supported target.** Stage 0 supplies none of the
+four guarantees enumerated in §Stage 2 — no integration boundary, no
+PR-gated review, no rollback granularity, no recoverable sprint
+abandonment. As soon as a project has more than one contributor,
+CI, or production users, Stage 0 actively hides risk: changes land
+on `main` with no review surface to catch them.
+
+**Free sessions cover the looser-work use case.** The "I just want
+to commit and go" workflow that Stage 0 enables is preserved by
+free sessions — same number of commits, same lack of sprint
+ceremony, but the change still lands via PR with a review gate.
+
+**Migration to Stage 2.** When `/xp-kickoff` runs at session start
+on a Stage 0 project, Step 2.4 prompts the customer to migrate. The
+mechanical path is `/xp-sprint-start` (which creates the sprint
+branch and flips the active stage) plus `/xp-system-context` to
+record the new branching strategy. A project may decline and
+explicitly declare Stage 0 in `system_context.json`, but migration
+concerns continue if signals (contributor count, CI presence,
+branch-protection rules) suggest the project has outgrown it.
+
+### Stage 1 — Story branches (deprecated waystation)
+
+**What it looks like.** Every story gets its own branch
+(`<user>/story-NNN-<slug>` off `main`). On acceptance, the story
+branch merges directly back into `main` — no sprint branch, no
+milestone PR. Historically Stage 1 served solo serious work and
+trusted small teams that wanted per-story isolation but didn't want
+sprint scaffolding.
+
+**Why it is not a supported target.** Stage 1 sits halfway between
+Stage 0's no-isolation and Stage 2's integration boundary, and the
+half-step costs more than it pays. Stories merge straight to `main`
+with no sprint-level integration, so:
+
+- No PR-gated review point — story-branch merges are local, so CI
+  never sees a coherent integrated change.
+- Reviewers face N micro-PRs per milestone instead of one,
+  multiplying the review tax.
+- A failed story leaves stale branches and partial state on `main`
+  rather than confined to a discardable sprint branch.
+
+**Free sessions cover the looser-work use case.** The two draws
+that historically motivated Stage 1 — per-change branch isolation
+and skipping sprint ceremony — are both preserved by free sessions,
+which run through the same review surface that Stage 2 sprints use.
+A free branch isolates the work and merges via PR, which is closer
+to the spirit of "review before main" than Stage 1's
+local-merge-back-to-main ever was.
+
+**Migration to Stage 2 (auto-promote).** As of v3.1, projects on
+Stage 1 are auto-promoted to Stage 2 the next time `branching.py`
+resolves the project's stage. The promotion mutates
+`system_context.json` in place and records a one-time `decision`
+event (`metadata.action=stage_auto_promote`) so the change is
+auditable. No customer action required; the next sprint runs at
+Stage 2. Once promoted, every read returns Stage 2 and the new
+gate applies repo-wide — including to any Stage 1 story branches
+already in flight. Land those branches manually (via PR to
+`main`) before starting Stage 2 work, since `/xp-accept` will
+no longer have a Stage 1 merge path to take.
 
 ---
 
@@ -147,7 +233,8 @@ always user-namespaced to prevent collisions.
 - **Branch shapes.**
   - `<user>/story-NNN-<slug>`
   - `<user>/sprint-NNN-<slug>`
-  - `<user>/teammate-story-NNN` — replaces the current bare
+  - `<user>/free-YYYY-MM-DD-<slug>`
+  - `<user>/teammate-story-NNN` — replaces the bare
     `teammate-story-NNN`; teammates inherit the spawning user's
     namespace rather than the teammate's own git config.
 - **Rationale.** Two users creating `story-042` independently never
@@ -161,8 +248,8 @@ always user-namespaced to prevent collisions.
 Both mechanisms cooperate. They are defense-in-depth.
 
 **Auto-create** runs at work transition points (sprint start, story
-start) when the working tree is clean. It creates and checks out the
-appropriate branch.
+start, free start) when the working tree is clean. It creates and
+checks out the appropriate branch.
 
 **Gate** runs at commit time (PreToolUse:Bash on `git commit`) and
 raises a concern if the current branch is protected at the project's
@@ -175,12 +262,17 @@ sessions, human error.
 ### Escape Hatch for Legitimate `main` Commits
 
 Some commits legitimately belong on `main` — release commits, version
-bumps, changelog updates, one-off chores. These use a commit-message
-prefix:
+bumps, changelog updates, one-off chores. These use a
+commit-message subject-line prefix (the gate inspects the first
+line of the commit message):
 
 - `[release]` — version bumps, changelog updates, tag preparation
 - `[chore]` — one-off maintenance not tied to a story (dependency
   bumps, config tweaks, housekeeping)
+
+A third prefix, `[sprint-direct]`, is also recognized by the gate
+but is reserved for the `/xp-accept` merge window — end users do
+not type it manually.
 
 The gate detects these prefixes, allows the commit, and records it as
 a `status` event labeled with the prefix. Silent direct-to-main commits
@@ -202,10 +294,12 @@ wrong branch.
 
 | Stage | `main` gated? | integration branch gated? | sprint branch gated? |
 |-------|---------------|---------------------------|----------------------|
-| 0 | No | — | — |
-| 1 | Yes (concern + escape-hatch prefix) | — | — |
+| 0 | No (declared-only; receives migration prompt at session start) | — | — |
 | 2 | Yes (PR-only) | — | Yes (accepts merges from story branches, not direct commits) |
 | 3 | Yes (release-PR only) | Yes (concern + escape) | Yes (same as Stage 2) |
+
+Stage 1 is omitted: any project resolving to Stage 1 is auto-promoted
+to Stage 2 before the gate evaluates the commit.
 
 ---
 
@@ -228,29 +322,47 @@ wrong branch.
 
 These signals produce a **recommended** stage. The customer either
 migrates, or explicitly declares a different stage in
-`system_context.md` with rationale.
+`system_context.json` with rationale.
 
 ### Migration Nudges (Concerns)
 
-When signals justify a higher stage than the project currently operates
-at, `/xp-system-context` raises an actionable concern with specific
-next steps:
+The interesting migration gradient under the current floor is
+**Stage 2 → Stage 3** — some projects benefit from a release-flow
+configuration, others are right to stay at Stage 2 indefinitely.
+When signals justify Stage 3, `/xp-system-context` raises an
+actionable concern with specific next steps:
 
-> *"Repo signals suggest Stage 2 is appropriate (4 contributors in last
-> 90 days, `.github/workflows/ci.yml` present, 12 merged PRs in
-> history), but current pattern is Stage 1 (direct-to-main merges on
-> story accept). Consider migrating: require PRs for milestone
-> delivery, enable branch protection on `main`, wire sprint-branch CI
-> runs. To dismiss, declare Stage 1 explicitly in `system_context.md`
-> with rationale."*
+> *"Repo signals suggest Stage 3 may fit (`develop` branch present,
+> `release/*` tags in history, deploy workflows targeting both
+> `staging` and `production`), but the project is declared at
+> Stage 2 with milestone PRs landing on `main`. To migrate, re-run
+> `/xp-system-context` and declare Stage 3 with the integration
+> branch name; subsequent milestone PRs will retarget the
+> integration branch and `main` becomes release-only. To dismiss,
+> re-run `/xp-system-context` and re-confirm Stage 2 with rationale
+> (e.g., 'single deployment environment, continuous release')."*
+
+Both paths route through `/xp-system-context`, which writes the
+declaration via the `system_context_cli.py edit-branching` surface
+— end users do not edit the SMM JSON by hand, and there is no
+need to touch `branching_strategy` outside this skill. Stage 0 →
+Stage 2 migrations follow the same pattern via the kickoff prompt
+at Step 2.4.
+
+The plugin's role is the declaration: changing branch-protection
+rules, retargeting open PRs, and reserving `main` for releases are
+follow-up actions the customer takes outside the plugin.
 
 Concerns are never hard blocks — they surface the gap and point at the
 next step. The customer resolves by migrating, or by declaring the
-current stage explicitly.
+current stage explicitly with rationale.
 
 ### Explicit Stage Declaration
 
-A project declares its stage explicitly in `system_context.md`:
+A project declares its stage explicitly via `/xp-system-context`,
+which records the declaration in `system_context.json`. The
+rendered "Branching Strategy" view (e.g., in human-readable
+summaries) looks like:
 
 ```markdown
 ## Branching Strategy
@@ -265,8 +377,9 @@ A project declares its stage explicitly in `system_context.md`:
 ```
 
 Explicit declaration overrides signal-based inference. It commits the
-customer to that stage — the plugin enforces Stage-2 behaviors from
-there.
+customer to that stage — the plugin enforces the corresponding gate
+and auto-create behavior from there. (Stage 1 declarations are
+auto-promoted to Stage 2 by `branching.py`; see Legacy / Migration.)
 
 ---
 
@@ -275,16 +388,17 @@ there.
 - **`/xp-system-context`** — detects branching signals, proposes a
   stage, writes the "Branching Strategy" section, raises migration
   concerns for signal/declaration mismatches.
-- **`/xp-sprint-start`** — creates the sprint branch (Stage 2+); writes
-  the first story branch off the sprint branch. (Legacy Stage 1
-  projects branched directly off `main`; auto-promote means new work
-  no longer hits this path.)
-- **`/xp-accept`** — on story green, merges the story branch into its
-  parent (sprint branch at Stage 2+; `main` for legacy Stage 1),
-  deletes the story branch.
-- **`/xp-sprint-review`** — on milestone flipping to `delivered`, opens
-  a PR from the sprint branch to the integration branch (Stage 2:
-  `main`; Stage 3: `develop` or `staging`).
+- **`/xp-sprint-start`** — creates the sprint branch and the first
+  story branch off it. Sprint branches are mandatory under the
+  Stage 2 floor.
+- **`/xp-accept`** — on story green, merges the story branch into
+  the sprint branch, deletes the story branch.
+- **`/xp-sprint-review`** — on milestone flipping to `delivered`,
+  opens a PR from the sprint branch to the integration branch
+  (Stage 2: `main`; Stage 3: `develop` or `staging`).
+- **`/xp-free-close`** — pushes the free branch and opens a PR (or
+  merges locally without `gh`). Used after any free session
+  regardless of stage.
 
 ---
 
@@ -399,9 +513,13 @@ Implemented. Core branching doctrine is integrated into:
 - `scripts/pre_tool_bash.py` — main/sprint branch commit gates
 - `scripts/identity.py` — user namespace derivation
 - `smm/system_context_schema.py` — branching_strategy validation
+- `smm/system_context_cli.py` — `edit-branching` surface used by
+  `/xp-system-context` to record explicit stage declarations
 - `agents/xp-system-analyzer.md` — stage detection (Step 3.5)
-- `skills/xp-sprint-start/SKILL.md` — sprint/story branch creation + divergence check
-- `skills/xp-plan/SKILL.md` — plan branch creation + pre-existing detection
+- `skills/xp-sprint-start/SKILL.md` — sprint/story branch creation +
+  divergence check
+- `skills/xp-plan/SKILL.md` — plan branch creation + pre-existing
+  detection
 - `skills/xp-accept/SKILL.md` — story branch merge/delete
 
 Post-sprint branch lifecycle is designed separately in
