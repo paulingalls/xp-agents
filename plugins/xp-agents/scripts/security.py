@@ -85,6 +85,21 @@ def _strip_quoted(command: str) -> str:
     return s
 
 
+# `git` followed by zero-or-more global options before the subcommand.
+# Each option is `-X` (standalone) or `-X <value>` (paired). Covers `-C <path>`
+# (the form agents adopt to avoid cd-poisoning Stop hooks), `-c <kv>`,
+# `--git-dir=<path>`, `--work-tree=<path>`, `--paginate`, etc. Without this
+# tolerance, those forms silently bypass subcommand detection: pre-tool gate
+# skips review cycle, post-tool hook skips commit-event recording + marker
+# reset, and `commits.get_code_files_for_review` misses unstaged tracked
+# files for `git -C add` / `git -C commit -a`.
+GIT_PREFIX = r"\bgit(?:\s+-\S+(?:\s+\S+)?)*\s+"
+
+
 def is_git_commit(command: str) -> bool:
-    """Detect git commit as an actual command, not inside quoted arguments."""
-    return bool(re.search(r"\bgit\s+commit\b", _strip_quoted(command)))
+    """Detect a commit-producing git command (commit or merge), not inside
+    quoted arguments. The `(?!-)` lookahead rejects plumbing subcommands
+    like `commit-tree` / `merge-tree`."""
+    return bool(
+        re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", _strip_quoted(command))
+    )
