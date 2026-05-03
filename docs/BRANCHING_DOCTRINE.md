@@ -17,12 +17,22 @@ impose release-flow ceremony on a weekend prototype, nor to silently
 tolerate "commit-straight-to-main" on a production system with four
 contributors and CI.
 
-**The plugin's floor is Stage 1.** Projects that adopt this plugin are
+**The plugin's floor is Stage 2.** Projects that adopt this plugin are
 typically building a production product, not a proof-of-concept. Stage 0
 is named for completeness and describes the state of repos before the
-plugin adopts them. Once the plugin is active, Stage 1 or higher is
-expected. A project explicitly declaring Stage 0 is tolerated but will
-keep receiving migration concerns if signals suggest otherwise.
+plugin adopts them. Stage 1 is a deprecated waystation between Stage 0
+(below floor) and Stage 2 (current floor): projects on Stage 1 are
+auto-promoted to Stage 2 the next time `branching.py` resolves the
+project's stage, and projects still on Stage 0 receive a migration
+prompt at session start (Step 2.4 in xp-kickoff). A project explicitly
+declaring Stage 0 is tolerated but will keep receiving migration
+concerns if signals suggest otherwise.
+
+**Free sessions remain available** for quick exploratory work without
+sprint scaffolding, regardless of stage. A free session creates a
+single `<user>/free-YYYY-MM-DD-<slug>` branch directly off the primary
+branch and merges back via `/xp-free-close`. It is the low-ceremony
+escape hatch from sprint discipline, not a stage downgrade.
 
 ---
 
@@ -45,16 +55,29 @@ suggest the project has grown past it.
 
 ### Stage 1 — Story branches
 
-**Structure.**
+> **Deprecated as of v3.1 (M-7).** Stage 1 is no longer the plugin
+> floor — Stage 2 is. Projects on Stage 1 are auto-promoted to Stage 2
+> the next time `branching.py` resolves the project's stage; explicit
+> Stage 0 declarations get a kickoff prompt at session start (Step
+> 2.4 in xp-kickoff). For users who adopted Stage 1 specifically to
+> keep ceremony low, **free sessions provide that same lightweight
+> flow** — a single branch off the primary, no sprint scaffolding —
+> while the project's stable discipline lives at Stage 2.
+>
+> The Structure / Appropriate for / Plugin behavior subsections below
+> remain accurate descriptions of legacy Stage 1 behavior, retained
+> for historical reference.
+
+**Structure (legacy).**
 - Every story gets its own branch: `<user>/story-NNN-<slug>` off `main`.
 - Story done (acceptance green) → merge-commit directly to `main`.
 - No sprint branch. No PRs.
 - Merge style: merge-commit (preserves TDD granularity in history).
 
-**Appropriate for.** Solo serious work, trusted two-person teams,
-private codebases with no CI dependency.
+**Appropriate for (legacy).** Solo serious work, trusted two-person
+teams, private codebases with no CI dependency.
 
-**Plugin behavior.**
+**Plugin behavior (legacy).**
 - Auto-creates `<user>/story-NNN-<slug>` on story transition to
   `in-progress`.
 - Gates direct `main` commits with an actionable concern, with a
@@ -253,11 +276,12 @@ there.
   stage, writes the "Branching Strategy" section, raises migration
   concerns for signal/declaration mismatches.
 - **`/xp-sprint-start`** — creates the sprint branch (Stage 2+); writes
-  the first story branch off the sprint branch (or off `main` at
-  Stage 1).
+  the first story branch off the sprint branch. (Legacy Stage 1
+  projects branched directly off `main`; auto-promote means new work
+  no longer hits this path.)
 - **`/xp-accept`** — on story green, merges the story branch into its
-  parent (sprint branch at Stage 2+, `main` at Stage 1), deletes the
-  story branch.
+  parent (sprint branch at Stage 2+; `main` for legacy Stage 1),
+  deletes the story branch.
 - **`/xp-sprint-review`** — on milestone flipping to `delivered`, opens
   a PR from the sprint branch to the integration branch (Stage 2:
   `main`; Stage 3: `develop` or `staging`).
@@ -369,7 +393,8 @@ Resolved in Team Scenarios (M-5):
 
 Implemented. Core branching doctrine is integrated into:
 
-- `scripts/branching.py` — branch lifecycle operations + divergence check
+- `scripts/branching.py` — branch lifecycle operations + divergence
+  check; `get_branching_stage` auto-promotes Stage 1 → 2 (M-7)
 - `scripts/branching_cli.py` — CLI dispatch (created/resumed output)
 - `scripts/pre_tool_bash.py` — main/sprint branch commit gates
 - `scripts/identity.py` — user namespace derivation
