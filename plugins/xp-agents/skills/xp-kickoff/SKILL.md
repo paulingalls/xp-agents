@@ -49,6 +49,23 @@ If the user chooses **free session**: skip steps 3 and 4, jump directly to step 
 
 If the user chooses **sprint session**: proceed to step 3.
 
+## Step 2.4: Stage 2 floor migration prompt (ALWAYS, every kickoff)
+
+This step runs at every kickoff regardless of the session mode chosen in Step 2 — the Stage 2 floor matters for both free and sprint sessions.
+
+Read the branching stage:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
+```
+
+If the stage is `>= 2`, **skip this step** — the project is already at the v3.1 plugin floor (Stage 2). Stage 1 auto-promotes to 2 inside `branching.py stage`, so only an explicit Stage 0 declaration reaches the prompt below.
+
+Otherwise (stage `< 2`), prompt the user via `AskUserQuestion`, substituting the actual stage value into the prose: **"This project is on branching Stage <N>. Stage 2 is the v3.1 plugin floor (sprint branches required for production-grade discipline). Migrate now via /xp-sprint-start, or continue at Stage <N> for this session?"**
+
+If the user picks **migrate**, invoke `/xp-sprint-start` immediately and let it walk through the upgrade. After it completes, proceed to Step 2.5 (which re-reads stage fresh).
+
+If the user picks **continue**, proceed to Step 2.5. The prompt re-fires every kickoff until the project migrates or the stage declaration changes.
+
 ## Step 2.5: Auto-create free branch on protected (free sessions only)
 
 If the user chose **free session** AND the branching stage is `>= 1` AND the current branch is a protected branch (`main` or `master`), create and check out a fresh free branch so the session never commits directly to a protected branch.
