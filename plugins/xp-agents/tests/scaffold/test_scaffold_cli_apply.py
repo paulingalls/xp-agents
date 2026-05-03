@@ -2,7 +2,7 @@
 """Tests for scripts/scaffold_cli.py — apply lifecycle subcommands.
 
 Covers: apply-write, apply-install, apply-verify, apply-revert,
-apply-commit (stage-0 and stage-1 protected). The shared
+apply-commit (stage-0 and stage-2 protected). The shared
 _ApplyCliTestBase fixture is defined here and re-used by the record-test
 sibling file (test_scaffold_cli_record.py).
 """
@@ -463,10 +463,10 @@ class TestApplyCommitStageZero(_ApplyCliCommitTestBase):
         self.assertIn("Resolves-Event: abc123def456", body)
 
 
-class TestApplyCommitStageOneProtected(_ApplyCliCommitTestBase):
-    stage = 1
+class TestApplyCommitStageTwoProtected(_ApplyCliCommitTestBase):
+    stage = 2
 
-    def test_refuses_on_main_at_stage_1(self) -> None:
+    def test_refuses_on_main_at_stage_2(self) -> None:
         write_payload = self._apply_write(self._plan())
         result = run_cli(
             _CLI,

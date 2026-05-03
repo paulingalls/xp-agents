@@ -75,9 +75,11 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
     """Auto-promote Stage 1 -> Stage 2 (M-7 plugin floor). Idempotent.
 
     Mutates system_context.json's branching_strategy.stage in place
-    and emits a one-time decision event. Returns 2 on success; on a
-    load/save/append failure returns the original stage so the next
-    call to get_branching_stage retries the promotion.
+    and emits a one-time decision event. Returns 2 on success; on an
+    OSError (read-only SMM, missing dir, lock contention) returns the
+    original stage so the next call to get_branching_stage retries the
+    promotion. Schema-validation ValueErrors are intentionally NOT
+    caught — they signal corrupt input or a code bug and propagate.
     """
     if current != 1:
         return current
@@ -96,7 +98,12 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         )
         _common.append_safe(smm_dir, event)
         return 2
-    except (OSError, ValueError) as e:
+    except OSError as e:
+        # Filesystem failure (read-only SMM, missing dir, lock contention).
+        # Fail-soft: log and return original stage so the next call retries.
+        # Schema-validation ValueError is intentionally NOT caught — it
+        # signals a corrupt input or a code bug, both of which deserve to
+        # crash loud rather than silently mask the contract.
         _common._log_hook_error(
             f"branching auto-promote failed: {e}",
             error_class=type(e).__name__,

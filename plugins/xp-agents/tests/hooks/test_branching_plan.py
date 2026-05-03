@@ -121,14 +121,6 @@ class TestCreatePlanBranch(unittest.TestCase):
             plan = execution_plan_store.load_plan(smm_dir)
             self.assertEqual(plan["branch"], "paul/plan-redesign")
 
-    def test_skips_at_stage_below_2(self):
-        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
-            _init_repo(td)
-            _write_system_context(Path(smm), stage=1)
-
-            result = branching.create_plan_branch(td, "redesign", Path(smm))
-            self.assertIsNone(result)
-
     def test_dirty_tree_exits(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
