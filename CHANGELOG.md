@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.0.2 — extend /security-review continuation nudge to Tier 3 close-reviewer
+
+v3.0.1 shipped the `additionalContext` continuation nudge but landed it behind a recursion-prevention skip in `review_cycle_done.py` that returns early for any caller whose `agent_type` starts with `xp-`. The Tier 3 close-reviewer (`xp-close-reviewer`) is exactly that — an xp-* subagent invoking `/security-review` from `/xp-free-close`, `/xp-sprint-close`, and `/xp-plan-close`. The skip suppressed the nudge AND the canonical `STATUS_ACTION_SECURITY_COMPLETE` event for every Tier 3 close, observed empirically when the v3.0.1 release's own free-close stopped after the security report instead of producing the close-reviewer's mode-aware Keep/Concern/Block summary. v3.0.2 carves out `/security-review` as the one exception to the recursion-prevention skip: target detection now runs first, then the skip applies only to non-security-review targets. The other four targets (`/simplify`, `/xp-quality-review`, `/xp-review-plan`, `xp-housekeeper`) keep the existing xp-* skip — they have per-commit flag side-effects or lifecycle counter implications that genuinely should not fire for subagent activity.
+
 ## v3.0.1 — Unblock orchestrated /security-review + record story design decisions
 
 Two surgical fixes targeting wear in the v3.0 tiered-review workflow, both adopted from the sprint-053 retro.

@@ -129,16 +129,22 @@ def _emit_action_event(smm_dir: Path, action: str, content: str, agent_id: str) 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Set review cycle flags and emit canonical lifecycle events."""
-    if _common.is_xp_agent(input_data):
-        return None
-
     tool_input = input_data.get("tool_input", {})
     # Skill calls carry the target in tool_input.skill; Agent calls carry it
     # in tool_input.subagent_type. Both paths converge here so the housekeeper
-    # can be invoked either way.
+    # can be invoked either way. Target detection runs BEFORE the recursion-
+    # prevention skip below so /security-review can be carved out as the one
+    # exception — xp-close-reviewer (xp-*) is the primary intended caller of
+    # the SECURITY_COMPLETE event (Tier 3) AND the continuation nudge.
     target_name = tool_input.get("skill") or tool_input.get("subagent_type") or ""
     target = _detect_target(target_name)
     if target is None:
+        return None
+
+    # Recursion-prevention: xp-* agents don't trigger our review-cycle flag
+    # setting or simplify/QR/plan-review/housekeeping lifecycle events on
+    # themselves. /security-review is excepted (see comment above).
+    if _common.is_xp_agent(input_data) and target != _TARGET_SECURITY_REVIEW:
         return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
