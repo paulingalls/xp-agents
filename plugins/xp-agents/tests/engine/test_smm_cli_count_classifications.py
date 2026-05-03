@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _SMMTestCase, run_cli
+from conftest import _SMMTestCase, run_cli, write_events
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
@@ -53,10 +53,6 @@ def _classify_event(
     }
 
 
-def _write_events(events_file: Path, events: list[dict]) -> None:
-    events_file.write_text("".join(json.dumps(e) + "\n" for e in events))
-
-
 class TestCountClassifications(_SMMTestCase):
     """Each filter combination + edge cases for the count subcommand.
 
@@ -86,7 +82,7 @@ class TestCountClassifications(_SMMTestCase):
             "working_on": [],
             "metadata": {"action": "qr_complete"},
         }
-        _write_events(self.events_file, [other])
+        write_events(self.events_file, [other])
         result = run_cli(_CLI, ["count-classifications"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "0")
@@ -99,7 +95,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask"),
             _classify_event(route="fix"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(_CLI, ["count-classifications"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "3")
@@ -113,7 +109,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask"),
             _classify_event(route="fix"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI, ["count-classifications", "--route", "ask"], self.smm_dir
         )
@@ -128,7 +124,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask"),
             _classify_event(route="fix"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI, ["count-classifications", "--route", "fix"], self.smm_dir
         )
@@ -145,7 +141,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask", ts="2026-05-01T12:00:00+00:00"),
             _classify_event(route="ask", ts="2026-05-02T00:00:00+00:00"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             [
@@ -169,7 +165,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="fix", category="lint"),
             _classify_event(route="ask", category="design_decision"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             ["count-classifications", "--category", "design_decision"],
@@ -185,7 +181,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="fix", category="lint"),
             _classify_event(route="fix", category="test_failure"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             ["count-classifications", "--category", "design_decision"],
@@ -219,7 +215,7 @@ class TestCountClassifications(_SMMTestCase):
                 ts="2026-05-02T00:00:00+00:00",
             ),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             [
@@ -245,7 +241,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask", close_cycle_id="bbbb22222222"),
             _classify_event(route="ask", close_cycle_id="aaaa11111111"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             ["count-classifications", "--cycle-id", "aaaa11111111"],
@@ -262,7 +258,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask"),  # no close_cycle_id
             _classify_event(route="ask", close_cycle_id="aaaa11111111"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             ["count-classifications", "--cycle-id", "aaaa11111111"],
@@ -280,7 +276,7 @@ class TestCountClassifications(_SMMTestCase):
             _classify_event(route="ask", ts="2026-05-01T12:00:00+00:00"),
             _classify_event(route="ask", ts="2026-05-02T00:00:00+00:00"),
         ]
-        _write_events(self.events_file, events)
+        write_events(self.events_file, events)
         result = run_cli(
             _CLI,
             [
