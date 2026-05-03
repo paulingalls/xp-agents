@@ -38,6 +38,7 @@ Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constrain
 - Check if the plan pulls work from future milestones. Each milestone should be completed before moving to the next.
 - Flag any scope creep beyond the current milestone's acceptance criteria.
 - **Check the Intent pillar for session mode.** If Intent contains a "Free session" goal, all work is standalone — do NOT raise blocking questions about sprint scope. If Intent shows "Sprint session", check milestone alignment normally.
+- **Mid-stream re-plans need a decision event.** If this review is replacing an earlier plan in the same session — layer collapse, domain spillover, free-mode detour, scope expansion uncovered mid-flight — surface a blocking question demanding an explicit `decision` event before proceeding. The Constraints pillar carries this rule; enforcing it here prevents silent re-scoping that the retro can't trace later. (Skip when this is the first plan of the session or when SMM already shows a fresh decision event covering the re-plan rationale.)
 
 ### 4. Decision Conflicts
 - Check if the plan contradicts any decisions or conventions in the SMM's **Constraints** pillar.
