@@ -484,7 +484,8 @@ def wrap_smm_context(content: str) -> str:
     return f"<smm-context>\n{content}</smm-context>"
 
 
-# Code-file classification + git-commit detection: see security.py
+# Code-file classification: see code_files.py
+# Git-commit detection: see git_commits.py
 
 
 # Debt lookup: see concerns.py

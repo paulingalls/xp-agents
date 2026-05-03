@@ -15,40 +15,40 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import commits
-import security
+import git_commits
 import test_parsing
 
 
 class TestIsGitCommit(unittest.TestCase):
     def test_git_commit_m(self):
-        self.assertTrue(security.is_git_commit("git commit -m 'msg'"))
+        self.assertTrue(git_commits.is_git_commit("git commit -m 'msg'"))
 
     def test_git_commit_am(self):
-        self.assertTrue(security.is_git_commit("git commit -am 'msg'"))
+        self.assertTrue(git_commits.is_git_commit("git commit -am 'msg'"))
 
     def test_git_commit_with_path(self):
-        self.assertTrue(security.is_git_commit("cd /tmp && git commit -m 'x'"))
+        self.assertTrue(git_commits.is_git_commit("cd /tmp && git commit -m 'x'"))
 
     def test_not_git_status(self):
-        self.assertFalse(security.is_git_commit("git status"))
+        self.assertFalse(git_commits.is_git_commit("git status"))
 
     def test_not_ls(self):
-        self.assertFalse(security.is_git_commit("ls -la"))
+        self.assertFalse(git_commits.is_git_commit("ls -la"))
 
     def test_git_commit_no_message(self):
-        self.assertTrue(security.is_git_commit("git commit"))
+        self.assertTrue(git_commits.is_git_commit("git commit"))
 
     def test_not_in_double_quotes(self):
         self.assertFalse(
-            security.is_git_commit('append.sh --content "before git commit"')
+            git_commits.is_git_commit('append.sh --content "before git commit"')
         )
 
     def test_not_in_single_quotes(self):
-        self.assertFalse(security.is_git_commit("echo 'git commit is great'"))
+        self.assertFalse(git_commits.is_git_commit("echo 'git commit is great'"))
 
     def test_not_in_heredoc(self):
         cmd = "cat <<'SMMEOF' | python3 x.py\nbefore git commit\nSMMEOF"
-        self.assertFalse(security.is_git_commit(cmd))
+        self.assertFalse(git_commits.is_git_commit(cmd))
 
     def test_git_dash_C_path_commit(self):
         # Agents use `git -C <abs-path>` to avoid cd-poisoning Stop hooks
@@ -56,7 +56,7 @@ class TestIsGitCommit(unittest.TestCase):
         # pre-/post-tool hooks both go silent — root cause of bug
         # ec4c804139e4 + 731915a2d4d2.
         self.assertTrue(
-            security.is_git_commit(
+            git_commits.is_git_commit(
                 "git -C /Users/paulingalls/src/projects/xp-agents commit -m 'x'"
             )
         )
@@ -64,7 +64,7 @@ class TestIsGitCommit(unittest.TestCase):
     def test_git_dash_C_in_chained_command(self):
         # Real production shape: stage with -C then commit with -C.
         cmd = "git -C /repo add scripts/x.py && git -C /repo commit -m 'msg'"
-        self.assertTrue(security.is_git_commit(cmd))
+        self.assertTrue(git_commits.is_git_commit(cmd))
 
     def test_git_dash_C_with_heredoc_message(self):
         # The most common production shape from sprint-052's free session.
@@ -74,63 +74,65 @@ class TestIsGitCommit(unittest.TestCase):
             "\nResolves-Event: deadbeef0001\n"
             'EOF\n)"'
         )
-        self.assertTrue(security.is_git_commit(cmd))
+        self.assertTrue(git_commits.is_git_commit(cmd))
 
     def test_git_dash_C_status_not_commit(self):
         # Negative: `-C <path>` with a non-commit subcommand must stay False.
-        self.assertFalse(security.is_git_commit("git -C /repo status"))
+        self.assertFalse(git_commits.is_git_commit("git -C /repo status"))
 
     def test_git_merge_matches(self):
         # Merge commits also produce commits — must be tracked. Confirmed
         # silent gap: 425f1c2 (real merge on this branch) was absent from
         # events.jsonl pre-fix.
-        self.assertTrue(security.is_git_commit("git merge --no-ff feature"))
+        self.assertTrue(git_commits.is_git_commit("git merge --no-ff feature"))
 
     def test_git_dash_C_merge_matches(self):
-        self.assertTrue(security.is_git_commit("git -C /repo merge --no-ff feature"))
+        self.assertTrue(git_commits.is_git_commit("git -C /repo merge --no-ff feature"))
 
     def test_commit_tree_plumbing_rejected(self):
         # Plumbing commands must not false-positive. The `(?!-)` lookahead
         # rejects `commit-tree` after the `\b` matches between `t` and `-`.
-        self.assertFalse(security.is_git_commit("git commit-tree -p HEAD"))
+        self.assertFalse(git_commits.is_git_commit("git commit-tree -p HEAD"))
 
     def test_merge_tree_plumbing_rejected(self):
-        self.assertFalse(security.is_git_commit("git merge-tree A B"))
+        self.assertFalse(git_commits.is_git_commit("git merge-tree A B"))
 
     def test_git_dash_c_config_override_commit(self):
         # `-c <name>=<value>` config override must not bypass detection.
-        self.assertTrue(security.is_git_commit("git -c user.email=x@y commit -m 'msg'"))
+        self.assertTrue(
+            git_commits.is_git_commit("git -c user.email=x@y commit -m 'msg'")
+        )
 
     def test_git_git_dir_long_option_commit(self):
-        self.assertTrue(security.is_git_commit("git --git-dir=/p/.git commit"))
+        self.assertTrue(git_commits.is_git_commit("git --git-dir=/p/.git commit"))
 
     def test_git_work_tree_long_option_commit(self):
-        self.assertTrue(security.is_git_commit("git --work-tree=/p commit"))
+        self.assertTrue(git_commits.is_git_commit("git --work-tree=/p commit"))
 
     def test_git_paginate_short_flag_commit(self):
-        self.assertTrue(security.is_git_commit("git -p commit -m 'x'"))
+        self.assertTrue(git_commits.is_git_commit("git -p commit -m 'x'"))
 
 
 class TestGitPrefixSharedRegex(unittest.TestCase):
-    """security.GIT_PREFIX is reused by commits.get_code_files_for_review
+    """git_commits.GIT_PREFIX is reused by commits.get_code_files_for_review
     for `git add` / `git commit -a` detection. Same root-cause class as
     is_git_commit: agents using `git -C <path> add` must not silently
     bypass the unstaged-tracked-files enrichment."""
 
     def test_git_dash_C_add_matches(self):
-        pattern = security.GIT_PREFIX + r"add\b"
+        pattern = git_commits.GIT_PREFIX + r"add\b"
         self.assertTrue(re.search(pattern, "git -C /repo add scripts/x.py"))
 
     def test_git_add_bare_still_matches(self):
-        pattern = security.GIT_PREFIX + r"add\b"
+        pattern = git_commits.GIT_PREFIX + r"add\b"
         self.assertTrue(re.search(pattern, "git add scripts/x.py"))
 
     def test_git_dash_C_commit_dash_a_matches(self):
-        pattern = security.GIT_PREFIX + r"commit\s+-a"
+        pattern = git_commits.GIT_PREFIX + r"commit\s+-a"
         self.assertTrue(re.search(pattern, "git -C /repo commit -am 'msg'"))
 
     def test_git_status_does_not_match_add(self):
-        pattern = security.GIT_PREFIX + r"add\b"
+        pattern = git_commits.GIT_PREFIX + r"add\b"
         self.assertFalse(re.search(pattern, "git -C /repo status"))
 
 

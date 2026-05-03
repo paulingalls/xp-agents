@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
-import security
+import code_files
 from event_schema import (
     STATUS_ACTION_COMMIT_SUCCESS,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -32,7 +32,7 @@ def _has_code_changes(event: dict) -> bool:
     working_on = event.get("working_on", [])
     if not isinstance(working_on, list):
         return False
-    return any(security.is_code_file(f) for f in working_on)
+    return any(code_files.is_code_file(f) for f in working_on)
 
 
 def build_work_signals(events: list[dict]) -> dict:

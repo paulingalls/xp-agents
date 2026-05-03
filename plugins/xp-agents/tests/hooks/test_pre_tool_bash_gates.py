@@ -272,7 +272,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="main")
     @patch("branching.get_branching_stage", return_value=1)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_nudge_on_main_stage_1(self, *_mocks):
         result = pre_tool_bash.run(
@@ -283,7 +283,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="main")
     @patch("branching.get_branching_stage", return_value=0)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_silent_at_stage_0(self, *_mocks):
         result = pre_tool_bash.run(
@@ -293,7 +293,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="paul/story-001-feat")
     @patch("branching.get_branching_stage", return_value=1)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_silent_on_feature_branch(self, *_mocks):
         result = pre_tool_bash.run(
@@ -303,7 +303,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="main")
     @patch("branching.get_branching_stage", return_value=1)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_escape_hatch_release(self, *_mocks):
         result = pre_tool_bash.run(
@@ -314,7 +314,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="main")
     @patch("branching.get_branching_stage", return_value=1)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_escape_hatch_chore(self, *_mocks):
         result = pre_tool_bash.run(
@@ -325,7 +325,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="main")
     @patch("branching.get_branching_stage", return_value=1)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_escape_hatch_sprint_direct(self, *_mocks):
         # [sprint-direct] is the close-window bypass token per
@@ -338,7 +338,7 @@ class TestMainBranchGate(_HookTestCase):
 
     @patch("identity.get_current_branch", return_value="master")
     @patch("branching.get_branching_stage", return_value=2)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_nudge_on_master_stage_2(self, *_mocks):
         result = pre_tool_bash.run(
@@ -354,7 +354,7 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("identity.get_current_branch", return_value="paul/sprint-027-integration")
     @patch("branching.get_branching_stage", return_value=2)
     @patch("branching.is_sprint_branch", return_value=True)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_nudge_on_sprint_branch_stage_2(self, *_mocks):
         result = pre_tool_bash.run(
@@ -367,7 +367,7 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("identity.get_current_branch", return_value="paul/sprint-027-integration")
     @patch("branching.get_branching_stage", return_value=1)
     @patch("branching.is_sprint_branch", return_value=True)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_silent_at_stage_1(self, *_mocks):
         result = pre_tool_bash.run(
@@ -378,7 +378,7 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("identity.get_current_branch", return_value="paul/story-001-feature")
     @patch("branching.get_branching_stage", return_value=2)
     @patch("branching.is_sprint_branch", return_value=False)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_silent_on_story_branch(self, *_mocks):
         result = pre_tool_bash.run(
@@ -389,7 +389,7 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("identity.get_current_branch", return_value="paul/sprint-027-integration")
     @patch("branching.get_branching_stage", return_value=2)
     @patch("branching.is_sprint_branch", return_value=True)
-    @patch("security.is_git_commit", return_value=True)
+    @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     def test_escape_hatch_bypasses_sprint_branch_gate(self, *_mocks):
         """[chore] / [release] / [sprint-direct] bypass the sprint-branch nudge.

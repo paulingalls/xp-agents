@@ -13,10 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import append_validation
+import code_files
 import coordination
 import identity
 import markers
-import security
 import sprint_state
 import worktree
 
@@ -200,7 +200,7 @@ def check_tdd_order(
         return None
 
     # Non-code files (md, json, yaml, etc.) don't count for TDD tracking
-    if not security.is_code_file(file_path):
+    if not code_files.is_code_file(file_path):
         return None
 
     # Implementation file

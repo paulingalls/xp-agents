@@ -14,12 +14,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import re
 
 import _common
+import code_files
 import commits
 import concerns
+import git_commits
 import identity
 import lint_resolution
 import markers
-import security
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
@@ -206,7 +207,7 @@ def _handle_commit(
 
     committed_files = commits.get_committed_files(cwd)
     commit_hash = commits.get_head_commit_hash(cwd)
-    code_file_count = sum(1 for f in committed_files if security.is_code_file(f))
+    code_file_count = sum(1 for f in committed_files if code_files.is_code_file(f))
     has_code = code_file_count > 0
 
     raw_body = commits.get_commit_message_body(cwd) or msg
@@ -306,7 +307,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # commit event always lands; side-effect mutations (lint resolution,
     # security marker, review cycle, QR nudge) are gated by is_xp_agent_leak.
     # See TestCommitRecordingDespiteXpAgentType.
-    if security.is_git_commit(command):
+    if git_commits.is_git_commit(command):
         is_xp_agent_leak = _common.is_xp_agent(input_data)
         result = _handle_commit(
             smm_dir,
