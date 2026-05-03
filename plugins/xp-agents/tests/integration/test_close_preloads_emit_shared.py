@@ -155,6 +155,44 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
                     f"Step 5c ask-user bucket must list `{category}`",
                 )
 
+    def test_step5c_lint_action_pins_ruff_command(self):
+        # Per concern af53fd5e37d0: category names are pinned but action
+        # verbs aren't. A silent rewrite of `ruff format && ruff check
+        # --fix` to something different (e.g., dropping --fix or swapping
+        # to a different formatter) would never fail a test. Pin both
+        # halves of the lint verb so any rewrite forces a deliberate
+        # test edit.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "ruff format",
+            result.stdout,
+            "Step 5c lint action must pin `ruff format` (concern af53fd5e37d0)",
+        )
+        self.assertIn(
+            "ruff check --fix",
+            result.stdout,
+            "Step 5c lint action must pin `ruff check --fix` (concern af53fd5e37d0)",
+        )
+
+    def test_step5c_test_failure_action_pins_runner_output_phrase(self):
+        # The test_failure verb walks the LLM through "read the test
+        # runner output, edit code at file:line, re-run". Pin the
+        # generic "test runner output" phrase — NOT a runner-specific
+        # name like "pytest" — because the shared file ships to every
+        # project. The complementary test_step5c_does_not_leak_project
+        # _internal_refs guards the negative side; this guards the
+        # positive side that the verb stays meaningful.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "test runner output",
+            result.stdout,
+            "Step 5c test_failure verb must pin generic 'test runner output' "
+            "(concern af53fd5e37d0); naming a specific runner would break "
+            "plugin-genericness",
+        )
+
     def test_emits_step5c_default_to_ask(self):
         # Safety: when the LLM can't classify, default to ASK rather
         # than silently auto-fixing something it doesn't understand.
@@ -221,6 +259,7 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             '"route"',
             '"category"',
             '"concern_id"',
+            '"close_cycle_id"',  # per concern 1cf66a58205d: cycle scoper
         ):
             with self.subTest(marker=marker):
                 self.assertIn(
@@ -243,6 +282,24 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             result.stdout.lower(),
             "Shared close-pipeline content must not name 'spike-008' — "
             "the plugin ships to other projects",
+        )
+
+    def test_emits_close_cycle_id_12_hex(self):
+        # Per concern 1cf66a58205d: every close preload emits
+        # CLOSE_CYCLE_ID=<12-hex>. Story+free use it as the strict
+        # scoper for the auto-merge gate's count-classifications query;
+        # sprint+plan write it into Step 5c metadata so downstream
+        # retrospective queries can slice classifications by cycle.
+        # Pin all 4 so a future preload edit can't silently drop the
+        # emission for one mode.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(
+            result.stdout,
+            re.compile(r"^CLOSE_CYCLE_ID=[0-9a-f]{12}$", re.MULTILINE),
+            "preload must emit CLOSE_CYCLE_ID=<12-hex> for the Step 5c "
+            "audit-trail close_cycle_id metadata field "
+            "(concern 1cf66a58205d)",
         )
 
 
@@ -481,12 +538,17 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
         }
 
     def test_story_free_skills_carry_auto_merge_override(self):
+        # Pin the structural marker, not the literal keyword: the override
+        # section opens with `override for Step 6 (auto-merge gate)` in both
+        # story+free SKILL.md. Sprint+plan close test the absence of the
+        # same marker (test_sprint_plan_skills_lack_auto_merge_override),
+        # so a header rename cannot silently pass both halves.
         for mode in _AUTO_MERGE_SKILL_MDS:
             with self.subTest(mode=mode):
-                lower = self.auto_merge_text[mode].lower()
+                text = self.auto_merge_text[mode]
                 self.assertIn(
-                    "auto-merge",
-                    lower,
+                    "override for Step 6 (auto-merge gate)",
+                    text,
                     f"{mode}-close SKILL.md must add an auto-merge "
                     f"override section (commit 4)",
                 )
@@ -604,15 +666,75 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
         # Sprint+plan close into primary as terminal merges. The user
         # confirms there. Auto-merge in those modes would be a
         # behavior regression.
+        #
+        # Test the structural marker, not the literal word: the
+        # override section in story/free-close opens with the exact
+        # header `override for Step 6 (auto-merge gate)`. Sprint+plan
+        # close are free to mention "auto-merge" in prose explaining
+        # the absence (per concern a4e03dbeefcb) — what they must not
+        # carry is the override section itself.
         for mode in _NO_AUTO_MERGE_SKILL_MDS:
             with self.subTest(mode=mode):
-                lower = self.no_auto_merge_text[mode].lower()
+                text = self.no_auto_merge_text[mode]
                 self.assertNotIn(
-                    "auto-merge",
-                    lower,
+                    "override for Step 6 (auto-merge gate)",
+                    text,
                     f"{mode}-close SKILL.md must NOT carry an auto-merge "
-                    f"override — terminal merges keep explicit confirm",
+                    f"override section — terminal merges keep explicit confirm",
                 )
+
+    def test_free_close_auto_merge_blocks_on_design_decision(self):
+        # Per concern 28f5e1b919d6: free-close merges to primary, so
+        # any design_decision finding deserves a human checkpoint —
+        # even if the Step 5c classifier routed it to `fix`. Pin both
+        # the CLI invocation (--category design_decision) and the
+        # numeric guard so a future edit can't silently drop the check.
+        free_text = self.auto_merge_text["free"]
+        self.assertIn(
+            "--category design_decision",
+            free_text,
+            "free-close auto-merge must invoke count-classifications "
+            "with --category design_decision (concern 28f5e1b919d6)",
+        )
+        self.assertIn(
+            "DESIGN_DECISION_COUNT",
+            free_text,
+            "free-close auto-merge must capture DESIGN_DECISION_COUNT "
+            "and gate on it (concern 28f5e1b919d6)",
+        )
+
+    def test_story_free_auto_merge_uses_cycle_id(self):
+        # Per concern 1cf66a58205d: since-ts is time-scoped, not
+        # cycle-scoped — concurrent close-cycles in other teammate
+        # worktrees could leak concern_classify events into this
+        # cycle's count. The auto-merge gate must invoke
+        # count-classifications with --cycle-id <CLOSE_CYCLE_ID> so
+        # the close_cycle_id metadata field strict-scopes the count.
+        # --since-ts stays as belt-and-suspenders defense.
+        for mode in _AUTO_MERGE_SKILL_MDS:
+            with self.subTest(mode=mode):
+                text = self.auto_merge_text[mode]
+                self.assertIn(
+                    "--cycle-id <CLOSE_CYCLE_ID>",
+                    text,
+                    f"{mode}-close auto-merge must invoke "
+                    f"count-classifications with --cycle-id "
+                    f"<CLOSE_CYCLE_ID> (concern 1cf66a58205d)",
+                )
+
+    def test_story_close_auto_merge_lacks_design_decision_guard(self):
+        # Story-close merges into the sprint branch (not primary), so
+        # the design_decision guard isn't load-bearing there — sprint+plan
+        # close pick up the human checkpoint at the next boundary. Pin
+        # the absence so a future copy-paste from free-close doesn't
+        # silently widen the guard's blast radius.
+        story_text = self.auto_merge_text["story"]
+        self.assertNotIn(
+            "--category design_decision",
+            story_text,
+            "story-close auto-merge must NOT carry the design_decision "
+            "guard — that's free-close-only (merges to primary)",
+        )
 
 
 class TestSharedPipelineCoherence(unittest.TestCase):

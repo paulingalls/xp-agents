@@ -88,6 +88,13 @@ steps in order after Step 4, then continue with Step 7 below.
 abort" rule means the plan stays unarchived — Step 7 below is the
 archive step and only runs on a confirmed merge.
 
+**No auto-merge override here.** Plan-close always prompts via the
+shared Step 6 `AskUserQuestion`. Only `/xp-story-close` and
+`/xp-free-close` consume the since-ts gate to skip confirmation; plan
+merges (and sprint merges) cross too many in-flight stories to safely
+auto-accept. Step 7 archives the plan as a one-shot side effect — the
+human checkpoint before that side effect lands is load-bearing.
+
 ## Step 7: Merge and archive
 
 ```bash

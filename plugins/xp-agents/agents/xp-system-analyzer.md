@@ -84,6 +84,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Repo signals suggest Stage N (reasons), but current branching is Stage M. Consider migrating: [specific next steps]. To dismiss, declare Stage M explicitly with rationale."
 ```
 
+This concern is architectural (configures branching policy, not a specific source file), so `--files` is typically empty. If signals are anchored to specific config files (e.g., `.github/workflows/*.yml` for CI gating), pass those paths so a future fix commit can auto-link.
+
 ### Step 3.6: Acceptance Surface Detection
 
 Scan the project to identify which acceptance surfaces it presents and whether acceptance testing coverage exists for each. This is **read-only analysis — never install tooling or scaffold tests.**

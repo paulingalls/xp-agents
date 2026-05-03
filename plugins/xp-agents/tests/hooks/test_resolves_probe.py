@@ -190,7 +190,8 @@ class _ScoringHelpers:
     re-run each other's tests via inheritance."""
 
     NOW = "2026-04-29T00:00:00+00:00"
-    RECENT_TS = "2026-04-25T00:00:00+00:00"  # 4 days ago — within 7-day window
+    RECENT_TS = "2026-04-25T00:00:00+00:00"  # 4 days ago — within 5-day window
+    EDGE_TS = "2026-04-23T00:00:00+00:00"  # 6 days ago — outside 5-day window
     OLD_TS = "2026-04-01T00:00:00+00:00"  # 28 days ago — outside window
 
     def _candidate(self, **kwargs) -> dict:
@@ -252,7 +253,8 @@ class TestScoreCandidate(_ScoringHelpers, unittest.TestCase):
         self.assertGreaterEqual(score, 2)
 
     def test_keyword_score_capped_at_five_matches(self):
-        # 10 keywords all match → score should not exceed 5*2 = 10
+        # 10 keywords all match → score capped at 5*multiplier. Default ts is
+        # OLD_TS so multiplier=2 (no recency boost) → cap = 5*2 = 10.
         cand = self._candidate(
             content="alpha bravo charlie delta echo foxtrot golf hotel india juliet",
             files=[],
@@ -265,10 +267,35 @@ class TestScoreCandidate(_ScoringHelpers, unittest.TestCase):
         )
         self.assertLessEqual(score, 10)
 
-    def test_recency_boost_when_within_seven_days(self):
+    def test_recency_boost_when_within_five_days(self):
         recent = self._candidate(ts=self.RECENT_TS, content="zzz", files=[])
         old = self._candidate(ts=self.OLD_TS, content="zzz", files=[])
         self.assertEqual(self._score(recent) - self._score(old), 1)
+
+    def test_no_recency_boost_at_six_days(self):
+        edge = self._candidate(ts=self.EDGE_TS, content="zzz", files=[])
+        old = self._candidate(ts=self.OLD_TS, content="zzz", files=[])
+        self.assertEqual(self._score(edge) - self._score(old), 0)
+
+    def test_keyword_score_boosted_for_recent_concerns(self):
+        """Fresh concerns matching commit keywords get a per-match multiplier
+        bump (2→3) on top of the +1 recency reason. Old concerns with the
+        same content get only the base 2x. Difference: keyword_count + 1."""
+        recent = self._candidate(
+            ts=self.RECENT_TS, content="auth middleware leaks tokens", files=[]
+        )
+        old = self._candidate(
+            ts=self.OLD_TS, content="auth middleware leaks tokens", files=[]
+        )
+        # 4 >=3-char non-stopword tokens overlap (auth, middleware, leaks,
+        # tokens). recent gets 4*3=12, old 4*2=8. Plus +1 recency on recent.
+        # Total diff = 4 + 1 = 5.
+        msg = "fix auth middleware leaks tokens"
+        self.assertEqual(
+            self._score(recent, commit_message=msg)
+            - self._score(old, commit_message=msg),
+            5,
+        )
 
     def test_close_reviewer_provenance_boost(self):
         with_close = self._candidate(
@@ -443,7 +470,7 @@ class TestFindProbeCandidatesSorting(_HookTestCase):
             now_ts="2026-04-29T00:00:00+00:00",
         )
         ids = [c["id"] for c in result]
-        # Both score equally — file overlap +1, neither within 7-day window
+        # Both score equally — file overlap +1, neither within 5-day window
         # (old=28d, new=14d). ts-desc tiebreak → newer first.
         self.assertLess(ids.index(cid_new), ids.index(cid_old))
 

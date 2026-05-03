@@ -31,7 +31,16 @@ def _classify_event(
     category: str = "lint",
     concern_id: str = "abcdef012345",
     ts: str = "2026-05-01T00:00:00+00:00",
+    close_cycle_id: str | None = None,
 ) -> dict:
+    metadata = {
+        "action": "concern_classify",
+        "route": route,
+        "category": category,
+        "concern_id": concern_id,
+    }
+    if close_cycle_id is not None:
+        metadata["close_cycle_id"] = close_cycle_id
     return {
         "id": "0123456789ab",
         "ts": ts,
@@ -40,12 +49,7 @@ def _classify_event(
         "content": f"concern-classify {concern_id}: {route} ({category}) — test",
         "schema_version": 1,
         "working_on": [],
-        "metadata": {
-            "action": "concern_classify",
-            "route": route,
-            "category": category,
-            "concern_id": concern_id,
-        },
+        "metadata": metadata,
     }
 
 
@@ -154,6 +158,118 @@ class TestCountClassifications(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         # April event excluded; May 1 + May 2 included → 2.
         self.assertEqual(result.stdout.strip(), "2")
+
+    def test_category_filters_to_matching_only(self) -> None:
+        # Per concern 28f5e1b919d6: free-close auto-merge needs a way to
+        # block when ANY design_decision finding was classified, even if
+        # routed to fix. The --category filter exposes that count.
+        events = [
+            _classify_event(route="ask", category="design_decision"),
+            _classify_event(route="fix", category="lint"),
+            _classify_event(route="fix", category="lint"),
+            _classify_event(route="ask", category="design_decision"),
+        ]
+        _write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--category", "design_decision"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "2")
+
+    def test_category_no_match_returns_zero(self) -> None:
+        # When no events carry the requested category, count is 0 — the
+        # absent-→-zero semantics auto-merge gates rely on.
+        events = [
+            _classify_event(route="fix", category="lint"),
+            _classify_event(route="fix", category="test_failure"),
+        ]
+        _write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--category", "design_decision"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_combined_category_and_since_ts(self) -> None:
+        # Auto-merge gate's full-power invocation: count design_decision
+        # findings only within this close cycle, regardless of route.
+        events = [
+            _classify_event(
+                route="fix",
+                category="design_decision",
+                ts="2026-04-01T00:00:00+00:00",
+            ),
+            _classify_event(
+                route="ask",
+                category="design_decision",
+                ts="2026-05-01T12:00:00+00:00",
+            ),
+            _classify_event(
+                route="ask",
+                category="lint",
+                ts="2026-05-01T12:00:00+00:00",
+            ),
+            _classify_event(
+                route="ask",
+                category="design_decision",
+                ts="2026-05-02T00:00:00+00:00",
+            ),
+        ]
+        _write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            [
+                "count-classifications",
+                "--category",
+                "design_decision",
+                "--since-ts",
+                "2026-05-01T00:00:00+00:00",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # 2 design_decision events on/after May 1 (May 1 ask + May 2 ask).
+        self.assertEqual(result.stdout.strip(), "2")
+
+    def test_cycle_id_filters_to_matching_only(self) -> None:
+        # Per concern 1cf66a58205d: since-ts is time-scoped, not
+        # cycle-scoped — concurrent close on another teammate worktree
+        # could leak classifications into the gate's count. close_cycle_id
+        # is the strict scoper; this filter exposes it.
+        events = [
+            _classify_event(route="ask", close_cycle_id="aaaa11111111"),
+            _classify_event(route="ask", close_cycle_id="bbbb22222222"),
+            _classify_event(route="ask", close_cycle_id="aaaa11111111"),
+        ]
+        _write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "2")
+
+    def test_cycle_id_excludes_events_without_metadata_key(self) -> None:
+        # Pre-cycle-id events (no metadata.close_cycle_id) MUST NOT match
+        # any --cycle-id query — they belong to no cycle and counting them
+        # would defeat the purpose of the scoper.
+        events = [
+            _classify_event(route="ask"),  # no close_cycle_id
+            _classify_event(route="ask", close_cycle_id="aaaa11111111"),
+        ]
+        _write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
 
     def test_combined_route_and_since_ts(self) -> None:
         # Realistic auto-merge gate invocation: count just the ask-routed

@@ -47,8 +47,8 @@ non-code item as "fix" and silently get it wrong.
 hook closes the concern when the trailer matches):
 
 - `lint` (ruff/format errors) → `ruff format && ruff check --fix`, re-test
-- `test_failure` (pytest failures) → read pytest output, edit code at the
-  named file:line, re-run the failing test
+- `test_failure` (failing tests) → read the test runner output, edit
+  code at the named file:line, re-run the failing test
 - `ac_coverage` (missing assertion / weak test / partial AC / brittle
   test design / ambiguity) → add the assertion or doc named in the
   concern
@@ -84,16 +84,20 @@ every classification:
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "status" --agent "main" \
   --content "concern-classify <event-id>: <fix|ask> (<category>) — <one-line reason>" \
-  --metadata '{"action":"concern_classify","route":"<fix|ask>","category":"<category>","concern_id":"<event-id>"}' \
+  --metadata '{"action":"concern_classify","route":"<fix|ask>","category":"<category>","concern_id":"<event-id>","close_cycle_id":"<CLOSE_CYCLE_ID>"}' \
   --working-on '[]'
 ```
 
 The `--metadata` block is the canonical signal: `action="concern_classify"`
 is what `smm_cli.py count-classifications` filters on, and `route` is
-the fix/ask discriminator the auto-merge gate counts. The
-`concern-classify` content prefix stays for human readability
-(retros + grep-by-eye); structured consumers read `metadata.action`,
-never the content string.
+the fix/ask discriminator the auto-merge gate counts. `close_cycle_id`
+is the strict scoper — substitute the `CLOSE_CYCLE_ID` value emitted
+by the preload at the top of this context. It prevents concurrent
+close-cycles in other teammate worktrees from leaking
+classifications into this cycle's count (SMM is shared across
+worktrees). The `concern-classify` content prefix stays for human
+readability (retros + grep-by-eye); structured consumers read
+`metadata.action`, never the content string.
 
 After acting on the classification (fix-and-mark or queue-for-Step-6),
 continue to the next finding. When all findings are processed,

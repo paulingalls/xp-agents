@@ -110,6 +110,18 @@ now_iso() {
     python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat())"
 }
 
+# Generate a 12-char hex ID matching event_builder.generate_id() shape.
+# Used by close-skill preloads to capture CLOSE_CYCLE_ID — the strict
+# scoper for the Step 6 auto-merge gate's count-classifications query.
+# Cycle-id (not just since-ts) prevents concurrent close-cycles in
+# other teammate worktrees from leaking concern_classify events into
+# this cycle's count.
+#
+# Usage: generate_id
+generate_id() {
+    python3 -c "import secrets; print(secrets.token_hex(6))"
+}
+
 # Look up the project's test command from system_context.stack.test_command.
 # Returns the value (e.g. "pytest -n auto", "npm test", "cargo test")
 # or empty string when unset / system_context.json missing.

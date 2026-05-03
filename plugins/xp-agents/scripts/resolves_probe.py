@@ -32,7 +32,7 @@ from event_schema import (
 
 PROBE_CANDIDATE_LIMIT = 5
 _KEYWORD_MATCH_CAP = 5
-_RECENCY_DAYS = 7
+_RECENCY_DAYS = 5
 _TOKEN_RE = re.compile(r"[^a-z0-9_]+")
 
 # Shared trailer-reminder text used by pre_tool_bash in both the soft-nudge
@@ -110,9 +110,15 @@ def _score_candidate(
     """
     reasons: list[str] = []
 
+    recency = 1 if _is_recent(candidate.get("ts") or "", now_ts) else 0
+
     keywords = _extract_keywords(candidate.get("content") or "")
     overlap = keywords & haystack_keywords
-    keyword_score = min(len(overlap), _KEYWORD_MATCH_CAP) * 2
+    # Recency multiplier: fresh concerns matching commit keywords get 3 per
+    # match; stale ones get the base 2. Boost only kicks in with overlap, so
+    # recency-only candidates still contribute just the +1 recency reason.
+    keyword_multiplier = 3 if recency else 2
+    keyword_score = min(len(overlap), _KEYWORD_MATCH_CAP) * keyword_multiplier
     if keyword_score > 0:
         reasons.append(SELECTION_REASON_KEYWORD)
 
@@ -130,7 +136,6 @@ def _score_candidate(
     if file_overlap > 0:
         reasons.append(SELECTION_REASON_FILE_OVERLAP)
 
-    recency = 1 if _is_recent(candidate.get("ts") or "", now_ts) else 0
     if recency:
         reasons.append(SELECTION_REASON_RECENCY)
 
