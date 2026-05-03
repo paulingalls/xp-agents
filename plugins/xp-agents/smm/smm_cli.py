@@ -187,12 +187,13 @@ def _cmd_remove_item(args: argparse.Namespace) -> int:
 
 
 def _cmd_count_classifications(args: argparse.Namespace) -> int:
-    """Count concern_classify events matching --route, optionally
-    bounded by --since-ts (ISO 8601 timestamp).
+    """Count concern_classify events matching --route and/or --category,
+    optionally bounded by --since-ts (ISO 8601 timestamp).
 
     Filters each event by:
       - metadata.action == "concern_classify"
       - metadata.route == args.route (when provided)
+      - metadata.category == args.category (when provided)
       - ts >= args.since_ts (lexicographic ISO comparison; safe because
         all event ts values use the same fixed-width "YYYY-MM-DDTHH:MM:SS+00:00"
         shape per append.sh)
@@ -205,7 +206,10 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
 
     Used by story-close + free-close auto-merge override condition 1
     to verify Step 5c queued zero ask-user items via structured
-    metadata instead of regex over LLM-authored content.
+    metadata instead of regex over LLM-authored content. The --category
+    filter (per concern 28f5e1b919d6) lets free-close also block
+    auto-merge when any design_decision finding was classified, even
+    if routed to fix.
     """
     events_path = Path(args.smm_dir) / "events.jsonl"
     if not events_path.exists():
@@ -221,6 +225,8 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         if meta.get("action") != STATUS_ACTION_CONCERN_CLASSIFY:
             continue
         if args.route and meta.get("route") != args.route:
+            continue
+        if args.category and meta.get("category") != args.category:
             continue
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
@@ -351,6 +357,12 @@ def main() -> None:
         choices=["fix", "ask"],
         default=None,
         help="Filter by metadata.route (omit to count all routes)",
+    )
+    count_p.add_argument(
+        "--category",
+        default=None,
+        help="Filter by metadata.category (e.g. design_decision); "
+        "omit to count all categories",
     )
     count_p.add_argument(
         "--since-ts",

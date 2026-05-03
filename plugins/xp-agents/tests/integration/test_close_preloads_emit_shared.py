@@ -664,6 +664,40 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
                     f"override section — terminal merges keep explicit confirm",
                 )
 
+    def test_free_close_auto_merge_blocks_on_design_decision(self):
+        # Per concern 28f5e1b919d6: free-close merges to primary, so
+        # any design_decision finding deserves a human checkpoint —
+        # even if the Step 5c classifier routed it to `fix`. Pin both
+        # the CLI invocation (--category design_decision) and the
+        # numeric guard so a future edit can't silently drop the check.
+        free_text = self.auto_merge_text["free"]
+        self.assertIn(
+            "--category design_decision",
+            free_text,
+            "free-close auto-merge must invoke count-classifications "
+            "with --category design_decision (concern 28f5e1b919d6)",
+        )
+        self.assertIn(
+            "DESIGN_DECISION_COUNT",
+            free_text,
+            "free-close auto-merge must capture DESIGN_DECISION_COUNT "
+            "and gate on it (concern 28f5e1b919d6)",
+        )
+
+    def test_story_close_auto_merge_lacks_design_decision_guard(self):
+        # Story-close merges into the sprint branch (not primary), so
+        # the design_decision guard isn't load-bearing there — sprint+plan
+        # close pick up the human checkpoint at the next boundary. Pin
+        # the absence so a future copy-paste from free-close doesn't
+        # silently widen the guard's blast radius.
+        story_text = self.auto_merge_text["story"]
+        self.assertNotIn(
+            "--category design_decision",
+            story_text,
+            "story-close auto-merge must NOT carry the design_decision "
+            "guard — that's free-close-only (merges to primary)",
+        )
+
 
 class TestSharedPipelineCoherence(unittest.TestCase):
     """Per plan-reviewer concern ee1db2bd2f8a: each preceding commit's

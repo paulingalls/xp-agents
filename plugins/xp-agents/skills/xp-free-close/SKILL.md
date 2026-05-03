@@ -104,6 +104,19 @@ to Step 7:
    that command AFTER all Step 5c fixes landed exits 0. Any non-zero
    exit means tests aren't green — fall through to the shared Step 6
    prompt.
+4. Step 5c classified zero `design_decision` findings — even if the
+   classifier routed one to `fix`. Free-close merges to primary, and
+   architectural calls deserve a human checkpoint regardless of the
+   classifier's route choice. Verify via the same CLI:
+   ```bash
+   DESIGN_DECISION_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-classifications \
+     --category design_decision --since-ts <CLOSE_START_TS>)
+   ```
+   Test numerically: `[ "$DESIGN_DECISION_COUNT" -gt 0 ]` → fall
+   through to the shared Step 6 prompt. (Story-close + sprint/plan
+   close don't need this guard — story-close merges into the sprint
+   branch, not primary; sprint+plan always confirm.)
 
 When `TEST_COMMAND` is empty (the project hasn't configured a test
 command), the gate cannot fire. Print this two-line discovery hint
@@ -119,14 +132,14 @@ Substitute `<your-test-command>` with the project's test runner
 invocation. The `printf %s` form avoids shell-quoting traps when the
 command itself contains spaces or special characters.
 
-When all three conditions hold, print exactly:
+When all four conditions hold, print exactly:
 "All reviewer findings addressed and tests green — proceeding to merge
 without confirmation."
 then continue to Step 7. Otherwise apply the shared Step 6
 `AskUserQuestion` as written. Free-close merges directly into primary,
-so the deterministic green-tests gate is load-bearing — LLM judgment
-from Step 5c alone is not sufficient. This matches the auto-accept
-pattern in `/xp-accept`.
+so the deterministic green-tests gate AND the design_decision guard
+are load-bearing — LLM judgment from Step 5c alone is not sufficient.
+This matches the auto-accept pattern in `/xp-accept`.
 
 ## Step 7: Merge
 
