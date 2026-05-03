@@ -32,7 +32,7 @@ from event_schema import (
 
 PROBE_CANDIDATE_LIMIT = 5
 _KEYWORD_MATCH_CAP = 5
-_RECENCY_DAYS = 7
+_RECENCY_DAYS = 5
 _TOKEN_RE = re.compile(r"[^a-z0-9_]+")
 
 # Shared trailer-reminder text used by pre_tool_bash in both the soft-nudge
