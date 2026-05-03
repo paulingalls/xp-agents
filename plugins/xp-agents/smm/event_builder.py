@@ -22,11 +22,25 @@ _REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
 _REFS_SPLIT_RE = re.compile(r"[,\s]+")
 
 _URL_RE = re.compile(r"https?://\S+")
-# Intentionally NOT reusing lint_check._CODE_EXTENSIONS or security.is_code_file:
-# extraction is recall-biased (over-extract; resolves_probe filters via file-overlap
-# at commit time). Narrowing the list to "code only" would silence path mentions in
-# the noise the probe is built to handle.
-_FILE_PATTERN_RE = re.compile(r"\b([\w./-]+\.(?:py|md|sh|json|yaml|yml|toml|jsonl))\b")
+# Intentionally NOT reusing lint_check._CODE_EXTENSIONS at runtime: that's a
+# Python frozenset; this regex needs a literal alternation. Both lists are
+# extension catalogs and should evolve together — when adding a language to
+# _LINTER_EXTENSIONS, add its primary source extensions here too. Keeping the
+# alternation broad (Python, JS/TS, Rust, Go, Ruby, C/C++, Java, Kotlin, PHP,
+# Dart, Elixir, C#, Swift, plus prose/config) preserves the recall-biased
+# extraction across xp-agents users — narrowing to one language's set would
+# silence the very signals the probe was built to surface.
+# `(?<![\w/])` (not `\b`) at the start lets leading-slash absolute paths
+# (`/abs/path/foo.py`) capture intact rather than dropping the `/` and
+# misresolving relative to cwd downstream.
+_FILE_PATTERN_RE = re.compile(
+    r"(?<![\w/])([\w./-]+\.(?:py|pyi|ipynb"
+    r"|js|ts|jsx|tsx|mjs|cjs|vue"
+    r"|rs|go|rb"
+    r"|c|cpp|cc|cxx|h|hpp"
+    r"|java|kt|kts|php|dart|ex|exs|cs|swift"
+    r"|md|sh|json|yaml|yml|toml|jsonl))\b"
+)
 
 
 def extract_files_from_content(content: str) -> list[str]:

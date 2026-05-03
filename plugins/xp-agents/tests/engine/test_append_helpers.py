@@ -215,6 +215,32 @@ class TestBuildEvent(_SMMTestCase):
         )
         self.assertNotIn("files", event)
 
+    def test_concern_auto_extract_captures_leading_slash_absolute_path(self):
+        # Per close-reviewer concern 78ab5a70ca1b: `\b` at the regex start
+        # was dropping the leading `/` from absolute paths, leaving the
+        # downstream worktree.normalize_path resolving against cwd and
+        # missing the actual target. Fixed via `(?<![\w/])` lookbehind.
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern", content="leak in /abs/repo/scripts/auth.py:42"
+            )
+        )
+        self.assertEqual(event["files"], ["/abs/repo/scripts/auth.py"])
+
+    def test_concern_auto_extract_recognizes_non_python_extensions(self):
+        # Per close-reviewer concern 87e022ad0693: the original pattern
+        # only matched .py/.md/.sh/.json/.yaml/.yml/.toml/.jsonl —
+        # near-zero recall for projects in JS/TS/Rust/Go/Ruby/etc. Pin a
+        # representative sample of the expanded alternation so a future
+        # narrowing fails loudly.
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern",
+                content="auth.ts:10 leaks; see also lib/foo.rs and main.go",
+            )
+        )
+        self.assertEqual(event["files"], ["auth.ts", "lib/foo.rs", "main.go"])
+
     def test_concern_skips_paths_inside_urls(self):
         event = _append_impl.build_event(
             self._namespace(
