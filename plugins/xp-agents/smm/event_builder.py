@@ -115,6 +115,8 @@ def build_event(args: argparse.Namespace) -> dict:
         case "concern":
             if args.severity:
                 event["severity"] = args.severity
+            if args.files is not None:
+                event["files"] = parse_json_arg(args.files, "files")
 
         case "question":
             if args.priority is not None:

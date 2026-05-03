@@ -168,6 +168,16 @@ class TestBuildEvent(_SMMTestCase):
         )
         self.assertEqual(event["severity"], "high")
 
+    def test_concern_includes_files(self):
+        event = _append_impl.build_event(
+            self._namespace(type="concern", files='["scripts/foo.py"]')
+        )
+        self.assertEqual(event["files"], ["scripts/foo.py"])
+
+    def test_concern_files_omitted_when_unset(self):
+        event = _append_impl.build_event(self._namespace(type="concern"))
+        self.assertNotIn("files", event)
+
     def test_metadata_parsed(self):
         event = _append_impl.build_event(
             self._namespace(metadata='{"notes": "from plan review"}')
