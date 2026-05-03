@@ -47,8 +47,8 @@ non-code item as "fix" and silently get it wrong.
 hook closes the concern when the trailer matches):
 
 - `lint` (ruff/format errors) → `ruff format && ruff check --fix`, re-test
-- `test_failure` (pytest failures) → read pytest output, edit code at the
-  named file:line, re-run the failing test
+- `test_failure` (failing tests) → read the test runner output, edit
+  code at the named file:line, re-run the failing test
 - `ac_coverage` (missing assertion / weak test / partial AC / brittle
   test design / ambiguity) → add the assertion or doc named in the
   concern

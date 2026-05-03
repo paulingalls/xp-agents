@@ -155,6 +155,44 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
                     f"Step 5c ask-user bucket must list `{category}`",
                 )
 
+    def test_step5c_lint_action_pins_ruff_command(self):
+        # Per concern af53fd5e37d0: category names are pinned but action
+        # verbs aren't. A silent rewrite of `ruff format && ruff check
+        # --fix` to something different (e.g., dropping --fix or swapping
+        # to a different formatter) would never fail a test. Pin both
+        # halves of the lint verb so any rewrite forces a deliberate
+        # test edit.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "ruff format",
+            result.stdout,
+            "Step 5c lint action must pin `ruff format` (concern af53fd5e37d0)",
+        )
+        self.assertIn(
+            "ruff check --fix",
+            result.stdout,
+            "Step 5c lint action must pin `ruff check --fix` (concern af53fd5e37d0)",
+        )
+
+    def test_step5c_test_failure_action_pins_runner_output_phrase(self):
+        # The test_failure verb walks the LLM through "read the test
+        # runner output, edit code at file:line, re-run". Pin the
+        # generic "test runner output" phrase — NOT a runner-specific
+        # name like "pytest" — because the shared file ships to every
+        # project. The complementary test_step5c_does_not_leak_project
+        # _internal_refs guards the negative side; this guards the
+        # positive side that the verb stays meaningful.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "test runner output",
+            result.stdout,
+            "Step 5c test_failure verb must pin generic 'test runner output' "
+            "(concern af53fd5e37d0); naming a specific runner would break "
+            "plugin-genericness",
+        )
+
     def test_emits_step5c_default_to_ask(self):
         # Safety: when the LLM can't classify, default to ASK rather
         # than silently auto-fixing something it doesn't understand.
