@@ -15,6 +15,7 @@ from pathlib import Path
 
 from _append_impl import write_text_atomic
 from sprint_schema import (
+    IN_MOTION_STORY_STATUSES,
     SPRINT_FILENAME,
     VALID_STORY_STATUSES,
     validate_sprint,
@@ -232,13 +233,16 @@ def _next_story_id_with_status(smm_dir: Path, status: str) -> str | None:
     return min(eligible, key=_id_sort_key)
 
 
-def transitive_in_progress_dependents(smm_dir: Path, story_id: str) -> list[str]:
-    """In-progress stories that depend (transitively) on `story_id`, sorted.
+def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
+    """In-motion stories that depend (transitively) on `story_id`, sorted.
 
     Powers cascade-deferral in /xp-accept: when a story can't ship, every
-    in-progress descendant is also blocked and should be deferred together.
-    Done dependents are excluded — they already shipped — and a self-loop
-    or A↔B cycle terminates because we only add unseen ids.
+    in-motion descendant is also blocked and should be deferred together.
+    In-motion = in-progress OR reviewing (see sprint_schema's
+    IN_MOTION_STORY_STATUSES) — a reviewing dependent is mid-acceptance
+    and its verification work is invalidated when its base defers.
+    Done/deferred/ready/scheduled dependents are excluded; cycles
+    terminate because we only add unseen ids.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:
@@ -249,7 +253,7 @@ def transitive_in_progress_dependents(smm_dir: Path, story_id: str) -> list[str]
     while changed:
         changed = False
         for s in sprint["stories"]:
-            if s.get("status") != "in-progress":
+            if s.get("status") not in IN_MOTION_STORY_STATUSES:
                 continue
             sid = s.get("id")
             if not sid or sid in blocked:

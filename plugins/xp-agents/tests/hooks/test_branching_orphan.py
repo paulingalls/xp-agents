@@ -108,6 +108,32 @@ class TestListOrphanStoryBranches(unittest.TestCase):
             result = branch_queries.list_orphan_story_branches(td, smm_dir)
             self.assertEqual(result, [])
 
+    def test_reviewing_story_not_orphan(self):
+        # A reviewing story is mid-acceptance — its branch is NOT orphan,
+        # /xp-accept may still need it for tests / fix-cycles. Without
+        # this widening, kickoff orphan-triage would offer to merge or
+        # delete a story branch that's actively under review.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            smm_dir = Path(td) / "smm"
+            smm_dir.mkdir()
+            _create_branch(td, "test/story-001-nudge")
+            self._write_sprint(
+                smm_dir,
+                _sprint_json(
+                    [
+                        _s(
+                            "story-001",
+                            "Add nudge",
+                            "reviewing",
+                            branch_name="test/story-001-nudge",
+                        )
+                    ]
+                ),
+            )
+            result = branch_queries.list_orphan_story_branches(td, smm_dir)
+            self.assertEqual(result, [])
+
     def test_done_story_is_orphan(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
