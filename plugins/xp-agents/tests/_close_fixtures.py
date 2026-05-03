@@ -346,32 +346,37 @@ class _CloseSkillTextCommonTests(_MixinBase):
         self.assertIn("AskUserQuestion", self.text)
 
     def test_defaults_to_abort_on_block_finding(self):
-        # xp-close-reviewer Step 3.5 contract: when the reviewer files a
-        # Block-severity finding, the close skill MUST default the merge
-        # confirmation to Abort. Receiver-side honoring lives in SKILL.md
-        # prose (LLM-only seam — no script can enforce option ordering
-        # in AskUserQuestion).
+        # Step 6 abort-default contract (post-Commit-B of M-8 sprint-055):
+        # the close pipeline counts severity=high concerns deterministically
+        # via smm_cli count-concerns scoped to this close-cycle, and flips
+        # the AskUserQuestion default to "Abort (Recommended)" when count > 0.
+        # Both quality blocks (xp-close-reviewer Step 4) and security blocks
+        # (Step 4.5) land at severity=high, so a single count covers both.
         self.assertIn(
-            "Step 3.5",
+            "count-concerns",
             self.text,
-            "SKILL.md must name the Step 3.5 contract source so the "
-            "Abort-default rule is traceable; xp-close-reviewer is "
-            "named elsewhere via the Step 4 Agent fork and not a "
-            "sufficient pin on its own",
+            "close pipeline must invoke smm_cli count-concerns to compute "
+            "the abort-default flag (deterministic, single source of truth "
+            "for both quality and security blocks)",
+        )
+        self.assertIn(
+            "--severity high",
+            self.text,
+            "count-concerns must filter --severity high (both quality and "
+            "security blocks land at severity=high)",
+        )
+        self.assertIn(
+            "--cycle-id",
+            self.text,
+            "count-concerns must scope by --cycle-id <CLOSE_CYCLE_ID> so "
+            "concurrent close-cycles in other worktrees don't leak in",
         )
         lower = self.text.lower()
         self.assertIn(
-            "block finding",
-            lower,
-            "SKILL.md must mention 'Block finding' detection so the "
-            "orchestrator knows when to flip the default; bare 'block' "
-            "would match unrelated prose",
-        )
-        self.assertIn(
             "recommended",
             lower,
-            "SKILL.md must instruct the orchestrator to mark the Abort "
-            "option '(Recommended)' so AskUserQuestion's first-option "
+            "close pipeline must instruct the orchestrator to mark the "
+            "Abort option '(Recommended)' so AskUserQuestion's first-option "
             "default surfaces as Abort to the user",
         )
 
