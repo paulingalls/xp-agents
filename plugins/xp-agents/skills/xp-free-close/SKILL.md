@@ -75,12 +75,25 @@ Agent(
 )
 ```
 
+## Step 4.5: Apply shared Security Review
+
+Apply the shared `### Step 4.5: Security Review` block (close-mode = `free`,
+close-skill = `xp-free-close`). The template lives in the preload-emitted
+`scripts/_close_pipeline_shared.md` reference at the top of this context;
+substitute `<close-mode>` → `free` and `<close-skill-name>` → `xp-free-close`.
+The remaining placeholders (`<CLOSE_CYCLE_ID>`, `<SMM_DIR>`, etc.) come from
+the preload values per the template's own substitution note.
+
+Surface the security review prose to the user before falling through to
+Steps 5–6 below — they need to see what the abort-default count is
+reacting to.
+
 ## Steps 5–6: Apply shared close-pipeline reference
 
 The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
 the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4, then continue with Step 7 below.
+steps in order after Step 4.5, then continue with Step 7 below.
 
 **Free-close override for Step 6 (auto-merge gate):** if ALL of these
 hold, skip the shared Step 6's `AskUserQuestion` and proceed directly

@@ -1,9 +1,62 @@
 ## Shared close-pipeline reference
 
-The following steps are shared across all four close skills (story,
-sprint, plan, free). Apply them in order after the close skill's Step 4
-(Fork the close-reviewer), then continue with the close skill's mode-
-specific tail (Step 7+).
+The following steps are shared across the close skills; each step lists
+its applicable skills inline (most apply to all four — story, sprint,
+plan, free — but a few are scoped). Apply them in order after the close
+skill's Step 4 (Fork the close-reviewer), then continue with the close
+skill's mode-specific tail (Step 7+).
+
+### Step 4.5: Security Review
+
+Skills that apply this step: **free, sprint, plan** close (story-close
+skips — sprint-close's cumulative diff already covers each story).
+
+Invoke `/security-review` against the cumulative close diff. The close
+skill is main-agent context, so the PostToolUse:Skill hook fires and
+emits the SECURITY_COMPLETE event automatically.
+
+```
+Skill(skill: "security-review",
+      args: "the cumulative diff on branch <CURRENT_BRANCH> since merge-base with <TARGET_BRANCH>")
+```
+
+Read the prose findings; fold each bullet into Block / Concern / Keep
+and file one event per non-Keep bullet. Reviewer verdict → values:
+
+| Reviewer verdict | `<SEVERITY>` | `<DISPOSITION>` | Effect at Step 6 |
+|---|---|---|---|
+| Block            | `high`       | `Block`         | Counts toward abort-default |
+| Concern          | `medium`     | `Concern`       | Recorded only |
+| Keep             | (no event)   | —               | — |
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "<close-skill-name>" --severity "<SEVERITY>" \
+  --content "Security <DISPOSITION>: <one-line summary>" \
+  --files '["<paths /security-review pointed at>"]' \
+  --metadata '{"kind":"security","close_cycle_id":"<CLOSE_CYCLE_ID>","close_mode":"<close-mode>"}'
+```
+
+Substitute `<close-skill-name>` (e.g. `xp-free-close`), `<close-mode>`
+(`free`/`sprint`/`plan`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>` from the
+preload values at the top of this context.
+
+The shared Step 6 abort-default reads severity=high concerns filtered
+by `close_cycle_id` + `since-ts` (deterministic event count) — Block
+findings here automatically Recommend-Abort. **Do not pass these
+findings to xp-close-reviewer in Step 4 — clean separation.** The
+reviewer is quality-only; security and quality are independent
+review streams that converge only at the Step 6 abort-default count.
+
+**Surface the security review prose to the user before Step 6.** The
+Skill tool result is not visible to them — output the Block / Concern
+/ Keep bullets as text so they can see what the abort-default count
+is reacting to. (Step 5 will surface the close-reviewer prose
+separately; both streams arrive at Step 6 independently.)
+
+Step 4.5 concerns bypass Step 5c (the fix-or-ask classifier scopes
+to close-reviewer findings only — security findings flow directly to
+the Step 6 count).
 
 ### Step 5: Present findings
 
@@ -108,13 +161,24 @@ proceed to Step 6.
 Use `AskUserQuestion` to ask whether to proceed with the merge. Two
 options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 
-**If the close-reviewer's prose summary above contains any Block
-finding (recorded by xp-close-reviewer at severity high per Step 3.5),
-list "Abort — fix concerns first" as the FIRST option and append
-"(Recommended)" to its label.** This honors the xp-close-reviewer
-Step 3.5 contract: Block findings flip the merge default to Abort.
-The user can still pick Merge to override. When no Block was filed,
-keep the default ordering (Merge first).
+**Compute the abort-default flag deterministically.** Every Block from
+the close-reviewer (Step 4 quality review) AND every Block from the
+Step 4.5 security review is recorded as a `severity=high` concern
+within this close cycle. Count them via the structured filter:
+
+```bash
+HIGH_CONCERN_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+  --smm-dir <SMM_DIR> count-concerns \
+  --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
+```
+
+If `HIGH_CONCERN_COUNT > 0`, list "Abort — fix concerns first" as the
+FIRST option and append "(Recommended)" to its label. The user can
+still pick Merge to override. When the count is 0, keep the default
+ordering (Merge first).
+
+`<SMM_DIR>`, `<CLOSE_CYCLE_ID>`, and `<CLOSE_START_TS>` come from the
+preload values at the top of this context.
 
 If the user picks abort, stop here. The branch and PR (if any) stay
 intact for follow-up work.

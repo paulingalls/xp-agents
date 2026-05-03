@@ -207,27 +207,43 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
         self.assertIn("<SOURCE>", body)
         self.assertIn("<TARGET>", body)
 
+    def _assert_count_concerns_abort_default(self, mode: str) -> None:
+        # Post-Commit-B (M-8 sprint-055) Step 6 abort-default contract:
+        # severity=high concerns are counted via smm_cli count-concerns
+        # (deterministic single source of truth covering both quality
+        # blocks from xp-close-reviewer AND security blocks from
+        # Step 4.5), and the AskUserQuestion default flips to
+        # "Abort (Recommended)" when the count is > 0.
+        text = self.skill_texts[mode]
+        self.assertIn(
+            "count-concerns",
+            text,
+            f"{mode}-close pipeline must invoke count-concerns",
+        )
+        self.assertIn(
+            "--severity high",
+            text,
+            f"{mode}-close count-concerns must filter severity=high",
+        )
+        self.assertIn(
+            "--cycle-id",
+            text,
+            f"{mode}-close count-concerns must scope by --cycle-id",
+        )
+        self.assertIn("recommended", text.lower())
+
     def test_close_skills_default_abort_on_block_sprint(self):
         # AC#1 trailing Abort claim (story-004's prose, locked again
         # here from the M-3 capstone perspective).
-        text = self.skill_texts["sprint"]
-        self.assertIn("Step 3.5", text)
-        self.assertIn("block finding", text.lower())
-        self.assertIn("recommended", text.lower())
+        self._assert_count_concerns_abort_default("sprint")
 
     def test_close_skills_default_abort_on_block_plan(self):
         # AC#2 trailing Abort claim.
-        text = self.skill_texts["plan"]
-        self.assertIn("Step 3.5", text)
-        self.assertIn("block finding", text.lower())
-        self.assertIn("recommended", text.lower())
+        self._assert_count_concerns_abort_default("plan")
 
     def test_close_skills_default_abort_on_block_free(self):
         # AC#3 trailing Abort claim.
-        text = self.skill_texts["free"]
-        self.assertIn("Step 3.5", text)
-        self.assertIn("block finding", text.lower())
-        self.assertIn("recommended", text.lower())
+        self._assert_count_concerns_abort_default("free")
 
     def test_close_skills_default_abort_on_block_story(self):
         # Story-close also carries the Abort-default prose (the mixin
@@ -235,10 +251,7 @@ class TestCloseReviewerTier3Prose(unittest.TestCase):
         # we re-pin from the M-3 capstone perspective so a future
         # edit that drops it from xp-story-close fails this story-003
         # suite too — defense in depth across the same contract).
-        text = self.skill_texts["story"]
-        self.assertIn("Step 3.5", text)
-        self.assertIn("block finding", text.lower())
-        self.assertIn("recommended", text.lower())
+        self._assert_count_concerns_abort_default("story")
 
 
 if __name__ == "__main__":

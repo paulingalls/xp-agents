@@ -346,32 +346,37 @@ class _CloseSkillTextCommonTests(_MixinBase):
         self.assertIn("AskUserQuestion", self.text)
 
     def test_defaults_to_abort_on_block_finding(self):
-        # xp-close-reviewer Step 3.5 contract: when the reviewer files a
-        # Block-severity finding, the close skill MUST default the merge
-        # confirmation to Abort. Receiver-side honoring lives in SKILL.md
-        # prose (LLM-only seam — no script can enforce option ordering
-        # in AskUserQuestion).
+        # Step 6 abort-default contract (post-Commit-B of M-8 sprint-055):
+        # the close pipeline counts severity=high concerns deterministically
+        # via smm_cli count-concerns scoped to this close-cycle, and flips
+        # the AskUserQuestion default to "Abort (Recommended)" when count > 0.
+        # Both quality blocks (xp-close-reviewer Step 4) and security blocks
+        # (Step 4.5) land at severity=high, so a single count covers both.
         self.assertIn(
-            "Step 3.5",
+            "count-concerns",
             self.text,
-            "SKILL.md must name the Step 3.5 contract source so the "
-            "Abort-default rule is traceable; xp-close-reviewer is "
-            "named elsewhere via the Step 4 Agent fork and not a "
-            "sufficient pin on its own",
+            "close pipeline must invoke smm_cli count-concerns to compute "
+            "the abort-default flag (deterministic, single source of truth "
+            "for both quality and security blocks)",
+        )
+        self.assertIn(
+            "--severity high",
+            self.text,
+            "count-concerns must filter --severity high (both quality and "
+            "security blocks land at severity=high)",
+        )
+        self.assertIn(
+            "--cycle-id",
+            self.text,
+            "count-concerns must scope by --cycle-id <CLOSE_CYCLE_ID> so "
+            "concurrent close-cycles in other worktrees don't leak in",
         )
         lower = self.text.lower()
         self.assertIn(
-            "block finding",
-            lower,
-            "SKILL.md must mention 'Block finding' detection so the "
-            "orchestrator knows when to flip the default; bare 'block' "
-            "would match unrelated prose",
-        )
-        self.assertIn(
             "recommended",
             lower,
-            "SKILL.md must instruct the orchestrator to mark the Abort "
-            "option '(Recommended)' so AskUserQuestion's first-option "
+            "close pipeline must instruct the orchestrator to mark the "
+            "Abort option '(Recommended)' so AskUserQuestion's first-option "
             "default surfaces as Abort to the user",
         )
 
@@ -406,3 +411,161 @@ class _CloseSkillTextCommonTests(_MixinBase):
             "stop" in lower or "preflight" in lower or "refuse" in lower,
             "SKILL.md must describe stopping/refusing on preflight failure",
         )
+
+
+# Synthetic 12-hex cycle id used by close-skill Step 4.5 runtime tests.
+# Repeated across free/sprint/plan integration tests; named so a future
+# reader sees "fixture, not real" without grepping.
+_FAKE_CLOSE_CYCLE_ID = "abcd1234abcd"
+
+
+class _Step4_5SecurityIncludeTests(_MixinBase):
+    """Mixin asserting Step 4.5 (Security Review) is wired into a close skill.
+
+    The shared template lives in scripts/_close_pipeline_shared.md (covered
+    by test_close_preloads_emit_shared.py). Each close skill that runs
+    security review (free/sprint/plan, NOT story) must add a one-line
+    reference instructing the LLM to apply the shared block with its own
+    close-mode and close-skill-name substituted in.
+
+    Subclasses inherit this mixin PLUS _IntegrationTestCase. Subclasses
+    must define:
+        _SKILL_MD: Path — absolute path to the close skill's SKILL.md
+        _MODE: str    — "free" | "sprint" | "plan"
+        _SKILL_NAME: str — "xp-free-close" | "xp-sprint-close" | "xp-plan-close"
+    """
+
+    _SKILL_MD: Path
+    _MODE: str
+    _SKILL_NAME: str
+    skill_text: str  # set by setUpClass — SKILL.md text only (not concatenated)
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.skill_text = cls._SKILL_MD.read_text()
+
+    def test_references_shared_step_4_5_with_per_skill_substitutions(self):
+        self.assertIn(
+            "Step 4.5",
+            self.skill_text,
+            f"{self._SKILL_NAME} SKILL.md must reference the shared Step 4.5",
+        )
+        self.assertIn(
+            f"close-mode = `{self._MODE}`",
+            self.skill_text,
+            f"Step 4.5 reference must specify close-mode={self._MODE} for substitution",
+        )
+        self.assertIn(
+            f"close-skill = `{self._SKILL_NAME}`",
+            self.skill_text,
+            f"Step 4.5 reference must specify close-skill={self._SKILL_NAME}",
+        )
+
+    def test_step_4_5_reference_appears_between_step4_and_steps5_6(self):
+        # Order matters: Step 4 (Fork close-reviewer) -> Step 4.5
+        # (Security Review) -> Steps 5/6 (shared findings + merge).
+        step4_idx = self.skill_text.find("## Step 4: Fork the close-reviewer")
+        step4_5_idx = self.skill_text.find("Step 4.5")
+        # Substring chosen to avoid the EN DASH in the actual heading.
+        step5_6_idx = self.skill_text.find("Apply shared close-pipeline reference")
+        self.assertGreater(step4_idx, -1, "Step 4 heading must exist")
+        self.assertGreater(step4_5_idx, -1, "Step 4.5 reference must exist")
+        self.assertGreater(step5_6_idx, -1, "Steps 5/6 heading must exist")
+        self.assertLess(
+            step4_idx,
+            step4_5_idx,
+            "Step 4.5 reference must appear after Step 4 (Fork close-reviewer)",
+        )
+        self.assertLess(
+            step4_5_idx,
+            step5_6_idx,
+            "Step 4.5 reference must appear before Steps 5/6 (shared)",
+        )
+
+    def test_close_reviewer_prompt_does_not_mention_security(self):
+        # Clean separation: security and quality are independent review
+        # streams that converge only at the Step 6 abort-default count.
+        # The Step 4 reviewer Agent prompt template must not mention security.
+        # Scope: from the literal `Agent(` open-paren to its MATCHING close-
+        # paren (paren-depth walk). A naive `find(")", start)` truncates at
+        # the first `)` inside the prompt body — e.g. `(no gh)` — and silently
+        # skips the `## Instructions` section where a leak would most likely
+        # land, defeating the whole point of this test.
+        agent_open = self.skill_text.find("Agent(")
+        self.assertGreater(agent_open, -1, "reviewer Agent( call must exist")
+        depth = 0
+        agent_close = -1
+        for i in range(agent_open, len(self.skill_text)):
+            ch = self.skill_text[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    agent_close = i
+                    break
+        self.assertGreater(agent_close, agent_open, "Agent( has no matching ')'")
+        prompt_block = self.skill_text[agent_open : agent_close + 1]
+        self.assertIn(
+            "Instructions",
+            prompt_block,
+            "captured Agent block must include the Instructions section "
+            "(otherwise the security-mention check is scanning a stub)",
+        )
+        self.assertNotIn(
+            "security",
+            prompt_block.lower(),
+            f"{self._SKILL_NAME} Step 4 reviewer prompt must NOT mention security",
+        )
+
+    def _record_security_concern(self, severity: str, content: str, file_path: str):
+        """File a security concern via append.sh with the close-skill metadata
+        shape Step 4.5 documents. Pins the contract at the script boundary."""
+        return self._run_append(  # type: ignore[attr-defined]
+            "--type",
+            "concern",
+            "--agent",
+            self._SKILL_NAME,
+            "--severity",
+            severity,
+            "--content",
+            content,
+            "--files",
+            f'["{file_path}"]',
+            "--metadata",
+            f'{{"kind":"security","close_cycle_id":"{_FAKE_CLOSE_CYCLE_ID}",'
+            f'"close_mode":"{self._MODE}"}}',
+        )
+
+    def test_block_recording_emits_high_severity_kind_security(self) -> None:
+        result = self._record_security_concern(
+            "high", "Security Block: hardcoded credential", "scripts/foo.py"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self._read_events()  # type: ignore[attr-defined]
+        highs = [
+            e
+            for e in events
+            if e.get("type") == "concern" and e.get("severity") == "high"
+        ]
+        self.assertEqual(len(highs), 1)
+        meta = highs[0]["metadata"]
+        self.assertEqual(meta.get("kind"), "security")
+        self.assertEqual(meta.get("close_mode"), self._MODE)
+        self.assertEqual(meta.get("close_cycle_id"), _FAKE_CLOSE_CYCLE_ID)
+        self.assertEqual(highs[0]["files"], ["scripts/foo.py"])
+
+    def test_concern_recording_emits_medium_severity(self) -> None:
+        result = self._record_security_concern(
+            "medium", "Security Concern: weak input validation", "scripts/bar.py"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self._read_events()  # type: ignore[attr-defined]
+        mediums = [
+            e
+            for e in events
+            if e.get("type") == "concern" and e.get("severity") == "medium"
+        ]
+        self.assertEqual(len(mediums), 1)
+        self.assertEqual(mediums[0]["metadata"].get("kind"), "security")

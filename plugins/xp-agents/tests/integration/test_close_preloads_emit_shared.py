@@ -87,22 +87,109 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "Step 6 body must mention AskUserQuestion (merge-confirm prompt)",
         )
 
-    def test_emits_block_flip_default_paragraph(self):
-        # Receiver-side honoring of the xp-close-reviewer Step 3.5 contract:
-        # Block findings flip the merge default to Abort. Lives in shared
-        # so all four close skills enforce it identically.
+    def test_emits_step6_count_concerns_invocation(self):
+        # Step 6 abort-default uses count-concerns deterministically — single
+        # source of truth for both quality blocks (xp-close-reviewer) and
+        # security blocks (each close skill's Step 4.5). Replaces the prior
+        # text-keyword prose-match check per the canonical-event constraint.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        lower = result.stdout.lower()
         self.assertIn(
-            "block finding",
-            lower,
-            "Step 6 body must mention 'Block finding' for the Abort-default flip",
+            "count-concerns",
+            result.stdout,
+            "Step 6 must invoke smm_cli.py count-concerns to compute the "
+            "abort-default flag deterministically",
         )
         self.assertIn(
-            "recommended",
-            lower,
-            "Step 6 body must instruct marking the Abort option '(Recommended)'",
+            "--severity high",
+            result.stdout,
+            "Step 6 count-concerns invocation must filter --severity high "
+            "(both quality and security blocks land at severity=high)",
+        )
+        self.assertIn(
+            "--cycle-id",
+            result.stdout,
+            "Step 6 count-concerns invocation must scope by --cycle-id "
+            "<CLOSE_CYCLE_ID> so concurrent close-cycles in other "
+            "worktrees don't leak in",
+        )
+        self.assertIn(
+            "(Recommended)",
+            result.stdout,
+            "Step 6 must instruct marking the Abort option '(Recommended)' "
+            "when the count is > 0",
+        )
+
+    def test_step6_does_not_keep_prose_match_check(self):
+        # count-concerns is the deterministic single source of truth;
+        # the prose-match check would diverge from the structured count
+        # (xp-close-reviewer records every Block as severity=high already).
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(
+            "prose summary above contains any Block",
+            result.stdout,
+            "Step 6 must NOT keep the prose-match fallback",
+        )
+
+    def test_emits_step4_5_security_review_skill_invocation(self):
+        # Pin the heading + the exact Skill-tool invocation shape — args
+        # MUST name "cumulative diff" so /security-review scopes correctly
+        # (matches the convention used previously in the migrated tiers).
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "### Step 4.5: Security Review",
+            result.stdout,
+            "preload must emit the shared Step 4.5 (Security Review) heading",
+        )
+        self.assertIn(
+            'Skill(skill: "security-review"',
+            result.stdout,
+            "Step 4.5 must invoke Skill(skill: 'security-review', args: ...)",
+        )
+        self.assertIn(
+            "cumulative diff",
+            result.stdout,
+            "Step 4.5 args must scope to the cumulative diff",
+        )
+
+    def test_emits_step4_5_security_concern_metadata_kind(self):
+        # Security findings file as concerns with metadata.kind=security
+        # so the structural commit-link probe AND any future "filter by
+        # source" query can distinguish them from quality blocks.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            '"kind":"security"',
+            result.stdout,
+            "Step 4.5 append.sh templates must include metadata.kind=security",
+        )
+        self.assertIn(
+            '"close_cycle_id":',
+            result.stdout,
+            "Step 4.5 append.sh templates must include metadata.close_cycle_id "
+            "(scopes the Step 6 count to this close cycle only)",
+        )
+        self.assertIn(
+            '"close_mode":',
+            result.stdout,
+            "Step 4.5 append.sh templates must include metadata.close_mode "
+            "(free|sprint|plan substituted by each close skill)",
+        )
+
+    def test_emits_step4_5_clean_separation_note(self):
+        # Constraint: don't pass security findings to close-reviewer.
+        # The shared template must explicitly tell the close skill not
+        # to fold security into the reviewer prompt — security and
+        # quality are independent review streams.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "clean separation",
+            result.stdout,
+            "Step 4.5 must explicitly call out clean-separation from "
+            "xp-close-reviewer (M-8 constraint)",
         )
 
     def test_emits_step5c_classify_and_act_marker(self):
@@ -470,6 +557,63 @@ class TestStoryFreePreloadEmitsTestCommand(unittest.TestCase):
                     f"{mode}-close preload must emit CLOSE_START_TS=<ISO 8601 "
                     f"UTC timestamp> for the auto-merge gate's --since-ts "
                     f"bound",
+                )
+
+
+_ALL_CLOSE_PRELOADS = {
+    "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh",
+    "sprint": _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh",
+    "plan": _PLUGIN_ROOT / "skills" / "xp-plan-close" / "scripts" / "preload.sh",
+    "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh",
+}
+
+
+class TestAllClosePreloadsEmitCloseStartTs(unittest.TestCase):
+    """Every close-skill preload must emit CLOSE_START_TS=<ISO 8601>.
+
+    The shared Step 6 abort-default count-concerns invocation references
+    `<CLOSE_START_TS>` as a value "from the preload values at the top of
+    this context" — for that promise to hold, every close preload (not
+    just story/free) must emit it. Sprint/plan-close hit the same Step 6
+    block in the shared pipeline AND apply Step 4.5 (Security Review),
+    which writes concerns the Step 6 count then filters by since-ts.
+    """
+
+    def _run_preload(self, preload_path: Path, smm_dir: Path) -> str:
+        env = dict(os.environ)
+        env["CLAUDE_PLUGIN_DATA"] = str(smm_dir.parent.parent)
+        env["SMM_DIR"] = str(smm_dir)
+        result = subprocess.run(
+            ["bash", str(preload_path)],
+            cwd=smm_dir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        return result.stdout
+
+    def _make_smm(self) -> Path:
+        tmp = Path(tempfile.mkdtemp())
+        smm_dir = tmp / "data" / "proj" / "smm"
+        smm_dir.mkdir(parents=True)
+        (smm_dir / "events.jsonl").write_text("")
+        return smm_dir
+
+    def test_every_close_preload_emits_iso_close_start_ts(self):
+        iso_pattern = re.compile(
+            r"^CLOSE_START_TS=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*(\+00:00|Z)$",
+            re.MULTILINE,
+        )
+        for mode, preload in _ALL_CLOSE_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = self._make_smm()
+                stdout = self._run_preload(preload, smm)
+                self.assertRegex(
+                    stdout,
+                    iso_pattern,
+                    f"{mode}-close preload must emit CLOSE_START_TS=<ISO 8601 "
+                    f"UTC timestamp> for the shared Step 6 abort-default "
+                    f"count-concerns --since-ts bound",
                 )
 
 
