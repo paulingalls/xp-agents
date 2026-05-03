@@ -18,7 +18,6 @@ from unittest.mock import patch
 import _common
 import markers
 import pre_tool_bash
-import security
 from conftest import (
     _HookTestCase,
     _make_bash_input,
@@ -52,72 +51,29 @@ class TestPreToolBashReviewCycle(_HookTestCase):
                 )
             self.assertIn("/xp-quality-review", str(ctx.exception))
 
-    def test_above_threshold_blocks_no_security(self):
-        """simplify + quality done -> blocks for /xp-security-triage."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
-        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
-            with self.assertRaises(_common.BlockedError) as ctx:
-                pre_tool_bash.run(
-                    _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
-                )
-            self.assertIn("/xp-security-triage", str(ctx.exception))
-
     def test_above_threshold_passes_all_done(self):
-        """All 3 flags True -> commit allowed."""
+        """All flags True -> commit allowed."""
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
             )
 
-    def test_below_threshold_blocks_without_security(self):
-        """1 code file, staged code present, no security marker -> blocks."""
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
-            patch("security.has_staged_code_files", return_value=True),
-        ):
-            with self.assertRaises(_common.BlockedError) as ctx:
-                pre_tool_bash.run(
-                    _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
-                )
-            self.assertIn("/xp-security-triage", str(ctx.exception))
-
-    def test_below_threshold_passes_with_security(self):
-        """1 code file, security marker exists -> commit allowed."""
-        security.write_security_triaged(self.smm_dir)
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=["a.py"]),
-            patch("security.has_staged_code_files", return_value=True),
-        ):
+    def test_below_threshold_passes(self):
+        """M-4: below-threshold commits (<3 code files) skip the review-cycle
+        gate entirely. Tier 2/3 cover security at /xp-accept and close."""
+        with patch(self._CODE_FILES_PATCH, return_value=["a.py"]):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
             )
 
     def test_zero_code_files_passes(self):
-        """No code files changed and no staged code -> commit allowed."""
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=[]),
-            patch("security.has_staged_code_files", return_value=False),
-        ):
+        """No code files changed -> commit allowed."""
+        with patch(self._CODE_FILES_PATCH, return_value=[]):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
             )
-
-    def test_no_code_files_preserves_security_marker(self):
-        """No-code commit should NOT consume the security marker pre-commit."""
-        security.write_security_triaged(self.smm_dir)
-        with (
-            patch(self._CODE_FILES_PATCH, return_value=[]),
-            patch("security.has_staged_code_files", return_value=False),
-        ):
-            pre_tool_bash.run(
-                _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
-            )
-        # Marker should still exist — consumption belongs in bash_post_tool
-        self.assertTrue(security.security_triaged_exists(self.smm_dir))
 
     def test_xp_agent_skips(self):
         """xp- agents bypass the review cycle gate."""
@@ -132,7 +88,6 @@ class TestPreToolBashReviewCycle(_HookTestCase):
         markers.reset_review_cycle(self.smm_dir, "main", "abc123")
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
-        markers.set_review_flag(self.smm_dir, "main", "security_review_done")
         with patch(
             self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]
         ) as mock:
@@ -319,7 +274,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=1)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_nudge_on_main_stage_1(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -331,7 +285,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=0)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_silent_at_stage_0(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -342,7 +295,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=1)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_silent_on_feature_branch(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -353,7 +305,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=1)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_escape_hatch_release(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command='git commit -m "[release] bump version"'),
@@ -365,7 +316,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=1)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_escape_hatch_chore(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command='git commit -m "[chore] update deps"'),
@@ -377,7 +327,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=1)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_escape_hatch_sprint_direct(self, *_mocks):
         # [sprint-direct] is the close-window bypass token per
         # constraint b2467c56ddbf. Should bypass the protected-branch gate.
@@ -391,7 +340,6 @@ class TestMainBranchGate(_HookTestCase):
     @patch("branching.get_branching_stage", return_value=2)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_nudge_on_master_stage_2(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -408,7 +356,6 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("branching.is_sprint_branch", return_value=True)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_nudge_on_sprint_branch_stage_2(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -422,7 +369,6 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("branching.is_sprint_branch", return_value=True)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_silent_at_stage_1(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -434,7 +380,6 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("branching.is_sprint_branch", return_value=False)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_silent_on_story_branch(self, *_mocks):
         result = pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
@@ -446,7 +391,6 @@ class TestSprintBranchGate(_HookTestCase):
     @patch("branching.is_sprint_branch", return_value=True)
     @patch("security.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    @patch("security.has_staged_code_files", return_value=False)
     def test_escape_hatch_bypasses_sprint_branch_gate(self, *_mocks):
         """[chore] / [release] / [sprint-direct] bypass the sprint-branch nudge.
 
@@ -466,6 +410,44 @@ class TestSprintBranchGate(_HookTestCase):
                 # Mirrors test_escape_hatch_release: with no code files and
                 # no other nudges fired, a successful bypass returns None.
                 self.assertIsNone(result)
+
+
+class TestSubprocessConsolidation(_HookTestCase):
+    """Story-007 regression: per `git commit` attempt, pre_tool_bash makes
+    at most one `git diff --cached --name-only` subprocess invocation in the
+    common path (no `-a` flag, no inline `git add`). Earlier the hook re-shelled
+    multiple times to compute the same data derivable from the cached
+    unified diff fetched at line 140.
+    """
+
+    def _fake_run(self, args, **kwargs):
+        """Stand-in for subprocess.run that returns empty success."""
+        from unittest.mock import MagicMock
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        return mock_result
+
+    def test_common_path_at_most_one_name_only_call(self):
+        with patch("subprocess.run", side_effect=self._fake_run) as mock_run:
+            pre_tool_bash.run(
+                _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
+            )
+
+        name_only_calls = [
+            call
+            for call in mock_run.call_args_list
+            if call.args
+            and list(call.args[0]) == ["git", "diff", "--cached", "--name-only"]
+        ]
+        all_calls = [list(c.args[0]) if c.args else [] for c in mock_run.call_args_list]
+        self.assertLessEqual(
+            len(name_only_calls),
+            1,
+            f"Expected ≤1 `git diff --cached --name-only` call, got "
+            f"{len(name_only_calls)}. All subprocess calls: {all_calls}",
+        )
 
 
 if __name__ == "__main__":

@@ -82,15 +82,13 @@ STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
 # Review-cycle lifecycle actions — vocabulary for the deterministic-event
-# doctrine (sprint-041). Producers (review_cycle_done.py, mark_triaged.py)
-# will set metadata.action to these values so consumers (retro_metrics,
+# doctrine (sprint-041). The sole producer is review_cycle_done.py, which
+# sets metadata.action to one of these values so consumers (retro_metrics,
 # bash_post_tool) can detect skill completions without regex-matching
-# LLM-authored content. Producer/consumer wiring lands in story-004.
+# LLM-authored content.
 STATUS_ACTION_SIMPLIFY_COMPLETE = "simplify_complete"
 STATUS_ACTION_QR_COMPLETE = "qr_complete"
 STATUS_ACTION_SECURITY_COMPLETE = "security_complete"
-STATUS_ACTION_SECURITY_TRIAGE_STARTED = "security_triage_started"
-STATUS_ACTION_SECURITY_TRIAGE_COMPLETE = "security_triage_complete"
 STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
 STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 
@@ -121,6 +119,16 @@ STATUS_ACTION_SUBAGENT_COMPLETE = "subagent_complete"
 STATUS_ACTION_PLAN_COMPLETED = "plan_completed"
 STATUS_ACTION_PLAN_AWAITING_REVIEW = "plan_awaiting_review"
 STATUS_ACTION_PLAN_EXITED = "plan_exited"
+
+# Step 5c (close skills) — concern classification per finding.
+# Producer: story-close + free-close at Step 5c (LLM via append.sh).
+# Consumer: count-classifications subcommand for the Step 6 auto-merge
+# gate; retro tooling for the spike-008 §10 prediction-loop validation.
+# Companion metadata fields the producer also sets:
+#   metadata.route       — "fix" | "ask" — which dispatch route the LLM took.
+#   metadata.category    — spike-008 §3 vocabulary (lint, test_failure, ...).
+#   metadata.concern_id  — the 12-hex ID of the concern being classified.
+STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 
 
 def event_action(event: dict) -> str | None:
@@ -154,6 +162,26 @@ METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
+
+# Per-candidate selector signals attached by resolves_probe._score_candidate
+# and persisted on probe status events so retro_metrics can attribute
+# divert events to specific signals (which selector misfired). Shape:
+#   {candidate_id: [reason1, reason2, ...]}
+# Reason vocabulary is the SELECTION_REASON_* constants below. An empty
+# list is ambiguous: it can mean either "old archived probe event predates
+# this metadata key" OR "all four signals scored zero on this candidate";
+# divert-analysis consumers must treat both cases as 'no signal data'.
+METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
+
+# Selector-signal vocabulary for resolves_probe._score_candidate. Each
+# constant names a signal that contributed to a candidate's score and
+# appears in the candidate's selection_reasons list iff that signal
+# scored non-zero. Listed in the order _score_candidate emits them
+# (deterministic for test assertions).
+SELECTION_REASON_KEYWORD = "keyword"
+SELECTION_REASON_FILE_OVERLAP = "file_overlap"
+SELECTION_REASON_RECENCY = "recency"
+SELECTION_REASON_CLOSE_MODE = "close_mode"
 
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
@@ -208,6 +236,21 @@ CONTENT_BUDGETS: dict[str, int | None] = {
 
 # Required fields — used by validate_event() and repair.py's fast issubset check
 REQUIRED_FIELDS = frozenset({"id", "type", "ts", "agent_id", "content"})
+
+
+# Event types with no type-specific validation beyond the universal
+# REQUIRED_FIELDS and content-budget checks. Test gate:
+# tests/engine/test_compact.py::TestEventTypeMatchCompleteness fails
+# if a new EVENT_TYPE_* is added without either a `case` arm in
+# validate_event or an entry here. Listing a type means the universal
+# checks are sufficient — explicit declaration, not oversight.
+_VALIDATE_NO_TYPE_RULES = frozenset(
+    {
+        EVENT_TYPE_ASSUMPTION,
+        EVENT_TYPE_CUSTOMER_INPUT,
+        EVENT_TYPE_GOAL,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +363,17 @@ def validate_event(event: dict) -> list[str]:
         case "commit":
             if "files" in event and not isinstance(event["files"], list):
                 errors.append("Field 'files' must be an array")
+
+        case "answer" | "discovery":
+            # Both link to the event they react to (answer→question,
+            # discovery→assumption-it-contradicts). Universal references
+            # validation already checks list-of-strings; require non-empty.
+            refs = event.get("references")
+            if not refs:
+                errors.append(
+                    f"Field 'references' is required and must be non-empty "
+                    f"for type '{event_type}'"
+                )
 
         case "session_end":
             _check = {

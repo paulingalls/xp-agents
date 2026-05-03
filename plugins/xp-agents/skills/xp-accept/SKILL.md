@@ -54,8 +54,10 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
      ```bash
      ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
        --type "concern" --agent "xp-accept" --severity "medium" \
-       --content "Acceptance override for story-NNN: <user's reason>"
+       --content "Acceptance override for story-NNN: <user's reason>" \
+       --files '["<story-NNN file_domain entries>"]'
      ```
+     Pass the story's `file_domain` entries via `--files` so the structural commit-link probe can match future fixes to this concern.
    - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 
 Do **not** retry automatically. Flaky acceptance is information — fix the harness, don't mask the signal.
@@ -105,6 +107,46 @@ If the preload shows `### Concerns for story-NNN`, review each listed concern ag
 
 File overlap alone does not mean a concern is resolved. Use your judgment based on the concern's content and what the commits actually changed.
 
+## Step 1c: Tier 2 Security Review
+
+Tier 2 security gate: fire `/security-review` against the cumulative story diff before marking the story done.
+
+**Skip when the story is `code_free`** (empty `file_domain` — verification-only / prose-only). The cumulative diff has no code worth reviewing.
+
+**Scope distinct from Step 0.** Step 0 covers the teammate-merge slice only; Step 1c covers the full cumulative story diff (`git merge-base <story-branch> <sprint-base>` ... HEAD). Both run when both apply — overlap is tolerated. Always name the cumulative-merge-base scope in the args string so the LLM does not silently reuse Step 0's scope.
+
+For the current story (skip if code_free):
+
+1. Invoke `Skill(skill: "security-review", args: "<scope>")` where `<scope>` is a concrete sentence naming THIS story's branch and the sprint base — substitute the actual branch names, do not pass the literal placeholders. Example: `args: "the cumulative diff for story-007 on branch paulingalls/story-007-perf-consolidation since merge-base with paulingalls/sprint-049-tier2-accept-security"`. The PostToolUse:Skill hook auto-emits a `security_complete` status event.
+2. Read the prose findings and judge severity per the close-reviewer convention (see `agents/xp-close-reviewer.md` "Step 4: Record Concerns as SMM Events"): **Block = high**, **Concern = medium**, **Keep = no event**.
+
+**Block path** (high-severity findings): **do NOT call `sprint_cli.py update-story story-NNN done`.** Present via `AskUserQuestion`:
+
+- **Defer** — move story to `deferred` (cascade downstream dependents same as Step 1):
+  ```bash
+  python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+    update-story story-NNN deferred
+  ```
+- **Override with concern** — proceed to update-story done despite the Block. Record the override at **severity high** (NOT medium — downgrading hides the consciously-shipped Block):
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+    --type "concern" --agent "xp-accept" --severity "high" \
+    --content "Tier 2 Block override for story-NNN: <one-line summary>" \
+    --files '["<paths /security-review pointed at>"]'
+  ```
+
+**Concern path** (medium-severity findings, no Block): record each finding, then proceed to update-story done:
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-accept" --severity "medium" \
+  --content "Tier 2 finding for story-NNN: <one-line summary>" \
+  --files '["<paths /security-review pointed at>"]'
+```
+
+For both paths: pass the file paths /security-review named (or the story's `file_domain` if the finding is broader). Concerns without `files=[]` cannot auto-resolve when the eventual fix lands.
+
+**Keep path** (no findings): proceed to Step 2.
+
 ## Step 2: Update sprint.json
 
 Update each story's status via CLI:
@@ -133,7 +175,7 @@ JIT-create-next pipeline:
 Loop continues for the next done story (each gets its own
 /xp-story-close invocation). /xp-story-close NEVER fires
 /xp-sprint-review — Step 6 below owns that single dispatch after
-the loop completes (decision e30e9e91e61a).
+the loop completes (single source of truth).
 
 **Stage 0:** at stage 0 there is no branch discipline — the
 orchestrator commits directly on the primary branch — so
@@ -159,7 +201,7 @@ Present: how many stories marked done, how many deferred.
 
 Per-story teammate-worktree cleanup is owned by /xp-story-close
 (invoked in Step 2b above) — it removes the teammate worktree per
-closed story when one existed (decision 9029c07ae198).
+closed story when one existed.
 
 ## Step 5: Sprint Review
 

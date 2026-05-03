@@ -17,6 +17,8 @@ import identity
 import markers
 import resolves_probe
 import security
+import security_patterns
+import security_scanner
 import story_probe
 import worktree
 from event_schema import METADATA_KEY_RESOLVES
@@ -129,12 +131,45 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     parts: list[str] = []
 
     # Commit gate: review cycle enforcement
-    # Above threshold (3+ code files): simplify → quality review → security triage
-    # Below threshold: security triage only for production code commits
+    # Above threshold (3+ code files): simplify → quality review.
+    # Below threshold: no per-commit security gate (Tier 2/3 cover at
+    # /xp-accept and close).
     if smm_dir is not None and security.is_git_commit(command):
+        # Tier 1 fires before the review-cycle gate so deterministic patterns
+        # block even when /simplify and /xp-quality-review have been satisfied.
+        diff = commits.get_staged_diff(cwd)
+        if diff is None:
+            raise _common.BlockedError(
+                "Tier 1 security scan could not run: `git diff --cached`"
+                " failed. Resolve the git issue and retry the commit.",
+                "Tier 1 fail-closed: git diff failure.",
+            )
+        if diff:
+            findings = security_scanner.scan_diff(diff, security_patterns.V3_0_PATTERNS)
+            if findings:
+                lines = [
+                    f"  - {f.pattern_name} at {f.file_path}:{f.line_number}"
+                    for f in findings
+                ]
+                raise _common.BlockedError(
+                    "\n".join(
+                        [
+                            "Tier 1 security scan blocked this commit:",
+                            *lines,
+                            "",
+                            "Fix the flagged lines or add `# noqa: secret`"
+                            " on each intentional line.",
+                        ]
+                    ),
+                    "Tier 1 security pattern detected.",
+                )
+
         cycle = markers.read_review_cycle(smm_dir, agent_id)
         code_files = commits.get_code_files_for_review(
-            cwd, cycle.get("last_review_commit", ""), command
+            cwd,
+            cycle.get("last_review_commit", ""),
+            command,
+            staged_diff=diff,
         )
 
         if len(code_files) >= commits.REVIEW_CYCLE_THRESHOLD:
@@ -148,22 +183,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 raise _common.BlockedError(
                     "Run /xp-quality-review before committing.",
                     "Quality review required before committing.",
-                )
-            elif not cycle.get("security_review_done"):
-                raise _common.BlockedError(
-                    "Run /xp-security-triage before committing.",
-                    "Security triage required before committing.",
-                )
-        elif not security.security_triaged_exists(smm_dir, agent_id):
-            has_code = security.has_staged_code_files(cwd, command)
-            if has_code:
-                raise _common.BlockedError(
-                    "Run /xp-security-triage before committing.",
-                    "Security triage required before committing.",
-                )
-            else:
-                security.write_security_triaged(
-                    smm_dir, agent_id, exempt_reason="no-code-files"
                 )
 
         stage = branching.get_branching_stage(smm_dir)

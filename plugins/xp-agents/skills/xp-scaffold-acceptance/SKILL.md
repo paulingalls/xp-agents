@@ -169,7 +169,7 @@ the flow.
 
 ## Step 2: Refresh knowledge
 
-After Step 3 collects surface + tool selections (and before Step 4 builds the plan), use the `WebSearch` tool to confirm the **tool's latest stable version** and current best practices. Search for `<tool> latest stable release` and, separately, `<tool> recommended config <year>`. Pin the version into a local Python variable (`tool_version`) — Step 4 records it in the plan and Step 8 (M-4) writes it into the commit message and dependency manifest.
+After Step 3 collects surface + tool selections (and before Step 4 builds the plan), use the `WebSearch` tool to confirm the **tool's latest stable version** and current best practices. Search for `<tool> latest stable release` and, separately, `<tool> recommended config <year>`. Pin the version into a local Python variable (`tool_version`) — Step 4 records it in the plan and Step 8 writes it into the commit message and dependency manifest.
 
 **Canonical tools** (`scaffold_detect.canonical_tools_for(surface)`): proceed with the web-refreshed knowledge.
 
@@ -196,7 +196,7 @@ GUIDANCE_EOF
 
 Double-quoted `"$tool"` preserves the apostrophe.
 
-**Still no writes in M-2.** Web-refresh produces in-memory variables only.
+**Still no writes at this point.** Web-refresh produces in-memory variables only.
 
 ## Step 3: Ask
 
@@ -295,7 +295,7 @@ PLANEOF
 
 `$PLAN_JSON` now holds the structured plan; Step 5 pipes it into `render-preview`.
 
-The plan is in-memory only at this point — Step 5 previews it; Step 6 (M-3) writes.
+The plan is in-memory only at this point — Step 5 previews it; Step 6 writes.
 
 ## Step 5: Confirm
 

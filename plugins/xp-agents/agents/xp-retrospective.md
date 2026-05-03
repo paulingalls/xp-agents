@@ -21,7 +21,7 @@ Perform Keep/Fix/Try analysis on unanalyzed events from the previous session. XP
    - `unanalyzed_count` — number of events since the last retro
    - `digest` — structured summary for analysis:
      - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions, and commits (commit events include full message body, hash in metadata, and file list)
-     - `status_summary` — `{total, file_writes, test_runs, security_checks, simplifies, quality_reviews, lint_events, commits, other}` counts. Commits are also surfaced as signal events with full message/hash/files; the `commits` count here is a quick session-tempo number that increments on every type=commit event (sprint-042 M2 closed the meta-irony where the legacy "Committed:" status regex couldn't count doctrine-session commits).
+     - `status_summary` — `{total, file_writes, test_runs, security_checks, simplifies, quality_reviews, lint_events, commits, other}` counts. Commits are also surfaced as signal events with full message/hash/files; the `commits` count here is a quick session-tempo number that increments on every type=commit event.
      - `concern_groups` — deduplicated concerns grouped by content
      - `honesty_signals` — sequence-based analysis (see Honesty Checks below)
      - `work_signals` — work-level correlations (see Work Analysis below)
@@ -87,6 +87,8 @@ When you emit a flag concern in the Fix list, attach `references=[root_id]` stru
 
 ### Keep / Fix / Try
 Each item: one observation + event ref(s) + XP value. Keep = positive practice. Fix = value violation. Try = actionable experiment specific enough to evaluate ("add Resolves-Event trailers to commits closing concerns" not "be better at linking").
+
+**Verify before proposing.** When a Try names a specific symbol, file, function, flag, or constant, confirm it still exists in current code before proposing. Run `git grep -n '<symbol>'` or `git log --all -S '<distinctive-string>'` from the repo root. If grep returns nothing, the work is already done — record under Keep ("honest cleanup discovered when verifying retro proposals: <what>") with the resolving-commit ref instead of re-proposing. Free-form Trys without specific symbols ("be better at linking") need no verification.
 
 ## Sprint Analysis (conditional)
 
@@ -163,9 +165,11 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 ## Security Practices (Courage Lens)
 
-- **Security triage** — were commits preceded by `/xp-security-triage`? Consistent triage is a Keep item.
-- **Proactive security** — voluntary `/security-review` before the gate forced triage? Keep item under Courage.
-- **Triage quality** — were security-relevant changes correctly identified and reviewed? Misclassification is a Fix item.
+Tiered model (v3.0+): Tier 1 patterns at commit time; Tier 2 LLM review at `/xp-accept`; Tier 3 at close. `STATUS_ACTION_SECURITY_COMPLETE` events are folded into `digest.status_summary.security_checks` as an aggregate count — per-window (per-story / per-close) correlation is not yet exposed in the digest:
+
+- **Tier 2 + Tier 3 activity** — `digest.status_summary.security_checks` counts all SECURITY_COMPLETE events this session. Zero with story-done or close commits present is a Fix under Courage; non-zero is Keep context.
+- **Proactive security** — voluntary `/security-review` outside Tier 2/3 windows. Mention in Keep under Courage when commit messages show it.
+- **Tier 1 hits** — directional only; the digest has no dedicated field. Look for security-pattern mentions in commit messages or blocked-action narrative.
 
 ## Actions
 

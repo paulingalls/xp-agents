@@ -31,13 +31,14 @@ Read these files before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constrain
 
 #### 2b. Commit Cadence
 - Check that the plan includes a commit step after each green phase (tests passing).
-- If multiple red/green cycles occur without a commit between them, flag it: commits trigger the review cycle (/simplify, /xp-quality-review, /xp-security-triage), so skipping commits skips quality checks.
+- If multiple red/green cycles occur without a commit between them, flag it: commits trigger the review cycle (/simplify, /xp-quality-review), so skipping commits skips quality checks.
 - Example flag: "Steps 3-7 implement 3 features without any commit step — add commits after each green phase."
 
 ### 3. Milestone Boundaries
 - Check if the plan pulls work from future milestones. Each milestone should be completed before moving to the next.
 - Flag any scope creep beyond the current milestone's acceptance criteria.
 - **Check the Intent pillar for session mode.** If Intent contains a "Free session" goal, all work is standalone — do NOT raise blocking questions about sprint scope. If Intent shows "Sprint session", check milestone alignment normally.
+- **Mid-stream re-plans need a decision event.** If this review is replacing an earlier plan in the same session — layer collapse, domain spillover, free-mode detour, scope expansion uncovered mid-flight — surface a blocking question demanding an explicit `decision` event before proceeding. (Skip when this is the first plan of the session or when SMM already shows a fresh decision event covering the re-plan rationale.)
 
 ### 4. Decision Conflicts
 - Check if the plan contradicts any decisions or conventions in the SMM's **Constraints** pillar.

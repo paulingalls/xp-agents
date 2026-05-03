@@ -75,6 +75,54 @@ class TestAppendIntegration(_TempRepoTestCase):
         # output to stderr.
         self.assertEqual(r.stdout, events[0]["id"] + "\n")
 
+    def test_stdout_stays_single_line_when_duplicate_probe_fires(self):
+        # Plan-reviewer concern 5dcd462aa9fa: the post-write duplicate-debt
+        # probe also calls append_event for its advisory record. If the
+        # probe ever routed through main() (which prints), stdout would
+        # become `<original-id>\n<advisory-id>\n` and silently break the
+        # close-reviewer's single-line stdout contract.
+        # Identical content triggers the token-Jaccard match in
+        # duplicate_debt_probe — change the threshold there and this
+        # test will silently stop exercising the probe (caught by the
+        # 3-event assertion below).
+        DUP_CONTENT = "Refactor the foo bar baz module to extract the quux helper"
+        r1 = self._run_append(
+            "--type",
+            "debt",
+            "--agent",
+            "main",
+            "--content",
+            DUP_CONTENT,
+            "--files",
+            '["foo.py"]',
+        )
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        r2 = self._run_append(
+            "--type",
+            "debt",
+            "--agent",
+            "main",
+            "--content",
+            DUP_CONTENT,
+            "--files",
+            '["foo.py"]',
+        )
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertEqual(r2.stderr, "", "Probe must not leak to stderr either")
+        events = self._read_events()
+        # 2 debts + 1 probe-fired advisory. If only 2, the probe
+        # didn't fire — fail loudly so the pin can't false-pass.
+        self.assertEqual(
+            len(events),
+            3,
+            f"Expected 3 events (2 debts + 1 probe-fired advisory); got "
+            f"{len(events)}. Probe did not fire — test no longer covers "
+            f"the duplicate-stdout risk it was written to pin.",
+        )
+        # Exact-match pins the contract: only the new event's id, no
+        # advisory id leaking through.
+        self.assertEqual(r2.stdout, events[1]["id"] + "\n")
+
     def test_append_question_with_emoji(self):
         r = self._run_append(
             "--type",
@@ -141,7 +189,14 @@ class TestAppendIntegration(_TempRepoTestCase):
 
     def test_event_has_id_and_timestamp(self):
         r = self._run_append(
-            "--type", "discovery", "--agent", "main", "--content", "found it"
+            "--type",
+            "discovery",
+            "--agent",
+            "main",
+            "--content",
+            "found it",
+            "--references",
+            '["assumption-id"]',
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         events = self._read_events()
@@ -189,7 +244,16 @@ class TestAppendIntegration(_TempRepoTestCase):
             ["--type", "decision", "--agent", "m", "--content", "x", "--topic", "t"],
             ["--type", "convention", "--agent", "m", "--content", "x", "--topic", "t"],
             ["--type", "concern", "--agent", "m", "--content", "x"],
-            ["--type", "discovery", "--agent", "m", "--content", "x"],
+            [
+                "--type",
+                "discovery",
+                "--agent",
+                "m",
+                "--content",
+                "x",
+                "--references",
+                '["assumption-id"]',
+            ],
             [
                 "--type",
                 "question",
@@ -200,7 +264,16 @@ class TestAppendIntegration(_TempRepoTestCase):
                 "--priority",
                 "\U0001f7e1",
             ],
-            ["--type", "answer", "--agent", "m", "--content", "x"],
+            [
+                "--type",
+                "answer",
+                "--agent",
+                "m",
+                "--content",
+                "x",
+                "--references",
+                '["question-id"]',
+            ],
             ["--type", "assumption", "--agent", "m", "--content", "x"],
             ["--type", "session_end", "--agent", "m", "--content", "x"],
             ["--type", "retrospective", "--agent", "m", "--content", "x"],

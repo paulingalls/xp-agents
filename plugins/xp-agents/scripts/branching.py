@@ -13,8 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import execution_plan_store
+import git_remote
 import identity
 import sprint_store
 
@@ -260,6 +262,13 @@ def _create_or_resume_branch(
         if honest_errors:
             return None
         sys.exit(1)
+
+    # Push freshly-created branch only — resumed branches may have
+    # diverged from remote and would fail-noisy every kickoff. Push
+    # failure is non-fatal: branch exists locally, retry hint below
+    # covers recovery (don't add a second error message).
+    if not git_remote.push_branch(cwd, name):
+        print(f"  retry: git push -u origin {name}", file=sys.stderr)
 
     return name
 

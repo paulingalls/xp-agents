@@ -93,10 +93,9 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base
 `in-progress` and create its branch. The rest stay `scheduled` —
 /xp-story-close JIT-promotes the next scheduled story to in-progress
 + creates its branch off the merged sprint tip after each prior story
-ships (decision df47c932fbe6 — JIT story branches eliminate the
-pre-JIT staleness that an `ff-only` post-step in /xp-accept was
-trying to patch). The just-merged-tip base is what the next story
-needs to build on.
+ships. JIT story branches eliminate the pre-JIT staleness that an
+`ff-only` post-step in /xp-accept was trying to patch — the just-
+merged-tip base is what the next story needs to build on.
 
 ```bash
 FIRST_SCHEDULED=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} next-scheduled)

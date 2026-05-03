@@ -214,16 +214,34 @@ class _CloseSkillTextCommonTests(_MixinBase):
 
     _SKILL_MD: Path
     _MODE: str
-    text: str  # set by setUpClass (_SKILL_MD.read_text())
+    text: str  # set by setUpClass — SKILL.md text + shared close-pipeline reference
     # Subclasses set False when current==target is impossible by design
     # (e.g. sprint-close uses the get-target lookup which returns a
     # different branch when on the sprint branch).
     _ASSERT_REFUSES_SAME_BRANCH: bool = True
 
+    # The shared close-pipeline reference (Steps 5, 5b, 6) was lifted
+    # out of each SKILL.md into one file each preload `cat`s. The
+    # LLM-visible context for any close skill is the union of its
+    # SKILL.md and that shared reference; assertions about the close
+    # pipeline must check the union, not just the SKILL.md.
+    _SHARED_PIPELINE: Path = (
+        Path(__file__).parent.parent / "scripts" / "_close_pipeline_shared.md"
+    )
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.text = cls._SKILL_MD.read_text()
+        # Fail-fast on missing shared file — silently falling back to
+        # SKILL.md alone would let receiver-side prose assertions
+        # (Step 3.5 / Block finding / Recommended) appear to pass while
+        # the actual close pipeline is missing the shared content.
+        skill_text = cls._SKILL_MD.read_text()
+        shared_text = cls._SHARED_PIPELINE.read_text()
+        # Concatenated with a separator so headings from each don't run
+        # together in regex/index lookups; assertions don't care about the
+        # separator itself.
+        cls.text = skill_text + "\n\n" + shared_text
 
     def _merge_invocation(self) -> "re.Match[str]":
         """Locate the close_common.py merge invocation. Asserts presence."""
@@ -326,6 +344,36 @@ class _CloseSkillTextCommonTests(_MixinBase):
         # merge after presenting the reviewer's findings — orchestrator
         # step (AskUserQuestion is not a script-callable tool).
         self.assertIn("AskUserQuestion", self.text)
+
+    def test_defaults_to_abort_on_block_finding(self):
+        # xp-close-reviewer Step 3.5 contract: when the reviewer files a
+        # Block-severity finding, the close skill MUST default the merge
+        # confirmation to Abort. Receiver-side honoring lives in SKILL.md
+        # prose (LLM-only seam — no script can enforce option ordering
+        # in AskUserQuestion).
+        self.assertIn(
+            "Step 3.5",
+            self.text,
+            "SKILL.md must name the Step 3.5 contract source so the "
+            "Abort-default rule is traceable; xp-close-reviewer is "
+            "named elsewhere via the Step 4 Agent fork and not a "
+            "sufficient pin on its own",
+        )
+        lower = self.text.lower()
+        self.assertIn(
+            "block finding",
+            lower,
+            "SKILL.md must mention 'Block finding' detection so the "
+            "orchestrator knows when to flip the default; bare 'block' "
+            "would match unrelated prose",
+        )
+        self.assertIn(
+            "recommended",
+            lower,
+            "SKILL.md must instruct the orchestrator to mark the Abort "
+            "option '(Recommended)' so AskUserQuestion's first-option "
+            "default surfaces as Abort to the user",
+        )
 
     def test_documents_no_gh_skip_breadcrumb(self):
         # Operator-facing breadcrumb: SKILL.md must mention "skipped:"

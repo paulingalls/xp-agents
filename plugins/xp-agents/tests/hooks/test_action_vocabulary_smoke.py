@@ -24,7 +24,6 @@ auditable; silent exclusions are not allowed.
 """
 
 import shutil
-import subprocess
 import sys
 import unittest
 from collections.abc import Callable
@@ -58,11 +57,8 @@ from conftest import (
 )
 from event_schema import event_action
 
-_MARK_TRIAGED = (
-    _PLUGIN_ROOT / "skills" / "xp-security-triage" / "scripts" / "mark_triaged.py"
-)
 sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
-import save_sprint  # noqa: E402
+import save_sprint
 
 Driver = Callable[[Path], list[dict]]
 
@@ -208,21 +204,6 @@ def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     return _events(smm_dir)
 
 
-def _drive_security_triage_started(smm_dir: Path) -> list[dict]:
-    # mark_triaged.py runs at module-import top-level — invoke it as a
-    # subprocess. The script honors --smm-dir so we can pin the temp SMM.
-    result = subprocess.run(
-        ["python3", str(_MARK_TRIAGED), "--smm-dir", str(smm_dir)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"mark_triaged failed: stdout={result.stdout!r} stderr={result.stderr!r}"
-        )
-    return _events(smm_dir)
-
-
 # ---------------------------------------------------------------------------
 # Producer-case map: constant *name* -> driver callable.
 # Keyed by name (not value) so the missing-coverage canary cannot be silenced
@@ -242,19 +223,20 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("simplify"),
     "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
-    "STATUS_ACTION_SECURITY_TRIAGE_COMPLETE": _drive_review_cycle("xp-security-triage"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
-    "STATUS_ACTION_SECURITY_TRIAGE_STARTED": _drive_security_triage_started,
 }
 
 
 # ---------------------------------------------------------------------------
-# Doctrine gaps: action_value -> debt event ID. Constants here are declared
-# in event_schema.py but have no producer hook. The debt event records the
-# gap so it shows up in retro / housekeeping queues until the producer
-# lands or the constant is removed.
+# Doctrine gaps: action_value -> tracking note. Constants here are declared
+# in event_schema.py but have no producer hook. Two categories of gap:
+#   1. Debt-tracked: value is a debt event ID; gap shows up in retro /
+#      housekeeping queues until the producer lands or the constant is
+#      removed (e.g. STATUS_ACTION_SPRINT_RETRO_DONE).
+#   2. Intentional: value explains why the gap is permanent (e.g.
+#      LLM-via-SKILL.md producer pattern).
 # ---------------------------------------------------------------------------
 
 _DOCTRINE_GAPS: dict[str, str] = {
@@ -266,6 +248,19 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # at sprint-retro completion, or remove the constant and rewrite the
     # consumers against retrospective-type events.
     "STATUS_ACTION_SPRINT_RETRO_DONE": "ef03cbc32f1e",
+    # STATUS_ACTION_CONCERN_CLASSIFY is intentionally emitted by the LLM
+    # running close skills' Step 5c (via append.sh from
+    # _close_pipeline_shared.md), NOT by a Python hook. There's no
+    # producer to drive in this canary because the producer is prose
+    # in a SKILL.md that the LLM executes. Consumer is
+    # smm_cli.py count-classifications, exercised by
+    # tests/engine/test_smm_cli_count_classifications.py.
+    # Not a debt — this is an intentional LLM-via-SKILL.md producer
+    # pattern, the first STATUS_ACTION_* of its kind. When the 2nd
+    # LLM-producer constant lands, lift these to _LLM_PRODUCERS:set[str]
+    # so the dict stays single-purpose (debt-id values only). Tracked
+    # by debt 730e9a0dbe9c.
+    "STATUS_ACTION_CONCERN_CLASSIFY": "LLM-via-SKILL.md (not a debt)",
 }
 
 
@@ -293,10 +288,9 @@ class TestActionVocabularySmoke(_HookTestCase):
         """Wipe smm_dir back to the setUp baseline (events.jsonl + lock).
 
         Per-subTest reset prevents marker leakage across drivers — e.g.
-        ``_drive_iteration_complete`` writes ``.accept`` and
-        ``_drive_security_triage_started`` writes ``.security-triaged-*``
-        and a review flag. Without this reset, a later driver's behavior
-        would depend on dict-iteration order of ``_PRODUCER_CASES``.
+        ``_drive_iteration_complete`` writes ``.accept`` and review-cycle
+        drivers write a review flag. Without this reset, a later driver's
+        behavior would depend on dict-iteration order of ``_PRODUCER_CASES``.
         """
         for child in self.smm_dir.iterdir():
             if child.name == "events.lock":

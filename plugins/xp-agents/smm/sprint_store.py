@@ -11,17 +11,14 @@ Follows the same pattern as execution_plan_store.py.
 
 import json
 import sys
-from itertools import combinations
 from pathlib import Path
 
 from _append_impl import write_text_atomic
 from sprint_schema import (
-    ACTIVE_STORY_STATUSES,
     SPRINT_FILENAME,
     VALID_STORY_STATUSES,
     validate_sprint,
 )
-from triage import extract_file_domain_paths
 
 _MARKER_NAME = ".needs-sprint"
 
@@ -153,80 +150,22 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 
 
 # -------------------------------------------------------------------
-# Status checks (operate on smm_dir, load internally)
+# Status checks — re-exported from sprint_status (story-008 split)
 # -------------------------------------------------------------------
+# Bodies live in sprint_status.py; this block keeps the historical
+# `from sprint_store import has_active_stories` import path working for
+# every caller (production scripts and 16+ test files).
 
-
-def has_active_stories(smm_dir: Path) -> bool:
-    """True if sprint has ready or in-progress stories."""
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return False
-    return has_active_stories_data(sprint)
-
-
-def has_active_stories_data(data: dict) -> bool:
-    """True if sprint dict has ready or in-progress stories."""
-    return any(s["status"] in ACTIVE_STORY_STATUSES for s in data["stories"])
-
-
-def has_stories_with_status(smm_dir: Path, status: str) -> bool:
-    """True if sprint has any story matching `status`."""
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return False
-    return any(s["status"] == status for s in sprint["stories"])
-
-
-def has_in_progress_stories(smm_dir: Path) -> bool:
-    """True if sprint has in-progress stories."""
-    return has_stories_with_status(smm_dir, "in-progress")
-
-
-def has_ready_stories(smm_dir: Path) -> bool:
-    """True if sprint has ready stories."""
-    return has_stories_with_status(smm_dir, "ready")
-
-
-def has_scheduled_stories(smm_dir: Path) -> bool:
-    """True if sprint has scheduled stories (queued for this iteration)."""
-    return has_stories_with_status(smm_dir, "scheduled")
-
-
-def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
-    """True when 2+ scheduled stories share at least one file in their
-    file_domain.
-
-    Powers /xp-assign's auto-pick-solo decision: if any scheduled stories'
-    file_domains overlap, parallel teammates would step on each other —
-    auto-pick solo without asking the user. Returns False when fewer than
-    two scheduled stories exist (no pair to overlap).
-
-    Reuses the canonical em-dash splitter from `triage` so parsing matches
-    every other consumer of file_domain entries (paths with embedded
-    whitespace work correctly; descriptions don't mask shared files).
-    """
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return False
-    scheduled = [s for s in sprint["stories"] if s.get("status") == "scheduled"]
-    if len(scheduled) < 2:
-        return False
-
-    path_sets = [
-        extract_file_domain_paths(s.get("file_domain") or []) for s in scheduled
-    ]
-    return any(a & b for a, b in combinations(path_sets, 2))
-
-
-def is_complete(smm_dir: Path) -> bool:
-    """True when no ready or in-progress stories remain."""
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return True
-    if not sprint["stories"]:
-        return True
-    return not has_active_stories_data(sprint)
+from sprint_status import (  # noqa: E402  intentional mid-file re-export
+    has_active_stories,  # noqa: F401  re-export for legacy callers
+    has_active_stories_data,
+    has_in_progress_stories,  # noqa: F401  re-export for legacy callers
+    has_ready_stories,  # noqa: F401  re-export for legacy callers
+    has_scheduled_stories,  # noqa: F401  re-export for legacy callers
+    has_stories_with_status,  # noqa: F401  re-export for legacy callers
+    is_complete,  # noqa: F401  re-export for legacy callers
+    scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
+)
 
 
 def get_story_branch_name(smm_dir: Path, story_id: str) -> str:

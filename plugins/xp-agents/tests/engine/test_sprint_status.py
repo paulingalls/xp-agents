@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Tests for sprint_store.py status / velocity / blocker / count helpers.
+"""Tests for sprint_status.py and the sprint_store re-export shim.
 
-Split from test_sprint_store.py (over the 500-line cap). Same import
-surface — `sprint_store` exposes all of these at module scope, so the
-shim-import test is a fast guard against accidental renames.
+Pins the refactor-extraction-discipline contract (constraint 2c19173dad39):
+sprint_status.py owns the 8 status-check functions; sprint_store.py
+re-exports them so 16+ existing import sites keep working without churn.
+
+Behavior tests for status / velocity / blocker / count helpers live here too
+(split from test_sprint_store.py for the 500-line cap). The behavior tests
+import via `sprint_store` to exercise the shim — the architectural test above
+pins that the shim re-exports the same callables.
 """
 
 import json
@@ -25,21 +30,52 @@ from conftest import (
 )
 
 
-class TestSprintStoreStatusShim(unittest.TestCase):
-    """One-line shim-import guard against renames in sprint_store."""
+class TestSprintStatusModuleAndShim(unittest.TestCase):
+    _STATUS_NAMES = (
+        "has_active_stories",
+        "has_active_stories_data",
+        "has_stories_with_status",
+        "has_in_progress_stories",
+        "has_ready_stories",
+        "has_scheduled_stories",
+        "scheduled_file_domains_overlap",
+        "is_complete",
+    )
 
-    def test_status_helpers_importable_from_sprint_store(self):
+    def test_new_module_exposes_all_status_functions(self):
+        import sprint_status
+
+        for name in self._STATUS_NAMES:
+            self.assertTrue(
+                callable(getattr(sprint_status, name, None)),
+                f"sprint_status.{name} should be a callable",
+            )
+
+    def test_sprint_store_reexports_status_functions(self):
+        import sprint_status
+        import sprint_store
+
+        for name in self._STATUS_NAMES:
+            store_fn = getattr(sprint_store, name, None)
+            status_fn = getattr(sprint_status, name, None)
+            self.assertIs(
+                store_fn,
+                status_fn,
+                f"sprint_store.{name} must re-export sprint_status.{name}",
+            )
+
+
+class TestSprintStoreNativeHelperShim(unittest.TestCase):
+    """Import guard for the sprint_store-native helpers not covered by the
+    sprint_status `is`-identity check above.
+    """
+
+    def test_native_helpers_importable_from_sprint_store(self):
         from sprint_store import (  # noqa: F401
             compute_blockers,
             compute_velocity,
             count_by_status,
-            has_active_stories,
-            has_in_progress_stories,
-            has_ready_stories,
-            has_scheduled_stories,
-            is_complete,
             next_scheduled_story_id,
-            scheduled_file_domains_overlap,
             sprint_exists,
         )
 
@@ -135,8 +171,6 @@ class TestStatusChecks(_SMMTestCase):
             ]
         )
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # story-002 is scheduled and its dep (story-001) is done; story-003's
-        # dep (story-002) is scheduled, not done, so story-003 is blocked.
         nxt = sprint_store.next_scheduled_story_id(self.smm_dir)
         self.assertEqual(nxt, "story-002")
 
@@ -165,7 +199,6 @@ class TestStatusChecks(_SMMTestCase):
             ]
         )
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # Path portion (before " — ") is what counts; descriptions vary.
         self.assertTrue(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
 
     def test_scheduled_file_domains_overlap_false_when_disjoint(self):
@@ -194,7 +227,6 @@ class TestStatusChecks(_SMMTestCase):
             ]
         )
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # Only one scheduled story — no pair to overlap. Not a conflict.
         self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
 
     def test_sprint_exists(self):

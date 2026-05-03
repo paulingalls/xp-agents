@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-"""Security triage: marker file for commit gate, code-file classification.
+"""Code-file classification and git commit detection.
 
-Extracted from _common.py to keep security concerns in a dedicated module.
+Used by pre_tool_bash for the commit detection path and by bash_post_tool
+for code-vs-doc tagging on commit events. The security-triage marker
+subsystem this module used to host was removed in M-5 (sprint-052) once
+Tier 1 patterns + Tier 2/3 LLM review took over the security-review story.
 """
 
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
-
-import markers
 
 # Non-code suffixes used by is_code_file() for consistent classification
 _NON_CODE_SUFFIXES = frozenset(
@@ -71,47 +69,6 @@ def is_code_file(path: str) -> bool:
     return Path(path).name.lower() not in _NON_CODE_NAMES
 
 
-def has_staged_code_files(cwd: str, command: str = "") -> bool:
-    """Check if the commit will include production code files.
-
-    Checks both already-staged files (git diff --cached) and files that
-    will be staged by the command itself (git add in the same command,
-    or git commit -a which auto-stages tracked files).
-    """
-    import subprocess
-
-    from pre_tool_write import is_test_file
-
-    diff_commands = [["git", "diff", "--cached", "--name-only"]]
-
-    # If the command includes 'git add' or 'git commit -a', the staged
-    # index won't reflect what will actually be committed. Also check
-    # unstaged tracked changes.
-    if re.search(r"\bgit\s+add\b", command) or re.search(
-        r"\bgit\s+commit\s+-a", command
-    ):
-        diff_commands.append(["git", "diff", "--name-only"])
-
-    try:
-        all_files: list[str] = []
-        for cmd in diff_commands:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=cwd,
-            )
-            if result.returncode != 0:
-                return True  # Can't determine — require triage
-            all_files.extend(
-                f.strip() for f in result.stdout.strip().splitlines() if f.strip()
-            )
-        return any(is_code_file(f) and not is_test_file(f) for f in all_files)
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        return True  # Can't determine — require triage
-
-
 def _strip_quoted(command: str) -> str:
     """Remove quoted strings and heredocs to avoid matching inside arguments."""
     # Strip heredocs first (<<'DELIM'...DELIM or <<DELIM...DELIM)
@@ -128,39 +85,21 @@ def _strip_quoted(command: str) -> str:
     return s
 
 
+# `git` followed by zero-or-more global options before the subcommand.
+# Each option is `-X` (standalone) or `-X <value>` (paired). Covers `-C <path>`
+# (the form agents adopt to avoid cd-poisoning Stop hooks), `-c <kv>`,
+# `--git-dir=<path>`, `--work-tree=<path>`, `--paginate`, etc. Without this
+# tolerance, those forms silently bypass subcommand detection: pre-tool gate
+# skips review cycle, post-tool hook skips commit-event recording + marker
+# reset, and `commits.get_code_files_for_review` misses unstaged tracked
+# files for `git -C add` / `git -C commit -a`.
+GIT_PREFIX = r"\bgit(?:\s+-\S+(?:\s+\S+)?)*\s+"
+
+
 def is_git_commit(command: str) -> bool:
-    """Detect git commit as an actual command, not inside quoted arguments."""
-    return bool(re.search(r"\bgit\s+commit\b", _strip_quoted(command)))
-
-
-def security_triaged_path(smm_dir: Path, agent_id: str = "main") -> Path:
-    """Return path to the agent-scoped .security-triaged-<agent_id> marker."""
-    return markers.marker_path(smm_dir, markers.SECURITY_TRIAGED, agent_id)
-
-
-def security_triaged_exists(smm_dir: Path, agent_id: str = "main") -> bool:
-    """Check if this agent's triage marker exists with valid JSON and 'ts' key."""
-    if not markers.marker_exists(smm_dir, markers.SECURITY_TRIAGED, agent_id):
-        return False
-    data = markers.marker_read(smm_dir, markers.SECURITY_TRIAGED, agent_id)
-    return isinstance(data, dict) and "ts" in data
-
-
-def write_security_triaged(
-    smm_dir: Path,
-    agent_id: str = "main",
-    *,
-    exempt_reason: str | None = None,
-) -> None:
-    """Atomic write of this agent's triage marker with timestamp."""
-    from _common import now_iso
-
-    data = {"ts": now_iso()}
-    if exempt_reason is not None:
-        data["exempt_reason"] = exempt_reason
-    markers.marker_write(smm_dir, markers.SECURITY_TRIAGED, data, agent_id)
-
-
-def consume_security_triaged(smm_dir: Path, agent_id: str = "main") -> None:
-    """Delete this agent's triage marker if it exists."""
-    markers.marker_consume(smm_dir, markers.SECURITY_TRIAGED, agent_id)
+    """Detect a commit-producing git command (commit or merge), not inside
+    quoted arguments. The `(?!-)` lookahead rejects plumbing subcommands
+    like `commit-tree` / `merge-tree`."""
+    return bool(
+        re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", _strip_quoted(command))
+    )

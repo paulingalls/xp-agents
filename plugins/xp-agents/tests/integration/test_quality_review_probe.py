@@ -53,8 +53,6 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
 
     def test_probe_then_pre_commit_emits_probe_event(self):
         """Quality-review probe + pre-commit both surface same concern."""
-        import json
-
         concern = make_event(
             "concern",
             id="deadbeefcafe",
@@ -63,9 +61,6 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
             severity="medium",
         )
         self._seed_events([concern])
-        (self.smm_dir / ".security-triaged-main").write_text(
-            json.dumps({"ts": "2026-04-22T00:00:00+00:00"})
-        )
 
         (self.tmpdir / "scripts").mkdir(exist_ok=True)
         (self.tmpdir / "scripts" / "auth.py").write_text("print('auth')\n")

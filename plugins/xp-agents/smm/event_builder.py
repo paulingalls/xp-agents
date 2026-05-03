@@ -21,6 +21,44 @@ from smm_schema import EVENT_ID_RE
 _REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
 _REFS_SPLIT_RE = re.compile(r"[,\s]+")
 
+_URL_RE = re.compile(r"https?://\S+")
+# Intentionally NOT reusing lint_check._CODE_EXTENSIONS at runtime: that's a
+# Python frozenset; this regex needs a literal alternation. Both lists are
+# extension catalogs and should evolve together — when adding a language to
+# _LINTER_EXTENSIONS, add its primary source extensions here too. Keeping the
+# alternation broad (Python, JS/TS, Rust, Go, Ruby, C/C++, Java, Kotlin, PHP,
+# Dart, Elixir, C#, Swift, plus prose/config) preserves the recall-biased
+# extraction across xp-agents users — narrowing to one language's set would
+# silence the very signals the probe was built to surface.
+# `(?<![\w/])` (not `\b`) at the start lets leading-slash absolute paths
+# (`/abs/path/foo.py`) capture intact rather than dropping the `/` and
+# misresolving relative to cwd downstream.
+_FILE_PATTERN_RE = re.compile(
+    r"(?<![\w/])([\w./-]+\.(?:py|pyi|ipynb"
+    r"|js|ts|jsx|tsx|mjs|cjs|vue"
+    r"|rs|go|rb"
+    r"|c|cpp|cc|cxx|h|hpp"
+    r"|java|kt|kts|php|dart|ex|exs|cs|swift"
+    r"|md|sh|json|yaml|yml|toml|jsonl))\b"
+)
+
+
+def extract_files_from_content(content: str) -> list[str]:
+    """Find path-shaped tokens in content; recall-biased (probe filters later).
+
+    Strips http(s) URLs first so paths inside URL tails don't match.
+    Dedupes, preserves first-seen order.
+    """
+    cleaned = _URL_RE.sub("", content)
+    seen: set[str] = set()
+    result: list[str] = []
+    for match in _FILE_PATTERN_RE.finditer(cleaned):
+        path = match.group(1)
+        if path not in seen:
+            seen.add(path)
+            result.append(path)
+    return result
+
 
 def generate_id() -> str:
     """12-char hex ID for events and SMM entries."""
@@ -115,6 +153,12 @@ def build_event(args: argparse.Namespace) -> dict:
         case "concern":
             if args.severity:
                 event["severity"] = args.severity
+            if args.files is not None:
+                event["files"] = parse_json_arg(args.files, "files")
+            else:
+                extracted = extract_files_from_content(args.content or "")
+                if extracted:
+                    event["files"] = extracted
 
         case "question":
             if args.priority is not None:

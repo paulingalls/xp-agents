@@ -102,7 +102,7 @@ $ claude
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
 - **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate blocks writes until `/xp-review-plan` runs
-- **Before every commit** — review cycle gate blocks until `/simplify`, `/xp-quality-review`, and `/xp-security-triage` complete (for commits with code changes)
+- **Before every commit** — review cycle gate blocks until `/simplify` and `/xp-quality-review` complete (for commits with code changes); security review runs at story (`/xp-accept`, Tier 2) and close (Tier 3) boundaries
 - **After every write** — status auto-updated, linter runs
 - **After plan mode exits** — `PostToolUse:ExitPlanMode` nudges `/xp-review-plan` to extract assumptions, decisions, and risks
 - **At stop** — TDD gate blocks if tests failing
@@ -158,11 +158,11 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate blocks writes until `/xp-review-plan` clears marker | TDD, Planning Game |
-| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review → security triage), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
+| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
-| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review, security triage), kickoff completion (process guide injection + compaction) | Coding Standards, Refactoring, Communication |
+| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review), kickoff completion (process guide injection + compaction) | Coding Standards, Refactoring, Communication |
 | **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
 | **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + process guide) | Collective Code Ownership |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
@@ -195,7 +195,6 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
-| `/xp-security-triage` | Security review of pending changes | Before commits |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
 | `/xp-sprint-close` | Push sprint branch, fork close-reviewer, merge into target, cleanup | After sprint review |
@@ -216,7 +215,6 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 ├── .curation-watermark       ← last-curated event position
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .plan-awaiting-review     ← plan review gate marker
-├── .security-triaged         ← security triage gate marker
 ├── events.lock               ← flock for atomic appends
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
@@ -275,7 +273,7 @@ After planning, the `/xp-assign` skill analyzes the plan's steps and selects an 
 
 **Solo** (sequential) — the lead executes stories one at a time. Best when stories have dependencies between them, overlapping file domains, or are all small (S-sized). This is the default and most common mode.
 
-**CLI Teammates** (parallel) — each independent step group gets its own `claude -p` process running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`, `/xp-security-triage`), and commit independently. The lead merges branches after all teammates complete.
+**CLI Teammates** (parallel) — each independent step group gets its own `claude -p` process running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`), and commit independently. Tier 2/3 security review fires at story acceptance and close. The lead merges branches after all teammates complete.
 
 `/xp-assign` chooses CLI teammates when two or more step groups are substantial, have no dependencies between them, and have non-overlapping file domains. The mode decision is presented to the user for confirmation before spawning.
 
@@ -350,7 +348,7 @@ A standup where agents report "everything is fine" when tests are failing is wor
 
 xp-agents enforces honesty through data, not aspiration:
 
-- **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, commits without security triage, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
+- **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, code commits without a recorded security check at story/close boundaries, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
 - **Quality review skill** — post-simplify courage check: were recommendations skipped? Drift management: do code changes contradict recorded decisions?
 - **Conflict detector** — catches convention violations, superseded decisions, and unacknowledged contradictions
 - **Process guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
@@ -375,7 +373,7 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | **Pair Programming** | Skill: quality review after simplify (courage + drift + debt awareness). | `/xp-quality-review` |
 | **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Three-layer enforcement via PostToolUse:ExitPlanMode, SubagentStop:Plan, and PreToolUse write block. Skill: work selection (goals, questions, Try items). | `xp-plan-reviewer`, `/xp-work-selection` |
 | **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
-| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, security triage before commit. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
+| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, Tier 1 secret-pattern scan on staged diffs. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
 | **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
 | **Refactoring** | Commit gate: `/simplify` required before commit if code files changed, quality review checks skipped recommendations. Enforced by `pre_tool_bash.py` + `markers.py`. | `/xp-quality-review`, `pre_tool_bash.py` |
 | **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` required at commit for code changes. | `xp-plan-reviewer`, `pre_tool_bash.py` |

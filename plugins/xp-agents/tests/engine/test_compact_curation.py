@@ -15,6 +15,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import _append_impl
 import materialize
 from conftest import _SMMTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestCompactAfterCuration(_SMMTestCase):
@@ -25,7 +34,7 @@ class TestCompactAfterCuration(_SMMTestCase):
         ts_base = f"2026-03-{session_num:02d}T00:00:00+00:00"
         events = [
             make_event(
-                "customer_input",
+                EVENT_TYPE_CUSTOMER_INPUT,
                 content=f"session {session_num} event {i}",
                 ts=ts_base,
             )
@@ -33,7 +42,7 @@ class TestCompactAfterCuration(_SMMTestCase):
         ]
         events.append(
             make_event(
-                "session_end",
+                EVENT_TYPE_SESSION_END,
                 content=f"end session {session_num}",
                 ts=ts_base,
                 working_on=[],
@@ -76,7 +85,7 @@ class TestCompactAfterCuration(_SMMTestCase):
 
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
-        session_ends = [e for e in retained if e.get("type") == "session_end"]
+        session_ends = [e for e in retained if e.get("type") == EVENT_TYPE_SESSION_END]
         pre_wm_ends = [
             e for e in session_ends if e.get("content", "") != "end session 6"
         ]
@@ -86,21 +95,28 @@ class TestCompactAfterCuration(_SMMTestCase):
         """Unresolved goals, active decisions, open concerns are retained."""
         import compact
 
-        goal = make_event("goal", content="Ship v1", ts="2026-01-01T00:00:00+00:00")
+        goal = make_event(
+            EVENT_TYPE_GOAL, content="Ship v1", ts="2026-01-01T00:00:00+00:00"
+        )
         decision = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="Use Postgres",
             topic="db",
             ts="2026-01-01T00:00:00+00:00",
         )
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="No tests",
             ts="2026-01-01T00:00:00+00:00",
         )
-        filler = make_event("status", content="working", ts="2026-01-01T00:00:00+00:00")
+        filler = make_event(
+            EVENT_TYPE_STATUS, content="working", ts="2026-01-01T00:00:00+00:00"
+        )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
         )
         self._write_events([goal, decision, concern, filler, session_end])
         self._set_curation_watermark(5)
@@ -117,18 +133,23 @@ class TestCompactAfterCuration(_SMMTestCase):
         """Resolved goal before watermark is archivable (new policy)."""
         import compact
 
-        goal = make_event("goal", content="Ship v1", ts="2026-01-01T00:00:00+00:00")
+        goal = make_event(
+            EVENT_TYPE_GOAL, content="Ship v1", ts="2026-01-01T00:00:00+00:00"
+        )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Goal completed",
             ts="2026-01-02T00:00:00+00:00",
             metadata={"resolves": [goal["id"]]},
         )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-03T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-03T00:00:00+00:00",
+            working_on=[],
         )
         new_event = make_event(
-            "status", content="new work", ts="2026-02-01T00:00:00+00:00"
+            EVENT_TYPE_STATUS, content="new work", ts="2026-02-01T00:00:00+00:00"
         )
         self._write_events([goal, resolution, session_end, new_event])
         self._set_curation_watermark(3)
@@ -143,18 +164,18 @@ class TestCompactAfterCuration(_SMMTestCase):
         import compact
 
         assumption = make_event(
-            "assumption",
+            EVENT_TYPE_ASSUMPTION,
             content="API returns JSON",
             ts="2026-01-01T00:00:00+00:00",
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-02T00:00:00+00:00",
             working_on=[],
         )
         new_event = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="new work",
             ts="2026-02-01T00:00:00+00:00",
         )
@@ -171,24 +192,24 @@ class TestCompactAfterCuration(_SMMTestCase):
         import compact
 
         assumption = make_event(
-            "assumption",
+            EVENT_TYPE_ASSUMPTION,
             content="API returns JSON",
             ts="2026-01-01T00:00:00+00:00",
         )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Verified: API returns JSON",
             ts="2026-01-02T00:00:00+00:00",
             metadata={"resolves": [assumption["id"]]},
         )
         session_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             content="end",
             ts="2026-01-03T00:00:00+00:00",
             working_on=[],
         )
         new_event = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="new work",
             ts="2026-02-01T00:00:00+00:00",
         )
@@ -204,18 +225,23 @@ class TestCompactAfterCuration(_SMMTestCase):
         """If a goal is retained, its resolving event is also retained."""
         import compact
 
-        goal = make_event("goal", content="Ship v1", ts="2026-01-01T00:00:00+00:00")
+        goal = make_event(
+            EVENT_TYPE_GOAL, content="Ship v1", ts="2026-01-01T00:00:00+00:00"
+        )
         concern = make_event(
-            "concern", content="Open issue", ts="2026-01-01T00:00:00+00:00"
+            EVENT_TYPE_CONCERN, content="Open issue", ts="2026-01-01T00:00:00+00:00"
         )
         partial_resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Partially addressed",
             ts="2026-01-02T00:00:00+00:00",
             metadata={"resolves": [concern["id"]]},
         )
         session_end = make_event(
-            "session_end", content="end", ts="2026-01-03T00:00:00+00:00", working_on=[]
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-03T00:00:00+00:00",
+            working_on=[],
         )
         self._write_events([goal, concern, partial_resolution, session_end])
         self._set_curation_watermark(4)
@@ -232,7 +258,9 @@ class TestCompactAfterCuration(_SMMTestCase):
         import compact
 
         all_events = self._make_session(session_num=1)
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([*all_events, new_event])
         self._set_curation_watermark(len(all_events))
 
@@ -248,11 +276,18 @@ class TestCompactAfterCuration(_SMMTestCase):
         """Retained events maintain original order."""
         import compact
 
-        goal = make_event("goal", content="first", ts="2026-01-01T00:00:00+00:00")
-        session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+        goal = make_event(
+            EVENT_TYPE_GOAL, content="first", ts="2026-01-01T00:00:00+00:00"
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        session_end = make_event(
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([goal, session_end, new_event])
         self._set_curation_watermark(2)
 
@@ -278,7 +313,9 @@ class TestCompactAfterCuration(_SMMTestCase):
         import compact
 
         all_events = self._make_session(session_num=1)
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([*all_events, new_event])
         (self.smm_dir / ".watermark-prompt-nugget").write_text("100")
         self._set_curation_watermark(len(all_events))
@@ -292,12 +329,21 @@ class TestCompactAfterCuration(_SMMTestCase):
         """Curation watermark event_count updated after compaction."""
         import compact
 
-        goal = make_event("goal", content="Keep me", ts="2026-01-01T00:00:00+00:00")
-        filler = make_event("status", content="discard", ts="2026-01-01T00:00:00+00:00")
-        session_end = make_event(
-            "session_end", content="end", ts="2026-01-02T00:00:00+00:00", working_on=[]
+        goal = make_event(
+            EVENT_TYPE_GOAL, content="Keep me", ts="2026-01-01T00:00:00+00:00"
         )
-        new_event = make_event("status", content="new", ts="2026-02-01T00:00:00+00:00")
+        filler = make_event(
+            EVENT_TYPE_STATUS, content="discard", ts="2026-01-01T00:00:00+00:00"
+        )
+        session_end = make_event(
+            EVENT_TYPE_SESSION_END,
+            content="end",
+            ts="2026-01-02T00:00:00+00:00",
+            working_on=[],
+        )
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
         self._write_events([goal, filler, session_end, new_event])
         self._set_curation_watermark(3)
 
@@ -353,7 +399,9 @@ class TestCompactAfterCuration(_SMMTestCase):
         all_events = []
         for s in range(1, 4):
             all_events.extend(self._make_session(session_num=s))
-        post = make_event("status", content="post", ts="2026-03-04T00:00:00+00:00")
+        post = make_event(
+            EVENT_TYPE_STATUS, content="post", ts="2026-03-04T00:00:00+00:00"
+        )
         all_events.append(post)
         self._write_events(all_events)
 

@@ -3,13 +3,13 @@
 lifecycle events, and inject post-completion context after review skills
 or the xp-housekeeper agent run.
 
-Detects /simplify, /xp-quality-review, /security-review, /xp-security-triage,
-/xp-review-plan skill completions via tool_input.skill, and the xp-housekeeper
-inline agent via tool_input.subagent_type. For each, appends a canonical
-status event with metadata.action so consumers can detect skill completions
-without regex-matching LLM-authored content. For the commit-review-cycle
-targets, also sets the marker that clears the commit gate; security paths
-additionally write the .security-triaged marker.
+Detects /simplify, /xp-quality-review, /security-review, /xp-review-plan
+skill completions via tool_input.skill, and the xp-housekeeper inline agent
+via tool_input.subagent_type. For each, appends a canonical status event
+with metadata.action so consumers can detect skill completions without
+regex-matching LLM-authored content. Per-commit review-cycle flags are set
+only for /simplify and /xp-quality-review (M-4: security review moved to
+Tier 2 at /xp-accept and Tier 3 at close).
 """
 
 import sys
@@ -23,29 +23,21 @@ import event_schema
 import identity
 import markers
 import plugin_loader
-import security
 
 # Canonical target names — derived from skill/agent names via _detect_target.
 _TARGET_SIMPLIFY = "simplify"
 _TARGET_QUALITY_REVIEW = "quality-review"
 _TARGET_SECURITY_REVIEW = "security-review"
-_TARGET_SECURITY_TRIAGE = "security-triage"
 _TARGET_PLAN_REVIEW = "review-plan"
 _TARGET_HOUSEKEEPING = "housekeeping"
 
 
 def _detect_target(target_name: str) -> str | None:
-    """Map a possibly-prefixed skill/agent name to its canonical target.
-
-    Order matters: security-triage must check before security-review (the
-    triage name contains 'security-' but means a different lifecycle moment).
-    """
+    """Map a possibly-prefixed skill/agent name to its canonical target."""
     if "simplify" in target_name:
         return _TARGET_SIMPLIFY
     if "quality-review" in target_name:
         return _TARGET_QUALITY_REVIEW
-    if "security-triage" in target_name:
-        return _TARGET_SECURITY_TRIAGE
     if "security-review" in target_name:
         return _TARGET_SECURITY_REVIEW
     if "review-plan" in target_name:
@@ -74,10 +66,6 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
         event_schema.STATUS_ACTION_SECURITY_COMPLETE,
         "Security review complete — full review performed",
     ),
-    _TARGET_SECURITY_TRIAGE: (
-        event_schema.STATUS_ACTION_SECURITY_TRIAGE_COMPLETE,
-        "Security triage complete",
-    ),
     _TARGET_PLAN_REVIEW: (
         event_schema.STATUS_ACTION_PLAN_REVIEWED,
         "Plan reviewed",
@@ -95,15 +83,12 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
 _TARGET_FLAG: dict[str, str] = {
     _TARGET_SIMPLIFY: "simplify_done",
     _TARGET_QUALITY_REVIEW: "quality_review_done",
-    _TARGET_SECURITY_REVIEW: "security_review_done",
-    _TARGET_SECURITY_TRIAGE: "security_review_done",
 }
 
 
 _NEXT_STEP: dict[str, str] = {
     "simplify_done": "Run /xp-quality-review next.",
-    "quality_review_done": "Run /security-review next.",
-    "security_review_done": "Review cycle complete — commit your changes now.",
+    "quality_review_done": "Review cycle complete — commit your changes now.",
 }
 
 
@@ -146,13 +131,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = identity.resolve_agent_id(input_data)
 
-    # Per-commit review-cycle targets: set marker (commit gate),
-    # write security-triaged for the security paths.
+    # Per-commit review-cycle targets: set the marker flag that clears
+    # the commit gate.
     flag = _TARGET_FLAG.get(target)
     if flag:
         markers.set_review_flag(smm_dir, agent_id, flag)
-    if target in (_TARGET_SECURITY_REVIEW, _TARGET_SECURITY_TRIAGE):
-        security.write_security_triaged(smm_dir, agent_id)
 
     # Emit canonical lifecycle event (single dispatch — producer determinism).
     # agent_id is the teammate-resolved attribution; skill identity lives

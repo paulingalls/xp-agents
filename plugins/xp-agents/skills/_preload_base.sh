@@ -90,6 +90,68 @@ pre_commit_hook_present() {
         hook-present --cwd . 2>/dev/null || echo "absent"
 }
 
+# Print current UTC time in ISO 8601 format matching events.jsonl's
+# `ts` field shape ("YYYY-MM-DDTHH:MM:SS.ffffff+00:00"). Used by
+# close-skill preloads to capture CLOSE_START_TS for the Step 6
+# auto-merge gate's `count-classifications --since-ts` bound. Python
+# (not `date`) for portability — `date -u --iso-8601=seconds` is
+# GNU-only; macOS BSD `date` rejects the long flag form.
+#
+# Mirrors smm/_append_impl.py:now_iso() (the source-of-truth used
+# by append.sh when stamping events.jsonl entries). This shell
+# variant exists because preload.sh runs before any Python module
+# is imported; calling _append_impl directly would force preload to
+# set up sys.path. Lexicographic comparison against event ts values
+# is safe because both sides use the same fixed-width zero-padded
+# fields produced by datetime.isoformat().
+#
+# Usage: now_iso
+now_iso() {
+    python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat())"
+}
+
+# Generate a 12-char hex ID matching event_builder.generate_id() shape.
+# Used by close-skill preloads to capture CLOSE_CYCLE_ID — the strict
+# scoper for the Step 6 auto-merge gate's count-classifications query.
+# Cycle-id (not just since-ts) prevents concurrent close-cycles in
+# other teammate worktrees from leaking concern_classify events into
+# this cycle's count.
+#
+# Usage: generate_id
+generate_id() {
+    python3 -c "import secrets; print(secrets.token_hex(6))"
+}
+
+# Look up the project's test command from system_context.stack.test_command.
+# Returns the value (e.g. "pytest -n auto", "npm test", "cargo test")
+# or empty string when unset / system_context.json missing.
+#
+# Used by the story-close + free-close auto-merge override (Step 6) to
+# decide whether to fire a deterministic test gate before merging.
+# Empty result means "no test command configured" — the override falls
+# through to the confirm prompt rather than guessing a project-specific
+# command (the plugin ships to repos that may use any test runner or
+# none at all).
+#
+# Wraps `system_context_cli.py get-stack-field test_command`, mirroring
+# the `pre_commit_hook_present` pattern of delegating to the
+# corresponding CLI rather than inlining Python in shell.
+#
+# To enable the auto-merge gate in your project, set the field via:
+#     printf %s '"<your test command>"' | python3 \
+#         "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
+#         edit-stack-field test_command
+# (or let /xp-system-context's analyzer detect it from your project's
+# package.json / pyproject.toml / Cargo.toml / etc. — see Step 3.7
+# of agents/xp-system-analyzer.md).
+#
+# Usage: find_test_command
+find_test_command() {
+    python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" \
+        --smm-dir "${SMM_DIR}" get-stack-field test_command 2>/dev/null \
+        || echo ""
+}
+
 # Conditionally emit a HOOK_GUIDANCE section when no hook will fire on
 # the close skill's merge. Single source of truth — replaces 4 copies
 # of identical prose previously inlined in each close skill's SKILL.md.

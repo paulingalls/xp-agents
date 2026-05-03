@@ -11,11 +11,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import unittest
 
 import _common
+import event_schema
 import resolves_probe
 import worktree
 from conftest import _HookTestCase, _ProbeTestHelpers, make_event
 from event_schema import (
     METADATA_KEY_PROBE_CANDIDATES,
+    METADATA_KEY_PROBE_SELECTION_REASONS,
+    SELECTION_REASON_CLOSE_MODE,
+    SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_KEYWORD,
+    SELECTION_REASON_RECENCY,
     STATUS_CONTENT_RESOLVES_PROBE,
 )
 
@@ -61,6 +67,22 @@ class TestFindProbeCandidates(_HookTestCase):
         ids = [c["id"] for c in result]
         self.assertIn(cid_keep, ids)
         self.assertNotIn(cid_skip, ids)
+
+    def test_attaches_selection_reasons(self):
+        self._seed_concern("Auth middleware leaks tokens", ["scripts/auth.py"])
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            commit_message="fix auth",
+        )
+        self.assertEqual(len(result), 1)
+        cand = result[0]
+        self.assertIn("selection_reasons", cand)
+        self.assertIsInstance(cand["selection_reasons"], list)
+        self.assertIn(SELECTION_REASON_FILE_OVERLAP, cand["selection_reasons"])
+        self.assertIn(SELECTION_REASON_KEYWORD, cand["selection_reasons"])
 
 
 class TestBuildNudgeLines(unittest.TestCase):
@@ -162,11 +184,14 @@ class TestBuildNudgeLines(unittest.TestCase):
         self.assertNotIn("close-reviewer", block)
 
 
-class TestScoreCandidate(unittest.TestCase):
-    """_score_candidate ranks candidates by keyword + file + recency + provenance."""
+class _ScoringHelpers:
+    """Shared candidate-builder + score caller for TestScoreCandidate and
+    TestSelectionReasons. Mixin (no TestCase base) so subclasses don't
+    re-run each other's tests via inheritance."""
 
     NOW = "2026-04-29T00:00:00+00:00"
-    RECENT_TS = "2026-04-25T00:00:00+00:00"  # 4 days ago — within 7-day window
+    RECENT_TS = "2026-04-25T00:00:00+00:00"  # 4 days ago — within 5-day window
+    EDGE_TS = "2026-04-23T00:00:00+00:00"  # 6 days ago — outside 5-day window
     OLD_TS = "2026-04-01T00:00:00+00:00"  # 28 days ago — outside window
 
     def _candidate(self, **kwargs) -> dict:
@@ -188,7 +213,20 @@ class TestScoreCandidate(unittest.TestCase):
         worktree.normalize_path so candidate files (also normalized inside
         _score_candidate) intersect on the same key shape regardless of
         whether the source path was absolute, relative, or `./`-prefixed.
+        Returns the int score only — call `_score_with_reasons` when the
+        reasons list is needed.
         """
+        score, _ = self._score_with_reasons(
+            candidate,
+            commit_message=commit_message,
+            commit_files=commit_files,
+            now_ts=now_ts,
+        )
+        return score
+
+    def _score_with_reasons(
+        self, candidate, *, commit_message="", commit_files=None, now_ts=None
+    ):
         commit_files = commit_files or []
         haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
         haystack_keywords = resolves_probe._extract_keywords(" ".join(haystack_parts))
@@ -197,6 +235,10 @@ class TestScoreCandidate(unittest.TestCase):
         return resolves_probe._score_candidate(
             candidate, haystack_keywords, commit_file_set, cwd, now_ts or self.NOW
         )
+
+
+class TestScoreCandidate(_ScoringHelpers, unittest.TestCase):
+    """_score_candidate ranks candidates by keyword + file + recency + provenance."""
 
     def test_keyword_match_in_commit_message_adds_two(self):
         cand = self._candidate(content="Auth middleware leaks tokens", files=[])
@@ -211,7 +253,8 @@ class TestScoreCandidate(unittest.TestCase):
         self.assertGreaterEqual(score, 2)
 
     def test_keyword_score_capped_at_five_matches(self):
-        # 10 keywords all match → score should not exceed 5*2 = 10
+        # 10 keywords all match → score capped at 5*multiplier. Default ts is
+        # OLD_TS so multiplier=2 (no recency boost) → cap = 5*2 = 10.
         cand = self._candidate(
             content="alpha bravo charlie delta echo foxtrot golf hotel india juliet",
             files=[],
@@ -224,10 +267,35 @@ class TestScoreCandidate(unittest.TestCase):
         )
         self.assertLessEqual(score, 10)
 
-    def test_recency_boost_when_within_seven_days(self):
+    def test_recency_boost_when_within_five_days(self):
         recent = self._candidate(ts=self.RECENT_TS, content="zzz", files=[])
         old = self._candidate(ts=self.OLD_TS, content="zzz", files=[])
         self.assertEqual(self._score(recent) - self._score(old), 1)
+
+    def test_no_recency_boost_at_six_days(self):
+        edge = self._candidate(ts=self.EDGE_TS, content="zzz", files=[])
+        old = self._candidate(ts=self.OLD_TS, content="zzz", files=[])
+        self.assertEqual(self._score(edge) - self._score(old), 0)
+
+    def test_keyword_score_boosted_for_recent_concerns(self):
+        """Fresh concerns matching commit keywords get a per-match multiplier
+        bump (2→3) on top of the +1 recency reason. Old concerns with the
+        same content get only the base 2x. Difference: keyword_count + 1."""
+        recent = self._candidate(
+            ts=self.RECENT_TS, content="auth middleware leaks tokens", files=[]
+        )
+        old = self._candidate(
+            ts=self.OLD_TS, content="auth middleware leaks tokens", files=[]
+        )
+        # 4 >=3-char non-stopword tokens overlap (auth, middleware, leaks,
+        # tokens). recent gets 4*3=12, old 4*2=8. Plus +1 recency on recent.
+        # Total diff = 4 + 1 = 5.
+        msg = "fix auth middleware leaks tokens"
+        self.assertEqual(
+            self._score(recent, commit_message=msg)
+            - self._score(old, commit_message=msg),
+            5,
+        )
 
     def test_close_reviewer_provenance_boost(self):
         with_close = self._candidate(
@@ -271,6 +339,96 @@ class TestScoreCandidate(unittest.TestCase):
         self.assertEqual(score, 0)
 
 
+class TestSelectionReasons(_ScoringHelpers, unittest.TestCase):
+    """_score_candidate also returns the list of signals that contributed."""
+
+    def test_keyword_match_emits_keyword_reason(self):
+        cand = self._candidate(content="Auth middleware leaks tokens", files=[])
+        _, reasons = self._score_with_reasons(cand, commit_message="fix auth bug")
+        self.assertIn(SELECTION_REASON_KEYWORD, reasons)
+
+    def test_file_overlap_emits_file_overlap_reason(self):
+        cand = self._candidate(content="zzz", files=["scripts/auth.py"])
+        _, reasons = self._score_with_reasons(cand, commit_files=["scripts/auth.py"])
+        self.assertIn(SELECTION_REASON_FILE_OVERLAP, reasons)
+
+    def test_recency_emits_recency_reason(self):
+        cand = self._candidate(ts=self.RECENT_TS, content="zzz", files=[])
+        _, reasons = self._score_with_reasons(cand)
+        self.assertIn(SELECTION_REASON_RECENCY, reasons)
+        old = self._candidate(ts=self.OLD_TS, content="zzz", files=[])
+        _, old_reasons = self._score_with_reasons(old)
+        self.assertNotIn(SELECTION_REASON_RECENCY, old_reasons)
+
+    def test_close_mode_emits_close_mode_reason(self):
+        cand = self._candidate(
+            metadata={"close_mode": "sprint"}, content="zzz", files=[]
+        )
+        _, reasons = self._score_with_reasons(cand)
+        self.assertIn(SELECTION_REASON_CLOSE_MODE, reasons)
+        without = self._candidate(metadata={}, content="zzz", files=[])
+        _, no_reasons = self._score_with_reasons(without)
+        self.assertNotIn(SELECTION_REASON_CLOSE_MODE, no_reasons)
+
+    def test_zero_score_emits_no_reasons(self):
+        cand = self._candidate(content="zzz unrelated", files=[], metadata={})
+        score, reasons = self._score_with_reasons(cand, commit_message="totally other")
+        self.assertEqual(score, 0)
+        self.assertEqual(reasons, [])
+
+    def test_reasons_are_deterministic_order(self):
+        cand = self._candidate(
+            content="auth middleware leaks tokens",
+            files=["scripts/auth.py"],
+            ts=self.RECENT_TS,
+            metadata={"close_mode": "sprint"},
+        )
+        _, reasons = self._score_with_reasons(
+            cand, commit_message="fix auth bug", commit_files=["scripts/auth.py"]
+        )
+        self.assertEqual(
+            reasons,
+            [
+                SELECTION_REASON_KEYWORD,
+                SELECTION_REASON_FILE_OVERLAP,
+                SELECTION_REASON_RECENCY,
+                SELECTION_REASON_CLOSE_MODE,
+            ],
+        )
+
+
+class TestSelectionReasonVocabularyCap(unittest.TestCase):
+    """The SELECTION_REASON_* vocabulary is capped to keep probe metadata
+    payload size bounded and force deliberate review when adding a new
+    selector signal.
+
+    Adding a 5th constant requires:
+      1. Updating _score_candidate to emit it (in deterministic order)
+      2. Bumping this expected count
+      3. Reviewing the divert-narrative payload size impact (each probe
+         records {cid: [reasons...]} for up to PROBE_CANDIDATE_LIMIT=5
+         candidates — adding a constant grows worst-case payload by 5
+         strings per probe event).
+    """
+
+    def test_exactly_four_selection_reason_constants(self):
+        # Substring match catches both public (SELECTION_REASON_*) and
+        # private (_SELECTION_REASON_*) — a private constant still grows
+        # the divert payload, so it counts toward the cap.
+        constants = {n for n in dir(event_schema) if "SELECTION_REASON_" in n}
+        self.assertEqual(
+            constants,
+            {
+                "SELECTION_REASON_KEYWORD",
+                "SELECTION_REASON_FILE_OVERLAP",
+                "SELECTION_REASON_RECENCY",
+                "SELECTION_REASON_CLOSE_MODE",
+            },
+            "Selector-signal vocabulary changed — see this test's docstring "
+            "for the deliberate-review checklist before updating the expected set.",
+        )
+
+
 class TestFindProbeCandidatesSorting(_HookTestCase):
     """find_probe_candidates sorts by score descending, ts as tiebreak."""
 
@@ -312,7 +470,7 @@ class TestFindProbeCandidatesSorting(_HookTestCase):
             now_ts="2026-04-29T00:00:00+00:00",
         )
         ids = [c["id"] for c in result]
-        # Both score equally — file overlap +1, neither within 7-day window
+        # Both score equally — file overlap +1, neither within 5-day window
         # (old=28d, new=14d). ts-desc tiebreak → newer first.
         self.assertLess(ids.index(cid_new), ids.index(cid_old))
 
@@ -338,6 +496,37 @@ class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(
             probes[0]["metadata"][METADATA_KEY_PROBE_CANDIDATES], ["abc", "def"]
         )
+
+    def test_event_writes_selection_reasons_per_candidate(self):
+        candidates = [
+            {
+                "id": "abc",
+                "content": "first",
+                "selection_reasons": [
+                    SELECTION_REASON_KEYWORD,
+                    SELECTION_REASON_FILE_OVERLAP,
+                ],
+            },
+            {"id": "def", "content": "second", "selection_reasons": []},
+        ]
+        resolves_probe.emit_probe_status(self.smm_dir, candidates, "main")
+        probes = self._probes()
+        reasons_map = probes[0]["metadata"][METADATA_KEY_PROBE_SELECTION_REASONS]
+        self.assertEqual(
+            reasons_map,
+            {
+                "abc": [SELECTION_REASON_KEYWORD, SELECTION_REASON_FILE_OVERLAP],
+                "def": [],
+            },
+        )
+
+    def test_event_defaults_missing_selection_reasons_to_empty(self):
+        candidates = [{"id": "abc", "content": "no reasons attached"}]
+        resolves_probe.emit_probe_status(self.smm_dir, candidates, "main")
+        reasons_map = self._probes()[0]["metadata"][
+            METADATA_KEY_PROBE_SELECTION_REASONS
+        ]
+        self.assertEqual(reasons_map, {"abc": []})
 
 
 if __name__ == "__main__":

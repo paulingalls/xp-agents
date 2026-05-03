@@ -1,11 +1,18 @@
 # Security Review Doctrine
 
+> **Status (sprint-051):** M-1 through M-4 delivered — Tier 1 patterns,
+> Tier 2 wired into `/xp-accept`, Tier 3 wired into `xp-close-reviewer`,
+> and the per-commit gate enforcement of `/xp-security-triage` is gone.
+> M-5 (v3.0 release; skill + agent deletion lands here) is in progress. The
+> "Today, every code commit requires…" framing below describes the
+> pre-v3.0 state that motivated this doctrine.
+
 ## Purpose
 
 Define **when** the plugin runs security review, **what kind of review
-runs at each tier**, and the migration path from the current
-per-commit-LLM model to a tiered model that catches more while costing
-less.
+runs at each tier**, and the migration path from the prior
+per-commit-LLM model to a tiered model that catches more while
+costing less.
 
 This doctrine is plugin-internal: it governs how `/xp-security-triage`,
 `/xp-accept`, and the close skills coordinate security review across a
@@ -16,13 +23,13 @@ without per-project configuration.
 
 ## The Problem
 
-Today, **every code commit** requires `/xp-security-triage`, which
-forks `xp-security-reviewer` to run the built-in `/security-review`
-command. The commit gate at `pre_tool_bash.py:152-155` enforces this
-ordering: `/simplify` → `/xp-quality-review` → `/xp-security-triage` →
-commit.
+Before v3.0, **every code commit** required `/xp-security-triage`,
+which forked `xp-security-reviewer` to run the built-in
+`/security-review` command. The commit gate at
+`pre_tool_bash.py:152-155` enforced this ordering: `/simplify` →
+`/xp-quality-review` → `/xp-security-triage` → commit.
 
-Two failure modes have shown up empirically:
+Two failure modes showed up empirically:
 
 1. **The gate gets skipped.** Sprint-035's retro flagged "2 commits
    skipped security triage after a 3+ session streak"; sprint-036's
@@ -110,6 +117,9 @@ markers per-line.
 
 **Out of scope for Tier 1:** anything requiring semantic analysis
 (SQL injection, XSS, deserialization). Those are Tier 2's job.
+Commit-message content (passed via `git commit -F file` or HEREDOC) is
+also out of Tier 1 scope. Tier 1 scans the staged diff only, not commit
+metadata.
 
 ### Tier 2 — LLM Review at `/xp-accept` (per story)
 

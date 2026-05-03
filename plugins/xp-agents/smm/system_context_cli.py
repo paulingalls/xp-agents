@@ -11,8 +11,11 @@ Usage:
     system_context_cli.py create --smm-dir DIR          < context.json
     system_context_cli.py section NAME --smm-dir DIR
     system_context_cli.py edit-field NAME --smm-dir DIR  < value.json
+    system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
+    system_context_cli.py get-stack-field NAME --smm-dir DIR
     system_context_cli.py add-module --smm-dir DIR       < module.json
     system_context_cli.py add-decision --smm-dir DIR     < decision.json
+    system_context_cli.py add-convention --smm-dir DIR   < convention.json
     system_context_cli.py edit-branching --smm-dir DIR   < branching.json
     system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
     system_context_cli.py add-acceptance-surface --smm-dir DIR   < surface.json
@@ -26,212 +29,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import system_context_store as store
+from system_context_renderer import render_markdown, render_section
 from system_context_schema import validate_system_context
-
-_SECTION_HEADINGS: dict[str, str] = {
-    "product": "Product",
-    "architecture_overview": "Architecture Overview",
-    "stack": "Stack",
-    "modules": "Modules",
-    "conventions": "Conventions",
-    "key_decisions": "Key Decisions",
-    "sources": "Sources",
-    "branching_strategy": "Branching Strategy",
-    "acceptance_surfaces": "Acceptance Surfaces",
-}
-
-
-def render_markdown(data: dict) -> str:
-    """Render a system context dict as markdown."""
-    lines: list[str] = []
-
-    lines.append("# System Context")
-    lines.append("")
-
-    lines.append("## Product")
-    lines.append("")
-    lines.append(data["product"])
-    lines.append("")
-
-    lines.append("## Architecture Overview")
-    lines.append("")
-    lines.append(data["architecture_overview"])
-    lines.append("")
-
-    _render_stack(lines, data["stack"])
-    _render_modules(lines, data["modules"])
-    _render_conventions(lines, data["conventions"])
-    _render_key_decisions(lines, data["key_decisions"])
-    _render_sources(lines, data["sources"])
-
-    for entry in data.get("project_specific", []):
-        lines.extend(_render_project_specific(entry))
-
-    if "branching_strategy" in data:
-        _render_branching_strategy(lines, data["branching_strategy"])
-
-    if "acceptance_surfaces" in data:
-        _render_acceptance_surfaces(lines, data["acceptance_surfaces"])
-
-    return "\n".join(lines)
-
-
-def _render_stack(lines: list[str], stack: dict) -> None:
-    lines.append("## Stack")
-    lines.append("")
-    if stack.get("languages"):
-        lines.append(f"- **Languages:** {', '.join(stack['languages'])}")
-    for field in ("runtime", "dependencies_policy", "package_manager"):
-        if field in stack:
-            heading = field.replace("_", " ").title()
-            lines.append(f"- **{heading}:** {stack[field]}")
-    lines.append("")
-
-
-def _render_modules(lines: list[str], modules: list[dict]) -> None:
-    lines.append("## Modules")
-    lines.append("")
-    if not modules:
-        lines.append("(none)")
-        lines.append("")
-        return
-    for m in modules:
-        count = f" ({m['file_count']} files)" if "file_count" in m else ""
-        lines.append(f"- **{m['name']}** (`{m['path']}`){count} — {m['purpose']}")
-    lines.append("")
-
-
-def _render_conventions(lines: list[str], conventions: list[str]) -> None:
-    lines.append("## Conventions")
-    lines.append("")
-    for c in conventions:
-        lines.append(f"- {c}")
-    lines.append("")
-
-
-def _render_key_decisions(lines: list[str], decisions: list[dict]) -> None:
-    lines.append("## Key Decisions")
-    lines.append("")
-    for d in decisions:
-        rationale = f" — {d['rationale']}" if d.get("rationale") else ""
-        lines.append(f"- **{d['topic']}:** {d['decision']}{rationale}")
-    lines.append("")
-
-
-def _render_sources(lines: list[str], sources: list[str]) -> None:
-    lines.append("## Sources")
-    lines.append("")
-    for s in sources:
-        lines.append(f"- {s}")
-    lines.append("")
-
-
-_STAGE_NAMES = {
-    0: "Stage 0 — Trunk (below plugin floor)",
-    1: "Stage 1 — Story branches",
-    2: "Stage 2 — Integration",
-    3: "Stage 3 — Release flow",
-}
-
-
-def _render_branching_strategy(lines: list[str], bs: dict) -> None:
-    lines.append("## Branching Strategy")
-    lines.append("")
-    stage = bs.get("stage", 0)
-    lines.append(f"- **Stage:** {_STAGE_NAMES.get(stage, f'Stage {stage}')}")
-    if "user_namespace" in bs:
-        lines.append(f"- **User Namespace:** {bs['user_namespace']}")
-    if bs.get("protected_branches"):
-        branches = ", ".join(f"`{b}`" for b in bs["protected_branches"])
-        lines.append(f"- **Protected Branches:** {branches}")
-    if bs.get("integration_branch"):
-        lines.append(f"- **Integration Branch:** `{bs['integration_branch']}`")
-    if bs.get("rationale"):
-        lines.append(f"- **Rationale:** {bs['rationale']}")
-    lines.append("")
-
-
-def _render_acceptance_surfaces(lines: list[str], surfaces: list[dict]) -> None:
-    lines.append("## Acceptance Surfaces")
-    lines.append("")
-    if not surfaces:
-        lines.append("(none)")
-        lines.append("")
-        return
-    for s in surfaces:
-        harness = f" [{s['harness']}]" if s.get("harness") else ""
-        signals = ", ".join(s.get("signals", []))
-        signals_str = f" — {signals}" if signals else ""
-        lines.append(f"- **{s['name']}** ({s['status']}){harness}{signals_str}")
-    lines.append("")
-
-
-def _render_project_specific(entry: dict) -> list[str]:
-    lines: list[str] = []
-    lines.append(f"## {entry['name']}")
-    lines.append("")
-
-    content = entry["content"]
-    if isinstance(content, str):
-        lines.append(content)
-    elif isinstance(content, list):
-        if content and all(isinstance(item, dict) for item in content):
-            keys = list(content[0].keys())
-            if all(set(item.keys()) == set(keys) for item in content):
-                lines.append("| " + " | ".join(keys) + " |")
-                lines.append("| " + " | ".join("---" for _ in keys) + " |")
-                for item in content:
-                    lines.append("| " + " | ".join(str(item[k]) for k in keys) + " |")
-            else:
-                for item in content:
-                    for k, v in item.items():
-                        lines.append(f"- **{k}:** {v}")
-                    lines.append("")
-        else:
-            for item in content:
-                lines.append(f"- {item}")
-    elif isinstance(content, dict):
-        for k, v in content.items():
-            lines.append(f"- **{k}:** {v}")
-
-    lines.append("")
-    return lines
-
-
-def _render_section(data: dict, name: str) -> str | None:
-    if name in _SECTION_HEADINGS:
-        lines: list[str] = []
-        heading = _SECTION_HEADINGS[name]
-        match name:
-            case "product" | "architecture_overview":
-                lines.append(f"## {heading}")
-                lines.append("")
-                lines.append(data[name])
-                lines.append("")
-            case "stack":
-                _render_stack(lines, data["stack"])
-            case "modules":
-                _render_modules(lines, data["modules"])
-            case "conventions":
-                _render_conventions(lines, data["conventions"])
-            case "key_decisions":
-                _render_key_decisions(lines, data["key_decisions"])
-            case "sources":
-                _render_sources(lines, data["sources"])
-            case "branching_strategy":
-                if "branching_strategy" in data:
-                    _render_branching_strategy(lines, data["branching_strategy"])
-            case "acceptance_surfaces":
-                if "acceptance_surfaces" in data:
-                    _render_acceptance_surfaces(lines, data["acceptance_surfaces"])
-        return "\n".join(lines)
-
-    for entry in data.get("project_specific", []):
-        if entry["name"] == name:
-            return "\n".join(_render_project_specific(entry))
-
-    return None
-
 
 # ── CLI commands ────────────────────────────────────────────────
 
@@ -299,7 +98,7 @@ def _cmd_section(args: argparse.Namespace) -> int:
     if data is None:
         print("No system context found.", file=sys.stderr)
         return 1
-    result = _render_section(data, args.name)
+    result = render_section(data, args.name)
     if result is None:
         print(f"Unknown section: {args.name!r}", file=sys.stderr)
         return 1
@@ -382,8 +181,76 @@ def _cmd_edit_branching(args: argparse.Namespace) -> int:
     return _cmd_edit_field(args)
 
 
+def _cmd_get_stack_field(args: argparse.Namespace) -> int:
+    """Print the value of a nested stack field, or empty string if unset.
+
+    Read-only counterpart to `edit-stack-field`. Exits 0 with empty
+    stdout when system_context.json is missing OR the field is unset —
+    that uniform "absent → empty" signal lets shell callers plug the
+    value into `KEY=$(...)` without exit-code branching.
+
+    Schema-invalid files (e.g., a hand-edit that set test_command to a
+    non-string) surface as a load-time ValueError; we let that propagate
+    so the user gets a real traceback. The shell wrapper
+    `_preload_base.sh:find_test_command` traps that via
+    `2>/dev/null || echo ""` so the close-skill preload still emits
+    TEST_COMMAND= (empty) and falls through to the discovery hint —
+    but the failure isn't silenced at the CLI layer.
+
+    Used by `_preload_base.sh:find_test_command` to source the project's
+    test command for the story-close + free-close auto-merge gate.
+    """
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("")
+        return 0
+    print(data.get("stack", {}).get(args.name, ""))
+    return 0
+
+
+def _cmd_edit_stack_field(args: argparse.Namespace) -> int:
+    """Set or clear an optional field nested under stack (e.g. test_command).
+
+    Top-level edit-field can't reach nested keys, and rewriting the whole
+    stack via edit-field would force the caller to re-supply languages
+    and other already-set fields. This narrow path edits one nested
+    field at a time and lets the schema validator catch typos
+    (unknown stack field, value too long, wrong type).
+
+    Reads the new value from stdin as JSON. Pass `null` to clear.
+    """
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("No system context found.", file=sys.stderr)
+        return 1
+
+    raw = sys.stdin.read()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON: {exc}", file=sys.stderr)
+        return 1
+
+    stack = data.setdefault("stack", {"languages": []})
+    if value is None:
+        stack.pop(args.name, None)
+    else:
+        stack[args.name] = value
+
+    try:
+        store.save_system_context(args.smm_dir, data)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_add_module(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "modules")
+
+
+def _cmd_add_convention(args: argparse.Namespace) -> int:
+    return _cmd_append_to_list(args, "conventions")
 
 
 def _cmd_add_decision(args: argparse.Namespace) -> int:
@@ -420,8 +287,21 @@ def main() -> None:
     edit_p = sub.add_parser("edit-field", help="Edit a field from stdin JSON")
     edit_p.add_argument("name", help="Field name")
 
+    edit_stack_p = sub.add_parser(
+        "edit-stack-field",
+        help="Edit a nested stack field from stdin JSON (e.g. test_command)",
+    )
+    edit_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
+
+    get_stack_p = sub.add_parser(
+        "get-stack-field",
+        help="Print a nested stack field's value (or empty if unset)",
+    )
+    get_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
+
     sub.add_parser("add-module", help="Add module from stdin JSON")
     sub.add_parser("add-decision", help="Add key decision from stdin JSON")
+    sub.add_parser("add-convention", help="Add convention from stdin JSON")
     sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
     sub.add_parser(
         "edit-acceptance-surfaces",
@@ -441,8 +321,11 @@ def main() -> None:
         "create": _cmd_create,
         "section": _cmd_section,
         "edit-field": _cmd_edit_field,
+        "edit-stack-field": _cmd_edit_stack_field,
+        "get-stack-field": _cmd_get_stack_field,
         "add-module": _cmd_add_module,
         "add-decision": _cmd_add_decision,
+        "add-convention": _cmd_add_convention,
         "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-branching": _cmd_edit_branching,

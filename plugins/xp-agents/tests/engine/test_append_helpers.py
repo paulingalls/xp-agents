@@ -168,6 +168,88 @@ class TestBuildEvent(_SMMTestCase):
         )
         self.assertEqual(event["severity"], "high")
 
+    def test_concern_includes_files(self):
+        event = _append_impl.build_event(
+            self._namespace(type="concern", files='["scripts/foo.py"]')
+        )
+        self.assertEqual(event["files"], ["scripts/foo.py"])
+
+    def test_concern_files_omitted_when_unset(self):
+        event = _append_impl.build_event(self._namespace(type="concern"))
+        self.assertNotIn("files", event)
+
+    def test_concern_auto_extract_simple_filename(self):
+        event = _append_impl.build_event(
+            self._namespace(type="concern", content="broken in foo.py at line 10")
+        )
+        self.assertEqual(event["files"], ["foo.py"])
+
+    def test_concern_auto_extract_path(self):
+        event = _append_impl.build_event(
+            self._namespace(type="concern", content="scripts/bar.py:42 leaks")
+        )
+        self.assertEqual(event["files"], ["scripts/bar.py"])
+
+    def test_concern_auto_extract_dedupes_and_preserves_order(self):
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern",
+                content="touch a.py then b.md then a.py again",
+            )
+        )
+        self.assertEqual(event["files"], ["a.py", "b.md"])
+
+    def test_concern_explicit_files_wins_over_extract(self):
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern",
+                content="see baz.py for context",
+                files='["other.py"]',
+            )
+        )
+        self.assertEqual(event["files"], ["other.py"])
+
+    def test_concern_no_paths_in_content_omits_files(self):
+        event = _append_impl.build_event(
+            self._namespace(type="concern", content="general design issue")
+        )
+        self.assertNotIn("files", event)
+
+    def test_concern_auto_extract_captures_leading_slash_absolute_path(self):
+        # Per close-reviewer concern 78ab5a70ca1b: `\b` at the regex start
+        # was dropping the leading `/` from absolute paths, leaving the
+        # downstream worktree.normalize_path resolving against cwd and
+        # missing the actual target. Fixed via `(?<![\w/])` lookbehind.
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern", content="leak in /abs/repo/scripts/auth.py:42"
+            )
+        )
+        self.assertEqual(event["files"], ["/abs/repo/scripts/auth.py"])
+
+    def test_concern_auto_extract_recognizes_non_python_extensions(self):
+        # Per close-reviewer concern 87e022ad0693: the original pattern
+        # only matched .py/.md/.sh/.json/.yaml/.yml/.toml/.jsonl —
+        # near-zero recall for projects in JS/TS/Rust/Go/Ruby/etc. Pin a
+        # representative sample of the expanded alternation so a future
+        # narrowing fails loudly.
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern",
+                content="auth.ts:10 leaks; see also lib/foo.rs and main.go",
+            )
+        )
+        self.assertEqual(event["files"], ["auth.ts", "lib/foo.rs", "main.go"])
+
+    def test_concern_skips_paths_inside_urls(self):
+        event = _append_impl.build_event(
+            self._namespace(
+                type="concern",
+                content="see https://example.com/docs/page.py and e.g. context",
+            )
+        )
+        self.assertNotIn("files", event)
+
     def test_metadata_parsed(self):
         event = _append_impl.build_event(
             self._namespace(metadata='{"notes": "from plan review"}')

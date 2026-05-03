@@ -15,12 +15,13 @@ Take small steps. Don't try to implement everything at once.
 
 ## Review Cycle
 
-Run the full review cycle before each commit:
+Run before each commit:
 
 1. `/simplify` — code reuse, quality, and efficiency review
 2. `/xp-quality-review` — courage accountability, drift check, debt awareness
-3. `/xp-security-triage` — security review of pending changes
-4. Commit — pre-commit hooks enforce test-passing and formatting
+3. Commit — pre-commit hooks enforce test-passing and formatting
+
+Security review is tiered: Tier 1 secret/pattern scan runs automatically on staged diffs at commit; Tier 2 LLM review fires at `/xp-accept`; Tier 3 close-reviewer runs at sprint/plan/free close. There is no on-demand triage skill — the tiered gates own security.
 
 ## Commit Conventions
 

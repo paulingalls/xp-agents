@@ -50,6 +50,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --severity "low|medium|high" --files '["path/to/file.py"]'
 ```
 
+**`--files` discipline**: every concern that names ANY source path — in `--content`, in the original finding, or in the diff hunk you're flagging — MUST pass those paths via `--files`. The structural commit-link probe matches concerns to commits via file overlap; concerns without `files=[]` can never auto-resolve. Auto-extract is a fallback at the SMM layer — explicit is better.
+
 For debt (fix too large for this review): use `--type "debt"` instead, omit `--severity`.
 
 ## Output
