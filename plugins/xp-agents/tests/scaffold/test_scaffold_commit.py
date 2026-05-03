@@ -210,15 +210,15 @@ class TestCommitScaffoldStageZero(_CommitScaffoldTestBase):
         self.assertIn("Resolves-Event: abc123def456", body)
 
 
-class TestCommitScaffoldStageOne(_CommitScaffoldTestBase):
-    def test_stage_1_creates_scaffold_branch(self) -> None:
-        _write_branching_strategy(self.smm_dir, 1)
+class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
+    def test_creates_scaffold_branch_at_stage_2(self) -> None:
+        _write_branching_strategy(self.smm_dir, 2)
         # Move off main so protected-branch refusal does not trigger.
         run_git(["git", "checkout", "-b", "feature/work"], self.repo)
         result = commit_scaffold(
             self._snap(),
             smm_dir=self.smm_dir,
-            stage=1,
+            stage=2,
             surface="browser",
             tool="playwright",
             tool_version="1.51.0",
@@ -233,13 +233,13 @@ class TestCommitScaffoldStageOne(_CommitScaffoldTestBase):
         ).stdout.strip()
         self.assertEqual(current, result.branch)
 
-    def test_stage_1_refuses_on_protected_branch(self) -> None:
-        _write_branching_strategy(self.smm_dir, 1)
-        # Default branch is main (protected at stage 1+).
+    def test_refuses_on_protected_branch_at_stage_2(self) -> None:
+        _write_branching_strategy(self.smm_dir, 2)
+        # Default branch is main (protected at stage 2+).
         result = commit_scaffold(
             self._snap(),
             smm_dir=self.smm_dir,
-            stage=1,
+            stage=2,
             surface="browser",
             tool="playwright",
             tool_version="1.51.0",

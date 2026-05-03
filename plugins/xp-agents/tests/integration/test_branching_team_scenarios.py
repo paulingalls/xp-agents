@@ -201,7 +201,7 @@ class TestPreExistingStoryBranch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
-            _write_system_context(smm_dir, stage=1)
+            _write_system_context(smm_dir, stage=2)
 
             r = _run_branching(
                 smm_dir,
@@ -221,7 +221,7 @@ class TestPreExistingStoryBranch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
-            _write_system_context(smm_dir, stage=1)
+            _write_system_context(smm_dir, stage=2)
 
             subprocess.run(
                 ["git", "branch", "test/story-099-existing"],
@@ -250,7 +250,7 @@ class TestPreExistingFreeBranch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
-            _write_system_context(smm_dir, stage=1)
+            _write_system_context(smm_dir, stage=2)
 
             r = _run_branching(
                 smm_dir,
@@ -268,7 +268,7 @@ class TestPreExistingFreeBranch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
-            _write_system_context(smm_dir, stage=1)
+            _write_system_context(smm_dir, stage=2)
 
             existing_name = branching.free_branch_name("test", "existing")
             subprocess.run(

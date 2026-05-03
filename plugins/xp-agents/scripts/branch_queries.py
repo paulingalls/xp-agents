@@ -25,7 +25,9 @@ def list_orphan_story_branches(cwd: str, smm_dir: Path) -> list[str]:
     """Return story branches not referenced by an active story in the sprint.
 
     A branch is orphan when no sprint exists, or its name doesn't match
-    any ready/in-progress story's branch_name field.
+    any ready/in-progress/reviewing story's branch_name field. Reviewing
+    stories are mid-acceptance — their branches are intentionally alive
+    for /xp-accept's verification cycle and must NOT be flagged orphan.
     """
     all_story = list_story_branches(cwd)
     if not all_story:
@@ -33,8 +35,10 @@ def list_orphan_story_branches(cwd: str, smm_dir: Path) -> list[str]:
     sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
         return all_story
-    active = sprint_store.list_stories(
-        sprint, status="ready"
-    ) + sprint_store.list_stories(sprint, status="in-progress")
+    active = (
+        sprint_store.list_stories(sprint, status="ready")
+        + sprint_store.list_stories(sprint, status="in-progress")
+        + sprint_store.list_stories(sprint, status="reviewing")
+    )
     active_branches = {s.get("branch_name") for s in active if s.get("branch_name")}
     return [b for b in all_story if b not in active_branches]

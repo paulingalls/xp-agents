@@ -78,14 +78,6 @@ class TestCreateSprintBranch(unittest.TestCase):
             result = branching.create_sprint_branch(td, "sprint-027", "test", Path(smm))
             self.assertIsNone(result)
 
-    def test_skips_at_stage_1(self):
-        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
-            _init_repo(td)
-            _write_system_context(Path(smm), stage=1)
-
-            result = branching.create_sprint_branch(td, "sprint-027", "test", Path(smm))
-            self.assertIsNone(result)
-
     def test_resume_existing_sprint_branch(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)

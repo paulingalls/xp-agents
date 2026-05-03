@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.0.3 — Stage 2 floor + reviewing lifecycle + teammate cwd-drift fix
+
+Sprint-054 / M-7 ships ahead of M-8's v3.1.0 because its content delivers user-facing value independently. Nine stories merged into the sprint branch, plus one chore courage-fix that resolved a silent-failure inversion the close-reviewer caught mid-sprint.
+
+### Stage 2 is the new plugin floor
+
+Branching doctrine restructured around two supported tiers (Stage 2 enforced, Stage 3 optional) with Stages 0/1 reframed as legacy/migration. Existing Stage 1 projects auto-promote transparently the next time `branching.py` resolves the project's stage — `_maybe_auto_promote` mutates `system_context.json` in place, emits a one-time decision event, and returns the new stage. Stage 0 declarations get a kickoff-time migration prompt (Step 2.4) before sprint setup. Free sessions remain available at every stage as the low-ceremony escape hatch.
+
+### `reviewing` story status closes the .accept marker re-arm gap (single-story sprints)
+
+The story lifecycle gains a fifth state: `ready → scheduled → in-progress → reviewing → done/deferred`. xp-accept's per-story Step 1.0 promotes the story to `reviewing` before running its acceptance command; AC-fail-debug reverts to `in-progress`. This carves the reviewed story out of `has_in_progress_stories`, so `pre_tool_write` no longer re-arms the `.accept` marker on fix-cycle Edits in single-story sprints. Multi-in-progress sprints still re-arm because OTHER stories trigger the gate — that follow-up is filed for the next release (ACCEPT_ACTIVE marker pattern).
+
+### Teammate cwd-drift fix
+
+Sprint-054 dogfooding hit the same bug three times: lead-written prompts hardcoded absolute paths starting with the main-repo root, and teammates followed those paths into the wrong tree before self-recovering. `spawn_teammate.py` now prepends a worktree-context preamble to every teammate's stdin naming the worktree absolute path explicitly and instructing path re-rooting. Companion fix in `xp-accept` SKILL.md: worktree-acceptance commands wrap in a subshell `(cd <abs-path> && <command>)` so the parent shell's cwd never persists into subsequent Bash calls.
+
+### TaskCreate nudge moves to /xp-assign with mode-aware text
+
+The post-skill TaskCreate nudge previously fired after `/xp-review-plan`, but mode (solo vs teammates) isn't decided yet at plan-review time. Moved to `/xp-assign` with text that addresses both shapes: solo gets per-step tasks, teammate mode gets coordination tasks for waiting + accept + close per story. Adds `STATUS_ACTION_ASSIGN_COMPLETE` canonical event.
+
+### TEAMMATE_GUIDE asymmetric file-domain rule
+
+Reviewer-suggested cross-domain edits are now KEPT by default if they're small in-domain quality improvements (raise concern only when large or off-topic). Teammate-initiated cross-domain work still requires raising a concern. Distinguishes mechanical-collision risk from accountability-loop value.
+
+### Schema courage fix
+
+`_maybe_auto_promote`'s exception handling narrowed from `(OSError, ValueError)` to `OSError` only. Schema-validation ValueErrors now propagate loud — they signal corrupt input or a code bug, both of which deserve to crash rather than silently mask the contract. Test fixture (`_branching_fixtures.write_system_context`) rewritten to write a fully-valid doc via the canonical `valid_doc` helper. Two obsolete "skips at stage 1" tests deleted; six tests migrated to `stage=2` (the new floor).
+
 ## v3.0.2 — extend /security-review continuation nudge to Tier 3 close-reviewer
 
 v3.0.1 shipped the `additionalContext` continuation nudge but landed it behind a recursion-prevention skip in `review_cycle_done.py` that returns early for any caller whose `agent_type` starts with `xp-`. The Tier 3 close-reviewer (`xp-close-reviewer`) is exactly that — an xp-* subagent invoking `/security-review` from `/xp-free-close`, `/xp-sprint-close`, and `/xp-plan-close`. The skip suppressed the nudge AND the canonical `STATUS_ACTION_SECURITY_COMPLETE` event for every Tier 3 close, observed empirically when the v3.0.1 release's own free-close stopped after the security report instead of producing the close-reviewer's mode-aware Keep/Concern/Block summary. v3.0.2 carves out `/security-review` as the one exception to the recursion-prevention skip: target detection now runs first, then the skip applies only to non-security-review targets. The other four targets (`/simplify`, `/xp-quality-review`, `/xp-review-plan`, `xp-housekeeper`) keep the existing xp-* skip — they have per-commit flag side-effects or lifecycle counter implications that genuinely should not fire for subagent activity.

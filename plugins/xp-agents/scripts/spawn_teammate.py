@@ -18,6 +18,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -160,6 +161,40 @@ def run_with_tee(
         raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
+def _worktree_preamble(wt_path: str) -> str:
+    """Return the worktree-context preamble injected before the teammate prompt.
+
+    Names the worktree path explicitly and the main-repo path derived from
+    it, then instructs the teammate to re-root any absolute path under the
+    main repo to the worktree. The preamble lands FIRST in the teammate's
+    stdin so its rule is established before the prompt body's potentially
+    misleading paths.
+
+    Worktree layout (standardized by worktree.worktree_path):
+    `<main_repo>/.claude/worktrees/<name>`.
+    """
+    main_repo = str(Path(wt_path).parent.parent.parent)
+    return (
+        "## Worktree Context (injected by spawn_teammate.py)\n"
+        "\n"
+        f"Your current working directory is the worktree at: `{wt_path}`\n"
+        f"The main repository checkout is at:               `{main_repo}`\n"
+        "\n"
+        "All file paths in the prompt body that follows are intended to be "
+        "RELATIVE to this worktree, even when they appear written as absolute "
+        f"paths starting with `{main_repo}/`. Re-root any such absolute path "
+        "to your worktree before reading or editing files. "
+        f"Example: `{main_repo}/some/sub/path.py` becomes "
+        f"`{wt_path}/some/sub/path.py`.\n"
+        "\n"
+        "The SMM directory (passed via $SMM_DIR) is intentionally OUTSIDE the "
+        "worktree — use it unmodified.\n"
+        "\n"
+        "---\n"
+        "\n"
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
@@ -186,11 +221,20 @@ def main(argv: list[str] | None = None) -> None:
     env["SMM_DIR"] = args.smm_dir
     env[identity._XP_TEAMMATE_ENV] = name
 
+    combined_path: str | None = None
     try:
-        with open(args.prompt_file) as prompt_stdin:
-            run_with_tee(cmd, cwd=wt_path, env=env, stdin=prompt_stdin, name=name)
+        combined = _worktree_preamble(wt_path) + Path(args.prompt_file).read_text()
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".prompt.txt", delete=False
+        ) as tf:
+            tf.write(combined)
+            combined_path = tf.name
+        with open(combined_path) as combined_stdin:
+            run_with_tee(cmd, cwd=wt_path, env=env, stdin=combined_stdin, name=name)
     finally:
         Path(args.prompt_file).unlink(missing_ok=True)
+        if combined_path is not None:
+            Path(combined_path).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

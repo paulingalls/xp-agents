@@ -43,7 +43,14 @@ class TestValidateSprint(unittest.TestCase):
         self.assertTrue(any("status" in e for e in errors))
 
     def test_valid_statuses(self):
-        for status in ("ready", "scheduled", "in-progress", "done", "deferred"):
+        for status in (
+            "ready",
+            "scheduled",
+            "in-progress",
+            "reviewing",
+            "done",
+            "deferred",
+        ):
             sprint = _make_sprint(stories=[_make_story(status=status)])
             errors = sprint_schema.validate_sprint(sprint)
             self.assertEqual(errors, [], f"Status {status!r} should be valid")
@@ -55,6 +62,16 @@ class TestValidateSprint(unittest.TestCase):
         self.assertIn("scheduled", sprint_schema.VALID_STORY_STATUSES)
         self.assertIn("scheduled", sprint_schema.ACTIVE_STORY_STATUSES)
         self.assertNotIn("scheduled", sprint_schema.TERMINAL_STORY_STATUSES)
+
+    def test_reviewing_is_active_not_terminal(self):
+        # `reviewing` sits between in-progress and done/deferred — under
+        # acceptance verification but not yet terminal. Hooks gating on
+        # `has_in_progress_stories` deliberately do NOT treat reviewing as
+        # actively-worked (preserves the .accept marker re-arm carve-out);
+        # but schema-wise it's still ACTIVE.
+        self.assertIn("reviewing", sprint_schema.VALID_STORY_STATUSES)
+        self.assertIn("reviewing", sprint_schema.ACTIVE_STORY_STATUSES)
+        self.assertNotIn("reviewing", sprint_schema.TERMINAL_STORY_STATUSES)
 
     def test_story_missing_required_fields(self):
         sprint = _make_sprint(stories=[{"id": "story-001"}])

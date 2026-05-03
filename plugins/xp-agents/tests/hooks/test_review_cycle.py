@@ -139,13 +139,16 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIsNotNone(result)
         self.assertIn("/xp-quality-review", result)
 
-    def test_plan_review_nudges_task_creation(self):
-        """After /xp-review-plan, nudge to create tasks."""
+    def test_plan_review_does_not_nudge_task_creation(self):
+        """/xp-review-plan returns no additionalContext — execution mode isn't
+        decided yet at plan-review time, so the nudge fires at /xp-assign
+        where mode is known. Asserting None (not just 'no TaskCreate text')
+        catches future regressions that would re-introduce a different
+        plan-review nudge."""
         result = review_cycle_done.run(
             _make_skill_input("xp-review-plan"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
-        self.assertIn("TaskCreate", result)
+        self.assertIsNone(result)
 
     def test_plan_review_does_not_set_review_flags(self):
         """Plan review is not part of the commit review cycle."""
@@ -154,10 +157,41 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
-    def test_qualified_plan_review_name(self):
-        """Plugin-qualified /xp-review-plan also triggers nudge."""
+    def test_assign_nudge_covers_taskcreate_solo_and_teammates(self):
+        """Mode-aware nudge after /xp-assign: must mention TaskCreate AND
+        address both solo (per-step tasks) and teammate (coordination:
+        wait/accept/close per story) modes so the agent knows what to
+        track regardless of which mode xp-assign chose."""
         result = review_cycle_done.run(
-            _make_skill_input("xp-agents:xp-review-plan"), smm_dir=self.smm_dir
+            _make_skill_input("xp-assign"), smm_dir=self.smm_dir
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("TaskCreate", result)
+        lower = result.lower()
+        self.assertIn("solo", lower)
+        self.assertIn("teammate", lower)
+        self.assertIn("/xp-accept", result)
+
+    def test_assign_emits_action_event(self):
+        """/xp-assign completion appends action=assign_complete so consumers
+        (retro_metrics, analyzers) can detect the lifecycle event without
+        regex-matching content."""
+        review_cycle_done.run(_make_skill_input("xp-assign"), smm_dir=self.smm_dir)
+        emitted = self._action_events("assign_complete")
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["type"], "status")
+
+    def test_assign_does_not_set_review_flags(self):
+        """Assign is not part of the commit review cycle."""
+        review_cycle_done.run(_make_skill_input("xp-assign"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+
+    def test_qualified_assign_name(self):
+        """Plugin-qualified xp-agents:xp-assign also triggers the nudge."""
+        result = review_cycle_done.run(
+            _make_skill_input("xp-agents:xp-assign"), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
         self.assertIn("TaskCreate", result)

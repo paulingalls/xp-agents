@@ -32,7 +32,15 @@ Security review is tiered: Tier 1 secret/pattern scan runs automatically on stag
 
 ## File Domain
 
-Stay in your assigned file domain. If you need to modify files outside your domain, raise a concern.
+Stay in your assigned file domain for work you initiate. If you need to step outside to complete your story, raise a concern — collision with parallel teammates is the risk.
+
+**Reviewer-suggested edits are different.** When `xp-code-reviewer` proposes an edit outside your domain (e.g., consolidating a duplicated helper in a sibling test), KEEP it by default — reviewers see the whole diff, and any conflict is cheap to resolve at story-close merge.
+
+Raise a concern instead only when the reviewer's edit:
+
+- Is large (restructures, not polishes)
+- Is off-topic for the diff
+- Touches files clearly owned by another in-progress story
 
 ## Code Quality
 

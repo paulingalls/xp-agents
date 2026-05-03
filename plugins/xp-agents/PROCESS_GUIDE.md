@@ -24,7 +24,7 @@ Hooks enforce some as safety nets, but follow the process proactively.
 
 **Per commit (review cycle):** `/simplify` → `/xp-quality-review` → `git commit`. Commit gate blocks if skipped. Tier 1 patterns scan staged diffs; Tier 2 security review at `/xp-accept`; Tier 3 at close.
 
-**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` (loops `/xp-story-close`) → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` (work-selection) → `in-progress` (xp-assign branch) → `done`/`deferred`. Solo JITs branches; teammates eager-batch all. Stop gate fires on `in-progress` only.
+**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` (loops `/xp-story-close`) → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` (work-selection) → `in-progress` (xp-assign branch) → `reviewing` (xp-accept) → `done`/`deferred`; AC-fail reverts `reviewing → in-progress`. Solo JITs branches; teammates eager-batch all. Stop gate fires on `in-progress` only.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
