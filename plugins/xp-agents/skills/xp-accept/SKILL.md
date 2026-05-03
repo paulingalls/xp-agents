@@ -76,7 +76,7 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
 
 ### Cascading a deferral
 
-When a deferred story has in-progress downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
+When a deferred story has in-motion (in-progress or reviewing) downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
 
 ```bash
 DEFERRED="story-NNN"  # the just-deferred story id
