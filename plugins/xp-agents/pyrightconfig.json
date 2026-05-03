@@ -1,5 +1,5 @@
 {
-  "include": ["scripts", "smm"],
+  "include": ["scripts", "smm", "tests"],
   "extraPaths": ["scripts", "smm", "tests"],
   "exclude": ["**/__pycache__", "**/.pytest_cache"],
   "pythonVersion": "3.11",
