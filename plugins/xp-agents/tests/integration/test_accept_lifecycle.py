@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Prose pins for the 5-state story lifecycle.
+
+The lifecycle is `ready -> scheduled -> in-progress -> reviewing ->
+done/deferred`. xp-accept's per-story Step 1 must promote a story to
+`reviewing` before running its acceptance command, and the
+debug-after-fail branch must demote it back to `in-progress` so
+pre_tool_write re-arms the `.accept` marker for fix-cycle Edits.
+
+These tests pin the SKILL.md and PROCESS_GUIDE.md prose contracts so
+neither doc drifts back to the pre-`reviewing` four-state behavior.
+"""
+
+import unittest
+from pathlib import Path
+
+_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+_SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-accept" / "SKILL.md"
+_PROCESS_GUIDE = _PLUGIN_ROOT / "PROCESS_GUIDE.md"
+
+_LIFECYCLE_STATES = ("ready", "scheduled", "in-progress", "reviewing", "done")
+
+
+class TestAcceptReviewingLifecycle(unittest.TestCase):
+    """SKILL.md prose for the per-story promote/demote contract."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_step_1_promotes_to_reviewing_per_story(self):
+        # Per-story Step 1 promotes the story to `reviewing` BEFORE
+        # running its acceptance command. Pin the canonical CLI
+        # invocation so the prose can be executed verbatim.
+        self.assertIn("update-story story-NNN reviewing", self.text)
+
+    def test_promote_step_explains_why_reviewing(self):
+        # The promote step must explain WHY: the reviewing status
+        # carves the story out of has_in_progress_stories so
+        # pre_tool_write doesn't re-arm the .accept marker on edits
+        # during the acceptance window.
+        lower = self.text.lower()
+        self.assertIn("reviewing", lower)
+        self.assertTrue(
+            ".accept" in self.text or "re-arm" in lower or "marker" in lower,
+            "Promote step must explain the .accept-marker rationale",
+        )
+
+    def test_debug_branch_demotes_to_in_progress(self):
+        # When the user picks "Debug and re-run" after AC fails, the
+        # story status must revert to `in-progress` — the work isn't
+        # done, and pre_tool_write needs to re-arm the .accept marker
+        # for subsequent fix edits. Pin the canonical revert command.
+        self.assertIn("update-story story-NNN in-progress", self.text)
+        self.assertIn("debug", self.text.lower())
+
+    def test_lifecycle_section_names_five_states(self):
+        # SKILL.md should reference all 5 lifecycle states so a reader
+        # sees `reviewing` alongside the other states.
+        for state in _LIFECYCLE_STATES:
+            self.assertIn(state, self.text)
+
+
+class TestProcessGuideLifecycle(unittest.TestCase):
+    """PROCESS_GUIDE.md sprint-flow paragraph must name all 5 states."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _PROCESS_GUIDE.read_text()
+
+    def test_process_guide_names_reviewing_state(self):
+        # The Sprint flow paragraph documents the story lifecycle for
+        # all teammates and the lead. Adding `reviewing` to schema
+        # without updating this paragraph leaves the doc lying to
+        # readers about the valid transitions.
+        self.assertIn("reviewing", self.text)
+
+    def test_process_guide_names_full_5_state_lifecycle(self):
+        # Pin the full ordered sequence so a future trim doesn't
+        # accidentally drop one state.
+        for state in _LIFECYCLE_STATES:
+            self.assertIn(state, self.text)
+
+
+if __name__ == "__main__":
+    unittest.main()
