@@ -61,6 +61,22 @@ class TestAcceptReviewingLifecycle(unittest.TestCase):
             self.assertIn(state, self.text)
 
 
+class TestAcceptCwdSubshell(unittest.TestCase):
+    """SKILL.md worktree-acceptance must use a subshell so the parent
+    shell's cwd doesn't persist into subsequent Bash calls."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_acceptance_command_uses_subshell_pattern(self):
+        # Pin the literal subshell shape `(cd <abs-path> && <command>)`
+        # — the prose is the contract. A single precise pin beats two
+        # loose substring checks (`(cd ` + `&&` would match unrelated
+        # bash snippets).
+        self.assertIn("(cd <abs-path> && <command>)", self.text)
+
+
 class TestProcessGuideLifecycle(unittest.TestCase):
     """PROCESS_GUIDE.md sprint-flow paragraph must name all 5 states."""
 

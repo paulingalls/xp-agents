@@ -61,10 +61,14 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
 1. Present the story title and acceptance criteria.
 2. If `acceptance_execution.setup` is present, run it first via Bash.
 3. Run `acceptance_execution.command` via Bash. If the story's
-   `story-id` appears in TEAMMATE_WORKTREES, set the Bash `cwd` to
-   that worktree's `abs-path`; otherwise run from the main repo.
-   Universal pattern — works regardless of test runner (pytest,
-   jest, go test, cargo test).
+   `story-id` appears in TEAMMATE_WORKTREES, wrap the command in a
+   subshell so the parent shell's cwd does NOT persist into
+   subsequent Bash calls: `(cd <abs-path> && <command>)`. Otherwise
+   run the bare command from the main repo. The subshell isolates
+   the cwd change to that one invocation — without it, a later Bash
+   call inherits the worktree cwd and can mislead about branch
+   state. Universal pattern — works regardless of test runner
+   (pytest, jest, go test, cargo test).
 4. **Exit code 0 = pass. Auto-proceed to Step 2 (update sprint.json) without calling `AskUserQuestion`.** The green exit code IS the confirmation. Do **not** insert an extra "mark story-NNN done?" prompt for automated acceptance — `/xp-story-close` owns merge confirmation (per Step 2b), so the user still gets a gate before the merge lands. This rule applies only to the automated-acceptance branch; manual acceptance below still prompts for `done | deferred` because there's no objective signal.
 5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
    - **Debug and re-run** — revert the story to `in-progress` (per Step 1.0's revert command), investigate the failure, fix the cause, then re-run the command. The revert lets `pre_tool_write` re-arm the `.accept` marker on subsequent fix-cycle Edits.
