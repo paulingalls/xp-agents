@@ -84,12 +84,17 @@ Agent(
 )
 ```
 
+## Step 4.5: Apply shared Security Review
+
+Apply the shared `### Step 4.5: Security Review` block above with
+`<close-mode>` → `sprint` and `<close-skill-name>` → `xp-sprint-close`.
+
 ## Steps 5–6: Apply shared close-pipeline reference
 
 The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
 the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4, then continue with Step 7 below.
+steps in order after Step 4.5, then continue with Step 7 below.
 
 **No auto-merge override here.** Sprint-close uses the shared Step 6
 `AskUserQuestion` confirmation as written. Only `/xp-story-close` and

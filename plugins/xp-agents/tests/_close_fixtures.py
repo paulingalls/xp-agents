@@ -451,15 +451,26 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
             self.skill_text,
             f"{self._SKILL_NAME} SKILL.md must reference the shared Step 4.5",
         )
+        # Per-skill must specify the two substitutions that distinguish
+        # this skill from its peers; both `<close-mode>` and the literal
+        # mode/name must appear in the same skill text. The exact prose
+        # shape (whether arrow notation or `key = value`) is flexible —
+        # what's load-bearing is that both ends of each substitution are
+        # named so the LLM can apply them.
+        self.assertIn("<close-mode>", self.skill_text)
         self.assertIn(
-            f"close-mode = `{self._MODE}`",
+            f"`{self._MODE}`",
             self.skill_text,
-            f"Step 4.5 reference must specify close-mode={self._MODE} for substitution",
+            f"Step 4.5 reference must name `{self._MODE}` as the close-mode value",
         )
+        self.assertIn("<close-skill-name>", self.skill_text)
         self.assertIn(
-            f"close-skill = `{self._SKILL_NAME}`",
+            f"`{self._SKILL_NAME}`",
             self.skill_text,
-            f"Step 4.5 reference must specify close-skill={self._SKILL_NAME}",
+            (
+                f"Step 4.5 reference must name `{self._SKILL_NAME}` "
+                "as the close-skill value"
+            ),
         )
 
     def test_step_4_5_reference_appears_between_step4_and_steps5_6(self):
