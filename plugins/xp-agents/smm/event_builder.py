@@ -21,6 +21,30 @@ from smm_schema import EVENT_ID_RE
 _REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
 _REFS_SPLIT_RE = re.compile(r"[,\s]+")
 
+_URL_RE = re.compile(r"https?://\S+")
+# Intentionally NOT reusing lint_check._CODE_EXTENSIONS or security.is_code_file:
+# extraction is recall-biased (over-extract; resolves_probe filters via file-overlap
+# at commit time). Narrowing the list to "code only" would silence path mentions in
+# the noise the probe is built to handle.
+_FILE_PATTERN_RE = re.compile(r"\b([\w./-]+\.(?:py|md|sh|json|yaml|yml|toml|jsonl))\b")
+
+
+def extract_files_from_content(content: str) -> list[str]:
+    """Find path-shaped tokens in content; recall-biased (probe filters later).
+
+    Strips http(s) URLs first so paths inside URL tails don't match.
+    Dedupes, preserves first-seen order.
+    """
+    cleaned = _URL_RE.sub("", content)
+    seen: set[str] = set()
+    result: list[str] = []
+    for match in _FILE_PATTERN_RE.finditer(cleaned):
+        path = match.group(1)
+        if path not in seen:
+            seen.add(path)
+            result.append(path)
+    return result
+
 
 def generate_id() -> str:
     """12-char hex ID for events and SMM entries."""
@@ -117,6 +141,10 @@ def build_event(args: argparse.Namespace) -> dict:
                 event["severity"] = args.severity
             if args.files is not None:
                 event["files"] = parse_json_arg(args.files, "files")
+            else:
+                extracted = extract_files_from_content(args.content or "")
+                if extracted:
+                    event["files"] = extracted
 
         case "question":
             if args.priority is not None:
