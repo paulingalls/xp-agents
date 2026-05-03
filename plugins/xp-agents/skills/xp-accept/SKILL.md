@@ -127,12 +127,17 @@ For the current story (skip if code_free):
   python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
     update-story story-NNN deferred
   ```
-- **Override with concern** — proceed to update-story done despite the Block. Record the override at **severity high** (NOT medium — downgrading hides the consciously-shipped Block):
+- **Override with concern** — proceed to update-story done despite the Block. Record both a severity-high concern (so the risk stays visible) AND a decision event (so the architectural choice to ship despite the Block is captured for future retros):
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
     --type "concern" --agent "xp-accept" --severity "high" \
     --content "Tier 2 Block override for story-NNN: <one-line summary>" \
     --files '["<paths /security-review pointed at>"]'
+
+  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+    --type "decision" --agent "xp-accept" \
+    --topic "tier-2-block-override-story-NNN" \
+    --content "Accepted Tier 2 Block for story-NNN: <one-line rationale — what risk we knowingly took and why it's acceptable now>"
   ```
 
 **Concern path** (medium-severity findings, no Block): record each finding, then proceed to update-story done:
@@ -156,12 +161,46 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN <done|deferred>
 ```
 
-## Step 2b: Invoke /xp-story-close per done story
+## Step 2b: Per-done-story actions
 
 For each story just marked **done** (skip deferred — their branches
-stay intact for the next sprint), invoke `/xp-story-close` via the
-Skill tool. /xp-story-close owns the per-story review + merge +
-JIT-create-next pipeline:
+stay intact for the next sprint), perform 2b.i then 2b.ii in order.
+
+### Step 2b.i: Record design decisions for the story
+
+**Criterion:** A "design decision" at story scope is anything another
+agent (or future-you in a retro) would need to know to avoid making a
+*conflicting* choice. Qualifying shapes: chose X over Y for reason Z,
+rejected A for B, defined a contract/boundary, accepted a known
+tradeoff. Does NOT qualify: variable names, local refactor sequences,
+lint-driven cleanups.
+
+For each qualifying decision:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "decision" --agent "xp-accept" \
+  --topic "<short-slug>" \
+  --content "<one-sentence statement of the decision and its rationale>"
+```
+
+If the criterion genuinely fails for this story, record the explicit
+zero (lets retros distinguish ran-and-found-none from skipped):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "status" --agent "xp-accept" \
+  --content "story-NNN: no design decisions to record" \
+  --working-on '[]'
+```
+
+The explicit-zero is not a shortcut — a story that rewrote non-trivial
+logic almost always made at least one decision worth a slug + sentence.
+
+### Step 2b.ii: Invoke /xp-story-close
+
+/xp-story-close owns the per-story review + merge + JIT-create-next
+pipeline:
 
 - Forks `xp-close-reviewer` in story mode (AC alignment, file_domain,
   scope creep, regression risk in unmodified stories)
