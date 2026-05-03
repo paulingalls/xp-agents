@@ -51,6 +51,8 @@ If the user chooses **sprint session**: proceed to step 3.
 
 ## Step 2.4: Stage 2 floor migration prompt (ALWAYS, every kickoff)
 
+This step runs at every kickoff regardless of the session mode chosen in Step 2 — the Stage 2 floor matters for both free and sprint sessions.
+
 Read the branching stage:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
