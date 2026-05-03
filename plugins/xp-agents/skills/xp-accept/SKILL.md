@@ -54,8 +54,10 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
      ```bash
      ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
        --type "concern" --agent "xp-accept" --severity "medium" \
-       --content "Acceptance override for story-NNN: <user's reason>"
+       --content "Acceptance override for story-NNN: <user's reason>" \
+       --files '["<story-NNN file_domain entries>"]'
      ```
+     Pass the story's `file_domain` entries via `--files` so the structural commit-link probe can match future fixes to this concern.
    - **Defer** — move story to `deferred` with a reason. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 
 Do **not** retry automatically. Flaky acceptance is information — fix the harness, don't mask the signal.
@@ -129,15 +131,19 @@ For the current story (skip if code_free):
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
     --type "concern" --agent "xp-accept" --severity "high" \
-    --content "Tier 2 Block override for story-NNN: <one-line summary>"
+    --content "Tier 2 Block override for story-NNN: <one-line summary>" \
+    --files '["<paths /security-review pointed at>"]'
   ```
 
 **Concern path** (medium-severity findings, no Block): record each finding, then proceed to update-story done:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-accept" --severity "medium" \
-  --content "Tier 2 finding for story-NNN: <one-line summary>"
+  --content "Tier 2 finding for story-NNN: <one-line summary>" \
+  --files '["<paths /security-review pointed at>"]'
 ```
+
+For both paths: pass the file paths /security-review named (or the story's `file_domain` if the finding is broader). Concerns without `files=[]` cannot auto-resolve when the eventual fix lands.
 
 **Keep path** (no findings): proceed to Step 2.
 
