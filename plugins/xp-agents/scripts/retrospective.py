@@ -142,6 +142,7 @@ def _build_retro_input(
         digest["status_summary"],
         session_stats,
         decisions=decision_topics,
+        events=events,
     )
 
     _MAX_CUSTOMER_INPUT = 100
