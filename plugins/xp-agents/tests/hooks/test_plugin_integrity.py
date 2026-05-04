@@ -51,7 +51,8 @@ _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 
 
 class TestV313Release(unittest.TestCase):
-    """v3.1.3 ships M-4 branching.py coherence + retro-link integrity (sprint-059).
+    """v3.1.3 ships M-4 branching.py coherence + kickoff prose
+    alignment + retro-link integrity (sprint-059).
 
     Pins both the manifest version bump AND the CHANGELOG top-entry so a
     later doc-only or manifest-only edit can't quietly desynchronize them.
