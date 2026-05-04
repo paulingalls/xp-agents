@@ -10,6 +10,10 @@ from typing import ClassVar
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import event_schema
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import EVENT_TYPE_STATUS
+
 
 class TestStatusActionConstants(unittest.TestCase):
     """Each constant exists with the expected value and the set is unique."""
@@ -137,7 +141,7 @@ class TestMetadataResolvesValidation(unittest.TestCase):
     _BASE_EVENT: ClassVar[dict] = {
         "id": "abc123def456",
         "ts": "2026-05-04T17:00:00+00:00",
-        "type": "status",
+        "type": EVENT_TYPE_STATUS,
         "agent_id": "main",
         "content": "test",
         "schema_version": 1,

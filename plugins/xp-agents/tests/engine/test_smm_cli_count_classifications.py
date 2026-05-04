@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _SMMTestCase, run_cli, write_events
+from event_schema import EVENT_TYPE_STATUS
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
@@ -44,7 +45,7 @@ def _classify_event(
     return {
         "id": "0123456789ab",
         "ts": ts,
-        "type": "status",
+        "type": EVENT_TYPE_STATUS,
         "agent_id": "main",
         "content": f"concern-classify {concern_id}: {route} ({category}) — test",
         "schema_version": 1,
@@ -75,7 +76,7 @@ class TestCountClassifications(_SMMTestCase):
         other = {
             "id": "ffffffffffff",
             "ts": "2026-05-01T00:00:00+00:00",
-            "type": "status",
+            "type": EVENT_TYPE_STATUS,
             "agent_id": "main",
             "content": "some other status",
             "schema_version": 1,

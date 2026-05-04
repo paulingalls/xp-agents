@@ -14,6 +14,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+from event_schema import EVENT_TYPE_CONCERN
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _AGENT_MD = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
@@ -126,15 +129,19 @@ class TestCloseReviewerAgent(unittest.TestCase):
         body = self.text.split("---", 2)[2]
         self.assertRegex(
             body,
-            re.compile(r'--type\s+"concern".*?--severity\s+"high"', re.DOTALL),
+            re.compile(
+                rf'--type\s+"{EVENT_TYPE_CONCERN}".*?--severity\s+"high"', re.DOTALL
+            ),
             "agent must include a Block append.sh template "
-            '(--type "concern" + --severity "high")',
+            f'(--type "{EVENT_TYPE_CONCERN}" + --severity "high")',
         )
         self.assertRegex(
             body,
-            re.compile(r'--type\s+"concern".*?--severity\s+"medium"', re.DOTALL),
+            re.compile(
+                rf'--type\s+"{EVENT_TYPE_CONCERN}".*?--severity\s+"medium"', re.DOTALL
+            ),
             "agent must include a Concern append.sh template "
-            '(--type "concern" + --severity "medium")',
+            f'(--type "{EVENT_TYPE_CONCERN}" + --severity "medium")',
         )
         # --files attaches paths for the STRUCTURAL commit-auto-link.
         self.assertIn("--files", body)

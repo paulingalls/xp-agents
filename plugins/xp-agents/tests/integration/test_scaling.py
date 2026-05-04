@@ -19,6 +19,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
+
 
 class TestCompactionReinjection(_IntegrationTestCase):
     """M7: After compaction, session_start re-injects full SMM."""
@@ -29,11 +38,11 @@ class TestCompactionReinjection(_IntegrationTestCase):
         self._seed_events(
             [
                 make_event(
-                    "decision",
+                    EVENT_TYPE_DECISION,
                     content="Use PostgreSQL",
                     topic="database",
                 ),
-                make_event("status", content="Working on DB"),
+                make_event(EVENT_TYPE_STATUS, content="Working on DB"),
             ]
         )
 
@@ -346,7 +355,7 @@ class TestWatermarkIsolation(_IntegrationTestCase):
             )
             events.append(
                 make_event(
-                    "session_end",
+                    EVENT_TYPE_SESSION_END,
                     content=f"end-{s}",
                     working_on=[],
                     ts=f"2026-03-{s + 1:02d}T23:59:59+00:00",

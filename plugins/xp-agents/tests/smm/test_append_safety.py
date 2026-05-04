@@ -23,6 +23,11 @@ import _append_impl
 import append_validation
 from _lock_helpers import briefly_held_lock, held_events_lock
 from conftest import _SMMTestCase, _TempRepoTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestAnsiStripping(unittest.TestCase):
@@ -41,7 +46,7 @@ class TestAnsiStripping(unittest.TestCase):
         event = {
             "id": "test-id",
             "ts": "2026-03-12T00:00:00+00:00",
-            "type": "concern",
+            "type": EVENT_TYPE_CONCERN,
             "agent_id": "main",
             "content": "\x1b[31mError:\x1b[0m something \x1b[1;32mfailed\x1b[0m",
             "schema_version": 1,
@@ -57,7 +62,7 @@ class TestAnsiStripping(unittest.TestCase):
         event = {
             "id": "test-id-2",
             "ts": "2026-03-12T00:00:00+00:00",
-            "type": "status",
+            "type": EVENT_TYPE_STATUS,
             "agent_id": "main",
             "content": "Normal text without escapes",
             "working_on": ["app.py"],
@@ -75,7 +80,10 @@ class TestLockTimeout(_SMMTestCase):
     def test_append_fails_on_lock_timeout(self):
         """If the lock can't be acquired, append should raise, not silently continue."""
         event = make_event(
-            "customer_input", agent_id="main", content="test", id="abc123abc123"
+            EVENT_TYPE_CUSTOMER_INPUT,
+            agent_id="main",
+            content="test",
+            id="abc123abc123",
         )
 
         with (
@@ -150,7 +158,10 @@ class TestLockBudgetTolerance(_SMMTestCase):
         raising LockTimeoutError. The assertion is "budget outlasts hold",
         not "wait the full hold"."""
         event = make_event(
-            "customer_input", agent_id="main", content="test", id="def456def456"
+            EVENT_TYPE_CUSTOMER_INPUT,
+            agent_id="main",
+            content="test",
+            id="def456def456",
         )
         with briefly_held_lock(self.smm_dir):
             _append_impl.append_event(self.smm_dir, event)
@@ -252,7 +263,7 @@ class TestSymlinkProtection(unittest.TestCase):
         event = {
             "id": "12345678-1234-4123-8123-123456789abc",
             "ts": "2026-03-12T00:00:00+00:00",
-            "type": "customer_input",
+            "type": EVENT_TYPE_CUSTOMER_INPUT,
             "agent_id": "main",
             "content": "test",
             "schema_version": 1,
@@ -267,7 +278,7 @@ class TestSymlinkProtection(unittest.TestCase):
         event = {
             "id": "12345678-1234-4123-8123-123456789abc",
             "ts": "2026-03-12T00:00:00+00:00",
-            "type": "customer_input",
+            "type": EVENT_TYPE_CUSTOMER_INPUT,
             "agent_id": "main",
             "content": "test",
             "schema_version": 1,

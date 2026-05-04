@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase
+from event_schema import EVENT_TYPE_SPRINT
 
 # ===========================================================================
 # preload.sh -- Sprint start preload script
@@ -164,7 +165,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
                 {
                     "id": "e1",
                     "ts": "2026-03-01T00:00:00Z",
-                    "type": "sprint",
+                    "type": EVENT_TYPE_SPRINT,
                     "agent_id": "xp-sprint-start",
                     "content": "Sprint 1",
                     "metadata": {
@@ -178,7 +179,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
                 {
                     "id": "e2",
                     "ts": "2026-03-15T00:00:00Z",
-                    "type": "sprint",
+                    "type": EVENT_TYPE_SPRINT,
                     "agent_id": "xp-sprint-start",
                     "content": "Sprint 2",
                     "metadata": {

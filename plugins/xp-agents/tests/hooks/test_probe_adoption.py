@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
 from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
     SELECTION_REASON_FILE_OVERLAP,
@@ -41,7 +43,7 @@ class TestProbeAdoptionRate(unittest.TestCase):
         if selection_reasons is not None:
             metadata[METADATA_KEY_PROBE_SELECTION_REASONS] = selection_reasons
         return make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content=(
                 f"{STATUS_CONTENT_RESOLVES_PROBE}: {len(candidate_ids)} candidates"
             ),
@@ -54,7 +56,7 @@ class TestProbeAdoptionRate(unittest.TestCase):
     @staticmethod
     def _code_commit(resolves: list[str], ts: str, agent_id: str = "main") -> dict:
         return make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Work",
             ts=ts,
             files=["scripts/x.py"],

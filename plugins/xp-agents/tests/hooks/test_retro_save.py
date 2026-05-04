@@ -11,6 +11,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, file_write_status, make_event, tests_run_status
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestRetroDigest(_HookTestCase):
@@ -25,11 +32,11 @@ class TestRetroDigest(_HookTestCase):
         import retro_metrics
 
         events = [
-            make_event("decision", content="Use REST", topic="api"),
-            make_event("concern", content="Slow tests", severity="medium"),
-            make_event("status", content="Wrote file", working_on=["f.py"]),
-            make_event("status", content="More work", working_on=["g.py"]),
-            make_event("customer_input", content="Please fix"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
+            make_event(EVENT_TYPE_CONCERN, content="Slow tests", severity="medium"),
+            make_event(EVENT_TYPE_STATUS, content="Wrote file", working_on=["f.py"]),
+            make_event(EVENT_TYPE_STATUS, content="More work", working_on=["g.py"]),
+            make_event(EVENT_TYPE_CUSTOMER_INPUT, content="Please fix"),
         ]
         self._write_events(events)
         digest = retro_metrics._build_retro_digest(events, 0, {})
@@ -48,7 +55,7 @@ class TestRetroDigest(_HookTestCase):
             file_write_status("src/util.ts"),
             tests_run_status(count=5),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Thinking about design",
                 working_on=[],
             ),
@@ -67,7 +74,7 @@ class TestRetroDigest(_HookTestCase):
 
         events = [
             make_event(
-                "concern",
+                EVENT_TYPE_CONCERN,
                 content="Test failures detected: 2 failed (pytest)",
                 severity="high",
             )
@@ -84,10 +91,10 @@ class TestRetroDigest(_HookTestCase):
         import retro_metrics
 
         events = [
-            make_event("concern", content="Slow tests", severity="medium"),
-            make_event("concern", content="Missing docs", severity="low"),
+            make_event(EVENT_TYPE_CONCERN, content="Slow tests", severity="medium"),
+            make_event(EVENT_TYPE_CONCERN, content="Missing docs", severity="low"),
             make_event(
-                "concern",
+                EVENT_TYPE_CONCERN,
                 content="Security issue",
                 severity="high",
             ),
@@ -104,8 +111,8 @@ class TestRetroDigest(_HookTestCase):
         import retro_metrics
 
         events = [
-            make_event("decision", content="Use REST", topic="api"),
-            make_event("concern", content="Slow", severity="low"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
+            make_event(EVENT_TYPE_CONCERN, content="Slow", severity="low"),
         ]
         self._write_events(events)
         digest = retro_metrics._build_retro_digest(events, 0, {})
@@ -130,19 +137,19 @@ class TestRetroDigest(_HookTestCase):
         import retrospective
 
         events = [
-            make_event("decision", content="Use REST", topic="api"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to f.py",
                 working_on=["f.py"],
             ),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Tests: 5 passed, 0 failed",
                 working_on=[],
             ),
-            make_event("concern", content="Slow", severity="low"),
-            make_event("customer_input", content="Fix it"),
+            make_event(EVENT_TYPE_CONCERN, content="Slow", severity="low"),
+            make_event(EVENT_TYPE_CUSTOMER_INPUT, content="Fix it"),
         ]
         self._write_events(events)
         retro_input = retrospective._build_retro_input(events, 0, [])
@@ -195,7 +202,7 @@ class TestSaveRetrospective(_HookTestCase):
 
         # Verify event in events.jsonl
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == "retrospective"]
+        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retro_events), 1)
         ev = retro_events[0]
         self.assertEqual(len(ev["keep"]), 1)
@@ -223,7 +230,7 @@ class TestSaveRetrospective(_HookTestCase):
         self.assertIsNone(result)
         # No event should be written
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == "retrospective"]
+        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retro_events), 0)
 
     def test_empty_arrays_succeeds(self):
@@ -234,7 +241,7 @@ class TestSaveRetrospective(_HookTestCase):
         self.assertIsNotNone(result)
 
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == "retrospective"]
+        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retro_events), 1)
         self.assertIn("0 keeps, 0 fixes, 0 tries", retro_events[0]["content"])
 
@@ -285,7 +292,7 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro["agent_id"], "xp-sprint-retro")
 
     def test_custom_prefix(self):
@@ -298,7 +305,7 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertIn("Sprint retrospective", retro["content"])
 
     def test_custom_cleanup_file(self):
@@ -321,7 +328,7 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         result = save_retrospective.run(self._valid_kft(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro["agent_id"], "xp-retrospective")
         self.assertIn("Session retrospective", retro["content"])
         self.assertFalse((self.smm_dir / ".retro-input.json").exists())
@@ -352,7 +359,7 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
 
     def test_retro_kind_sprint_writes_sprint_action(self):
@@ -366,7 +373,7 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
 
     def test_retro_kind_default_is_session(self):
@@ -379,7 +386,7 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
 
     def test_retro_kind_constants_exist(self):
@@ -408,7 +415,7 @@ class TestSaveRetrospectiveSchemaEnforcement(_HookTestCase):
         result = save_retrospective.run(kft, smm_dir=self.smm_dir)
         self.assertIsNone(result)
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == "retrospective"]
+        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retro_events), 0)
 
     def test_over_budget_keep_rejected(self):
@@ -429,7 +436,7 @@ class TestSaveRetrospectiveSchemaEnforcement(_HookTestCase):
         result = save_retrospective.run(kft, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == "retrospective"]
+        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retro_events), 1)
 
 

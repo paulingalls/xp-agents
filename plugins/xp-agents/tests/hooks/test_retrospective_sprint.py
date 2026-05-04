@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_SPRINT, EVENT_TYPE_STATUS
 
 
 class TestSprintSizingInRetro(_HookTestCase):
@@ -51,7 +52,7 @@ class TestSprintSizingInRetro(_HookTestCase):
         events = [make_event(content=f"event {i}") for i in range(event_count)]
         events.append(
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Committed: add login",
                 files=["scripts/auth.py"],
                 ts="2026-04-05T10:00:00+00:00",
@@ -64,7 +65,7 @@ class TestSprintSizingInRetro(_HookTestCase):
         )
         events.append(
             make_event(
-                "sprint",
+                EVENT_TYPE_SPRINT,
                 content="Sprint ended",
                 metadata={"sprint_id": "sprint-042", "action": "end"},
             )
@@ -179,7 +180,7 @@ class TestResolvesLinkRate(_HookTestCase):
 
     def _commit(self, resolves_ids: list[str], ts: str, commit_hash: str) -> dict:
         return make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Work",
             ts=ts,
             files=["scripts/x.py"],
@@ -192,7 +193,7 @@ class TestResolvesLinkRate(_HookTestCase):
 
     def _sprint_end(self) -> dict:
         return make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint ended",
             metadata={"sprint_id": "sprint-005", "action": "end"},
         )
@@ -281,7 +282,7 @@ class TestResolvesLinkRate(_HookTestCase):
 
 def _sprint_start(sprint_id: str) -> dict:
     return make_event(
-        "sprint",
+        EVENT_TYPE_SPRINT,
         content=f"Sprint {sprint_id} started",
         metadata={"sprint_id": sprint_id, "action": "start"},
     )
@@ -289,7 +290,7 @@ def _sprint_start(sprint_id: str) -> dict:
 
 def _sprint_end(sprint_id: str) -> dict:
     return make_event(
-        "sprint",
+        EVENT_TYPE_SPRINT,
         content=f"Sprint {sprint_id} ended",
         metadata={"sprint_id": sprint_id, "action": "end"},
     )
@@ -297,7 +298,7 @@ def _sprint_end(sprint_id: str) -> dict:
 
 def _sprint_retro_done(sprint_id: str) -> dict:
     return make_event(
-        "status",
+        EVENT_TYPE_STATUS,
         content="Sprint retrospective complete.",
         metadata={"sprint_id": sprint_id, "action": "sprint_retro_done"},
     )

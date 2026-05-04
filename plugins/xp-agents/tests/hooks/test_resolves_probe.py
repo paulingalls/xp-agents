@@ -16,6 +16,9 @@ import resolves_probe
 import worktree
 from conftest import _HookTestCase, _ProbeTestHelpers, make_event
 from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
     SELECTION_REASON_CLOSE_MODE,
@@ -31,7 +34,7 @@ class TestFindProbeCandidates(_HookTestCase):
     """find_probe_candidates returns open concerns matching commit files."""
 
     def _seed_concern(self, content: str, files: list[str]) -> str:
-        concern = make_event("concern", content=content, files=files)
+        concern = make_event(EVENT_TYPE_CONCERN, content=content, files=files)
         _common.append_safe(self.smm_dir, concern)
         return concern["id"]
 
@@ -104,8 +107,8 @@ class TestBuildNudgeLines(unittest.TestCase):
 
     def test_multiple_candidates_grouped_with_combined_trailer(self):
         candidates = [
-            {"id": "abc123def456", "type": "concern", "content": "Auth leak"},
-            {"id": "def456abc123", "type": "debt", "content": "Refactor auth"},
+            {"id": "abc123def456", "type": EVENT_TYPE_CONCERN, "content": "Auth leak"},
+            {"id": "def456abc123", "type": EVENT_TYPE_DEBT, "content": "Refactor auth"},
         ]
         lines = resolves_probe.build_nudge_lines(candidates)
         self.assertEqual(len(lines), 1)
@@ -127,7 +130,11 @@ class TestBuildNudgeLines(unittest.TestCase):
         self.assertIn("abc", lines[0])
 
     def test_shows_event_type(self):
-        candidate = {"id": "abc123def456", "type": "debt", "content": "Legacy code"}
+        candidate = {
+            "id": "abc123def456",
+            "type": EVENT_TYPE_DEBT,
+            "content": "Legacy code",
+        }
         lines = resolves_probe.build_nudge_lines([candidate])
         self.assertIn("[debt", lines[0])
 
@@ -140,7 +147,7 @@ class TestBuildNudgeLines(unittest.TestCase):
     def test_concern_severity_inline_with_id(self):
         candidate = {
             "id": "abc123def456",
-            "type": "concern",
+            "type": EVENT_TYPE_CONCERN,
             "severity": "high",
             "content": "Auth leak",
         }
@@ -148,14 +155,14 @@ class TestBuildNudgeLines(unittest.TestCase):
         self.assertIn("[concern|high|abc123def456]", block)
 
     def test_concern_without_severity_falls_back(self):
-        candidate = {"id": "abc123def456", "type": "concern", "content": "x"}
+        candidate = {"id": "abc123def456", "type": EVENT_TYPE_CONCERN, "content": "x"}
         block = resolves_probe.build_nudge_lines([candidate])[0]
         self.assertIn("[concern|unknown|abc123def456]", block)
 
     def test_close_reviewer_provenance_suffix_includes_mode(self):
         candidate = {
             "id": "abc123def456",
-            "type": "concern",
+            "type": EVENT_TYPE_CONCERN,
             "severity": "medium",
             "content": "Cross-cutting drift",
             "metadata": {"close_mode": "sprint"},
@@ -166,7 +173,7 @@ class TestBuildNudgeLines(unittest.TestCase):
     def test_close_reviewer_provenance_suffix_for_plan_mode(self):
         candidate = {
             "id": "abc123def456",
-            "type": "concern",
+            "type": EVENT_TYPE_CONCERN,
             "severity": "medium",
             "content": "Architectural concern",
             "metadata": {"close_mode": "plan"},
@@ -177,7 +184,7 @@ class TestBuildNudgeLines(unittest.TestCase):
     def test_no_provenance_suffix_without_close_mode(self):
         candidate = {
             "id": "abc123def456",
-            "type": "concern",
+            "type": EVENT_TYPE_CONCERN,
             "severity": "medium",
             "content": "Plain concern",
         }
@@ -198,7 +205,7 @@ class _ScoringHelpers:
     def _candidate(self, **kwargs) -> dict:
         base = {
             "id": "abc123def456",
-            "type": "concern",
+            "type": EVENT_TYPE_CONCERN,
             "content": "Auth middleware leaks tokens",
             "files": ["scripts/auth.py"],
             "ts": self.OLD_TS,
@@ -503,12 +510,12 @@ class TestFindActiveCycleId(unittest.TestCase):
     def test_returns_most_recent_close_cycle_id(self):
         events = [
             {
-                "type": "concern",
+                "type": EVENT_TYPE_CONCERN,
                 "ts": self.OLDER_RECENT,
                 "metadata": {"close_cycle_id": "older0001cyc"},
             },
             {
-                "type": "concern",
+                "type": EVENT_TYPE_CONCERN,
                 "ts": self.RECENT,
                 "metadata": {"close_cycle_id": "newest01cyc1"},
             },
@@ -521,7 +528,7 @@ class TestFindActiveCycleId(unittest.TestCase):
     def test_ignores_stale_concerns_outside_recency_window(self):
         events = [
             {
-                "type": "concern",
+                "type": EVENT_TYPE_CONCERN,
                 "ts": self.STALE,
                 "metadata": {"close_cycle_id": "stale001cyc1"},
             },
@@ -530,15 +537,15 @@ class TestFindActiveCycleId(unittest.TestCase):
 
     def test_ignores_concerns_without_close_cycle_id(self):
         events = [
-            {"type": "concern", "ts": self.RECENT, "metadata": {}},
-            {"type": "concern", "ts": self.RECENT},
+            {"type": EVENT_TYPE_CONCERN, "ts": self.RECENT, "metadata": {}},
+            {"type": EVENT_TYPE_CONCERN, "ts": self.RECENT},
         ]
         self.assertIsNone(resolves_probe._find_active_cycle_id(events, self.NOW))
 
     def test_ignores_non_concern_events(self):
         events = [
             {
-                "type": "status",
+                "type": EVENT_TYPE_STATUS,
                 "ts": self.RECENT,
                 "metadata": {"close_cycle_id": "shouldskip00"},
             },
@@ -569,7 +576,7 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
         if cycle_id is not None:
             metadata = {"close_cycle_id": cycle_id, "close_mode": "sprint"}
         c = make_event(
-            "concern", content=content, files=files, ts=ts, metadata=metadata
+            EVENT_TYPE_CONCERN, content=content, files=files, ts=ts, metadata=metadata
         )
         _common.append_safe(self.smm_dir, c)
         return c["id"]
@@ -706,7 +713,7 @@ class TestFindProbeCandidatesSorting(_HookTestCase):
     def _seed_concern(
         self, content: str, files: list[str], ts: str = "2026-04-01T00:00:00+00:00"
     ) -> str:
-        concern = make_event("concern", content=content, files=files, ts=ts)
+        concern = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
         _common.append_safe(self.smm_dir, concern)
         return concern["id"]
 

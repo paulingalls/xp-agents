@@ -16,6 +16,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_CUSTOMER_INTENT,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
+
 
 class TestSessionRoundTripIntegration(_IntegrationTestCase):
     def test_start_write_end_captures_full_session(self):
@@ -61,8 +75,8 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertEqual(r3.returncode, 0)
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
-        se = [e for e in events if e.get("type") == "session_end"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
         self.assertEqual(len(statuses), 1)
         self.assertEqual(len(se), 1)
 
@@ -119,15 +133,15 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         # Verify full event chain
         events = self._read_events()
         types = [e["type"] for e in events]
-        self.assertIn("customer_input", types)
-        self.assertIn("status", types)
-        self.assertIn("session_end", types)
+        self.assertIn(EVENT_TYPE_CUSTOMER_INPUT, types)
+        self.assertIn(EVENT_TYPE_STATUS, types)
+        self.assertIn(EVENT_TYPE_SESSION_END, types)
 
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(ci[0]["content"], "Please refactor auth")
         self.assertEqual(ci[0]["agent_id"], "customer")
 
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         task_status = [s for s in statuses if s.get("agent_id") == "task-1"]
         self.assertTrue(len(task_status) >= 1)
         self.assertIn("task-1", task_status[0]["content"])
@@ -222,13 +236,13 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         """Goal event is recorded in the event log (current_smm stays empty
         until housekeeper merges it)."""
         r = self._run_append(
-            "--type", "goal", "--agent", "main", "--content", "Ship v2.0"
+            "--type", EVENT_TYPE_GOAL, "--agent", "main", "--content", "Ship v2.0"
         )
         self.assertEqual(r.returncode, 0, r.stderr)
 
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "goal")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_GOAL)
 
         import materialize as mat
 
@@ -243,7 +257,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         """Debt event appears in new_since_last_curation.debt for housekeeper."""
         r = self._run_append(
             "--type",
-            "debt",
+            EVENT_TYPE_DEBT,
             "--agent",
             "main",
             "--content",
@@ -255,7 +269,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "debt")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_DEBT)
         self.assertEqual(events[0]["files"], ["src/auth.py", "src/legacy.py"])
 
         import materialize as mat
@@ -268,7 +282,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         """Customer intent event recorded (current_smm empty until curated)."""
         r = self._run_append(
             "--type",
-            "customer_intent",
+            EVENT_TYPE_CUSTOMER_INTENT,
             "--agent",
             "main",
             "--content",
@@ -280,7 +294,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "customer_intent")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_CUSTOMER_INTENT)
         self.assertEqual(events[0]["intent_status"], "open")
 
         import materialize as mat
@@ -344,7 +358,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertIn("RETRO_FILE=", result.stdout)
 
         events = self._read_events()
-        retros = [e for e in events if e.get("type") == "retrospective"]
+        retros = [e for e in events if e.get("type") == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retros), 1)
         self.assertIn("1 keeps, 1 fixes, 1 tries", retros[0]["content"])
 
@@ -358,7 +372,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
 
     def test_cleans_up_input_file(self):
@@ -384,7 +398,7 @@ class TestSessionEndWarningIntegration(_IntegrationTestCase):
     def test_returns_warning_with_unresolved_concerns(self):
         self._seed_events(
             [
-                make_event("concern", content="Flaky test", severity="medium"),
+                make_event(EVENT_TYPE_CONCERN, content="Flaky test", severity="medium"),
             ]
         )
         result = self._run_script(
@@ -397,7 +411,7 @@ class TestSessionEndWarningIntegration(_IntegrationTestCase):
     def test_returns_summary_nudge_without_concerns(self):
         self._seed_events(
             [
-                make_event("status", content="Working on auth"),
+                make_event(EVENT_TYPE_STATUS, content="Working on auth"),
             ]
         )
         result = self._run_script(
@@ -410,7 +424,7 @@ class TestSessionEndWarningIntegration(_IntegrationTestCase):
     def test_xp_agent_skips(self):
         self._seed_events(
             [
-                make_event("concern", content="Bug", severity="high"),
+                make_event(EVENT_TYPE_CONCERN, content="Bug", severity="high"),
             ]
         )
         result = self._run_script(

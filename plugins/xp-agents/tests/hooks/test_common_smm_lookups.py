@@ -15,13 +15,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import concerns
 from conftest import make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_STATUS,
+)
+
 
 class TestFindDebtForFile(unittest.TestCase):
     """Tests for concerns.find_issues_for_file()."""
 
     def test_matching_file(self):
         events = [
-            make_event("debt", content="Legacy code", files=["/tmp/src/app.ts"]),
+            make_event(
+                EVENT_TYPE_DEBT, content="Legacy code", files=["/tmp/src/app.ts"]
+            ),
         ]
         result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 1)
@@ -29,16 +41,18 @@ class TestFindDebtForFile(unittest.TestCase):
 
     def test_no_match(self):
         events = [
-            make_event("debt", content="Legacy code", files=["/tmp/src/other.ts"]),
+            make_event(
+                EVENT_TYPE_DEBT, content="Legacy code", files=["/tmp/src/other.ts"]
+            ),
         ]
         result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
     def test_multiple_debts(self):
         events = [
-            make_event("debt", content="Debt 1", files=["/tmp/src/app.ts"]),
-            make_event("debt", content="Debt 2", files=["/tmp/src/app.ts"]),
-            make_event("debt", content="Debt 3", files=["/tmp/src/other.ts"]),
+            make_event(EVENT_TYPE_DEBT, content="Debt 1", files=["/tmp/src/app.ts"]),
+            make_event(EVENT_TYPE_DEBT, content="Debt 2", files=["/tmp/src/app.ts"]),
+            make_event(EVENT_TYPE_DEBT, content="Debt 3", files=["/tmp/src/other.ts"]),
         ]
         result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 2)
@@ -46,7 +60,7 @@ class TestFindDebtForFile(unittest.TestCase):
     def test_path_normalization(self):
         """Relative path in debt event matches absolute target."""
         events = [
-            make_event("debt", content="Debt", files=["src/app.ts"]),
+            make_event(EVENT_TYPE_DEBT, content="Debt", files=["src/app.ts"]),
         ]
         result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(len(result), 1)
@@ -57,15 +71,15 @@ class TestFindDebtForFile(unittest.TestCase):
 
     def test_non_debt_non_concern_events_ignored(self):
         events = [
-            make_event("status", content="Working"),
-            make_event("goal", content="Build app"),
+            make_event(EVENT_TYPE_STATUS, content="Working"),
+            make_event(EVENT_TYPE_GOAL, content="Build app"),
         ]
         result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
     def test_concern_without_files_ignored(self):
         events = [
-            make_event("concern", content="Concern about app.ts"),
+            make_event(EVENT_TYPE_CONCERN, content="Concern about app.ts"),
         ]
         result = concerns.find_issues_for_file(events, "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
@@ -73,7 +87,7 @@ class TestFindDebtForFile(unittest.TestCase):
     def test_concern_with_files_matched(self):
         events = [
             make_event(
-                "concern",
+                EVENT_TYPE_CONCERN,
                 content="Marker written in worktrees",
                 files=["/tmp/src/app.ts"],
             ),
@@ -85,7 +99,7 @@ class TestFindDebtForFile(unittest.TestCase):
     def test_concern_with_files_no_match(self):
         events = [
             make_event(
-                "concern",
+                EVENT_TYPE_CONCERN,
                 content="Marker issue",
                 files=["/tmp/src/other.ts"],
             ),

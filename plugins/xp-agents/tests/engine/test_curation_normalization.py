@@ -14,6 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import materialize
 from conftest import _SMMTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestCustomerInputNormalization(_SMMTestCase):
@@ -40,7 +46,7 @@ class TestCustomerInputNormalization(_SMMTestCase):
     def test_askuserquestion_normalized(self):
         """AskUserQuestion content re-serialized as Q/A pairs."""
         content = self._auq_content("Pick a color?", "Blue")
-        events = [make_event("customer_input", content=content)]
+        events = [make_event(EVENT_TYPE_CUSTOMER_INPUT, content=content)]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
         ci = result["new_since_last_curation"]["customer_inputs"][0]
@@ -69,7 +75,7 @@ class TestCustomerInputNormalization(_SMMTestCase):
                 "answers": {"Mode?": "Fast", "Speed?": "Max"},
             }
         )
-        events = [make_event("customer_input", content=content)]
+        events = [make_event(EVENT_TYPE_CUSTOMER_INPUT, content=content)]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
         ci = result["new_since_last_curation"]["customer_inputs"][0]
@@ -81,7 +87,7 @@ class TestCustomerInputNormalization(_SMMTestCase):
     def test_long_prompt_truncated(self):
         """Non-AskUserQuestion content >300 chars truncated."""
         long_content = "x" * 400
-        events = [make_event("customer_input", content=long_content)]
+        events = [make_event(EVENT_TYPE_CUSTOMER_INPUT, content=long_content)]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
         ci = result["new_since_last_curation"]["customer_inputs"][0]
@@ -91,7 +97,7 @@ class TestCustomerInputNormalization(_SMMTestCase):
     def test_short_prompt_not_truncated(self):
         """Content <=300 chars remains unchanged, no truncated flag."""
         short_content = "Build an API for users"
-        events = [make_event("customer_input", content=short_content)]
+        events = [make_event(EVENT_TYPE_CUSTOMER_INPUT, content=short_content)]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
         ci = result["new_since_last_curation"]["customer_inputs"][0]
@@ -104,9 +110,9 @@ class TestAllThreeFixes(_SMMTestCase):
 
     def test_e2e_all_three_fixes(self):
         """F1+F2+F3: resolutions list, normalized customer_inputs, capped tries."""
-        concern = make_event("concern", content="Old bug")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Old bug")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -124,13 +130,13 @@ class TestAllThreeFixes(_SMMTestCase):
                 "answers": {"Continue?": "Yes"},
             }
         )
-        auq_event = make_event("customer_input", content=auq_content)
-        long_event = make_event("customer_input", content="y" * 400)
+        auq_event = make_event(EVENT_TYPE_CUSTOMER_INPUT, content=auq_content)
+        long_event = make_event(EVENT_TYPE_CUSTOMER_INPUT, content="y" * 400)
 
         retros = []
         for i in range(4):
             r = make_event(
-                "retrospective",
+                EVENT_TYPE_RETROSPECTIVE,
                 content=f"Retro {i}",
                 ts=f"2026-01-{i + 1:02d}T00:00:00+00:00",
                 keep=[{"content": "ok"}],
@@ -144,7 +150,7 @@ class TestAllThreeFixes(_SMMTestCase):
             ]
             retros.append(r)
         latest_retro = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Latest",
             ts="2026-02-01T00:00:00+00:00",
             keep=[{"content": "ok"}],

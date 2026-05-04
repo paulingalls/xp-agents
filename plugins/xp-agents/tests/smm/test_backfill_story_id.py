@@ -21,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import backfill_story_id
 from conftest import _SMMTestCase
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_STATUS
+
 
 def _commit_event(content: str, story_id: str | None = None, **extra) -> dict:
     metadata = {
@@ -34,7 +38,7 @@ def _commit_event(content: str, story_id: str | None = None, **extra) -> dict:
     return {
         "id": "abcd1234",
         "ts": "2026-04-01T00:00:00+00:00",
-        "type": "commit",
+        "type": EVENT_TYPE_COMMIT,
         "agent_id": "main",
         "schema_version": 1,
         "content": content,
@@ -105,7 +109,7 @@ class TestBackfillReconcile(_SMMTestCase):
             {
                 "id": "x",
                 "ts": "2026-04-01T00:00:00+00:00",
-                "type": "status",
+                "type": EVENT_TYPE_STATUS,
                 "agent_id": "main",
                 "schema_version": 1,
                 "content": "[story-001] Working on it",

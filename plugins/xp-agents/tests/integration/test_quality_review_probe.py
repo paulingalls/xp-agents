@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import resolves_probe
 from conftest import _IntegrationTestCase, make_event
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 
 class TestQualityReviewProbeE2E(_IntegrationTestCase):
@@ -30,7 +31,7 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
 
     def test_probe_surfaces_matching_concerns(self):
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             id="abc123def456",
             content="scripts/auth.py leaks tokens",
             files=["scripts/auth.py"],
@@ -54,7 +55,7 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
     def test_probe_then_pre_commit_emits_probe_event(self):
         """Quality-review probe + pre-commit both surface same concern."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             id="deadbeefcafe",
             content="scripts/auth.py leaks",
             files=["scripts/auth.py"],
@@ -93,7 +94,7 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
         probes = [
             e
             for e in events
-            if e.get("type") == "status"
+            if e.get("type") == EVENT_TYPE_STATUS
             and e.get("content", "").startswith("resolves_probe_shown:")
         ]
         self.assertEqual(len(probes), 1)
@@ -101,7 +102,7 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
     def test_probe_finds_unstaged_modified_files(self):
         """Probe should detect concerns matching unstaged (not git-added) files."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             id="unstaged12345",
             content="scripts/auth.py leaks tokens",
             files=["scripts/auth.py"],
@@ -133,7 +134,7 @@ class TestQualityReviewProbeE2E(_IntegrationTestCase):
     def test_probe_finds_untracked_new_files(self):
         """Probe should detect concerns matching untracked new files."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             id="untracked1234",
             content="scripts/new.py missing validation",
             files=["scripts/new.py"],

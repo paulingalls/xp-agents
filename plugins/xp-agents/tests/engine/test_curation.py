@@ -13,6 +13,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import materialize
 import smm_store
 from conftest import _SMMTestCase, make_event, write_smm_fixture
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CONVENTION,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestPrepareCurationData(_SMMTestCase):
@@ -39,9 +49,9 @@ class TestPrepareCurationData(_SMMTestCase):
     def test_no_watermark_all_events_new(self):
         """Without watermark, all events appear in new_since_last_curation."""
         events = [
-            make_event("customer_input", content="Build an API"),
-            make_event("decision", topic="db", content="Use Postgres"),
-            make_event("concern", content="No tests yet"),
+            make_event(EVENT_TYPE_CUSTOMER_INPUT, content="Build an API"),
+            make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres"),
+            make_event(EVENT_TYPE_CONCERN, content="No tests yet"),
         ]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
@@ -55,13 +65,13 @@ class TestPrepareCurationData(_SMMTestCase):
     def test_watermark_splits_old_new(self):
         """Events after watermark go to new_since; older events feed current_smm."""
         old_events = [
-            make_event("goal", content="Ship v1"),
-            make_event("decision", topic="auth", content="Use JWT"),
-            make_event("convention", topic="api", content="REST only"),
+            make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+            make_event(EVENT_TYPE_DECISION, topic="auth", content="Use JWT"),
+            make_event(EVENT_TYPE_CONVENTION, topic="api", content="REST only"),
         ]
         new_events = [
-            make_event("customer_input", content="Add password reset"),
-            make_event("concern", content="Empty catch block"),
+            make_event(EVENT_TYPE_CUSTOMER_INPUT, content="Add password reset"),
+            make_event(EVENT_TYPE_CONCERN, content="Empty catch block"),
         ]
         self._write_events(old_events + new_events)
         materialize.write_curation_watermark(
@@ -123,9 +133,9 @@ class TestPrepareCurationData(_SMMTestCase):
 
     def test_resolutions_is_list_not_dict(self):
         """F1: resolutions should be a list of IDs, not a dict."""
-        concern = make_event("concern", content="Old bug")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Old bug")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -148,9 +158,9 @@ class TestPrepareCurationData(_SMMTestCase):
         The deterministic filtering that previously lived in prepare_curation_data
         moves to the housekeeper LLM — we assert the data it needs is available.
         """
-        concern = make_event("concern", content="Old bug")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Old bug")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -168,7 +178,7 @@ class TestPrepareCurationData(_SMMTestCase):
         # The fixture uses ts "2026-01-01T00:00:00+00:00" — add 4 session_ends after it
         sessions = [
             make_event(
-                "session_end",
+                EVENT_TYPE_SESSION_END,
                 content=f"end {i}",
                 ts=f"2026-03-{i + 1:02d}T00:00:00+00:00",
             )
@@ -186,9 +196,9 @@ class TestPrepareCurationData(_SMMTestCase):
 
     def test_resolutions_after_watermark(self):
         """Resolutions after watermark appear in new_since_last_curation."""
-        concern = make_event("concern", content="Bug")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Bug")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -225,10 +235,10 @@ class TestPrepareCurationData(_SMMTestCase):
 
     def test_resolved_concerns_excluded_from_new_since(self):
         """Resolved concerns should not appear in new_since_last_curation."""
-        c1 = make_event("concern", content="Lint error in foo.py")
-        c2 = make_event("concern", content="Real design concern")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Lint error in foo.py")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Real design concern")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [c1["id"]]},
@@ -242,10 +252,10 @@ class TestPrepareCurationData(_SMMTestCase):
 
     def test_resolved_concern_count_in_new_since(self):
         """Resolved concerns should be counted in new_since_last_curation."""
-        c1 = make_event("concern", content="Lint error")
-        c2 = make_event("concern", content="Test failure")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Lint error")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Test failure")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed both",
             working_on=[],
             metadata={"resolves": [c1["id"], c2["id"]]},
@@ -257,7 +267,7 @@ class TestPrepareCurationData(_SMMTestCase):
     def test_retro_history_latest_tries(self):
         """latest_tries from most recent retrospective."""
         r1 = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Retro 1",
             ts="2026-01-01T00:00:00+00:00",
             keep=[{"content": "Good tests"}],
@@ -265,7 +275,7 @@ class TestPrepareCurationData(_SMMTestCase):
         )
         r1["try"] = [{"content": "Split commits"}]
         r2 = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Retro 2",
             ts="2026-02-01T00:00:00+00:00",
             keep=[{"content": "TDD held"}],
@@ -281,7 +291,7 @@ class TestPrepareCurationData(_SMMTestCase):
     def test_retro_history_adopted_tries(self):
         """Tries from earlier retros not in any fix list are adopted."""
         r1 = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Retro 1",
             ts="2026-01-01T00:00:00+00:00",
             keep=[{"content": "ok"}],
@@ -289,7 +299,7 @@ class TestPrepareCurationData(_SMMTestCase):
         )
         r1["try"] = [{"content": "Use CI"}, {"content": "Split commits"}]
         r2 = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Retro 2",
             ts="2026-02-01T00:00:00+00:00",
             keep=[{"content": "ok"}],
@@ -309,7 +319,7 @@ class TestPrepareCurationData(_SMMTestCase):
         retros = []
         for i in range(3):
             r = make_event(
-                "retrospective",
+                EVENT_TYPE_RETROSPECTIVE,
                 content=f"Retro {i}",
                 ts=f"2026-0{i + 1}-01T00:00:00+00:00",
                 keep=[{"content": "ok"}],
@@ -330,7 +340,7 @@ class TestPrepareCurationData(_SMMTestCase):
         )
         risk_id = smm_store.load_smm(self.smm_dir)["risks"][0]["id"]
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed the risk",
             working_on=[],
             metadata={"resolves": [risk_id]},
@@ -352,7 +362,7 @@ class TestPrepareCurationData(_SMMTestCase):
                     "content": "Old concern",
                     "source": "curated",
                     "ts": "2026-01-01T00:00:00+00:00",
-                    "type": "concern",
+                    "type": EVENT_TYPE_CONCERN,
                     "severity": "problem",
                     "source_event_id": source_id,
                 }
@@ -361,7 +371,7 @@ class TestPrepareCurationData(_SMMTestCase):
         }
         smm_store.save_smm(self.smm_dir, data)
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [source_id]},
@@ -377,7 +387,7 @@ class TestPrepareCurationData(_SMMTestCase):
             self.smm_dir,
             risks=[("Open risk", "concern", "problem")],
         )
-        self._write_events([make_event("status", content="Unrelated")])
+        self._write_events([make_event(EVENT_TYPE_STATUS, content="Unrelated")])
         result = materialize.prepare_curation_data(self.smm_dir)
         risk = result["current_smm"]["risks"][0]
         self.assertFalse(risk.get("resolved", False))
@@ -390,7 +400,7 @@ class TestPrepareCurationData(_SMMTestCase):
         )
         risk_id = smm_store.load_smm(self.smm_dir)["risks"][0]["id"]
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [risk_id]},
@@ -403,14 +413,16 @@ class TestPrepareCurationData(_SMMTestCase):
     def test_team_scenario_multiple_agents(self):
         """Events from multiple agents all feed into curation data."""
         events = [
-            make_event("customer_input", content="Input from A", agent_id="agent-a"),
             make_event(
-                "decision",
+                EVENT_TYPE_CUSTOMER_INPUT, content="Input from A", agent_id="agent-a"
+            ),
+            make_event(
+                EVENT_TYPE_DECISION,
                 topic="db",
                 content="Use PG",
                 agent_id="agent-a",
             ),
-            make_event("concern", content="No tests", agent_id="agent-b"),
+            make_event(EVENT_TYPE_CONCERN, content="No tests", agent_id="agent-b"),
         ]
         self._write_events(events)
         result = materialize.prepare_curation_data(self.smm_dir)
@@ -424,7 +436,7 @@ class TestExtractRetroHistory(_SMMTestCase):
     """Tests for materialize._extract_retro_history."""
 
     def _retro(self, keep=None, fix=None, try_items=None, ts="2026-01-01"):
-        e = make_event("retrospective", ts=ts)
+        e = make_event(EVENT_TYPE_RETROSPECTIVE, ts=ts)
         if keep:
             e["keep"] = [{"content": k} for k in keep]
         if fix:

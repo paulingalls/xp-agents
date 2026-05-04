@@ -20,6 +20,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import plugin_loader
 from conftest import _HookTestCase, make_event, write_smm_fixture
+from event_schema import (
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
 
 # ===========================================================================
 # session_start.py tests — path validation
@@ -305,7 +310,7 @@ class TestSessionStart(_HookTestCase):
         """session_start should NOT inject SMM content into context."""
         import session_start
 
-        self._write_events([make_event("goal", content="Ship v1")])
+        self._write_events([make_event(EVENT_TYPE_GOAL, content="Ship v1")])
         result = session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -317,7 +322,7 @@ class TestSessionStart(_HookTestCase):
         """Goal nudge removed — handled by /xp-kickoff."""
         import session_start
 
-        self._write_events([make_event("status", content="working")])
+        self._write_events([make_event(EVENT_TYPE_STATUS, content="working")])
         result = session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -337,7 +342,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
         """Goal nudge removed — handled by /xp-kickoff."""
         import session_start
 
-        self._write_events([make_event("status", content="working")])
+        self._write_events([make_event(EVENT_TYPE_STATUS, content="working")])
         result = session_start.run(
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
@@ -350,9 +355,9 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 
         self._write_events(
             [
-                make_event("goal", content="Build the app"),
+                make_event(EVENT_TYPE_GOAL, content="Build the app"),
                 make_event(
-                    "question",
+                    EVENT_TYPE_QUESTION,
                     content="Which DB?",
                     priority=_common.PRIORITY_BLOCKING,
                 ),

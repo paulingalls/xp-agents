@@ -11,6 +11,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import retro_flags
 from conftest import _SMMTestCase, make_event, write_events
+from event_schema import (
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_STATUS,
+)
 
 
 def _healthy_signals():
@@ -340,7 +344,7 @@ class TestDecisionAwareSuppression(unittest.TestCase):
 def _decision(action: str | None = None) -> dict:
     """Decision event with optional metadata.action."""
     metadata = {"action": action} if action is not None else {}
-    return make_event("decision", metadata=metadata)
+    return make_event(EVENT_TYPE_DECISION, metadata=metadata)
 
 
 class TestHighZeroDecisionRate(unittest.TestCase):
@@ -362,7 +366,7 @@ class TestHighZeroDecisionRate(unittest.TestCase):
         self.assertNotIn("high_zero_decision_rate", names)
 
     def test_no_flag_and_no_zero_div_when_no_decisions(self):
-        events = [make_event("status", working_on=[])]
+        events = [make_event(EVENT_TYPE_STATUS, working_on=[])]
         h, w, s, ss = _healthy_signals()
         flags = retro_flags.evaluate_flags(h, w, s, ss, events=events)
         names = [f["metric"] for f in flags]

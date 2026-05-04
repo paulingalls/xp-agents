@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 from conftest import _SMMTestCase, make_event
+from event_schema import EVENT_TYPE_CUSTOMER_INPUT, EVENT_TYPE_STATUS
 
 
 class TestBulkAppend(_SMMTestCase):
@@ -28,7 +29,8 @@ class TestBulkAppend(_SMMTestCase):
     def test_bulk_append_multiple_events(self):
         """Three valid events should all appear in events.jsonl."""
         events = [
-            make_event("status", content=f"Status {i}", working_on=[]) for i in range(3)
+            make_event(EVENT_TYPE_STATUS, content=f"Status {i}", working_on=[])
+            for i in range(3)
         ]
         _append_impl.bulk_append(self.smm_dir, events)
         lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
@@ -40,7 +42,7 @@ class TestBulkAppend(_SMMTestCase):
     def test_bulk_append_strips_ansi(self):
         """ANSI escape codes should be stripped from content."""
         event = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="\x1b[31mRed text\x1b[0m",
             working_on=[],
         )
@@ -51,8 +53,8 @@ class TestBulkAppend(_SMMTestCase):
 
     def test_bulk_append_validates_all_before_write(self):
         """If any event is invalid, none should be written."""
-        good = make_event("status", content="OK", working_on=[])
-        bad = {"type": "status", "content": "no id"}  # missing required fields
+        good = make_event(EVENT_TYPE_STATUS, content="OK", working_on=[])
+        bad = {"type": EVENT_TYPE_STATUS, "content": "no id"}  # missing required fields
         with self.assertRaises(ValueError):
             _append_impl.bulk_append(self.smm_dir, [good, bad])
         content = (self.smm_dir / "events.jsonl").read_text()
@@ -60,7 +62,7 @@ class TestBulkAppend(_SMMTestCase):
 
     def test_bulk_append_rejects_over_budget(self):
         """Over-budget event should raise ValueError, no events written."""
-        over = make_event("status", content="x" * 201, working_on=[])
+        over = make_event(EVENT_TYPE_STATUS, content="x" * 201, working_on=[])
         with self.assertRaises(ValueError) as ctx:
             _append_impl.bulk_append(self.smm_dir, [over])
         self.assertIn("budget", str(ctx.exception).lower())
@@ -69,10 +71,10 @@ class TestBulkAppend(_SMMTestCase):
 
     def test_bulk_append_appends_to_existing(self):
         """bulk_append should append, not overwrite existing events."""
-        existing = make_event("customer_input", content="First")
+        existing = make_event(EVENT_TYPE_CUSTOMER_INPUT, content="First")
         _append_impl.append_event(self.smm_dir, existing)
         new_events = [
-            make_event("status", content="Second", working_on=[]),
+            make_event(EVENT_TYPE_STATUS, content="Second", working_on=[]),
         ]
         _append_impl.bulk_append(self.smm_dir, new_events)
         lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
@@ -125,7 +127,7 @@ class TestBuildEvent(_SMMTestCase):
         import argparse
 
         defaults = {
-            "type": "status",
+            "type": EVENT_TYPE_STATUS,
             "agent": "main",
             "content": "test",
             "references": None,
@@ -282,11 +284,11 @@ class TestReplaceEventsFile(_SMMTestCase):
 
     def test_replaces_content(self):
         # Seed initial events
-        e1 = make_event("status", content="old")
+        e1 = make_event(EVENT_TYPE_STATUS, content="old")
         _append_impl.append_event(self.smm_dir, e1)
 
         # Replace with new events
-        e2 = make_event("status", content="new")
+        e2 = make_event(EVENT_TYPE_STATUS, content="new")
         original = _append_impl.replace_events_file(self.smm_dir, [e2])
 
         # Original content returned
@@ -298,13 +300,13 @@ class TestReplaceEventsFile(_SMMTestCase):
         self.assertNotIn("old", content)
 
     def test_returns_empty_for_missing_file(self):
-        e = make_event("status", content="first")
+        e = make_event(EVENT_TYPE_STATUS, content="first")
         original = _append_impl.replace_events_file(self.smm_dir, [e])
         self.assertEqual(original, "")
 
     def test_atomic_replacement(self):
         """File should contain exactly the replacement events."""
-        events = [make_event("status", content=f"item-{i}") for i in range(3)]
+        events = [make_event(EVENT_TYPE_STATUS, content=f"item-{i}") for i in range(3)]
         _append_impl.replace_events_file(self.smm_dir, events)
         lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
         self.assertEqual(len(lines), 3)

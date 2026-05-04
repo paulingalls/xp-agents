@@ -15,6 +15,7 @@ from conftest import (
     _make_teammate_idle_input,
     make_event,
 )
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 # ===========================================================================
 # teammate_idle.py — TeammateIdle TDD gate
@@ -30,7 +31,7 @@ class TestTeammateIdle(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -46,7 +47,7 @@ class TestTeammateIdle(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests: 5 passed, 0 failed (pytest)",
                 ),
             ]
@@ -61,7 +62,7 @@ class TestTeammateIdle(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -90,12 +91,12 @@ class TestTeammateIdle(_HookTestCase):
         import teammate_idle
 
         fail = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved",
             working_on=[],
             metadata={"resolves": [fail["id"]]},
@@ -119,7 +120,7 @@ class TestTaskCompleted(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -135,7 +136,7 @@ class TestTaskCompleted(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests: 5 passed, 0 failed (pytest)",
                 ),
             ]
@@ -149,7 +150,7 @@ class TestTaskCompleted(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -178,12 +179,12 @@ class TestTaskCompleted(_HookTestCase):
         import task_completed
 
         fail = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved",
             working_on=[],
             metadata={"resolves": [fail["id"]]},

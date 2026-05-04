@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import retro_history
 from conftest import _HookTestCase, make_event
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
 
 
 class TestAnnotateTryDisposition(_HookTestCase):
@@ -178,7 +179,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
 
         target_id = "aabbccdd1111"
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Dropped retro Try: not useful",
             metadata={
                 "resolves": [target_id],
@@ -203,7 +204,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
 
         target_id = "aabbccdd1111"
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Dropped retro Try: already fixed",
             metadata={
                 "resolves": [target_id],
@@ -228,7 +229,7 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
 
         target_id = "aabbccdd1111"
         resolver = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="Adopted retro Try: something",
             metadata={"resolves": [target_id]},
         )

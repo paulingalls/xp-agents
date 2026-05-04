@@ -18,6 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import retro_history
 from conftest import _HookTestCase, make_event, make_retrospective_with_try
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestRetroHistoryConstants(unittest.TestCase):
@@ -187,7 +193,7 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         try_id = "ee11ff2233aa"
         retro_event = make_retrospective_with_try(try_id, "Try to be dropped")
         dropper = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="User dropped the try",
             working_on=[],
             metadata={"resolves": [try_id], "disposition": "dropped"},
@@ -225,7 +231,7 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         try_id = "aa22bb3344cc"
         retro_event = make_retrospective_with_try(try_id, "Try to adopt")
         adopter = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="Adopt the try",
             topic="retro-try-adopt",
             metadata={"resolves": [try_id]},
@@ -264,7 +270,7 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
 
         # Real concern event references the try-id but the try is unresolved.
         concern_referencing_try = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Concern that references a try-id (no resolver in events)",
             references=[try_id],
         )
@@ -290,14 +296,14 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         try_id = "cc44dd5566ee"
         retro_event = make_retrospective_with_try(try_id, "Try to drop")
         dropper = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Drop the try",
             working_on=[],
             metadata={"resolves": [try_id], "disposition": "dropped"},
         )
         # An unrelated debt that references the try; cascade should close it.
         debt_referencing_try = make_event(
-            "debt",
+            EVENT_TYPE_DEBT,
             content="Debt that depends on the try outcome",
             files=["scripts/x.py"],
             references=[try_id],

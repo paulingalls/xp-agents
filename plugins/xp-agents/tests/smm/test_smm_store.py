@@ -14,6 +14,17 @@ import smm_schema
 import smm_store
 from conftest import _SMMTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CONVENTION,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_DISCOVERY,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_STATUS,
+)
+
 
 def _minimal_smm(**overrides):
     """Build a minimal valid SMM dict."""
@@ -92,7 +103,9 @@ class TestLoadSMM(_StoreTestCase):
 
 class TestSaveSMM(_StoreTestCase):
     def test_writes_valid_json_atomically(self):
-        data = _minimal_smm(constraints=[{**_VALID_ENTRY, "type": "convention"}])
+        data = _minimal_smm(
+            constraints=[{**_VALID_ENTRY, "type": EVENT_TYPE_CONVENTION}]
+        )
         smm_store.save_smm(self.smm_dir, data)
         result = smm_store.load_smm(self.smm_dir)
         self.assertEqual(result, data)
@@ -139,7 +152,7 @@ class TestSaveSMM(_StoreTestCase):
     def test_roundtrip_preserves_all_fields(self):
         entry = {
             **_VALID_ENTRY,
-            "type": "goal",
+            "type": EVENT_TYPE_GOAL,
             "source_event_id": "aaabbbcccddd",
         }
         data = _minimal_smm(intent=[entry])
@@ -369,7 +382,9 @@ class TestRemoveItem(_StoreTestCase):
 
 class TestPromoteEvent(_SMMTestCase):
     def test_creates_entry_from_concern(self):
-        event = make_event("concern", content="Auth is fragile", severity="problem")
+        event = make_event(
+            EVENT_TYPE_CONCERN, content="Auth is fragile", severity="problem"
+        )
         self._write_events([event])
         uid = smm_store.promote_event(self.smm_dir, event["id"])
         smm = smm_store.load_smm(self.smm_dir)
@@ -382,7 +397,7 @@ class TestPromoteEvent(_SMMTestCase):
         self.assertEqual(entry["severity"], "problem")
 
     def test_maps_decision_to_constraints(self):
-        event = make_event("decision", content="Use REST", topic="api-style")
+        event = make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api-style")
         self._write_events([event])
         smm_store.promote_event(self.smm_dir, event["id"])
         smm = smm_store.load_smm(self.smm_dir)
@@ -392,7 +407,7 @@ class TestPromoteEvent(_SMMTestCase):
         self.assertEqual(entry["topic"], "api-style")
 
     def test_maps_goal_to_intent(self):
-        event = make_event("goal", content="Ship v1")
+        event = make_event(EVENT_TYPE_GOAL, content="Ship v1")
         self._write_events([event])
         smm_store.promote_event(self.smm_dir, event["id"])
         smm = smm_store.load_smm(self.smm_dir)
@@ -400,14 +415,14 @@ class TestPromoteEvent(_SMMTestCase):
         self.assertEqual(smm["intent"][0]["type"], "goal")
 
     def test_maps_discovery_to_wisdom(self):
-        event = make_event("discovery", content="Caching helps")
+        event = make_event(EVENT_TYPE_DISCOVERY, content="Caching helps")
         self._write_events([event])
         smm_store.promote_event(self.smm_dir, event["id"])
         smm = smm_store.load_smm(self.smm_dir)
         self.assertEqual(len(smm["wisdom"]), 1)
 
     def test_resolves_full_id(self):
-        event = make_event("goal", content="Ship v1")
+        event = make_event(EVENT_TYPE_GOAL, content="Ship v1")
         self._write_events([event])
         uid = smm_store.promote_event(self.smm_dir, event["id"])
         smm = smm_store.load_smm(self.smm_dir)
@@ -426,12 +441,12 @@ class TestPromoteEvent(_SMMTestCase):
 
     def test_raises_for_ambiguous_prefix(self):
         e1 = make_event(
-            "goal",
+            EVENT_TYPE_GOAL,
             id="aabbccdd1111",
             content="First",
         )
         e2 = make_event(
-            "goal",
+            EVENT_TYPE_GOAL,
             id="aabbccdd2222",
             content="Second",
         )
@@ -441,14 +456,16 @@ class TestPromoteEvent(_SMMTestCase):
         self.assertIn("ambiguous", str(ctx.exception).lower())
 
     def test_returns_generated_id(self):
-        event = make_event("goal", content="Ship v1")
+        event = make_event(EVENT_TYPE_GOAL, content="Ship v1")
         self._write_events([event])
         uid = smm_store.promote_event(self.smm_dir, event["id"])
         self.assertRegex(uid, r"^[0-9a-f]{12}$")
         self.assertNotEqual(uid, event["id"])
 
     def test_explicit_pillar_override(self):
-        event = make_event("concern", content="Might be wisdom", severity="problem")
+        event = make_event(
+            EVENT_TYPE_CONCERN, content="Might be wisdom", severity="problem"
+        )
         self._write_events([event])
         smm_store.promote_event(self.smm_dir, event["id"], pillar="wisdom")
         smm = smm_store.load_smm(self.smm_dir)
@@ -456,7 +473,7 @@ class TestPromoteEvent(_SMMTestCase):
         self.assertEqual(len(smm["risks"]), 0)
 
     def test_raises_for_unmappable_type(self):
-        event = make_event("status", content="Working on it")
+        event = make_event(EVENT_TYPE_STATUS, content="Working on it")
         self._write_events([event])
         with self.assertRaises(ValueError) as ctx:
             smm_store.promote_event(self.smm_dir, event["id"])

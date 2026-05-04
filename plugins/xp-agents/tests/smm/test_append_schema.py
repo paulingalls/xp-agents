@@ -17,6 +17,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 from conftest import _PLUGIN_ROOT, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
+
 
 class TestSchemaJson(unittest.TestCase):
     """Validate schema.json structure itself."""
@@ -151,7 +161,7 @@ class TestNotificationHelpers(unittest.TestCase):
 
     def test_macos_notification_command(self):
         event = {
-            "type": "question",
+            "type": EVENT_TYPE_QUESTION,
             "priority": "\U0001f534",
             "content": "Which DB?",
         }
@@ -166,7 +176,7 @@ class TestNotificationHelpers(unittest.TestCase):
 
     def test_linux_notification_command(self):
         event = {
-            "type": "question",
+            "type": EVENT_TYPE_QUESTION,
             "priority": "\U0001f534",
             "content": "Which DB?",
         }
@@ -181,7 +191,7 @@ class TestNotificationHelpers(unittest.TestCase):
 
     def test_non_red_question_no_notification(self):
         event = {
-            "type": "question",
+            "type": EVENT_TYPE_QUESTION,
             "priority": "\U0001f7e1",
             "content": "Minor question",
         }
@@ -191,7 +201,7 @@ class TestNotificationHelpers(unittest.TestCase):
 
     def test_non_question_no_notification(self):
         event = {
-            "type": "status",
+            "type": EVENT_TYPE_STATUS,
             "working_on": ["file.py"],
             "content": "Working",
         }
@@ -201,7 +211,7 @@ class TestNotificationHelpers(unittest.TestCase):
 
     def test_notification_failure_doesnt_crash(self):
         event = {
-            "type": "question",
+            "type": EVENT_TYPE_QUESTION,
             "priority": "\U0001f534",
             "content": "Which DB?",
         }
@@ -217,7 +227,7 @@ class TestNotificationHelpers(unittest.TestCase):
 
     def test_message_sanitized(self):
         event = {
-            "type": "question",
+            "type": EVENT_TYPE_QUESTION,
             "priority": "\U0001f534",
             "content": 'He said "drop tables\\n"',
         }
@@ -238,39 +248,39 @@ class TestContentBudgets(unittest.TestCase):
     """Tests for per-type content budget enforcement in validate_event()."""
 
     def test_status_within_budget(self):
-        event = make_event("status", content="x" * 200, working_on=[])
+        event = make_event(EVENT_TYPE_STATUS, content="x" * 200, working_on=[])
         errors = _append_impl.validate_event(event)
         self.assertEqual(errors, [])
 
     def test_status_over_budget_rejected(self):
-        event = make_event("status", content="x" * 201, working_on=[])
+        event = make_event(EVENT_TYPE_STATUS, content="x" * 201, working_on=[])
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("budget" in e.lower() for e in errors))
         self.assertTrue(any("201" in e for e in errors))
         self.assertTrue(any("200" in e for e in errors))
 
     def test_commit_uncapped(self):
-        event = make_event("commit", content="x" * 5000)
+        event = make_event(EVENT_TYPE_COMMIT, content="x" * 5000)
         errors = _append_impl.validate_event(event)
         self.assertEqual(errors, [])
 
     def test_customer_input_uncapped(self):
-        event = make_event("customer_input", content="x" * 10000)
+        event = make_event(EVENT_TYPE_CUSTOMER_INPUT, content="x" * 10000)
         errors = _append_impl.validate_event(event)
         self.assertEqual(errors, [])
 
     def test_decision_within_budget(self):
-        event = make_event("decision", content="x" * 400)
+        event = make_event(EVENT_TYPE_DECISION, content="x" * 400)
         errors = _append_impl.validate_event(event)
         self.assertEqual(errors, [])
 
     def test_decision_over_budget_rejected(self):
-        event = make_event("decision", content="x" * 401)
+        event = make_event(EVENT_TYPE_DECISION, content="x" * 401)
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("budget" in e.lower() for e in errors))
 
     def test_error_message_actionable(self):
-        event = make_event("status", content="x" * 250, working_on=[])
+        event = make_event(EVENT_TYPE_STATUS, content="x" * 250, working_on=[])
         errors = _append_impl.validate_event(event)
         self.assertEqual(len(errors), 1)
         msg = errors[0]
@@ -345,7 +355,7 @@ class TestQuestionGate(unittest.TestCase):
 
     def test_blocking_question_creates_gate(self):
         """Appending a 🔴 question should create .question-gate."""
-        event = self._make_event("question", priority="\U0001f534")
+        event = self._make_event(EVENT_TYPE_QUESTION, priority="\U0001f534")
         with patch("resolution.subprocess.run"):
             _append_impl.append_event(self.smm_dir, event)
         gate = self.smm_dir / ".question-gate"
@@ -353,7 +363,7 @@ class TestQuestionGate(unittest.TestCase):
 
     def test_gate_contains_event_id(self):
         """The .question-gate file should contain the question event ID."""
-        event = self._make_event("question", priority="\U0001f534")
+        event = self._make_event(EVENT_TYPE_QUESTION, priority="\U0001f534")
         with patch("resolution.subprocess.run"):
             _append_impl.append_event(self.smm_dir, event)
         gate = self.smm_dir / ".question-gate"
@@ -361,14 +371,14 @@ class TestQuestionGate(unittest.TestCase):
 
     def test_non_blocking_question_no_gate(self):
         """Non-🔴 question should NOT create .question-gate."""
-        event = self._make_event("question", priority="\U0001f7e1")
+        event = self._make_event(EVENT_TYPE_QUESTION, priority="\U0001f7e1")
         _append_impl.append_event(self.smm_dir, event)
         gate = self.smm_dir / ".question-gate"
         self.assertFalse(gate.exists())
 
     def test_non_question_no_gate(self):
         """Non-question events should NOT create .question-gate."""
-        event = self._make_event("status", working_on=["file.py"])
+        event = self._make_event(EVENT_TYPE_STATUS, working_on=["file.py"])
         _append_impl.append_event(self.smm_dir, event)
         gate = self.smm_dir / ".question-gate"
         self.assertFalse(gate.exists())
