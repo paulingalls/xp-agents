@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import EVENT_TYPE_QUESTION
+
 
 class TestSessionStartIntegration(_IntegrationTestCase):
     def test_startup_returns_kickoff_gupp(self):
@@ -98,7 +103,9 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         self.assertIsInstance(se[0]["unresolved_items"], list)
 
     def test_captures_unresolved_questions(self):
-        q = make_event("question", priority="\U0001f534", content="Unanswered?")
+        q = make_event(
+            EVENT_TYPE_QUESTION, priority="\U0001f534", content="Unanswered?"
+        )
         self._seed_events([q])
         self._run_script(
             "session_end.py",

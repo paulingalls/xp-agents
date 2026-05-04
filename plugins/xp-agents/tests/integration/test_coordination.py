@@ -27,6 +27,14 @@ from conftest import (
     passing_tests_status,
 )
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_QUESTION,
+)
+
 # ---------------------------------------------------------------------------
 # teammate_idle.py — TeammateIdle hook
 # ---------------------------------------------------------------------------
@@ -190,8 +198,8 @@ class TestPromptNuggetIntegration(_IntegrationTestCase):
     def test_watermark_persists_across_subprocess_calls(self):
         self._seed_events(
             [
-                make_event("concern", content="Flaky DB test"),
-                make_event("question", content="Which DB?"),
+                make_event(EVENT_TYPE_CONCERN, content="Flaky DB test"),
+                make_event(EVENT_TYPE_QUESTION, content="Which DB?"),
             ]
         )
 
