@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
 from conftest import _HookTestCase, _make_stop_input, make_event
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_STATUS,
+)
 
 # ===========================================================================
 # TDD Stop Gate (replaces tdd_check.md prompt hook)
@@ -55,7 +60,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests: 5 passed, 0 failed (pytest)",
                 ),
             ]
@@ -68,7 +73,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -83,7 +88,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test command failed: `pytest` — exit 1",
                     severity="high",
                 ),
@@ -97,12 +102,12 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests: 5 passed, 0 failed (pytest)",
                 ),
             ]
@@ -115,11 +120,11 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests: 5 passed, 0 failed (pytest)",
                 ),
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 1 failed (jest)",
                     severity="high",
                 ),
@@ -132,8 +137,10 @@ class TestTddStopGate(_HookTestCase):
     def test_no_test_events_allows_stop(self):
         self._write_events(
             [
-                make_event("status", content="Wrote file", working_on=["a.py"]),
-                make_event("customer_input", content="build something"),
+                make_event(
+                    EVENT_TYPE_STATUS, content="Wrote file", working_on=["a.py"]
+                ),
+                make_event(EVENT_TYPE_CUSTOMER_INPUT, content="build something"),
             ]
         )
         inp = _make_stop_input()
@@ -145,12 +152,12 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 1 failed (pytest)",
                     severity="high",
                 ),
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests passed (pytest)",
                 ),
             ]
@@ -162,12 +169,12 @@ class TestTddStopGate(_HookTestCase):
     def test_resolved_concern_allows_stop(self):
         """A resolved test failure concern should not block stop."""
         fail = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Test concern resolved: Test failures detected: 2 failed",
             working_on=[],
             metadata={"resolves": [fail["id"]]},
@@ -182,7 +189,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -201,7 +208,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -219,7 +226,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -234,7 +241,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 2 failed (pytest)",
                     severity="high",
                 ),
@@ -265,7 +272,7 @@ class TestTddStopGate(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content="Tests ran (pytest) — counts not extracted",
                 ),
             ]
@@ -308,8 +315,10 @@ class TestSessionEndWarning(_HookTestCase):
         """Unresolved concerns produce a soft warning."""
         self._write_events(
             [
-                make_event("concern", content="Something is wrong", severity="medium"),
-                make_event("concern", content="Another issue", severity="low"),
+                make_event(
+                    EVENT_TYPE_CONCERN, content="Something is wrong", severity="medium"
+                ),
+                make_event(EVENT_TYPE_CONCERN, content="Another issue", severity="low"),
             ]
         )
         inp = _make_stop_input()
@@ -320,9 +329,11 @@ class TestSessionEndWarning(_HookTestCase):
 
     def test_resolved_concerns_no_concern_warning(self):
         """Resolved concerns: no concern warning, summary nudge still fires."""
-        concern = make_event("concern", content="Fixed issue", severity="medium")
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Fixed issue", severity="medium"
+        )
         resolve = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved: Fixed issue",
             metadata={"resolves": [concern["id"]]},
         )
@@ -335,7 +346,7 @@ class TestSessionEndWarning(_HookTestCase):
 
     def test_always_nudges_summary(self):
         """Always reminds agent to summarize for the user."""
-        self._write_events([make_event("status", content="Did work")])
+        self._write_events([make_event(EVENT_TYPE_STATUS, content="Did work")])
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
@@ -345,8 +356,8 @@ class TestSessionEndWarning(_HookTestCase):
         """Both unresolved concerns and missing status produce one warning."""
         self._write_events(
             [
-                make_event("concern", content="Open issue", severity="medium"),
-                make_event("customer_input", content="Last input"),
+                make_event(EVENT_TYPE_CONCERN, content="Open issue", severity="medium"),
+                make_event(EVENT_TYPE_CUSTOMER_INPUT, content="Last input"),
             ]
         )
         inp = _make_stop_input()
@@ -368,7 +379,9 @@ class TestFindLastTestSignal(_HookTestCase):
         """Returns 'pass' for passing test status event."""
         from tdd_check import find_last_test_signal
 
-        events = [make_event("status", content="Tests: 5 passed, 0 failed (pytest)")]
+        events = [
+            make_event(EVENT_TYPE_STATUS, content="Tests: 5 passed, 0 failed (pytest)")
+        ]
         self.assertEqual(find_last_test_signal(events), "pass")
 
     def test_fail_event(self):
@@ -377,7 +390,7 @@ class TestFindLastTestSignal(_HookTestCase):
 
         events = [
             make_event(
-                "concern",
+                EVENT_TYPE_CONCERN,
                 content="Test failures detected: 2 failed (pytest)",
                 severity="high",
             )
@@ -389,12 +402,12 @@ class TestFindLastTestSignal(_HookTestCase):
         from tdd_check import find_last_test_signal
 
         fail = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved",
             working_on=[],
             metadata={"resolves": [fail["id"]]},
@@ -411,7 +424,7 @@ class TestFindLastTestSignal(_HookTestCase):
         """'Tests passed' fallback format recognized."""
         from tdd_check import find_last_test_signal
 
-        events = [make_event("status", content="Tests passed (unittest)")]
+        events = [make_event(EVENT_TYPE_STATUS, content="Tests passed (unittest)")]
         self.assertEqual(find_last_test_signal(events), "pass")
 
 
