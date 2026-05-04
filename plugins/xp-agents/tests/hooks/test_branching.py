@@ -361,6 +361,42 @@ class TestAutoPromote(_SMMTestCase):
         self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
         self.assertEqual(len(self._promote_events()), 1)
 
+    def test_create_story_branch_promotes_stage_1_e2e(self):
+        """E2E AC for story-001: a Stage 1 fixture, when create_story_branch
+        runs (which reads stage internally via get_branching_stage through
+        _create_or_resume_branch), the story branch IS created (the
+        stage>=2 floor gate passes because auto-promote ran transparently)
+        AND the persisted file now reads stage=2.
+
+        Mirrors test_create_sprint_branch_promotes_stage_1_e2e but for the
+        story-branch path. Pins the contract that the auto-promote
+        chokepoint fires on every stage-aware branch-create entry, not
+        just the sprint path.
+        """
+        self._write_ctx(1)
+
+        fake_proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("branching.identity.user_namespace", return_value="paul"),
+            patch("branching.branch_exists", return_value=False),
+            patch("branching.is_worktree_clean", return_value=True),
+            patch("branching._git", return_value=fake_proc),
+            patch("branching.git_remote.push_branch", return_value=True),
+            # short-circuits the post-create set_story_branch lookup
+            patch("branching.sprint_store.sprint_exists", return_value=False),
+        ):
+            result = branching.create_story_branch(
+                cwd=str(self.smm_dir),
+                story_id="story-001",
+                slug="e2e",
+                smm_dir=self.smm_dir,
+                base="main",
+            )
+        self.assertEqual(result, "paul/story-001-e2e")
+        self.assertEqual(self._stage_in_file(), 2)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(len(self._promote_events()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
