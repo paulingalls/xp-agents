@@ -50,6 +50,36 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
   --content "<item text including any [refs: ...] suffix>"
 ```
 
+**FORCE-CLOSE gate.** Carrying a Try across 3+ retros without adoption is
+dishonest. The defer command refuses with a non-zero exit
+once the same Try has been deferred 3 times. When that happens, do NOT loop
+back to the user with another defer-or-drop AskUserQuestion — present the
+FORCE-CLOSE choice instead, picking exactly one of the three escape flags
+below and re-running the command. The Try id named in the error tells you
+which item is gated.
+
+```bash
+# Adopt: convert to a decision event with a slugged topic.
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py defer \
+  --smm-dir <SMM_DIR> \
+  --content "<item text including any [refs: ...] suffix>" \
+  --force-adopt "retro-try-<2-3-word-slug>"
+
+# Drop: forget it; retro will never re-propose.
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py defer \
+  --smm-dir <SMM_DIR> \
+  --content "<item text including any [refs: ...] suffix>" \
+  --force-drop
+
+# Defer with date: keep deferred, but record a target date in metadata.
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py defer \
+  --smm-dir <SMM_DIR> \
+  --content "<item text including any [refs: ...] suffix>" \
+  --force-defer-with-date YYYY-MM-DD
+```
+
+The three flags are mutually exclusive — argparse will reject any combination.
+
 **Drop** (status event, `disposition=dropped` — retro agent will **never
 re-propose** this Try):
 ```bash
