@@ -334,11 +334,11 @@ def _create_or_resume_branch(
 # skip message. Sharing the values here prevents the inner enforcement
 # and the outer message from drifting if a stage threshold ever moves.
 BRANCH_MIN_STAGE: dict[str, int] = {
-    "story": 1,
+    "story": 2,
     "sprint": 2,
     "plan": 2,
-    "free": 1,
-    "scaffold": 1,
+    "free": 2,
+    "scaffold": 2,
 }
 
 
@@ -401,7 +401,7 @@ def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
     """Create or resume ``<user>/scaffold-<surface>`` off the primary branch.
 
     Scaffold branches host the M-4 commit landed by /xp-scaffold-acceptance
-    Step 8 at stage 1+. Returns None at stage 0 (no branch discipline).
+    Step 8. Returns None below the plugin floor (stage < 2).
     Passes ``allow_dirty=True`` because the scaffold flow has already
     written files to disk before this call — the dirty state is the
     work being branched, not stale uncommitted changes.
@@ -428,9 +428,9 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     """Create or resume <user>/free-YYYY-MM-DD-<slug> off the primary branch.
 
     Free branches are scratch work outside of plans/sprints. Date is UTC.
-    Returns None when branching stage < 1 (Stage 0 has no branch
-    discipline). Per BRANCH_LIFECYCLE design, free-branch protection
-    activates at Stage 1+ to keep exploratory work off protected branches.
+    Returns None below the plugin floor (stage < 2). Per BRANCH_LIFECYCLE
+    design, free-branch protection activates at the floor to keep
+    exploratory work off protected branches.
     """
     user_ns = identity.user_namespace(cwd)
     name = free_branch_name(user_ns, slug)

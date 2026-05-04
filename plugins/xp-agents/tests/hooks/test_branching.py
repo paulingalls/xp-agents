@@ -78,6 +78,25 @@ class TestGetBranchingStage(unittest.TestCase):
             self.assertEqual(branching.get_branching_stage(Path(td)), 0)
 
 
+class TestBranchMinStage(unittest.TestCase):
+    """All branch types require Stage 2+ — Stage 1 is dead code under
+    auto-promote (any read of the stage promotes 1 to 2 before it's
+    observed). Keeping any threshold at 1 lies about the floor.
+    """
+
+    def test_all_thresholds_at_stage_2(self):
+        self.assertEqual(
+            branching.BRANCH_MIN_STAGE,
+            {
+                "story": 2,
+                "sprint": 2,
+                "plan": 2,
+                "free": 2,
+                "scaffold": 2,
+            },
+        )
+
+
 class TestSprintBranchName(unittest.TestCase):
     def test_basic_format(self):
         result = branching.sprint_branch_name("paul", "sprint-027", "integration")
