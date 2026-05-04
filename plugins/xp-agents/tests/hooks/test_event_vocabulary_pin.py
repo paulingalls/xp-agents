@@ -151,23 +151,22 @@ def _rel(path: Path) -> str:
 
 
 def _files_to_scan(root: Path) -> list[Path]:
-    """Files the pin walks: `test_*.py` + `conftest.py` + `_*.py` helpers.
+    """Files the pin walks: `test_*.py` + `_*.py` helpers + `conftest.py` (any depth).
 
     Excludes `__init__.py` (no event literals; package marker only) and
     the pin file itself (it asserts other files, not itself). Helper
     modules like `_event_fixtures.py` were the sprint-060 escape route —
-    glob extension closes that gap.
+    glob extension closes that gap. Nested conftests are scanned via
+    rglob so a future `tests/hooks/conftest.py` with bare literals is
+    caught automatically.
     """
     self_path = Path(__file__).resolve()
     paths: list[Path] = []
     for p in root.rglob("*.py"):
         if p.name == "__init__.py" or p.resolve() == self_path:
             continue
-        if p.name.startswith(("test_", "_")):
+        if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
             paths.append(p)
-    conftest = root / "conftest.py"
-    if conftest.exists():
-        paths.append(conftest)
     return paths
 
 
@@ -393,19 +392,22 @@ class TestEventVocabularyPin(unittest.TestCase):
             self.assertNotIn("__init__.py", scanned)
             self.assertIn("_helper.py", scanned)
 
-    def test_files_to_scan_includes_root_conftest(self) -> None:
-        """`conftest.py` at the scan root must be included — pin
-        catches bare literals there too. Nested conftests are not added
-        by special-case (they'd be picked up only via test_*.py glob if
-        their name matched, which it doesn't); only the root conftest
-        is appended explicitly.
+    def test_files_to_scan_includes_conftest_at_any_depth(self) -> None:
+        """`conftest.py` files must be included at any depth — pytest
+        loads nested conftests (e.g., `tests/hooks/conftest.py`) and a
+        future addition there with bare event-type literals must trip
+        the pin.
         """
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "conftest.py").write_text("# root conftest\n")
             (root / "test_a.py").write_text("# test\n")
-            scanned = {p.name for p in _files_to_scan(root)}
+            nested = root / "hooks"
+            nested.mkdir()
+            (nested / "conftest.py").write_text("# nested conftest\n")
+            scanned = {p.relative_to(root).as_posix() for p in _files_to_scan(root)}
             self.assertIn("conftest.py", scanned)
+            self.assertIn("hooks/conftest.py", scanned)
 
     def test_files_to_scan_excludes_pin_file_itself(self) -> None:
         """The pin file is in `tests/hooks/test_*.py` and would otherwise
