@@ -36,6 +36,16 @@ ALLOWLIST: dict[str, str] = {
     "plugins/xp-agents/tests/smm/test_event_schema.py": (
         "VALID_TYPES string assertions intentionally pin the literals"
     ),
+    # SMM pillar 'type' field uses smm_schema.VALID_INTENT_TYPES,
+    # a vocabulary disjoint from event_schema.VALID_TYPES that happens
+    # to share the literal 'goal'. Bare 'goal' values for intent items
+    # in this file are smm_schema-domain, not event_schema-domain — the
+    # pin should not flag them if they ever appear in a Call/Dict shape.
+    "plugins/xp-agents/tests/smm/test_smm_cli.py": (
+        "smm_schema.VALID_INTENT_TYPES is a distinct vocabulary from "
+        "event_schema.VALID_TYPES; bare 'goal' for SMM pillar 'type' "
+        "is intentionally domain-specific"
+    ),
 }
 
 
