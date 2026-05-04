@@ -44,7 +44,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN reviewing
 ```
 
-**Why this matters.** The 5-state lifecycle (`ready → scheduled → in-progress → reviewing → done/deferred`) carves the story out of `has_in_progress_stories` while it's under acceptance. `pre_tool_write` then does NOT re-arm the `.accept` marker on Edits during fix-cycles inside `/xp-story-close`, so the subsequent `update-story story-NNN done` is not blocked. This is the fix for the marker re-arm bug; the per-story promote is the trigger.
+**Why this matters.** Two mechanisms together prevent `.accept` re-arm during the acceptance window:
+
+1. **5-state lifecycle carve-out** (single-story sprints) — `ready → scheduled → in-progress → reviewing → done/deferred` carves the story out of `has_in_progress_stories` while it's under acceptance. The per-story promote is the trigger.
+2. **`ACCEPT_ACTIVE` marker** (multi-in-progress sprints) — `xp-accept`'s preload writes `ACCEPT_ACTIVE` on entry; `pre_tool_write` skips re-arm while it's present. The carve-out alone is insufficient when other stories remain `in-progress` (they keep `has_in_progress_stories` True). `xp-sprint-close` consumes the marker end-of-flow.
+
+Together: `pre_tool_write` does NOT re-arm `.accept` on Edits during fix-cycles inside `/xp-story-close`, so the subsequent `update-story story-NNN done` is not blocked.
 
 If acceptance later fails and the user picks **Debug and re-run** (Step 1's automated-fail branch), revert the promotion before fixing — the story is no longer under review, it's actively-worked again:
 
