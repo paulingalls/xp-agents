@@ -56,7 +56,15 @@ from conftest import (
     _s,
     make_event,
 )
-from event_schema import event_action
+
+# EVENT_TYPE_* added explicitly so a future rename fails at test collection
+# (NameError) rather than silently changing make_event() behavior; see
+# test_post_tool.py for the canonical pattern + rationale.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_QUESTION,
+    event_action,
+)
 
 sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
 import save_sprint
@@ -98,7 +106,7 @@ def _drive_test_run_complete(smm_dir: Path) -> list[dict]:
 
 def _drive_lint_resolved(smm_dir: Path) -> list[dict]:
     seeded = make_event(
-        "concern",
+        EVENT_TYPE_CONCERN,
         content=f"{LINT_CONCERN_PREFIX}scripts/foo.py: 1 error (X)",
         files=["scripts/foo.py"],
     )
@@ -195,7 +203,7 @@ def _drive_question_close(smm_dir: Path) -> list[dict]:
     # CLI dispatch invokes it).
     import argparse
 
-    q = make_event("question", content="aging question?")
+    q = make_event(EVENT_TYPE_QUESTION, content="aging question?")
     _common.append_safe(smm_dir, q)
     smm_cli._cmd_question_close(
         argparse.Namespace(
