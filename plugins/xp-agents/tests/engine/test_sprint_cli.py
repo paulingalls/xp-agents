@@ -2,13 +2,16 @@
 """Tests for sprint_cli.py: CLI wrapper for sprint operations."""
 
 import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import GIT_ENV, init_repo
 from conftest import (
     _SMMTestCase,
     run_cli,
@@ -359,6 +362,126 @@ class TestUpdateStoryBranch(_SMMTestCase):
             self.smm_dir,
         )
         self.assertNotEqual(result.returncode, 0)
+
+
+class TestValidateDomainCommand(_SMMTestCase):
+    """validate-domain diffs git-changed files (since base) vs declared file_domain.
+
+    Surfaces file_domain drift at story-close commit time instead of
+    waiting for the close-reviewer or post-sprint retro (concern
+    69fb3b79ca3e).
+    """
+
+    def _seed(self, file_domain, story_id="story-001"):
+        story = _make_story(id=story_id, file_domain=file_domain)
+        sprint = _make_sprint(stories=[story])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def _make_branch_with_changes(self, repo: Path, files):
+        """Init repo and add `files` on a feature branch off main."""
+        init_repo(str(repo))
+        subprocess.run(
+            ["git", "checkout", "-b", "story"],
+            cwd=repo,
+            capture_output=True,
+            check=True,
+        )
+        for fn in files:
+            target = repo / fn
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("x\n")
+            subprocess.run(
+                ["git", "add", fn], cwd=repo, capture_output=True, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", f"add {fn}"],
+                cwd=repo,
+                capture_output=True,
+                check=True,
+                env=GIT_ENV,
+            )
+
+    def test_clean_match_exits_zero(self):
+        self._seed(file_domain=["src/a.py — owner", "src/b.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(repo, ["src/a.py", "src/b.py"])
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("clean", result.stdout.lower())
+
+    def test_drift_exits_nonzero_and_names_file(self):
+        self._seed(file_domain=["src/a.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(repo, ["src/a.py", "src/drift.py"])
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("src/drift.py", result.stderr)
+            self.assertNotIn("src/a.py", result.stderr)
+
+    def test_no_commits_on_branch_exits_zero(self):
+        self._seed(file_domain=["src/a.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            init_repo(str(repo))
+            # No additional commits — HEAD is still main's initial commit.
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_e2e_third_commit_drift_in_stderr(self):
+        """E2E: 2-file declared domain + 3rd commit out-of-domain → drift."""
+        self._seed(file_domain=["src/a.py — owner", "src/b.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(repo, ["src/a.py", "src/b.py", "src/c.py"])
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("src/c.py", result.stderr)
 
 
 class TestGetStoryBranchCommand(_SMMTestCase):
