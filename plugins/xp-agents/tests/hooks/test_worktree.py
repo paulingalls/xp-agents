@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
-from _branching_fixtures import init_repo
+from _branching_fixtures import init_repo, seed_sprint_with_stories
 
 
 class TestResolveGitRoot(unittest.TestCase):
@@ -463,6 +463,140 @@ class TestListLiveTeammateWorktreePaths(unittest.TestCase):
             )
         finally:
             shutil.rmtree(non_git, ignore_errors=True)
+
+
+class TestFindClosingTeammateWorktree(unittest.TestCase):
+    """find_closing_teammate_worktree picks the live teammate worktree
+    whose sprint.json story status is `done` — the implicit-derivation
+    discovery used by /xp-story-close to know which teammate worktree
+    it's closing without requiring /xp-accept to pass context.
+
+    Returns (abs_path, branch). None when no live teammate worktree
+    matches a `done` story (solo flow, or no teammates running).
+    Raises ValueError on multi-match (signals broken /xp-accept
+    iteration — fail loud, never guess).
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.smm_dir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        shutil.rmtree(self.smm_dir, ignore_errors=True)
+
+    def _write_sprint(self, stories):
+        seed_sprint_with_stories(self.smm_dir, stories)
+
+    def _porcelain_for(self, worktrees):
+        """Build `git worktree list --porcelain` for (path, branch) entries.
+
+        After the porcelain-branch refactor, branch is read directly from
+        the porcelain output — no separate `git -C path rev-parse` call.
+        Tests pass realistic teammate branch names (`<user>/story-NNN`).
+        """
+        blocks = ["worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"]
+        for path, branch in worktrees:
+            blocks.append(f"worktree {path}\nHEAD def\nbranch refs/heads/{branch}\n")
+        return "\n".join(blocks)
+
+    def test_returns_none_when_no_teammate_worktrees(self):
+        self._write_sprint([("story-001", "done")])
+        porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_no_done_story(self):
+        wt = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt.mkdir(parents=True)
+        self._write_sprint([("story-001", "in-progress")])
+        porcelain = self._porcelain_for([(str(wt), "worktree-story-001")])
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_only_in_progress_teammates(self):
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        self._write_sprint([("story-001", "in-progress"), ("story-002", "in-progress")])
+        # Branch in porcelain reflects realistic teammate naming
+        # (`<user>/story-NNN[-slug]`); branch is now read from porcelain
+        # directly — no per-worktree git rev-parse spawn.
+        porcelain = self._porcelain_for(
+            [(str(wt1), "paulingalls/story-001"), (str(wt2), "paulingalls/story-002")]
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertIsNone(result)
+
+    def test_returns_path_and_branch_when_done_with_worktree(self):
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        # story-001 just marked done; story-002 still in-progress.
+        self._write_sprint([("story-001", "done"), ("story-002", "in-progress")])
+        porcelain = self._porcelain_for(
+            [(str(wt1), "paulingalls/story-001"), (str(wt2), "paulingalls/story-002")]
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertEqual(result, (str(wt1), "paulingalls/story-001"))
+
+    def test_raises_when_multiple_done_with_worktrees(self):
+        # Signals broken /xp-accept iteration: two done stories with live
+        # worktrees should not coexist under the per-story dispatch loop.
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        self._write_sprint([("story-001", "done"), ("story-002", "done")])
+        porcelain = self._porcelain_for(
+            [(str(wt1), "paulingalls/story-001"), (str(wt2), "paulingalls/story-002")]
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            with self.assertRaises(ValueError) as ctx:
+                worktree.find_closing_teammate_worktree(self.smm_dir, str(self.tmpdir))
+            self.assertIn("story-001", str(ctx.exception))
+            self.assertIn("story-002", str(ctx.exception))
+
+    def test_returns_none_when_worktree_story_not_in_sprint(self):
+        # Defensive: a worktree exists for a story-id that's no longer in
+        # sprint.json (orphan / stale fixture). Don't raise — treat as no match.
+        wt = self.tmpdir / ".claude" / "worktrees" / "worktree-story-999"
+        wt.mkdir(parents=True)
+        self._write_sprint([("story-001", "done")])
+        porcelain = self._porcelain_for([(str(wt), "paulingalls/story-999")])
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        # story-001 has no live worktree; story-999 isn't in sprint.json — no match.
+        self.assertIsNone(result)
+
+    def test_returns_none_when_no_sprint_file(self):
+        # Solo flow without sprint.json — helper still returns None gracefully.
+        wt = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt.mkdir(parents=True)
+        porcelain = self._porcelain_for([(str(wt), "worktree-story-001")])
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

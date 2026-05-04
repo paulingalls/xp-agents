@@ -21,6 +21,7 @@ import branching
 _GIT_ENV = _bf.GIT_ENV
 _init_repo = _bf.init_repo
 _write_system_context = _bf.write_system_context
+_seed_sprint_with_stories = _bf.seed_sprint_with_stories
 
 
 class TestRecordedPlanBranchPrefixFallback(unittest.TestCase):
@@ -282,6 +283,112 @@ class TestListTeammateWorktreePathsCli(unittest.TestCase):
                         cwd=td,
                         capture_output=True,
                     )
+
+
+class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
+    """branching_cli find-closing-teammate-worktree emits `<abs-path> <branch>`
+    for the live teammate worktree whose sprint.json story is `done`.
+
+    Drives /xp-story-close's preload (story-002 of sprint-057): no marker,
+    no /xp-accept context-passing — discover the worktree implicitly from
+    the (live worktree, done status) join. Empty stdout when no match;
+    non-zero exit + stderr on multi-match (signals broken /xp-accept
+    iteration — fail loud).
+    """
+
+    def _write_sprint(self, smm_dir: Path, stories):
+        _seed_sprint_with_stories(smm_dir, stories)
+
+    def _make_worktree(self, td, story_id):
+        path = Path(td) / ".claude" / "worktrees" / f"worktree-{story_id}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "worktree", "add", "-b", f"u/{story_id}-x", str(path), "HEAD"],
+            cwd=td,
+            capture_output=True,
+            check=True,
+        )
+        return os.path.realpath(str(path))
+
+    def _cleanup_worktree(self, td, name):
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", name],
+            cwd=td,
+            capture_output=True,
+        )
+
+    def _run_branching(self, smm_dir, *args):
+        script = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+        return subprocess.run(
+            [sys.executable, script, "--smm-dir", str(smm_dir), *args],
+            capture_output=True,
+            text=True,
+            env=_GIT_ENV,
+        )
+
+    def test_emits_path_and_branch_on_match(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            self._write_sprint(
+                smm_dir, [("story-001", "done"), ("story-002", "in-progress")]
+            )
+            try:
+                p1 = self._make_worktree(td, "story-001")
+                self._make_worktree(td, "story-002")
+                r = self._run_branching(
+                    smm_dir, "find-closing-teammate-worktree", "--cwd", td
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout.strip(), f"{p1} u/story-001-x")
+            finally:
+                self._cleanup_worktree(td, "worktree-story-001")
+                self._cleanup_worktree(td, "worktree-story-002")
+
+    def test_empty_stdout_when_solo(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            self._write_sprint(smm_dir, [("story-001", "done")])
+            r = self._run_branching(
+                smm_dir, "find-closing-teammate-worktree", "--cwd", td
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "")
+
+    def test_empty_stdout_when_no_done_status(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            self._write_sprint(smm_dir, [("story-001", "in-progress")])
+            try:
+                self._make_worktree(td, "story-001")
+                r = self._run_branching(
+                    smm_dir, "find-closing-teammate-worktree", "--cwd", td
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout, "")
+            finally:
+                self._cleanup_worktree(td, "worktree-story-001")
+
+    def test_errors_on_multi_done_match(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            # Two done-status stories with live worktrees — broken iteration.
+            self._write_sprint(smm_dir, [("story-001", "done"), ("story-002", "done")])
+            try:
+                self._make_worktree(td, "story-001")
+                self._make_worktree(td, "story-002")
+                r = self._run_branching(
+                    smm_dir, "find-closing-teammate-worktree", "--cwd", td
+                )
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertIn("story-001", r.stderr)
+                self.assertIn("story-002", r.stderr)
+            finally:
+                self._cleanup_worktree(td, "worktree-story-001")
+                self._cleanup_worktree(td, "worktree-story-002")
 
 
 if __name__ == "__main__":
