@@ -120,6 +120,9 @@ def has_live_teammates(cwd: str) -> bool:
     stale registrations whose directories no longer exist. Falls back to
     False when cwd is outside a git repo or the command fails.
     """
+    # `_iter_live_teammate_worktrees` yields `(path, branch)` tuples;
+    # any non-empty tuple is truthy, so iterator-yielding-anything IS
+    # the existence signal — branch value is irrelevant here.
     return any(_iter_live_teammate_worktrees(cwd))
 
 
