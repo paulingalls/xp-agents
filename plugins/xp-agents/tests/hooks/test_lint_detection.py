@@ -89,7 +89,7 @@ class TestLintConcernContent(_HookTestCase):
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == "concern"]
+            concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
             self.assertEqual(len(concerns), 1)
             content = concerns[0]["content"]
             self.assertIn("app.py", content)
@@ -148,6 +148,7 @@ class TestSummarizeLintOutput(unittest.TestCase):
 
 
 import bash_failure  # noqa: E402
+from event_schema import EVENT_TYPE_CONCERN  # noqa: E402
 
 
 class TestBashFailureConcernContent(_HookTestCase):
@@ -172,7 +173,7 @@ class TestBashFailureConcernContent(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(len(concerns), 1)
         content = concerns[0]["content"]
         self.assertIn("Test command failed", content)
