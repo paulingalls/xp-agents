@@ -146,9 +146,6 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         )
         return wt_path
 
-    def _orchestrator_branch(self):
-        return get_current_branch_at(self.tmpdir)
-
     def _git_log_oneline(self, branch):
         return subprocess.run(
             ["git", "log", "--oneline", branch],
@@ -171,7 +168,7 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         )
         (self.smm_dir / "sprint.json").write_text(sprint)
         wt_path = self._create_teammate_with_commit("story-002")
-        orch_branch = self._orchestrator_branch()
+        orch_branch = get_current_branch_at(self.tmpdir)
 
         main_input = _make_write_input(session_id="t", cwd="/tmp")
 

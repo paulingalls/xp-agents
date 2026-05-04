@@ -94,9 +94,6 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         name = f"worktree-{story_id}"
         return spawn_teammate.create_worktree(name, str(self.tmpdir))
 
-    def _orchestrator_branch(self):
-        return get_current_branch_at(self.tmpdir)
-
     def test_solo_emits_empty_teammate_cwd_and_orchestrator_branch(self):
         # No teammate worktree at all — solo flow.
         seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
@@ -105,7 +102,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
         self.assertEqual(
             _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
-            self._orchestrator_branch(),
+            get_current_branch_at(self.tmpdir),
         )
 
     def test_done_teammate_emits_teammate_cwd_and_teammate_branch(self):
@@ -132,7 +129,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
         self.assertEqual(
             _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
-            self._orchestrator_branch(),
+            get_current_branch_at(self.tmpdir),
         )
 
     def test_multi_done_match_propagates_failure(self):

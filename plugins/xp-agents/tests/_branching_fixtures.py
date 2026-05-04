@@ -150,9 +150,9 @@ def write_system_context(smm_dir: Path, stage: int) -> None:
 def get_current_branch_at(cwd) -> str:
     """Run `git rev-parse --abbrev-ref HEAD` at ``cwd``. Single-source-of-
     truth for tests that need the orchestrator's (or a worktree's) HEAD
-    branch — both TestStoryClosePreloadTeammateDetection and
-    TestM2TeammateAcceptFlow had identical inline `_orchestrator_branch`
-    helpers; this collapses them.
+    branch — replaces inline `_orchestrator_branch` helpers previously
+    duplicated across TestStoryClosePreloadTeammateDetection and
+    TestM2TeammateAcceptFlow.
     """
     return subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
