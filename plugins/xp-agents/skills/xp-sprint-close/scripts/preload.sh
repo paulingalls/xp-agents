@@ -21,10 +21,7 @@ echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
 emit_hook_guidance "$HOOK_STATUS"
 
-# End-of-flow safety net: clear any ACCEPT_ACTIVE marker so it cannot
-# persist across sprint boundaries and block pre_tool_write re-arming
-# of `.accept` in the next session. Idempotent — no-op when absent.
-consume_marker ACCEPT_ACTIVE
+clear_accept_active_marker
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close
