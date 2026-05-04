@@ -20,6 +20,15 @@ import _common
 from _lock_helpers import held_events_lock
 from conftest import _HookTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_STATUS,
+)
+
 # ===========================================================================
 # _common.py tests
 # ===========================================================================
@@ -149,7 +158,9 @@ class TestAppendSafeErrorLogging(_HookTestCase):
     """
 
     def test_append_safe_logs_lock_timeout(self):
-        event = make_event("status", agent_id="main", content="ok", working_on=[])
+        event = make_event(
+            EVENT_TYPE_STATUS, agent_id="main", content="ok", working_on=[]
+        )
         with held_events_lock(self.smm_dir):
             _common.append_safe(self.smm_dir, event)
         entries = _read_hook_error_log(self.smm_dir)
@@ -160,7 +171,7 @@ class TestAppendSafeErrorLogging(_HookTestCase):
 
     def test_bulk_append_safe_logs_lock_timeout(self):
         events = [
-            make_event("status", agent_id="main", content="ok", working_on=[]),
+            make_event(EVENT_TYPE_STATUS, agent_id="main", content="ok", working_on=[]),
         ]
         with held_events_lock(self.smm_dir):
             _common.bulk_append_safe(self.smm_dir, events)
@@ -174,7 +185,7 @@ class TestAppendSafeErrorLogging(_HookTestCase):
         # (status content="ok" is 2 chars), but the serialized JSON exceeds the
         # 100 KB MAX_EVENT_BYTES cap inside _append_impl.bulk_append → ValueError.
         oversized = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             agent_id="main",
             content="ok",
             working_on=["x" * 110_000],
@@ -223,8 +234,8 @@ class TestLoadEventsWithResolutions(_HookTestCase):
     def test_returns_events_and_resolutions_tuple(self):
         self._write_events(
             [
-                make_event("concern", content="bug found"),
-                make_event("status", content="working"),
+                make_event(EVENT_TYPE_CONCERN, content="bug found"),
+                make_event(EVENT_TYPE_STATUS, content="working"),
             ]
         )
         events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
@@ -239,9 +250,9 @@ class TestLoadEventsWithResolutions(_HookTestCase):
         self.assertIsInstance(resolutions, dict)
 
     def test_resolutions_reflect_resolved_concerns(self):
-        concern = make_event("concern", content="test fail")
+        concern = make_event(EVENT_TYPE_CONCERN, content="test fail")
         resolver = make_event(
-            "status", content="fixed", metadata={"resolves": [concern["id"]]}
+            EVENT_TYPE_STATUS, content="fixed", metadata={"resolves": [concern["id"]]}
         )
         self._write_events([concern, resolver])
         _events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
@@ -316,8 +327,8 @@ class TestBulkAppendSafe(_HookTestCase):
 
     def test_bulk_append_safe_skips_invalid(self):
         """Invalid events filtered, valid ones written."""
-        good = make_event("status", content="OK", working_on=[])
-        bad = {"type": "status", "content": "no id"}
+        good = make_event(EVENT_TYPE_STATUS, content="OK", working_on=[])
+        bad = {"type": EVENT_TYPE_STATUS, "content": "no id"}
         _common.bulk_append_safe(self.smm_dir, [good, bad])
         events = self._read_events()
         # Only valid event written
@@ -327,7 +338,8 @@ class TestBulkAppendSafe(_HookTestCase):
     def test_bulk_append_safe_all_valid(self):
         """All valid events should be written."""
         events_in = [
-            make_event("status", content=f"S{i}", working_on=[]) for i in range(3)
+            make_event(EVENT_TYPE_STATUS, content=f"S{i}", working_on=[])
+            for i in range(3)
         ]
         _common.bulk_append_safe(self.smm_dir, events_in)
         events = self._read_events()
@@ -383,7 +395,14 @@ class TestGetValidatedSMMDir(_HookTestCase):
 
 
 class TestParseAppendShArgs(unittest.TestCase):
-    """Unit tests for _common.parse_append_sh_args."""
+    """Unit tests for _common.parse_append_sh_args.
+
+    All `cmd = "...--type X..."` strings below are subprocess CLI fixtures
+    that exercise the parser — the literal `--type X` must appear inside the
+    shell argv string regardless of whether EVENT_TYPE_* constants exist.
+    Parsed-result assertions still use EVENT_TYPE_* so a constant rename
+    fails loudly.
+    """
 
     def test_returns_empty_for_non_append_sh(self):
         self.assertEqual(_common.parse_append_sh_args("ls -la"), {})
@@ -394,7 +413,7 @@ class TestParseAppendShArgs(unittest.TestCase):
         cmd = "bash /p/append.sh --type decision --topic foo --content bar"
         self.assertEqual(
             _common.parse_append_sh_args(cmd),
-            {"type": "decision", "topic": "foo", "content": "bar"},
+            {"type": EVENT_TYPE_DECISION, "topic": "foo", "content": "bar"},
         )
 
     def test_parses_quoted_values(self):
@@ -404,7 +423,11 @@ class TestParseAppendShArgs(unittest.TestCase):
         )
         self.assertEqual(
             _common.parse_append_sh_args(cmd),
-            {"type": "decision", "content": "multi word text", "topic": "api-style"},
+            {
+                "type": EVENT_TYPE_DECISION,
+                "content": "multi word text",
+                "topic": "api-style",
+            },
         )
 
     def test_parses_metadata_json(self):
@@ -420,13 +443,13 @@ class TestParseAppendShArgs(unittest.TestCase):
         cmd = "bash /p/append.sh --dry-run --type decision --content x"
         result = _common.parse_append_sh_args(cmd)
         self.assertEqual(result["dry-run"], "")
-        self.assertEqual(result["type"], "decision")
+        self.assertEqual(result["type"], EVENT_TYPE_DECISION)
         self.assertEqual(result["content"], "x")
 
     def test_trailing_boolean_flag(self):
         cmd = "bash /p/append.sh --type decision --dry-run"
         result = _common.parse_append_sh_args(cmd)
-        self.assertEqual(result["type"], "decision")
+        self.assertEqual(result["type"], EVENT_TYPE_DECISION)
         self.assertEqual(result["dry-run"], "")
 
     def test_malformed_shlex_returns_empty(self):
@@ -438,7 +461,7 @@ class TestParseAppendShArgs(unittest.TestCase):
         the *real* append.sh token — not inside the quoted message."""
         cmd = "bash /p/append.sh --type concern --content 'see append.sh docs'"
         result = _common.parse_append_sh_args(cmd)
-        self.assertEqual(result["type"], "concern")
+        self.assertEqual(result["type"], EVENT_TYPE_CONCERN)
         self.assertEqual(result["content"], "see append.sh docs")
 
     def test_rejects_sibling_filename_ending_in_append_sh(self):
