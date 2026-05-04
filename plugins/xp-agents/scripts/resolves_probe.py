@@ -228,8 +228,9 @@ def find_probe_candidates(
     cycle, surfaced even without file/keyword overlap to close the
     probe-divert gap). Sorts by score descending, ts descending as tiebreak.
     """
-    if not commit_files:
-        return []
+    # No early-return on empty commit_files: the in-sprint-batch axis must
+    # surface siblings regardless of file overlap (empty-stage commits with
+    # an active cycle still get sibling candidates).
     # Load events once so both the file-match and in-cycle-sibling lookups
     # share the same snapshot — also lets us derive active_cycle_id without
     # a second disk read.

@@ -620,6 +620,26 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
         self.assertNotIn(out_b, ids)
         self.assertNotIn(out_c, ids)
 
+    def test_empty_commit_files_still_surfaces_in_cycle_siblings(self):
+        # The in-sprint-batch axis was designed to surface siblings even
+        # without file overlap. An early-return on empty commit_files would
+        # defeat the axis entirely for amend-no-files commits.
+        anchor = self._seed_concern(
+            "anchor concern", ["scripts/auth.py"], self.CYCLE_ACTIVE
+        )
+        sibling = self._seed_concern(
+            "unrelated text", ["docs/unrelated.md"], self.CYCLE_ACTIVE
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            [],
+            [anchor],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(sibling, ids)
+
     def test_no_active_cycle_when_only_stale_close_concerns(self):
         # All close-cycle concerns are outside the recency window → no
         # active cycle → axis fires nowhere → only the file-matching
