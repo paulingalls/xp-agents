@@ -9,6 +9,8 @@ Extracted from _append_impl.py for module size management.
 
 import bisect
 
+from smm_schema import EVENT_ID_RE
+
 # ---------------------------------------------------------------------------
 # Session aging utility
 # ---------------------------------------------------------------------------
@@ -157,9 +159,12 @@ def event_action(event: dict) -> str | None:
 # Cross-module metadata keys. Centralized here so producer and consumer
 # cannot drift on the spelling.
 #   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this
-#                                 event closes. Written by bash_post_tool,
-#                                 concerns, and work_selection_decide;
-#                                 read by pre_tool_bash, retrospective,
+#                                 event closes. Shape: list[str] of
+#                                 12-hex-char IDs (validate_event rejects
+#                                 scalars; resolution.py iterates the list).
+#                                 Written by bash_post_tool, concerns,
+#                                 and work_selection_decide; read by
+#                                 pre_tool_bash, retrospective,
 #                                 materialize, resolution.
 #   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit events
 #                                 (bash_post_tool.py).
@@ -321,8 +326,29 @@ def validate_event(event: dict) -> list[str]:
             errors.append("Field 'references' must be an array")
         elif not all(isinstance(r, str) for r in event["references"]):
             errors.append("Field 'references' items must be strings")
-    if "metadata" in event and not isinstance(event["metadata"], dict):
-        errors.append("Field 'metadata' must be an object")
+    if "metadata" in event:
+        metadata = event["metadata"]
+        if not isinstance(metadata, dict):
+            errors.append("Field 'metadata' must be an object")
+        elif METADATA_KEY_RESOLVES in metadata:
+            resolves = metadata[METADATA_KEY_RESOLVES]
+            if not isinstance(resolves, list):
+                errors.append(
+                    f"metadata.{METADATA_KEY_RESOLVES} must be a list of event IDs"
+                    f" (got {type(resolves).__name__})"
+                )
+            else:
+                for idx, item in enumerate(resolves):
+                    if not isinstance(item, str):
+                        errors.append(
+                            f"metadata.{METADATA_KEY_RESOLVES}[{idx}] must be a string"
+                            f" (got {type(item).__name__})"
+                        )
+                    elif not EVENT_ID_RE.match(item):
+                        errors.append(
+                            f"metadata.{METADATA_KEY_RESOLVES}[{idx}] must be a"
+                            f" 12-char hex event ID (got {item!r})"
+                        )
     if "schema_version" in event and not isinstance(event["schema_version"], int):
         errors.append("Field 'schema_version' must be an integer")
 

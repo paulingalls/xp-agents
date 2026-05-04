@@ -446,5 +446,51 @@ class TestReadEventsFrom(_SMMTestCase):
         self.assertEqual(total, 3)
 
 
+class TestMetadataResolvesEndToEnd(unittest.TestCase):
+    """E2E pin for the bug behind story-005: a question event resolved
+    by a list-shaped metadata.resolves must be detected as answered,
+    so the stale-question concern detector at concerns.py:314 does
+    NOT flag it. The original bug (decision 311a2af6fce7) emitted
+    metadata.resolves as a string scalar instead of a list — the
+    cascade silently failed and a stale-question flag fired anyway.
+    """
+
+    def test_blocking_question_resolved_by_list_metadata_resolves(self):
+        import concerns
+        from event_schema import PRIORITY_BLOCKING
+
+        question = make_event(
+            "question",
+            content="A blocking question",
+            priority=PRIORITY_BLOCKING,
+        )
+        decision = make_event(
+            "decision",
+            topic="answer",
+            content="Decision answering the question",
+            metadata={"resolves": [question["id"]]},
+        )
+        events = [question, decision] + [
+            make_event(content=f"filler {i}") for i in range(25)
+        ]
+
+        result = resolution.compute_resolutions(events)
+        self.assertIn(
+            question["id"],
+            result["answered_question_ids"],
+            "STRONG resolution via list metadata.resolves must mark"
+            " the question as answered",
+        )
+
+        raised = concerns.detect_conflicts(events, agent_id="main")
+        stale_flags = [c for c in raised if "Stale question" in c["content"]]
+        self.assertEqual(
+            stale_flags,
+            [],
+            f"Stale-question detector must not flag a properly-resolved"
+            f" blocking question; got: {stale_flags}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
