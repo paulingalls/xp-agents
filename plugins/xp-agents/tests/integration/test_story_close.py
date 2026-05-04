@@ -25,7 +25,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _branching_fixtures import write_system_context
+from _branching_fixtures import (
+    get_current_branch_at,
+    seed_sprint_with_stories,
+    write_system_context,
+)
 from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
 from conftest import _extract_preload_var, _IntegrationTestCase
 
@@ -68,6 +72,86 @@ class TestStoryClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
 
 
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md"
+
+
+class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
+    """Story-close preload emits TEAMMATE_CWD + overrides CURRENT_BRANCH
+    when a teammate worktree corresponds to the just-done story.
+
+    Implicit-derivation discovery (story-002 sprint-057): no marker, no
+    /xp-accept context-passing — preload pairs live teammate worktrees
+    against sprint.json status, picks the worktree whose story is
+    `done`. Solo flow (no teammate worktree, or no matching done story)
+    keeps the orchestrator HEAD as CURRENT_BRANCH and TEAMMATE_CWD="".
+    """
+
+    _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
+
+    def _create_worktree(self, story_id):
+        sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+        import spawn_teammate
+
+        name = f"worktree-{story_id}"
+        return spawn_teammate.create_worktree(name, str(self.tmpdir))
+
+    def test_solo_emits_empty_teammate_cwd_and_orchestrator_branch(self):
+        # No teammate worktree at all — solo flow.
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
+            get_current_branch_at(self.tmpdir),
+        )
+
+    def test_done_teammate_emits_teammate_cwd_and_teammate_branch(self):
+        wt_path = self._create_worktree("story-042")
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "done")])
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        emitted = _extract_preload_var(result.stdout, "TEAMMATE_CWD")
+        self.assertEqual(emitted, str(Path(wt_path).resolve()))
+        # Teammate branch (not orchestrator's) — branching.create_worktree
+        # checks out a branch named after the worktree (worktree-story-042).
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
+            "worktree-story-042",
+        )
+
+    def test_in_progress_teammate_emits_empty_teammate_cwd(self):
+        # Worktree exists but story is in-progress, not done — preload
+        # should NOT pick it; CURRENT_BRANCH stays at orchestrator HEAD.
+        self._create_worktree("story-007")
+        seed_sprint_with_stories(self.smm_dir, [("story-007", "in-progress")])
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
+            get_current_branch_at(self.tmpdir),
+        )
+
+    def test_multi_done_match_propagates_failure(self):
+        # The helper's "fail loud on multi-match" contract only holds if
+        # the preload doesn't swallow it. Two `done` stories with live
+        # worktrees signal broken /xp-accept iteration — the preload
+        # MUST surface the helper's stderr and exit non-zero rather than
+        # silently degrading to solo flow (which would then dispatch
+        # close_common.py at the orchestrator cwd against the wrong
+        # branch). Regression guard for the original `2>/dev/null || echo ""`.
+        self._create_worktree("story-101")
+        self._create_worktree("story-102")
+        seed_sprint_with_stories(
+            self.smm_dir, [("story-101", "done"), ("story-102", "done")]
+        )
+        result = self._run_preload(self._PRELOAD)
+        self.assertNotEqual(
+            result.returncode,
+            0,
+            "preload must propagate multi-match ValueError, not swallow it",
+        )
+        self.assertIn("multiple done stories", result.stderr)
 
 
 class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
@@ -223,6 +307,50 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "/xp-story-close must NOT invoke /xp-sprint-review — "
             "/xp-accept owns the single sprint-review dispatch after "
             "its loop completes (decision e30e9e91e61a)",
+        )
+
+    def test_steps_1_2_3_use_teammate_cwd_token_but_step_7_does_not(self):
+        # Story-002 sprint-057 (corrected by story-003 capstone):
+        # preflight/push/create-pr route at the teammate worktree
+        # (`${TEAMMATE_CWD:-.}`). Merge does NOT — `git merge` checks
+        # out the target branch which is held by the orchestrator's
+        # worktree; routing merge at TEAMMATE_CWD fails with
+        # "'<target>' is already used by worktree" (caught by capstone).
+        self.assertIn(
+            "${TEAMMATE_CWD:-.}",
+            self.text,
+            "SKILL.md must route close_common.py at ${TEAMMATE_CWD:-.} so "
+            "teammate close ops run from the worktree (story-002 sprint-057).",
+        )
+        # Pin: preflight/push/create-pr MUST use the token (DOTALL since
+        # the token sits on the line after the subcommand).
+        for subcmd in ("preflight", "push", "create-pr"):
+            self.assertRegex(
+                self.text,
+                rf"(?s)close_common\.py\s+{re.escape(subcmd)}[\s\S]*?\$\{{TEAMMATE_CWD:-\.\}}",
+                f"close_common.py {subcmd} must route at ${{TEAMMATE_CWD:-.}}",
+            )
+        # Inverse pin for merge: must NOT route at TEAMMATE_CWD (always
+        # orchestrator cwd because merge checks out target).
+        self.assertNotRegex(
+            self.text,
+            r"(?s)close_common\.py\s+merge[\s\S]*?\$\{TEAMMATE_CWD:-\.\}",
+            "close_common.py merge must run at orchestrator cwd (--cwd .); "
+            "git merge checks out target branch held by orchestrator worktree.",
+        )
+        self.assertRegex(
+            self.text,
+            r"(?s)close_common\.py\s+merge[\s\S]*?--cwd\s+\.",
+            "close_common.py merge must explicitly use --cwd .",
+        )
+
+    def test_skill_documents_teammate_cwd_semantics(self):
+        # Future editors must see why TEAMMATE_CWD exists. The SKILL.md
+        # MUST explain (a) when it's set and (b) which steps consume it.
+        self.assertIn(
+            "TEAMMATE_CWD",
+            self.text,
+            "SKILL.md must document TEAMMATE_CWD's purpose and lifecycle",
         )
 
 

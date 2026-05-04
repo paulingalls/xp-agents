@@ -25,18 +25,33 @@ allowed-tools:
 
 # Story Close
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
-not recompute them. `TARGET_BRANCH` is the story base (sprint branch
-at stage 2+, primary otherwise) — the merge destination for the
-just-completed story. The shared close pipeline lives in
+The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
+`TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values
+verbatim — do not recompute them. `TARGET_BRANCH` is the story base
+(sprint branch at stage 2+, primary otherwise) — the merge destination
+for the just-completed story. The shared close pipeline lives in
 `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+
+`TEAMMATE_CWD` is set when /xp-accept dispatched /xp-story-close for a
+teammate story (the orchestrator sits on the sprint branch; the
+teammate's commits live in `.claude/worktrees/worktree-<story-id>`).
+When non-empty, Steps 1, 2, and 3 route `close_common.py` at the
+teammate's worktree via `--cwd ${TEAMMATE_CWD:-.}` (preflight, push,
+PR creation — operations local to the teammate's branch). Step 7
+(merge) ALWAYS runs at the orchestrator cwd (`--cwd .`) because
+`git merge` checks out the target branch, and the target is already
+held by the orchestrator's worktree — running merge at the teammate's
+cwd would fail with `'<target>' is already used by worktree at '<orch>'`.
+Step 7b's worktree cleanup also always runs at the orchestrator cwd
+because `git worktree list/remove` operate on the parent repo's
+worktree registry. When TEAMMATE_CWD is empty (solo flow), every
+step operates on the orchestrator's cwd as today.
 
 ## Step 1: Pre-flight
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py preflight \
-  --cwd . --current <CURRENT_BRANCH> --target <TARGET_BRANCH>
+  --cwd ${TEAMMATE_CWD:-.} --current <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
 If the exit code is non-zero, **stop**. The script emitted the reason
@@ -46,7 +61,7 @@ on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py push \
-  --cwd . --branch <CURRENT_BRANCH>
+  --cwd ${TEAMMATE_CWD:-.} --branch <CURRENT_BRANCH>
 ```
 
 Stdout is `pushed: <branch>` or `skipped: no remote configured`.
@@ -55,7 +70,7 @@ Stdout is `pushed: <branch>` or `skipped: no remote configured`.
 
 ```bash
 PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
-  --cwd . --base <TARGET_BRANCH> --head <CURRENT_BRANCH> \
+  --cwd ${TEAMMATE_CWD:-.} --base <TARGET_BRANCH> --head <CURRENT_BRANCH> \
   --title "[<story-id>] <story title>" --body "<story summary + AC bullets>")
 ```
 
@@ -150,6 +165,11 @@ Step 5c alone is not sufficient to skip user confirmation.
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
+
+Merge ALWAYS runs at the orchestrator cwd (`--cwd .`), even for
+teammate stories. `git merge` checks out the target branch; if the
+orchestrator already holds it (sprint branch), checkout from the
+teammate's worktree fails (`'<target>' is already used by worktree`).
 
 The script chains: merge `--no-ff` → push target (if remote) → delete
 source. Any step failing aborts the chain — the source branch always

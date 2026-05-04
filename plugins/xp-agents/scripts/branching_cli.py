@@ -105,6 +105,27 @@ def _cmd_find_teammate_worktree(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_find_closing_teammate_worktree(args: argparse.Namespace) -> int:
+    """Print `<abs-path> <branch>` for the worktree of the just-done story.
+
+    Implicit-derivation discovery for /xp-story-close: pairs the live
+    teammate worktree with its sprint.json story status; prints exactly
+    when one worktree's story is `done`. Empty stdout = no match (solo,
+    or no teammate finished). Non-zero exit + stderr on multi-match —
+    that signals broken /xp-accept iteration; fail loud rather than
+    guess which worktree to close.
+    """
+    try:
+        result = worktree.find_closing_teammate_worktree(Path(args.smm_dir), args.cwd)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    if result is not None:
+        abs_path, branch = result
+        print(f"{abs_path} {branch}")
+    return 0
+
+
 def _cmd_merge_branch(args: argparse.Namespace) -> int:
     branching.merge_branch(args.cwd, args.branch, _resolve_target(args))
     return 0
@@ -238,6 +259,13 @@ def main() -> int:
     p_ftw.add_argument("--story-id", required=True)
     p_ftw.add_argument("--cwd", required=True)
     p_ftw.set_defaults(func=_cmd_find_teammate_worktree)
+
+    p_fctw = sub.add_parser(
+        "find-closing-teammate-worktree",
+        help="Print `<abs-path> <branch>` for the worktree of the just-done story",
+    )
+    p_fctw.add_argument("--cwd", required=True)
+    p_fctw.set_defaults(func=_cmd_find_closing_teammate_worktree)
 
     p_div = sub.add_parser("check-divergence", help="Check plan branch divergence")
     p_div.add_argument("--cwd", required=True)
