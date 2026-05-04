@@ -577,6 +577,33 @@ class TestForceDeferWithDateBreaksGate(_ForceCloseTestCase):
                 force_defer_until="next quarter",
             )
 
+    def test_force_defer_with_date_rejects_past_date(self):
+        """Past dates would silently launder Tries past the FORCE-CLOSE gate."""
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Hold until [refs: aaaaaaaaaaaa]",
+                force_defer_until="2020-01-01",
+            )
+        self.assertIn("today", str(ctx.exception))
+        self.assertIn("launder", str(ctx.exception))
+
+    def test_force_close_message_lists_all_refs(self):
+        """Multi-ref Tries: message names every gated ref, not just the first."""
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self._seed_prior_defers("bbbbbbbbbbbb", 3)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Both stale [refs: aaaaaaaaaaaa, bbbbbbbbbbbb]",
+            )
+        msg = str(ctx.exception)
+        self.assertIn("aaaaaaaa", msg)
+        self.assertIn("bbbbbbbb", msg)
+
 
 class TestForceCloseCli(_ForceCloseTestCase):
     """End-to-end CLI argparse coverage for the new flags."""

@@ -63,22 +63,32 @@ def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
 
 
 def _force_close_message(ref_ids: list[str], prior: int) -> str:
-    sample = ref_ids[0][:8] if ref_ids else ""
+    refs = ", ".join(r[:8] for r in ref_ids)
     return (
-        f"FORCE-CLOSE: Try {sample} has {prior} prior deferrals "
+        f"FORCE-CLOSE: Try refs [{refs}] have {prior} prior deferrals "
         f"(threshold {_FORCE_CLOSE_THRESHOLD}). Plain defer refused. "
         "Re-run with --force-adopt <topic>, --force-drop, "
         "or --force-defer-with-date <YYYY-MM-DD>."
     )
 
 
-def _validate_iso_date(value: str) -> None:
+def _validate_future_iso_date(value: str) -> None:
+    """Validate YYYY-MM-DD format AND require date >= today.
+
+    The today-floor closes a laundering vector: without it, --force-defer-with-date
+    accepts past dates and silently slips a stale Try past the FORCE-CLOSE gate.
+    """
     try:
-        datetime.date.fromisoformat(value)
+        parsed = datetime.date.fromisoformat(value)
     except ValueError as e:
         raise ValueError(
             f"Invalid date for --force-defer-with-date: {value} (expected YYYY-MM-DD)"
         ) from e
+    if parsed < datetime.date.today():
+        raise ValueError(
+            f"--force-defer-with-date must be >= today; got {value}. "
+            "Past dates would silently launder the Try past the FORCE-CLOSE gate."
+        )
 
 
 def _build_defer_event(
@@ -120,7 +130,7 @@ def _build_defer_event(
             metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
         )
     if force_defer_until:
-        _validate_iso_date(force_defer_until)
+        _validate_future_iso_date(force_defer_until)
         return _common.make_event(
             "status",
             agent_id,
