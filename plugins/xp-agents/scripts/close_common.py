@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import branching
 import git_hooks
 import git_remote
+import worktree
 
 
 def pre_commit_hook_present(repo_root: str) -> bool:
@@ -176,6 +177,13 @@ def cmd_merge(args: argparse.Namespace) -> int:
             return rc
 
     if not branching.delete_branch(args.cwd, args.source):
+        # Source held by a teammate worktree → cleanup_teammate.py owns
+        # deletion (worktree removal frees the branch). Don't abort the
+        # chain — the merge + push already succeeded, and Step 7b's
+        # cleanup will remove the branch when the worktree goes.
+        if worktree.branch_held_by_worktree(args.cwd, args.source):
+            print(f"skipped delete: {args.source} (held by worktree)")
+            return 0
         sys.stderr.write(f"delete failed: {args.source}\n")
         return 1
     print(f"deleted: {args.source}")

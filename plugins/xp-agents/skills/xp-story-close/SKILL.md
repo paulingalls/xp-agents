@@ -35,12 +35,17 @@ for the just-completed story. The shared close pipeline lives in
 `TEAMMATE_CWD` is set when /xp-accept dispatched /xp-story-close for a
 teammate story (the orchestrator sits on the sprint branch; the
 teammate's commits live in `.claude/worktrees/worktree-<story-id>`).
-When non-empty, Steps 1, 2, 3, and 7 route `close_common.py` at the
-teammate's worktree via `--cwd ${TEAMMATE_CWD:-.}`. When empty (solo
-flow), the same token resolves to `.` and operates on the orchestrator's
-cwd. Step 7b's worktree cleanup always runs at the orchestrator cwd
+When non-empty, Steps 1, 2, and 3 route `close_common.py` at the
+teammate's worktree via `--cwd ${TEAMMATE_CWD:-.}` (preflight, push,
+PR creation — operations local to the teammate's branch). Step 7
+(merge) ALWAYS runs at the orchestrator cwd (`--cwd .`) because
+`git merge` checks out the target branch, and the target is already
+held by the orchestrator's worktree — running merge at the teammate's
+cwd would fail with `'<target>' is already used by worktree at '<orch>'`.
+Step 7b's worktree cleanup also always runs at the orchestrator cwd
 because `git worktree list/remove` operate on the parent repo's
-worktree registry.
+worktree registry. When TEAMMATE_CWD is empty (solo flow), every
+step operates on the orchestrator's cwd as today.
 
 ## Step 1: Pre-flight
 
@@ -158,8 +163,13 @@ Step 5c alone is not sufficient to skip user confirmation.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
-  --cwd ${TEAMMATE_CWD:-.} --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
+  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
+
+Merge ALWAYS runs at the orchestrator cwd (`--cwd .`), even for
+teammate stories. `git merge` checks out the target branch; if the
+orchestrator already holds it (sprint branch), checkout from the
+teammate's worktree fails (`'<target>' is already used by worktree`).
 
 The script chains: merge `--no-ff` → push target (if remote) → delete
 source. Any step failing aborts the chain — the source branch always
