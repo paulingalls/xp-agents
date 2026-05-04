@@ -131,6 +131,12 @@ STATUS_ACTION_PLAN_EXITED = "plan_exited"
 #   metadata.concern_id  — the 12-hex ID of the concern being classified.
 STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 
+# Question-close (won't-fix) discriminator. Producer: smm_cli question close
+# --won-fix. Consumer: question-aging tooling, which already treats this
+# metadata combination (action=question_close + disposition=wont_fix +
+# resolves=[Q]) as a terminal disposition via metadata.resolves alone.
+STATUS_ACTION_QUESTION_CLOSE = "question_close"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
@@ -163,6 +169,10 @@ METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
+METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
+# Set on a status event with disposition=deferred when the user forces a
+# defer past the FORCE-CLOSE gate via --force-defer-with-date; YYYY-MM-DD.
+METADATA_KEY_DEFER_UNTIL = "defer_until"
 
 # Per-candidate selector signals attached by resolves_probe._score_candidate
 # and persisted on probe status events so retro_metrics can attribute
@@ -183,6 +193,11 @@ SELECTION_REASON_KEYWORD = "keyword"
 SELECTION_REASON_FILE_OVERLAP = "file_overlap"
 SELECTION_REASON_RECENCY = "recency"
 SELECTION_REASON_CLOSE_MODE = "close_mode"
+# 5th axis (sprint-058): siblings from the same close-reviewer batch as a
+# recent close event surface even without keyword/file overlap. Closes the
+# probe-divert gap where in-batch siblings were missed because they had no
+# file or keyword tie to the current commit.
+SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
 
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
@@ -190,6 +205,10 @@ SELECTION_REASON_CLOSE_MODE = "close_mode"
 DISPOSITION_ADOPTED = "adopted"
 DISPOSITION_DEFERRED = "deferred"
 DISPOSITION_DROPPED = "dropped"
+# question close --won-fix disposition. Paired with
+# STATUS_ACTION_QUESTION_CLOSE on a status event resolving a question id
+# via metadata.resolves.
+DISPOSITION_WONT_FIX = "wont_fix"
 
 # Pre-commit probe status event contracts.
 # Resolves-trailer probe (resolves_probe.emit_probe_status):

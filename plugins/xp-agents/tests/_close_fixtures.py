@@ -20,6 +20,7 @@ mode-specific tail tests (plan-archive, sprint→plan-close chain,
 plan/free same-branch refusal nuance) stay on the subclasses.
 """
 
+import json
 import os
 import re
 import shlex
@@ -42,6 +43,84 @@ if TYPE_CHECKING:
     _MixinBase = unittest.TestCase
 else:
     _MixinBase = object
+
+
+def _quality_meta(
+    cycle_id: str,
+    *,
+    close_mode: str = "sprint",
+    source_branch: str = "sprint-058",
+    target_branch: str = "main",
+) -> dict:
+    """xp-close-reviewer quality-block metadata shape (no `kind` field).
+
+    Single source of truth for the close_mode/source_branch/target_branch/
+    close_cycle_id metadata block xp-close-reviewer.md documents. Used by
+    both the count-concerns CLI tests and the realistic e2e tests so a
+    contract change here surfaces in both surfaces at once.
+    """
+    return {
+        "close_mode": close_mode,
+        "source_branch": source_branch,
+        "target_branch": target_branch,
+        "close_cycle_id": cycle_id,
+    }
+
+
+def _security_meta(cycle_id: str, *, close_mode: str = "sprint") -> dict:
+    """Step 4.5 security-block metadata shape (kind=security).
+
+    Single source of truth for the kind=security/close_cycle_id/close_mode
+    block scripts/_close_pipeline_shared.md Step 4.5 documents.
+    """
+    return {
+        "kind": "security",
+        "close_cycle_id": cycle_id,
+        "close_mode": close_mode,
+    }
+
+
+def _record_quality_block(
+    test,
+    cycle_id: str,
+    content: str,
+    file_path: str,
+    *,
+    severity: str = "high",
+    source_branch: str = "sprint-058",
+) -> subprocess.CompletedProcess:
+    """File a quality concern via the test's `_run_append`.
+
+    Uses `_quality_meta` so the metadata shape stays in lockstep with the
+    unit-level count-concerns tests. `severity` and `source_branch` are
+    overridable for noise/cross-cycle fixtures that exercise the same
+    metadata contract under different filter inputs.
+    """
+    return test._run_append(
+        "--type", "concern",
+        "--agent", "xp-close-reviewer",
+        "--severity", severity,
+        "--content", content,
+        "--files", json.dumps([file_path]),
+        "--metadata", json.dumps(_quality_meta(cycle_id, source_branch=source_branch)),
+    )  # fmt: skip
+
+
+def _record_security_block(
+    test, cycle_id: str, content: str, file_path: str
+) -> subprocess.CompletedProcess:
+    """File a high-severity Step 4.5 security concern via `_run_append`.
+
+    Uses `_security_meta` for the same single-source-of-truth reason.
+    """
+    return test._run_append(
+        "--type", "concern",
+        "--agent", "xp-sprint-close",
+        "--severity", "high",
+        "--content", content,
+        "--files", json.dumps([file_path]),
+        "--metadata", json.dumps(_security_meta(cycle_id)),
+    )  # fmt: skip
 
 
 def stub_gh(stub_dir: str, stdout: str, exit_code: int = 0) -> dict:
@@ -450,15 +529,20 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
 
     The shared template lives in scripts/_close_pipeline_shared.md (covered
     by test_close_preloads_emit_shared.py). Each close skill that runs
-    security review (free/sprint/plan, NOT story) must add a one-line
-    reference instructing the LLM to apply the shared block with its own
-    close-mode and close-skill-name substituted in.
+    security review (free/sprint/plan unconditionally; story conditionally
+    when no sprint envelope wraps the close) must add a reference
+    instructing the LLM to apply the shared block with its own
+    close-mode and close-skill-name substituted in. Story-close gates the
+    block on a shell `if`; the prose contract (heading, substitutions,
+    append.sh metadata, clean separation from the close-reviewer prompt)
+    is identical, so this mixin applies to all four.
 
     Subclasses inherit this mixin PLUS _IntegrationTestCase. Subclasses
     must define:
         _SKILL_MD: Path — absolute path to the close skill's SKILL.md
-        _MODE: str    — "free" | "sprint" | "plan"
-        _SKILL_NAME: str — "xp-free-close" | "xp-sprint-close" | "xp-plan-close"
+        _MODE: str    — "free" | "sprint" | "plan" | "story"
+        _SKILL_NAME: str — "xp-free-close" | "xp-sprint-close" |
+                           "xp-plan-close" | "xp-story-close"
     """
 
     _SKILL_MD: Path
@@ -558,7 +642,11 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
 
     def _record_security_concern(self, severity: str, content: str, file_path: str):
         """File a security concern via append.sh with the close-skill metadata
-        shape Step 4.5 documents. Pins the contract at the script boundary."""
+        shape Step 4.5 documents. Pins the contract at the script boundary.
+
+        Metadata shape comes from `_security_meta` (single source of truth
+        with `_record_security_block` and the count-concerns CLI tests).
+        """
         return self._run_append(  # type: ignore[attr-defined]
             "--type",
             "concern",
@@ -569,10 +657,9 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
             "--content",
             content,
             "--files",
-            f'["{file_path}"]',
+            json.dumps([file_path]),
             "--metadata",
-            f'{{"kind":"security","close_cycle_id":"{_FAKE_CLOSE_CYCLE_ID}",'
-            f'"close_mode":"{self._MODE}"}}',
+            json.dumps(_security_meta(_FAKE_CLOSE_CYCLE_ID, close_mode=self._MODE)),
         )
 
     def test_block_recording_emits_high_severity_kind_security(self) -> None:

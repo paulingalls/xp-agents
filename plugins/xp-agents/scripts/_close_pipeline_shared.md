@@ -8,8 +8,11 @@ skill's mode-specific tail (Step 7+).
 
 ### Step 4.5: Security Review
 
-Skills that apply this step: **free, sprint, plan** close (story-close
-skips — sprint-close's cumulative diff already covers each story).
+Skills that apply this step: **free, sprint, plan** close unconditionally, plus **story (when no sprint envelope wraps)**.
+Story-close defers to sprint-close's cumulative diff when an active
+sprint wraps the story; otherwise (no sprint, or orphan story branch)
+Step 4.5 fires from story-close itself. See xp-story-close/SKILL.md
+Step 4.5 for the gating clause.
 
 Invoke `/security-review` against the cumulative close diff. The close
 skill is main-agent context, so the PostToolUse:Skill hook fires and
@@ -38,8 +41,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ```
 
 Substitute `<close-skill-name>` (e.g. `xp-free-close`), `<close-mode>`
-(`free`/`sprint`/`plan`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>` from the
-preload values at the top of this context.
+(`free`/`sprint`/`plan`/`story`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>`
+from the preload values at the top of this context.
 
 The shared Step 6 abort-default reads severity=high concerns filtered
 by `close_cycle_id` + `since-ts` (deterministic event count) — Block

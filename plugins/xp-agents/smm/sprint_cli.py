@@ -7,6 +7,7 @@ Python scripts should import the store directly.
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import sprint_render as render
 import sprint_store as store
+import triage
 from sprint_schema import VALID_STORY_STATUSES
 
 # Sorted to keep argparse help output stable across runs (frozenset
@@ -206,6 +208,49 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_validate_domain(args: argparse.Namespace) -> int:
+    """Diff git-changed files (since base) against the story's declared
+    file_domain. Exits 0 on clean match (or no commits since base);
+    non-zero with stderr drift report when actual changes touch files
+    outside the declared set.
+    """
+    try:
+        story = store.get_story(args.smm_dir, args.story_id)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    declared = triage.extract_file_domain_paths(story.get("file_domain") or [])
+
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", f"{args.base}...HEAD"],
+            cwd=str(args.cwd),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        print("git diff timed out", file=sys.stderr)
+        return 1
+    if proc.returncode != 0:
+        print(f"git diff failed: {proc.stderr.strip()}", file=sys.stderr)
+        return 1
+
+    actual = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    drift = sorted(actual - declared)
+    if drift:
+        print(
+            f"drift: {len(drift)} file(s) outside declared file_domain: "
+            + " ".join(drift),
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"clean: {len(actual)} file(s) match declared domain")
+    return 0
+
+
 def _cmd_update_story_branch(args: argparse.Namespace) -> int:
     try:
         store.set_story_branch(args.smm_dir, args.story_id, args.branch_name)
@@ -314,6 +359,26 @@ def main() -> None:
     )
     gs_p.add_argument("story_id", help="Story ID")
 
+    vd_p = sub.add_parser(
+        "validate-domain",
+        help=(
+            "Diff a story branch's actual changes (since --base) against "
+            "its declared file_domain; exit non-zero on drift"
+        ),
+    )
+    vd_p.add_argument("story_id", help="Story ID to validate")
+    vd_p.add_argument(
+        "--base",
+        required=True,
+        help="Base ref to diff against (typically the sprint branch)",
+    )
+    vd_p.add_argument(
+        "--cwd",
+        type=Path,
+        default=Path("."),
+        help="Working directory for git operations (default: current dir)",
+    )
+
     ftd_p = sub.add_parser(
         "find-transitive-dependents",
         help=(
@@ -348,6 +413,7 @@ def main() -> None:
         "get-story-branch": _cmd_get_story_branch,
         "get-story": _cmd_get_story,
         "find-transitive-dependents": _cmd_find_transitive_dependents,
+        "validate-domain": _cmd_validate_domain,
     }
 
     sys.exit(dispatch[args.command](args))

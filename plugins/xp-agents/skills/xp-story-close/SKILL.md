@@ -57,6 +57,34 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py preflight \
 If the exit code is non-zero, **stop**. The script emitted the reason
 on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
 
+## Step 1b: Validate file_domain
+
+Surface file_domain drift before the close-reviewer fork — the structured
+diff catches drift cheaper than a full review pass:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  validate-domain <story-id> --base <TARGET_BRANCH> \
+  --cwd ${TEAMMATE_CWD:-.}
+```
+
+Non-zero exit means the actual diff touches files outside the declared
+`file_domain` — stderr names the drifting paths. Drift is usually a
+courage signal: the teammate found something worth fixing outside the
+strict scope and did it. Record a `concern` event so retros can see the
+pattern, then continue to Step 2 — **do NOT stop or prompt the user
+mid-close**. The retrospective is the right place to discuss drift
+trends; per-story interruption hides the signal in noise.
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type concern --agent xp-story-close \
+  --content "file_domain drift on <story-id>: <drifting-paths from stderr>" \
+  --severity medium --metadata '{"kind":"file_domain_drift"}'
+```
+
+Zero exit means clean — continue to Step 2.
+
 ## Step 2: Push the story branch
 
 ```bash
@@ -94,20 +122,49 @@ Agent(
 )
 ```
 
+## Step 4.5: Conditional Security Review
+
+Story-close normally relies on sprint-close's cumulative
+`/security-review` to cover each merged story. That assumption fails
+when **no sprint envelope wraps this close** — either (a) no sprint
+exists at all, or (b) `<CURRENT_BRANCH>` is an orphan story branch
+(not referenced by any active `ready` / `in-progress` / `reviewing`
+story in `sprint.json`). Without the conditional below, the
+cumulative `/security-review` would never fire for the story's diff
+and only commit-time deterministic scans would cover it.
+
+Determine whether Step 4.5 applies — the gate prints exactly one of
+two literal strings on stdout that the LLM matches verbatim:
+
+```bash
+if ! python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+       --smm-dir <SMM_DIR> exists; then
+  echo "STEP_4_5: APPLIES (no sprint at all)"
+elif python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
+       --smm-dir <SMM_DIR> list-story-orphans \
+       --cwd ${TEAMMATE_CWD:-.} \
+     | grep -qx "<CURRENT_BRANCH>"; then
+  echo "STEP_4_5: APPLIES (orphan story branch)"
+else
+  echo "STEP_4_5: SKIP (sprint envelope wraps this story)"
+fi
+```
+
+If stdout starts with `STEP_4_5: APPLIES`, apply the shared `### Step
+4.5: Security Review` block above with `<close-mode>` → `story` and
+`<close-skill-name>` → `xp-story-close`. Step 4.5 concerns recorded
+here flow into the shared Step 6 abort-default count exactly the
+same way they do for free/sprint/plan close.
+
+If stdout starts with `STEP_4_5: SKIP`, skip Step 4.5 — sprint-close's
+cumulative diff already covers each story.
+
 ## Steps 5–6: Apply shared close-pipeline reference
 
 The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
 the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4, then continue with Step 7 below.
-
-**Story-close addendum to Step 6 (security exclusion):** story-close
-does not run `/security-review` — only the close skills that merge to
-primary (free/sprint/plan) apply the shared Step 4.5 security review.
-The sprint-close cumulative diff already covers each story. The shared
-Step 6's abort-default still fires here from Step 4's quality Block
-bullets (recorded at severity=high by the close-reviewer); the
-deterministic count picks them up the same way.
+steps in order after Step 4.5, then continue with Step 7 below.
 
 **Story-close override for Step 6 (auto-merge gate):** if ALL of these
 hold, skip the shared Step 6's `AskUserQuestion` and proceed directly

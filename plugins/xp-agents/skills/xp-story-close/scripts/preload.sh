@@ -20,11 +20,14 @@ source "$(dirname "$0")/../../_preload_base.sh"
 # /xp-accept iteration — surface the helper's stderr and propagate the
 # non-zero exit (set -e) rather than masking it as solo flow. The
 # helper's "fail loud" contract only holds if its callers don't swallow.
+#
+# CLI emits `<abs-path>\t<branch>`: tab is the unambiguous split
+# point — worktree paths can contain spaces on macOS.
 CLOSING=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
     --smm-dir "${SMM_DIR}" find-closing-teammate-worktree --cwd .)
 if [ -n "$CLOSING" ]; then
-    TEAMMATE_CWD="${CLOSING% *}"
-    CURRENT_BRANCH="${CLOSING##* }"
+    TEAMMATE_CWD="${CLOSING%$'\t'*}"
+    CURRENT_BRANCH="${CLOSING##*$'\t'}"
 else
     TEAMMATE_CWD=""
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")

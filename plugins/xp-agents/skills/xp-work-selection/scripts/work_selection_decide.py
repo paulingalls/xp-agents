@@ -10,9 +10,14 @@ Subcommands:
   adopt  → decision event with topic + metadata.resolves
   defer  → status event, disposition=deferred, working_on=[]
   drop   → status event, disposition=dropped, working_on=[]
+
+FORCE-CLOSE gate: a plain `defer` is refused once a Try has been deferred
+3+ times (carrying it further is dishonest). The caller must escape with
+--force-adopt <topic>, --force-drop, or --force-defer-with-date <YYYY-MM-DD>.
 """
 
 import argparse
+import datetime
 import os
 import sys
 from pathlib import Path
@@ -27,11 +32,127 @@ from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,
+    METADATA_KEY_DEFER_UNTIL,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
     validate_event,
 )
 from smm_schema import EVENT_ID_RE  # noqa: E402
+
+# 3 prior deferrals = next plain defer is refused.
+_FORCE_CLOSE_THRESHOLD = 3
+
+
+def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
+    """Count status events with disposition=deferred whose metadata.resolves
+    overlaps any id in ref_ids. Each event contributes at most once."""
+    if not ref_ids:
+        return 0
+    targets = set(ref_ids)
+    count = 0
+    for e in _common.read_events_raw(smm_dir):
+        if e.get("type") != "status":
+            continue
+        meta = e.get("metadata") or {}
+        if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DEFERRED:
+            continue
+        resolves = meta.get(METADATA_KEY_RESOLVES) or []
+        if targets.intersection(resolves):
+            count += 1
+    return count
+
+
+def _force_close_message(ref_ids: list[str], prior: int) -> str:
+    refs = ", ".join(r[:8] for r in ref_ids)
+    return (
+        f"FORCE-CLOSE: Try refs [{refs}] have {prior} prior deferrals "
+        f"(threshold {_FORCE_CLOSE_THRESHOLD}). Plain defer refused. "
+        "Re-run with --force-adopt <topic>, --force-drop, "
+        "or --force-defer-with-date <YYYY-MM-DD>."
+    )
+
+
+def _validate_future_iso_date(value: str) -> None:
+    """Validate YYYY-MM-DD format AND require date >= today.
+
+    The today-floor closes a laundering vector: without it, --force-defer-with-date
+    accepts past dates and silently slips a stale Try past the FORCE-CLOSE gate.
+    """
+    try:
+        parsed = datetime.date.fromisoformat(value)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid date for --force-defer-with-date: {value} (expected YYYY-MM-DD)"
+        ) from e
+    if parsed < datetime.date.today():
+        raise ValueError(
+            f"--force-defer-with-date must be >= today; got {value}. "
+            "Past dates would silently launder the Try past the FORCE-CLOSE gate."
+        )
+
+
+def _build_defer_event(
+    smm_dir: Path,
+    agent_id: str,
+    content: str,
+    force_adopt_topic: str | None,
+    force_drop: bool,
+    force_defer_until: str | None,
+) -> dict:
+    """Build the event for a `defer` invocation, applying the FORCE-CLOSE gate.
+
+    Force flags are mutually exclusive and short-circuit the gate by selecting
+    the outcome event directly:
+      --force-adopt → decision event
+      --force-drop  → status event, disposition=dropped
+      --force-defer-with-date → status event, disposition=deferred + defer_until
+    With no force flag, builds the deferred status event and refuses if the
+    Try has been deferred at or above _FORCE_CLOSE_THRESHOLD times.
+    """
+    if sum([bool(force_adopt_topic), force_drop, bool(force_defer_until)]) > 1:
+        raise ValueError(
+            "force flags are mutually exclusive: pick at most one of "
+            "--force-adopt, --force-drop, --force-defer-with-date"
+        )
+    if force_adopt_topic:
+        return _common.make_event(
+            "decision",
+            agent_id,
+            content,
+            topic=force_adopt_topic,
+        )
+    if force_drop:
+        return _common.make_event(
+            "status",
+            agent_id,
+            content,
+            working_on=[],
+            metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
+        )
+    if force_defer_until:
+        _validate_future_iso_date(force_defer_until)
+        return _common.make_event(
+            "status",
+            agent_id,
+            content,
+            working_on=[],
+            metadata={
+                METADATA_KEY_DISPOSITION: DISPOSITION_DEFERRED,
+                METADATA_KEY_DEFER_UNTIL: force_defer_until,
+            },
+        )
+    event = _common.make_event(
+        "status",
+        agent_id,
+        content,
+        working_on=[],
+        metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DEFERRED},
+    )
+    refs = (event.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
+    prior = _count_prior_defers(smm_dir, refs)
+    if prior >= _FORCE_CLOSE_THRESHOLD:
+        raise ValueError(_force_close_message(refs, prior))
+    return event
 
 
 def run(
@@ -40,6 +161,9 @@ def run(
     content: str,
     topic: str | None = None,
     event_id: str | None = None,
+    force_adopt_topic: str | None = None,
+    force_drop: bool = False,
+    force_defer_until: str | None = None,
 ) -> str:
     """Append the event and return its id.
 
@@ -48,6 +172,9 @@ def run(
     inside _common.make_event).
     Triage actions: "triage-adopt" | "triage-defer" | "triage-drop"
     (event-id-based).
+
+    The defer action enforces FORCE-CLOSE on Tries with 3+ prior deferrals;
+    force_* params override.
     """
     # agent_id is teammate-resolved attribution per the agent-id-semantics
     # ADR; the skill that produced the event lives in metadata or content.
@@ -60,16 +187,22 @@ def run(
                 content,
                 topic=topic,
             )
-        case "defer" | "drop":
-            disposition = (
-                DISPOSITION_DEFERRED if action == "defer" else DISPOSITION_DROPPED
+        case "defer":
+            event = _build_defer_event(
+                smm_dir,
+                agent_id,
+                content,
+                force_adopt_topic,
+                force_drop,
+                force_defer_until,
             )
+        case "drop":
             event = _common.make_event(
                 "status",
                 agent_id,
                 content,
                 working_on=[],
-                metadata={METADATA_KEY_DISPOSITION: disposition},
+                metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
             )
         case "triage-adopt" | "triage-defer" | "triage-drop":
             if event_id is None:
@@ -116,6 +249,22 @@ def main() -> None:
     defer = sub.add_parser("defer", help="Record deferral as a status event")
     defer.add_argument("--smm-dir", type=Path, required=True)
     defer.add_argument("--content", required=True)
+    force_group = defer.add_mutually_exclusive_group()
+    force_group.add_argument(
+        "--force-adopt",
+        metavar="TOPIC",
+        help="Break FORCE-CLOSE gate by adopting with the given retro-try-<slug>",
+    )
+    force_group.add_argument(
+        "--force-drop",
+        action="store_true",
+        help="Break FORCE-CLOSE gate by dropping the Try",
+    )
+    force_group.add_argument(
+        "--force-defer-with-date",
+        metavar="YYYY-MM-DD",
+        help="Break FORCE-CLOSE gate by deferring with a target date",
+    )
 
     drop = sub.add_parser("drop", help="Record drop as a status event")
     drop.add_argument("--smm-dir", type=Path, required=True)
@@ -134,6 +283,9 @@ def main() -> None:
             content=getattr(args, "content", ""),
             topic=getattr(args, "topic", None),
             event_id=getattr(args, "event_id", None),
+            force_adopt_topic=getattr(args, "force_adopt", None),
+            force_drop=getattr(args, "force_drop", False),
+            force_defer_until=getattr(args, "force_defer_with_date", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
