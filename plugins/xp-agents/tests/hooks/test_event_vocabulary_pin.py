@@ -80,14 +80,23 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
                     func_name = "make_event"
                 case _:
                     pass
-            if func_name and node.args:
-                first = node.args[0]
+            if func_name:
+                type_arg: ast.expr | None = None
+                if node.args:
+                    type_arg = node.args[0]
+                else:
+                    for kw in node.keywords:
+                        if kw.arg == "event_type":
+                            type_arg = kw.value
+                            break
                 if (
-                    isinstance(first, ast.Constant)
-                    and isinstance(first.value, str)
-                    and first.value in VALID_TYPES_SET
+                    isinstance(type_arg, ast.Constant)
+                    and isinstance(type_arg.value, str)
+                    and type_arg.value in VALID_TYPES_SET
                 ):
-                    violations.append((first.lineno, first.value, "make_event-call"))
+                    violations.append(
+                        (type_arg.lineno, type_arg.value, "make_event-call")
+                    )
 
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values, strict=True):
@@ -234,6 +243,26 @@ class TestEventVocabularyPin(unittest.TestCase):
                 justification.strip(),
                 msg=f"ALLOWLIST['{path}'] has empty justification",
             )
+
+    def test_walker_catches_kwarg_event_type(self) -> None:
+        """`make_event(event_type="concern", ...)` is a violation just like
+        the positional form. The keyword spelling escaped sprint-060 because
+        the walker only inspected `node.args[0]`; this pins the kwarg path.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_kwarg.py"
+            tmp.write_text(
+                "from _event_fixtures import make_event\n"
+                "\n"
+                "def test_kwarg():\n"
+                '    e = make_event(event_type="concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            lineno, value, kind = violations[0]
+            self.assertEqual(value, "concern")
+            self.assertEqual(kind, "make_event-call")
+            self.assertEqual(lineno, 4)
 
     def test_walker_ignores_non_event_type_strings(self) -> None:
         """`make_event("not_an_event_type", ...)` is NOT flagged — only
