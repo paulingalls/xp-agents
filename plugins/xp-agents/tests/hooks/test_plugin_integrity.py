@@ -50,31 +50,31 @@ _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 
 
-class TestV310Release(unittest.TestCase):
-    """v3.1.0 ships M-8 security review migration to close skills.
+class TestV311Release(unittest.TestCase):
+    """v3.1.1 ships M-2 teammate-workflow correctness gaps closed.
 
     Pins both the manifest version bump AND the CHANGELOG top-entry so a
     later doc-only or manifest-only edit can't quietly desynchronize them.
     """
 
-    def test_plugin_version_is_3_1_0(self):
+    def test_plugin_version_is_3_1_1(self):
         manifest = json.loads(_PLUGIN_JSON.read_text())
         self.assertEqual(
             manifest["version"],
-            "3.1.0",
-            "plugin.json version must be bumped to 3.1.0 for M-8 release",
+            "3.1.1",
+            "plugin.json version must be bumped to 3.1.1 for sprint-057 / M-2",
         )
 
-    def test_changelog_top_entry_is_v3_1_0(self):
+    def test_changelog_top_entry_is_v3_1_1(self):
         content = _CHANGELOG.read_text()
-        # First "## " heading line — `## v3.1.0 — ...`
+        # First "## " heading line — `## v3.1.1 — ...`
         first_heading = next(
             (line for line in content.splitlines() if line.startswith("## ")),
             "",
         )
         self.assertTrue(
-            first_heading.startswith("## v3.1.0"),
-            f"CHANGELOG top entry must be v3.1.0; got: {first_heading!r}",
+            first_heading.startswith("## v3.1.1"),
+            f"CHANGELOG top entry must be v3.1.1; got: {first_heading!r}",
         )
 
     def test_changelog_v3_1_0_names_security_migration(self):

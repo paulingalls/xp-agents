@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.1.1 — teammate-workflow correctness gaps closed (M-2)
+
+Sprint-057 / M-2 closes the two teammate-workflow correctness gaps surfaced by sprint-056. Three stories merged into the sprint branch; the capstone E2E uncovered + fixed three additional production bugs in flight.
+
+### ACCEPT_ACTIVE cleanup symmetry across all four close skills + xp-kickoff
+
+The `ACCEPT_ACTIVE` marker is now consumed by `/xp-plan-close`, `/xp-free-close`, and `/xp-story-close` preloads on entry — not just `/xp-sprint-close`. New `clear_accept_active_marker()` helper in `_preload_base.sh` is the single source of truth across all five callsites (the four close skills + the new defensive cleanup in `xp-kickoff/scripts/check_session_needs.sh`). Kickoff's cleanup is gated on `in_progress_count==0` so an active acceptance session resumed mid-flight is never clobbered. Closes the cross-session strand hazard where the marker silently persisted across sessions when an alternate close path fired (or when the user crashed/quit before `/xp-sprint-close`).
+
+### `/xp-story-close` discovers teammate worktree implicitly
+
+When `/xp-accept` dispatches `/xp-story-close` for a teammate story, the orchestrator sits on the SPRINT branch — not the story branch. The preload now pairs live teammate worktrees against `sprint.json` status (the `done`-status story whose live worktree still exists) and emits `TEAMMATE_CWD` + overrides `CURRENT_BRANCH` from the worktree's HEAD. No new marker, no `/xp-accept` context-passing — fully implicit derivation. New `worktree.find_closing_teammate_worktree(smm_dir, cwd)` helper + `branching.py find-closing-teammate-worktree` CLI subcommand. `_iter_live_teammate_worktrees` now yields `(path, branch)` tuples — branch read from porcelain instead of N extra `git -C rev-parse` spawns per dispatch. Multi-match raises `ValueError` (broken `/xp-accept` iteration); the preload propagates it (`set -euo pipefail`, no `2>/dev/null || echo ""` swallow). Steps 1/2/3 of `/xp-story-close` route `close_common.py` at `${TEAMMATE_CWD:-.}` for preflight, push, and PR creation.
+
+### Three production bugs fixed by the capstone E2E
+
+The story-003 capstone test (a 7-phase E2E walking the full M-2 lifecycle with real git, real merge, real cleanup) caught three bugs that the per-story unit tests missed:
+
+1. **Step 7 routing**: story-002 originally routed merge at `TEAMMATE_CWD`, but `git merge` checks out the target branch which is held by the orchestrator's worktree → fails with `'<target>' is already used by worktree`. Step 7 reverted to `--cwd .` (orchestrator cwd); merge correctness restored. Steps 1/2/3 still use `TEAMMATE_CWD` (no checkout, branch-local operations).
+2. **`close_common.py` skip-delete**: `cmd_merge` aborted the chain on delete-source failure. For teammate stories, the source branch is held by the teammate worktree → delete fails → chain aborts → Step 7b cleanup never ran → orphan worktree + branch in production. Fixed: skip delete + return 0 when `worktree.branch_held_by_worktree` is True. `cleanup_teammate.py` (Step 7b) now owns deletion via worktree removal.
+3. **`worktree.remove_worktree` HEAD-derivation**: deleted by worktree dir name (`worktree-story-001`), but production branch is `<user>/story-001-<slug>` → orphan branch leak after every teammate cleanup. Fixed: derive actual branch from worktree HEAD via `identity.get_current_branch(wt_path)` before removal; falls back to dir name on detached HEAD or rev-parse failure (preserves legacy test contract).
+
+### New helpers + shared test fixtures
+
+`worktree.branch_held_by_worktree(cwd, branch)` parses `git worktree list --porcelain` for any worktree holding the given branch (substring-match defense via exact line equality). Shared `_branching_fixtures.get_current_branch_at()` and `seed_sprint_with_stories()` test helpers eliminate three near-identical inline helpers across `test_worktree.py`, `test_branching_cli_detection.py`, `test_story_close.py`, and `test_multi_story_accept_flow.py`.
+
 ## v3.1.0 — security review migration to close skills
 
 Sprint-055 / M-8 ships the security review architecture migration. `/security-review` now fires from main-agent context inside each close skill, not from the misfiring subagent context where the PostToolUse:Skill hook didn't reliably emit `SECURITY_COMPLETE`. Six stories merged into the sprint branch.
