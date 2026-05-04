@@ -175,6 +175,7 @@ class TestRemoveWorktree(unittest.TestCase):
     def test_prune_runs_after_remove(self):
         """git worktree prune should be called after removal."""
         with (
+            patch("worktree.identity.get_current_branch", return_value="teammate-x"),
             patch("worktree.subprocess.run") as mock_run,
             patch("worktree.worktree_path", return_value=Path("/fake/wt")),
             patch.object(Path, "is_dir", return_value=True),
@@ -205,6 +206,76 @@ class TestRemoveWorktree(unittest.TestCase):
         ]
         self.assertEqual(len(remove_calls), 0, "remove should not run on missing dir")
         self.assertEqual(len(prune_calls), 1, "prune should still run")
+
+    def test_deletes_actual_branch_not_worktree_dir_name(self):
+        """In production the worktree dir name (`worktree-story-001`) and
+        the branch name (`<user>/story-001-<slug>`) diverge. remove_worktree
+        must derive the actual branch from HEAD before removing the worktree
+        and pass it to `git branch -d`. Falling back to dir name only when
+        derivation genuinely fails (detached HEAD, worktree gone).
+        """
+        with (
+            patch(
+                "worktree.identity.get_current_branch",
+                return_value="paulingalls/story-001-feature",
+            ),
+            patch("worktree.subprocess.run") as mock_run,
+            patch("worktree.worktree_path", return_value=Path("/fake/wt")),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
+            worktree.remove_worktree("worktree-story-001", "/fake/cwd")
+        # Find the `git branch -d/D <name>` call.
+        branch_calls = [
+            c[0][0]
+            for c in mock_run.call_args_list
+            if len(c[0][0]) >= 2 and c[0][0][:2] == ["git", "branch"]
+        ]
+        self.assertEqual(len(branch_calls), 1)
+        self.assertEqual(branch_calls[0][-1], "paulingalls/story-001-feature")
+
+    def test_falls_back_to_name_when_head_is_detached(self):
+        """Detached HEAD (rev-parse returns 'HEAD') → fall back to dir name."""
+        with (
+            patch(
+                "worktree.identity.get_current_branch",
+                return_value="HEAD",
+            ),
+            patch("worktree.subprocess.run") as mock_run,
+            patch("worktree.worktree_path", return_value=Path("/fake/wt")),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
+            worktree.remove_worktree("teammate-detached", "/fake/cwd")
+        branch_calls = [
+            c[0][0]
+            for c in mock_run.call_args_list
+            if len(c[0][0]) >= 2 and c[0][0][:2] == ["git", "branch"]
+        ]
+        self.assertEqual(len(branch_calls), 1)
+        self.assertEqual(branch_calls[0][-1], "teammate-detached")
+
+    def test_falls_back_to_name_when_head_derivation_fails(self):
+        """Detached HEAD or rev-parse failure → fall back to the worktree
+        dir name (legacy contract; covers spawn_teammate's no-branch test
+        path where dir name == branch name). identity.get_current_branch
+        returns "" on subprocess failure.
+        """
+        with (
+            patch(
+                "worktree.identity.get_current_branch",
+                return_value="",
+            ),
+            patch("worktree.subprocess.run") as mock_run,
+            patch("worktree.worktree_path", return_value=Path("/fake/wt")),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
+            worktree.remove_worktree("teammate-fallback", "/fake/cwd")
+        branch_calls = [
+            c[0][0]
+            for c in mock_run.call_args_list
+            if len(c[0][0]) >= 2 and c[0][0][:2] == ["git", "branch"]
+        ]
+        self.assertEqual(len(branch_calls), 1)
+        self.assertEqual(branch_calls[0][-1], "teammate-fallback")
 
 
 class TestHasLiveTeammates(unittest.TestCase):
@@ -597,6 +668,69 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
                 self.smm_dir, str(self.tmpdir)
             )
         self.assertIsNone(result)
+
+
+class TestBranchHeldByWorktree(unittest.TestCase):
+    """branch_held_by_worktree powers close_common.py's skip-delete path
+    when the source branch is checked out by a teammate worktree.
+
+    Source held → True (cleanup_teammate.py owns deletion). Source
+    absent or held by no live worktree → False (delete proceeds).
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_returns_true_when_branch_held_by_other_worktree(self):
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            "worktree /tmp/.claude/worktrees/worktree-story-001\n"
+            "HEAD def\nbranch refs/heads/paulingalls/story-001\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertTrue(
+                worktree.branch_held_by_worktree(
+                    str(self.tmpdir), "paulingalls/story-001"
+                )
+            )
+
+    def test_returns_false_when_branch_not_in_any_worktree(self):
+        porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertFalse(
+                worktree.branch_held_by_worktree(
+                    str(self.tmpdir), "paulingalls/story-042"
+                )
+            )
+
+    def test_substring_match_does_not_count(self):
+        # `paulingalls/story-001-feature` must NOT match `paulingalls/story-001`
+        # — the helper checks exact `branch refs/heads/<name>` lines.
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            "worktree /tmp/wt\nHEAD def\n"
+            "branch refs/heads/paulingalls/story-001-feature\n"
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            self.assertFalse(
+                worktree.branch_held_by_worktree(
+                    str(self.tmpdir), "paulingalls/story-001"
+                )
+            )
+
+    def test_returns_false_for_non_git_cwd(self):
+        import shutil
+
+        non_git = Path(tempfile.mkdtemp())
+        try:
+            self.assertFalse(worktree.branch_held_by_worktree(str(non_git), "anything"))
+        finally:
+            shutil.rmtree(non_git, ignore_errors=True)
 
 
 if __name__ == "__main__":

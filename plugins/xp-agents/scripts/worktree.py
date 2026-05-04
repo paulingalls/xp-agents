@@ -11,8 +11,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import identity
 import sprint_store
 
 _WORKTREE_PREFIX = "worktree-"
@@ -51,12 +53,30 @@ def worktree_path(name: str, cwd: str) -> Path:
 
 
 def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
-    """Remove a git worktree directory, branch, and prune stale entries."""
+    """Remove a git worktree directory, branch, and prune stale entries.
+
+    Derives the worktree's actual branch from its HEAD before removal so
+    `git branch -d` targets the real ref. The worktree DIR name and the
+    BRANCH name diverge in production: `/xp-assign` creates worktrees
+    named `worktree-story-NNN` checked out to branches like
+    `<user>/story-NNN-<slug>`. Falling back to `name` when derivation
+    fails preserves the legacy contract for tests that create worktree
+    + branch with the same name (`spawn_teammate.create_worktree` in
+    no-branch mode does that).
+    """
     try:
         wt = worktree_path(name, cwd)
     except RuntimeError:
         return
+    branch_to_delete = name
     if wt.is_dir():
+        # `identity.get_current_branch` returns "" on failure and "HEAD"
+        # for detached HEAD (mid-rebase / mid-bisect / `git checkout <sha>`).
+        # Either way the `name` fallback preserves legacy behavior for
+        # tests that create worktree + branch with the same name.
+        head = identity.get_current_branch(str(wt))
+        if head and head != "HEAD":
+            branch_to_delete = head
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(wt)],
             cwd=cwd,
@@ -69,7 +89,7 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
     )
     flag = "-D" if force_branch else "-d"
     subprocess.run(
-        ["git", "branch", flag, name],
+        ["git", "branch", flag, branch_to_delete],
         cwd=cwd,
         capture_output=True,
     )
@@ -179,6 +199,32 @@ def find_closing_teammate_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] |
             "dispatch /xp-story-close per story, not in batch"
         )
     return matches[0] if matches else None
+
+
+def branch_held_by_worktree(cwd: str, branch: str) -> bool:
+    """True if any live worktree (registered in `git worktree list`) has
+    `branch` checked out.
+
+    /xp-story-close's Step 7 merge tries to delete the source branch
+    after merge+push. For teammate stories the source branch is held by
+    the teammate worktree, so `git branch -d` fails with "branch is
+    checked out at <path>". This helper lets close_common.py detect the
+    case and skip delete (cleanup_teammate.py owns deletion via
+    worktree removal). Solo stories return False here — source isn't
+    in any worktree by the time close_common.py reaches delete (the
+    earlier _checkout_or_exit moved orchestrator off source).
+    """
+    try:
+        out = subprocess.check_output(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=cwd,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, OSError, FileNotFoundError):
+        return False
+    target_line = f"branch refs/heads/{branch}"
+    return any(line == target_line for line in out.splitlines())
 
 
 def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:

@@ -25,7 +25,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _branching_fixtures import seed_sprint_with_stories, write_system_context
+from _branching_fixtures import (
+    get_current_branch_at,
+    seed_sprint_with_stories,
+    write_system_context,
+)
 from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
 from conftest import _extract_preload_var, _IntegrationTestCase
 
@@ -90,15 +94,6 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         name = f"worktree-{story_id}"
         return spawn_teammate.create_worktree(name, str(self.tmpdir))
 
-    def _orchestrator_branch(self):
-        return subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-
     def test_solo_emits_empty_teammate_cwd_and_orchestrator_branch(self):
         # No teammate worktree at all — solo flow.
         seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
@@ -107,7 +102,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
         self.assertEqual(
             _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
-            self._orchestrator_branch(),
+            get_current_branch_at(self.tmpdir),
         )
 
     def test_done_teammate_emits_teammate_cwd_and_teammate_branch(self):
@@ -134,7 +129,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
         self.assertEqual(
             _extract_preload_var(result.stdout, "CURRENT_BRANCH"),
-            self._orchestrator_branch(),
+            get_current_branch_at(self.tmpdir),
         )
 
     def test_multi_done_match_propagates_failure(self):
@@ -314,29 +309,40 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "its loop completes (decision e30e9e91e61a)",
         )
 
-    def test_steps_1_2_3_7_use_teammate_cwd_token(self):
-        # Story-002 sprint-057: Steps 1, 2, 3, 7 must route close_common.py
-        # at the teammate worktree when one was discovered (`${TEAMMATE_CWD:-.}`).
-        # Bare `--cwd .` would silently misroute teammate close cycles to the
-        # orchestrator's sprint branch — leaving the teammate's branch
-        # unpushed and the merge a no-op.
+    def test_steps_1_2_3_use_teammate_cwd_token_but_step_7_does_not(self):
+        # Story-002 sprint-057 (corrected by story-003 capstone):
+        # preflight/push/create-pr route at the teammate worktree
+        # (`${TEAMMATE_CWD:-.}`). Merge does NOT — `git merge` checks
+        # out the target branch which is held by the orchestrator's
+        # worktree; routing merge at TEAMMATE_CWD fails with
+        # "'<target>' is already used by worktree" (caught by capstone).
         self.assertIn(
             "${TEAMMATE_CWD:-.}",
             self.text,
             "SKILL.md must route close_common.py at ${TEAMMATE_CWD:-.} so "
-            "teammate stories close from their worktree, not the orchestrator's "
-            "sprint branch (story-002 sprint-057).",
+            "teammate close ops run from the worktree (story-002 sprint-057).",
         )
-        # Pin: the four operational subcommands (preflight, push,
-        # create-pr, merge) MUST use the token. diff-command is output-
-        # only and correctly does NOT take --cwd. Use DOTALL since the
-        # token sits on the line after the subcommand (backslash-cont).
-        for subcmd in ("preflight", "push", "create-pr", "merge"):
+        # Pin: preflight/push/create-pr MUST use the token (DOTALL since
+        # the token sits on the line after the subcommand).
+        for subcmd in ("preflight", "push", "create-pr"):
             self.assertRegex(
                 self.text,
                 rf"(?s)close_common\.py\s+{re.escape(subcmd)}[\s\S]*?\$\{{TEAMMATE_CWD:-\.\}}",
                 f"close_common.py {subcmd} must route at ${{TEAMMATE_CWD:-.}}",
             )
+        # Inverse pin for merge: must NOT route at TEAMMATE_CWD (always
+        # orchestrator cwd because merge checks out target).
+        self.assertNotRegex(
+            self.text,
+            r"(?s)close_common\.py\s+merge[\s\S]*?\$\{TEAMMATE_CWD:-\.\}",
+            "close_common.py merge must run at orchestrator cwd (--cwd .); "
+            "git merge checks out target branch held by orchestrator worktree.",
+        )
+        self.assertRegex(
+            self.text,
+            r"(?s)close_common\.py\s+merge[\s\S]*?--cwd\s+\.",
+            "close_common.py merge must explicitly use --cwd .",
+        )
 
     def test_skill_documents_teammate_cwd_semantics(self):
         # Future editors must see why TEAMMATE_CWD exists. The SKILL.md

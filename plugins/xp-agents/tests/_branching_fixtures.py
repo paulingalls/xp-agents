@@ -147,6 +147,22 @@ def write_system_context(smm_dir: Path, stage: int) -> None:
     (smm_dir / "system_context.json").write_text(json.dumps(doc))
 
 
+def get_current_branch_at(cwd) -> str:
+    """Run `git rev-parse --abbrev-ref HEAD` at ``cwd``. Single-source-of-
+    truth for tests that need the orchestrator's (or a worktree's) HEAD
+    branch — replaces inline `_orchestrator_branch` helpers previously
+    duplicated across TestStoryClosePreloadTeammateDetection and
+    TestM2TeammateAcceptFlow.
+    """
+    return subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
 def seed_sprint_with_stories(smm_dir: Path, stories: "list[tuple[str, str]]") -> None:
     """Write a minimal sprint.json from ``[(story_id, status), ...]`` pairs.
 
