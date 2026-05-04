@@ -55,6 +55,26 @@ def _make_event_call_aliases(tree: ast.AST) -> set[str]:
     return aliases
 
 
+def _fixture_module_names(tree: ast.AST) -> set[str]:
+    """Find every local name bound to a fixture module via import.
+
+    A fixture module is any module whose name ends with `_fixtures`
+    (e.g., `_event_fixtures`, `_close_fixtures`). Returns the set of
+    local names — the alias if used, otherwise the bare module name.
+
+    Used to tighten Attribute matching: `h.make_event(...)` is only a
+    pin violation when `h` is a fixture-module reference, not just any
+    object with a `.make_event` method (e.g., mocks or self).
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            for alias in node.names:
+                if alias.name.endswith("_fixtures"):
+                    names.add(alias.asname or alias.name)
+    return names
+
+
 def _scan_file(path: Path) -> list[tuple[int, str, str]]:
     """Return (lineno, value, kind) violations for one file.
 
@@ -68,6 +88,7 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
         return []
 
     aliases = _make_event_call_aliases(tree)
+    fixture_modules = _fixture_module_names(tree)
     violations: list[tuple[int, str, str]] = []
 
     for node in ast.walk(tree):
@@ -76,7 +97,9 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
             match node.func:
                 case ast.Name(id=name) if name in aliases:
                     func_name = name
-                case ast.Attribute(attr="make_event"):
+                case ast.Attribute(attr="make_event", value=ast.Name(id=mod)) if (
+                    mod in fixture_modules
+                ):
                     func_name = "make_event"
                 case _:
                     pass
@@ -234,6 +257,79 @@ class TestEventVocabularyPin(unittest.TestCase):
             violations = _scan_file(tmp)
             self.assertEqual(len(violations), 1)
             self.assertEqual(violations[0][1], "goal")
+
+    def test_walker_attribute_match_only_for_fixture_modules(self) -> None:
+        """`some_other_object.make_event(...)` is NOT flagged when
+        `some_other_object` is not imported from a *_fixtures module —
+        the bare-`Attribute(attr="make_event")` match would over-flag
+        unrelated `.make_event` methods (mock.make_event, self.make_event,
+        etc.) that happen to share the name.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_unrelated_attr.py"
+            tmp.write_text(
+                "class Helper:\n"
+                "    def make_event(self, t, **kw):\n"
+                "        return {}\n"
+                "\n"
+                "def test_unrelated():\n"
+                "    h = Helper()\n"
+                '    h.make_event("concern", content="x")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(violations, [])
+
+    def test_walker_attribute_match_for_imported_fixture_module(self) -> None:
+        """`_event_fixtures.make_event(...)` IS flagged when the bare
+        module name is imported (no alias). The pin must recognize the
+        module by name, not just by alias.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_bare_fixture_import.py"
+            tmp.write_text(
+                "import _event_fixtures\n"
+                "\n"
+                "def test_bare():\n"
+                '    _event_fixtures.make_event("concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0][1], "concern")
+            self.assertEqual(violations[0][2], "make_event-call")
+
+    def test_walker_attribute_match_ignores_non_fixture_aliased_import(self) -> None:
+        """`import some_lib as foo` does NOT add `foo` to fixture_modules
+        because the source name doesn't end in `_fixtures`. A subsequent
+        `foo.make_event("concern", ...)` is therefore NOT flagged —
+        third-party libs with a `.make_event` method are correctly ignored.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_third_party.py"
+            tmp.write_text(
+                "import some_third_party_lib as foo\n"
+                "\n"
+                "def test_third_party():\n"
+                '    foo.make_event("concern", content="x")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(violations, [])
+
+    def test_walker_attribute_match_for_from_imported_fixture_module(self) -> None:
+        """`from package import _event_fixtures` then
+        `_event_fixtures.make_event(...)` is flagged — covers the
+        from-import binding form.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_from_fixture.py"
+            tmp.write_text(
+                "from somewhere import _close_fixtures\n"
+                "\n"
+                "def test_from():\n"
+                '    _close_fixtures.make_event("concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0][1], "concern")
 
     def test_walker_ignores_non_type_dict_keys(self) -> None:
         """A dict literal where the bare string is the value of some
