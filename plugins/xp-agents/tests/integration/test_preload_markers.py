@@ -5,9 +5,12 @@ Exercises the shell wrappers with shell-sensitive characters in content
 to catch string-interpolation fragility (single/double quotes, backslashes).
 """
 
+import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import markers
+from _branching_fixtures import init_repo_in_spaced_parent, seed_sprint_with_stories
 from conftest import (
     SPRINT_ALL_DONE,
     SPRINT_IN_PROGRESS,
@@ -218,3 +222,89 @@ class TestXpKickoffPreloadAcceptActive(_IntegrationTestCase):
         result = self._run_preload(_XP_KICKOFF_PRELOAD)
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+
+
+class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
+    """xp-story-close preload teammate-discovery survives space-in-path.
+
+    Contract pin for the tab-delimited emit from
+    ``find-closing-teammate-worktree`` and its bash split in the preload.
+    Note: the prior space-delimited form happened to parse correctly
+    because git refs cannot contain spaces (``${CLOSING% *}`` strips a
+    single trailing space-prefixed branch); this test pins the now-
+    explicit tab contract so a future change to either side is caught.
+
+    Standalone class (not _IntegrationTestCase) — the shared fixture pins
+    a single tmp git repo per class and tempfile.mkdtemp paths never
+    contain spaces; we need a fresh per-test repo under a custom parent
+    dir we create with a space in its name.
+    """
+
+    def setUp(self):
+        self._parent = Path(tempfile.mkdtemp(prefix="path-space-"))
+        self._plugin_data = Path(tempfile.mkdtemp(prefix="path-space-pd-"))
+        self.repo = Path(init_repo_in_spaced_parent(str(self._parent)))
+
+        plugin_root = Path(__file__).parent.parent.parent
+        self._test_env = os.environ.copy()
+        self._test_env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data)
+        init_sh = plugin_root / "smm" / "init.sh"
+        result = subprocess.run(
+            ["bash", str(init_sh)],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=self._test_env,
+        )
+        self.smm_dir = Path(result.stdout.strip())
+        self._test_env["SMM_DIR"] = str(self.smm_dir)
+
+    def tearDown(self):
+        # Ensure worktree git metadata releases the path before the parent rm.
+        subprocess.run(["git", "worktree", "prune"], cwd=self.repo, capture_output=True)
+        shutil.rmtree(self._parent, ignore_errors=True)
+        shutil.rmtree(self._plugin_data, ignore_errors=True)
+
+    def _make_teammate_worktree(self, story_id: str, branch: str) -> str:
+        path = self.repo / ".claude" / "worktrees" / f"worktree-{story_id}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "worktree", "add", "-b", branch, str(path), "HEAD"],
+            cwd=self.repo,
+            capture_output=True,
+            check=True,
+        )
+        return os.path.realpath(str(path))
+
+    def test_preload_emits_teammate_cwd_and_branch(self):
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
+        wt_path = self._make_teammate_worktree("story-001", "u/story-001-done")
+        self.assertIn(" ", wt_path)
+
+        result = subprocess.run(
+            ["bash", str(_XP_STORY_CLOSE_PRELOAD)],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            env=self._test_env,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        # First occurrence wins; preload's KEY=VALUE field block is
+        # emitted before the shared close-pipeline md is appended, so
+        # keys are stable.
+        fields = {}
+        for line in result.stdout.splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                fields.setdefault(k, v)
+        self.assertEqual(
+            fields.get("TEAMMATE_CWD"),
+            wt_path,
+            msg=f"path lost spaces; stdout={result.stdout!r}",
+        )
+        self.assertEqual(
+            fields.get("CURRENT_BRANCH"),
+            "u/story-001-done",
+            msg=f"branch parse drift; stdout={result.stdout!r}",
+        )

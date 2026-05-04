@@ -20,7 +20,8 @@ The preload above shows sprint state: in-progress count + `SPRINT_FILE=<path>`, 
 **If ERROR or NO_IN_PROGRESS**, explain and stop.
 
 If the preload shows a **TEAMMATE_WORKTREES** section, each row is
-`story-id: abs-path`. Teammate branches are NOT merged at this point
+`story-id<TAB>abs-path` (literal tab between fields — split on tab,
+not space; paths can contain spaces). Teammate branches are NOT merged at this point
 (per-story merge is `/xp-story-close`'s job, dispatched in Step 2b
 below). Use the path to `cd` into each story's worktree when running
 its acceptance command in Step 1 — the unmerged teammate edits live

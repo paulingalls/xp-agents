@@ -20,6 +20,7 @@ import branching
 
 _GIT_ENV = _bf.GIT_ENV
 _init_repo = _bf.init_repo
+_init_repo_in_spaced_parent = _bf.init_repo_in_spaced_parent
 _write_system_context = _bf.write_system_context
 _seed_sprint_with_stories = _bf.seed_sprint_with_stories
 
@@ -220,11 +221,14 @@ class TestPreExistingBranchDetection(unittest.TestCase):
 
 
 class TestListTeammateWorktreePathsCli(unittest.TestCase):
-    """branching_cli list-teammate-worktree-paths emits `story-id: abs-path`.
+    """branching_cli list-teammate-worktree-paths emits ``story-id\\tabs-path``.
 
-    Format consumed by /xp-accept's preload (after A3) so the SKILL prose
-    can `cd` into each story's worktree before running its acceptance
-    command. Empty stdout when no live teammate worktrees.
+    Format consumed by /xp-accept's preload so the SKILL prose can `cd`
+    into each story's worktree before running its acceptance command.
+    Tab delimiter: worktree paths can contain spaces on macOS
+    (``/Users/foo bar/...``); a single-space delimiter would require
+    fragile parsing on the consumer side. Empty stdout when no live
+    teammate worktrees.
     """
 
     def _make_worktree(self, td, story_id):
@@ -261,7 +265,7 @@ class TestListTeammateWorktreePathsCli(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout, "")
 
-    def test_emits_story_id_colon_path_per_worktree(self):
+    def test_emits_story_id_tab_path_per_worktree(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             try:
@@ -274,7 +278,7 @@ class TestListTeammateWorktreePathsCli(unittest.TestCase):
                 lines = r.stdout.strip().splitlines()
                 self.assertEqual(
                     sorted(lines),
-                    sorted([f"story-001: {p1}", f"story-042: {p2}"]),
+                    sorted([f"story-001\t{p1}", f"story-042\t{p2}"]),
                 )
             finally:
                 for name in ("worktree-story-001", "worktree-story-042"):
@@ -284,15 +288,46 @@ class TestListTeammateWorktreePathsCli(unittest.TestCase):
                         capture_output=True,
                     )
 
+    def test_path_with_space_preserved_verbatim(self):
+        """Worktree path containing a space round-trips verbatim under tab.
+
+        macOS user dirs commonly contain spaces; the old space-delimited
+        emit forced consumers to guess where the path ended.
+        """
+        with (
+            tempfile.TemporaryDirectory() as parent,
+            tempfile.TemporaryDirectory() as smm,
+        ):
+            td = _init_repo_in_spaced_parent(parent)
+            try:
+                p1 = self._make_worktree(td, "story-001")
+                self.assertIn(" ", p1)
+                r = self._run_branching(
+                    Path(smm), "list-teammate-worktree-paths", "--cwd", td
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                line = r.stdout.strip()
+                story_id, _, path = line.partition("\t")
+                self.assertEqual(story_id, "story-001")
+                self.assertEqual(path, p1)
+            finally:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", "worktree-story-001"],
+                    cwd=td,
+                    capture_output=True,
+                )
+
 
 class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
-    """branching_cli find-closing-teammate-worktree emits `<abs-path> <branch>`
+    """branching_cli find-closing-teammate-worktree emits ``<abs-path>\\t<branch>``
     for the live teammate worktree whose sprint.json story is `done`.
 
-    Drives /xp-story-close's preload (story-002 of sprint-057): no marker,
-    no /xp-accept context-passing — discover the worktree implicitly from
-    the (live worktree, done status) join. Empty stdout when no match;
-    non-zero exit + stderr on multi-match (signals broken /xp-accept
+    Drives /xp-story-close's preload: no marker, no /xp-accept
+    context-passing — discover the worktree implicitly from the (live
+    worktree, done status) join. Tab delimiter: worktree paths can
+    contain spaces on macOS; tab guarantees a single split point in
+    bash parameter expansion. Empty stdout when no match; non-zero
+    exit + stderr on multi-match (signals broken /xp-accept
     iteration — fail loud).
     """
 
@@ -326,7 +361,7 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
             env=_GIT_ENV,
         )
 
-    def test_emits_path_and_branch_on_match(self):
+    def test_emits_path_tab_branch_on_match(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
@@ -340,10 +375,33 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
                     smm_dir, "find-closing-teammate-worktree", "--cwd", td
                 )
                 self.assertEqual(r.returncode, 0, r.stderr)
-                self.assertEqual(r.stdout.strip(), f"{p1} u/story-001-x")
+                self.assertEqual(r.stdout.strip(), f"{p1}\tu/story-001-x")
             finally:
                 self._cleanup_worktree(td, "worktree-story-001")
                 self._cleanup_worktree(td, "worktree-story-002")
+
+    def test_path_with_space_preserved_verbatim(self):
+        """Path with a space round-trips verbatim under the tab delimiter."""
+        with (
+            tempfile.TemporaryDirectory() as parent,
+            tempfile.TemporaryDirectory() as smm,
+        ):
+            td = _init_repo_in_spaced_parent(parent)
+            smm_dir = Path(smm)
+            self._write_sprint(smm_dir, [("story-001", "done")])
+            try:
+                p1 = self._make_worktree(td, "story-001")
+                self.assertIn(" ", p1)
+                r = self._run_branching(
+                    smm_dir, "find-closing-teammate-worktree", "--cwd", td
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                line = r.stdout.strip()
+                path, _, branch = line.rpartition("\t")
+                self.assertEqual(path, p1)
+                self.assertEqual(branch, "u/story-001-x")
+            finally:
+                self._cleanup_worktree(td, "worktree-story-001")
 
     def test_empty_stdout_when_solo(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
