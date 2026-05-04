@@ -14,6 +14,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestRetrospectiveResolvedConcerns(_HookTestCase):
@@ -26,10 +35,10 @@ class TestRetrospectiveResolvedConcerns(_HookTestCase):
     def test_resolved_concerns_excluded_from_signal_events(self):
         import retrospective
 
-        c1 = make_event("concern", content="Lint error in foo.py: F401")
-        c2 = make_event("concern", content="Unresolved real concern")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Lint error in foo.py: F401")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Unresolved real concern")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=["foo.py"],
             metadata={"resolves": [c1["id"]]},
@@ -49,10 +58,10 @@ class TestRetrospectiveResolvedConcerns(_HookTestCase):
     def test_resolved_concerns_counted_in_digest(self):
         import retrospective
 
-        c1 = make_event("concern", content="Lint error")
-        c2 = make_event("concern", content="Test failure")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Lint error")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Test failure")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed both",
             working_on=[],
             metadata={"resolves": [c1["id"], c2["id"]]},
@@ -70,11 +79,11 @@ class TestRetrospectiveResolvedConcerns(_HookTestCase):
     def test_resolved_concerns_excluded_from_concern_groups(self):
         import retrospective
 
-        c1 = make_event("concern", content="Lint error in foo.py")
-        c2 = make_event("concern", content="Lint error in bar.py")
-        c3 = make_event("concern", content="Real design concern")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Lint error in foo.py")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Lint error in bar.py")
+        c3 = make_event(EVENT_TYPE_CONCERN, content="Real design concern")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [c1["id"], c2["id"]]},
@@ -118,9 +127,9 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             return json.load(f)
 
     def test_digest_includes_debt_resolutions(self):
-        debt = make_event("debt", content="Fix the thing later")
+        debt = make_event(EVENT_TYPE_DEBT, content="Fix the thing later")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Debt closed: fixed it",
             working_on=[],
             metadata={"resolves": [debt["id"]]},
@@ -136,9 +145,9 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         self.assertIn("Debt closed", entry["resolver_content"])
 
     def test_digest_includes_question_answers(self):
-        q = make_event("question", content="What do?")
+        q = make_event(EVENT_TYPE_QUESTION, content="What do?")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Answered via resolve",
             working_on=[],
             metadata={"resolves": [q["id"]]},
@@ -150,12 +159,14 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         self.assertEqual(data["digest"]["resolutions"][q["id"]]["type"], "question")
 
     def test_digest_includes_all_resolution_types(self):
-        goal = make_event("goal", content="Ship feature X")
-        assumption = make_event("assumption", content="Assuming X works like Y")
-        concern = make_event("concern", content="A worry")
-        decision = make_event("decision", content="Use X", topic="x-topic")
+        goal = make_event(EVENT_TYPE_GOAL, content="Ship feature X")
+        assumption = make_event(
+            EVENT_TYPE_ASSUMPTION, content="Assuming X works like Y"
+        )
+        concern = make_event(EVENT_TYPE_CONCERN, content="A worry")
+        decision = make_event(EVENT_TYPE_DECISION, content="Use X", topic="x-topic")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Everything resolved",
             working_on=[],
             metadata={
@@ -178,10 +189,10 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         self.assertEqual(resolutions[decision["id"]]["type"], "decision")
 
     def test_resolutions_resolver_content_truncated_to_200(self):
-        debt = make_event("debt", content="Thing")
+        debt = make_event(EVENT_TYPE_DEBT, content="Thing")
         long_content = "x" * 500
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content=long_content,
             working_on=[],
             metadata={"resolves": [debt["id"]]},
@@ -195,9 +206,9 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         )
 
     def test_resolutions_use_short_ids(self):
-        debt = make_event("debt", content="Thing")
+        debt = make_event(EVENT_TYPE_DEBT, content="Thing")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [debt["id"]]},
@@ -209,10 +220,10 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             self.assertEqual(len(key), 12, f"key {key!r} is not 12 chars")
 
     def test_resolutions_single_bucket_invariant(self):
-        debt = make_event("debt", content="Thing 1")
-        goal = make_event("goal", content="Thing 2")
+        debt = make_event(EVENT_TYPE_DEBT, content="Thing 1")
+        goal = make_event(EVENT_TYPE_GOAL, content="Thing 2")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Both fixed",
             working_on=[],
             metadata={"resolves": [debt["id"], goal["id"]]},
@@ -296,9 +307,9 @@ class TestAnnotateTryStatus(_HookTestCase):
             return json.load(f)
 
     def test_annotate_try_with_resolved_debt_id_in_content(self):
-        debt = make_event("debt", content="Fix later")
+        debt = make_event(EVENT_TYPE_DEBT, content="Fix later")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Debt closed",
             working_on=[],
             metadata={"resolves": [debt["id"]]},
@@ -318,9 +329,9 @@ class TestAnnotateTryStatus(_HookTestCase):
         self.assertEqual(try_status[0]["resolver_id"], resolver["id"])
 
     def test_annotate_try_with_event_refs_only(self):
-        debt = make_event("debt", content="Fix later")
+        debt = make_event(EVENT_TYPE_DEBT, content="Fix later")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Debt closed",
             working_on=[],
             metadata={"resolves": [debt["id"]]},
@@ -370,9 +381,9 @@ class TestAnnotateTryStatus(_HookTestCase):
         )
 
     def test_annotate_only_most_recent_retro(self):
-        debt = make_event("debt", content="Fix later")
+        debt = make_event(EVENT_TYPE_DEBT, content="Fix later")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Debt closed",
             working_on=[],
             metadata={"resolves": [debt["id"]]},
