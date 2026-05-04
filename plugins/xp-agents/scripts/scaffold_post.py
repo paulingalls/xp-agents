@@ -5,13 +5,14 @@ Where ``scaffold_apply`` owns the fs/subprocess pipeline (write + install +
 verify + atomic revert), this module owns the git/state side that runs
 after a green verify:
 
-- ``build_commit_message(...)``: pure formatter for the M-4 doctrine
+- ``build_commit_message(...)``: pure formatter for the scaffold-acceptance
   commit subject and trailers (Tool-version / Files-created /
   Files-modified / Verification / Resolves-Event).
 - ``commit_scaffold(snap, ...)``: stage-aware branch + commit orchestration.
-  Stage 0 commits on HEAD; Stage 1+ creates ``<user>/scaffold-<surface>``
-  via ``branching.create_scaffold_branch`` and refuses commits to protected
-  branches (main/master) when no scaffold branch is yet active.
+  Stage 0 commits on HEAD; above the plugin floor creates
+  ``<user>/scaffold-<surface>`` via ``branching.create_scaffold_branch``
+  and refuses commits to protected branches (main/master) when no
+  scaffold branch is yet active.
 - ``record_scaffold(snap, ...)``: flips the matching
   ``acceptance_surfaces[*].status`` to ``"covered"`` and stamps the
   verify command onto ``acceptance_template_command`` for downstream
@@ -46,11 +47,11 @@ def build_commit_message(
     concern_id: str | None,
     category: str = "acceptance",
 ) -> str:
-    """Return the M-4 doctrine commit message string.
+    """Return the scaffold-acceptance doctrine commit message string.
 
     Subject: ``[chore] Scaffold <category> <surface> via <tool>`` —
     3-slot per scaffolding doctrine §Commit Strategy. ``category``
-    defaults to ``"acceptance"`` for the M-4 acceptance-only flow;
+    defaults to ``"acceptance"`` for the acceptance-only flow;
     future categories (contract, chaos, …) slot in without renaming.
 
     Trailers (in order): ``Tool-version``, ``Files-created`` (omitted

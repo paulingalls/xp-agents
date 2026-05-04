@@ -72,7 +72,7 @@ def _load_branching_strategy(smm_dir: Path) -> dict:
 
 
 def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
-    """Auto-promote Stage 1 -> Stage 2 (M-7 plugin floor). Idempotent.
+    """Auto-promote Stage 1 -> Stage 2 (plugin floor). Idempotent.
 
     Mutates system_context.json's branching_strategy.stage in place
     and emits a one-time decision event. Returns 2 on success; on an
@@ -92,7 +92,7 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         event = _common.make_event(
             "decision",
             "branching",
-            "Auto-promoted branching stage 1 -> 2 (M-7 plugin floor)",
+            "Auto-promoted branching stage 1 -> 2 (plugin floor)",
             topic="branching-stage-auto-promote",
             metadata={"action": "stage_auto_promote", "from_stage": 1, "to_stage": 2},
         )
@@ -114,7 +114,7 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
 
 
 def get_branching_stage(smm_dir: Path) -> int:
-    """Return the branching stage. NOT side-effect free under M-7.
+    """Return the branching stage. NOT side-effect free.
 
     A stage=1 read triggers a one-time auto-promotion (file mutation
     + decision event) via `_maybe_auto_promote`. Read-only or locked
@@ -400,7 +400,7 @@ def _utc_today_iso() -> str:
 def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
     """Create or resume ``<user>/scaffold-<surface>`` off the primary branch.
 
-    Scaffold branches host the M-4 commit landed by /xp-scaffold-acceptance
+    Scaffold branches host the commit landed by /xp-scaffold-acceptance
     Step 8. Returns None below the plugin floor (stage < 2).
     Passes ``allow_dirty=True`` because the scaffold flow has already
     written files to disk before this call — the dirty state is the

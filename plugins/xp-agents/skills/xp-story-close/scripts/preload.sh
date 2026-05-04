@@ -8,7 +8,7 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-# Implicit teammate-worktree discovery (story-002 sprint-057): when
+# Implicit teammate-worktree discovery: when
 # /xp-accept dispatches /xp-story-close after marking a teammate story
 # done, the orchestrator sits on the SPRINT branch — not the story
 # branch. Pair the live teammate worktree against sprint.json status

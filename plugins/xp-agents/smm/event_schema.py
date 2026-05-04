@@ -124,10 +124,10 @@ STATUS_ACTION_PLAN_EXITED = "plan_exited"
 # Step 5c (close skills) — concern classification per finding.
 # Producer: story-close + free-close at Step 5c (LLM via append.sh).
 # Consumer: count-classifications subcommand for the Step 6 auto-merge
-# gate; retro tooling for the spike-008 §10 prediction-loop validation.
+# gate; retro tooling for prediction-loop validation.
 # Companion metadata fields the producer also sets:
 #   metadata.route       — "fix" | "ask" — which dispatch route the LLM took.
-#   metadata.category    — spike-008 §3 vocabulary (lint, test_failure, ...).
+#   metadata.category    — classification vocabulary (lint, test_failure, ...).
 #   metadata.concern_id  — the 12-hex ID of the concern being classified.
 STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 
