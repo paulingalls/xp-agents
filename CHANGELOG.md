@@ -1,5 +1,41 @@
 # Changelog
 
+## v3.1.3 — branching.py coherence + retro-link integrity (M-4)
+
+Sprint-059 closes M-4 (branching.py coherence + xp-kickoff Step 2.4 prose) and adds two stretch stories addressing retro-link integrity. Five stories, all delivered solo (story-002's branching.py touch made parallel teammates unsafe). Net effect: every stage-aware entry point now goes through the auto-promote chokepoint, the `_log_hook_error` cross-module symbol drops its private prefix, the high-zero-decision-rate signal finally fires in production, and `metadata.resolves` malformations get caught at write time instead of silently iterating string characters.
+
+### `get_primary_branch` routes through `get_branching_stage`
+
+The auto-promote side-effect (Stage 1 → 2) lived inside `get_branching_stage` per the v3.1's single-chokepoint constraint, but `get_primary_branch` was reading `_load_branching_strategy` directly and bypassing the chokepoint. Stage 1 reads of the primary branch silently left the project at Stage 1 until some other caller went through `get_branching_stage`. Routing `get_primary_branch` through `get_branching_stage` closes the bypass — every stage-aware entry path now fires the promotion. New `test_create_story_branch_promotes_stage_1_e2e` mirrors the existing sprint-branch test to pin the contract on the story path too.
+
+### `BRANCH_MIN_STAGE` honesty: story/free/scaffold bumped to 2
+
+Stage 1 is dead code under v3.1's auto-promote — any read of `get_branching_stage` upgrades 1 to 2 before any caller observes 1. Keeping `BRANCH_MIN_STAGE["story"]=1` / `["free"]=1` / `["scaffold"]=1` lied about the floor: the values said "this branch type works at Stage 1" but Stage 1 no longer exists for any practical caller. All three bumped to 2; same-file docstrings on `create_scaffold_branch` and `create_free_branch` reworded from "stage < 1" to "below the plugin floor (stage < 2)" so a reader of `branching.py` sees consistent stage references throughout.
+
+### Plugin-wide project-local-ID sweep + tripwire test
+
+Constraint f7920cf86da0 says shipped plugin code stays project-generic — no `M-N` milestone IDs or `spike-N` references in `.md`/scripts that other projects would inherit. Sweep across `branching.py`, `scaffold_post.py`, `scaffold_cli.py`, `post_tool_use.py`, `event_schema.py`, and `xp-story-close/preload.sh` substitutes behavior-describing prose ("plugin floor", "scaffold-acceptance doctrine", "deterministic-event vocabulary") for the project-local artifacts that introduced each one. New `tests/integration/test_no_project_local_ids.py` walks the shipped surface with regex `\b(M-\d+|spike-\d+)\b` and fails loud with `file:line` offenders + the constraint event ID for context. `story-NNN`/`sprint-NNN` intentionally excluded — low-numbered forms are pedagogical examples in CLI help that distinguishing-by-regex would false-positive on; historical refs to specific sprints handled by manual sweep.
+
+### `_log_hook_error` → `log_hook_error` (drop private prefix)
+
+The function was prefixed with underscore (signaling "private to `_common.py`") but was already called from `branching.py` and tests. Concern 23b88f387da2 flagged the doctrine drift: cross-module use demands a public name. Eight call sites flipped (definition + 4 internal callers + 1 cross-module call + 2 tests). The cross-module call site keeps the module prefix `_common.log_hook_error(...)` so origin is explicit at the callsite. Pure rename — no behavior change. Same v3.1.3 pattern applied to `_is_iso8601` → `is_iso8601` in `smm_schema.py` (story-003 needed cross-module use).
+
+### `xp-kickoff` Step 2.4 sticky dismissal
+
+The Step 2.4 Stage 2 floor migration prompt was re-firing every kickoff for explicit Stage 0 projects with no way to dismiss. New `branching_strategy.stage_prompt_dismissed_at` schema field stores a UTC ISO timestamp; when set, Step 2.4 skips the prompt with a brief note that includes the timestamp AND the re-opt-in command (so users can undo without grep'ing the SKILL). Migration path explicitly does NOT record dismissal — migrate is the non-dismissed branch. Schema validates: optional, accepts `null` (encodes "never dismissed"), rejects non-string + over-budget + non-ISO-format strings. Implementation rides on two new CLI verbs `system_context_cli.py edit-branching-field <name>` / `get-branching-field <name>` that mirror the existing `edit-stack-field` / `get-stack-field` pair (same load → mutate → schema-validated save semantics).
+
+### `metadata.resolves` schema validation
+
+Decision 311a2af6fce7 (sprint-058) emitted `metadata.resolves='1c07b15d3326'` (string scalar) instead of `['1c07b15d3326']` (list). `resolution.py:128` then iterated the string char-by-char, found nothing, and STRONG resolution silently failed — the stale-question concern detector then correctly flagged the question as unanswered. The cascade-didn't-fire framing was a red herring; the upstream gap was schema validation. New validator at `event_schema.py:validate_event` rejects scalars, non-list types, non-string elements, and malformed IDs at write time. Eight schema tests cover the matrix; one e2e test in `tests/engine/test_resolutions.py` writes a blocking question + decision-with-list-resolves and asserts the question lands in `answered_question_ids` AND `concerns.detect_conflicts` emits zero stale-question flags — pins the original bug surface end-to-end. Defensive read-side wrap in `resolution.py` deliberately dropped from scope per audit (only 1 historical scalar exists; manual one-off fix to that record is the simpler path).
+
+### `retrospective.py:139` `events=` wiring
+
+Story-004 of sprint-058 added the `high_zero_decision_rate` signal in `retro_flags.py:215`, gated on `events is not None`. `retrospective.py:139` then called `evaluate_flags` without `events=` — the gate was never satisfied, the flag silently never fired in production. Three separate reviewers logged the gap (3e5f9cc3172e, d52ae1fb10c8, e3475d0fd5f1) but the wire-up itself deferred to this sprint. One-line fix adds `events=events,` to the call. Per decision 3aebbd3df455, SessionStart retro passes the full events list (multi-sprint cumulative view). Two tests pin the threshold behavior: positive (4/5 = 80% explicit_zero → flag fires) and regression-guard (1/4 = 25% → silent).
+
+### `xp-kickoff` Step 2.5 prose: stage >= 2 (plugin floor)
+
+Sprint-close-reviewer caught that `SKILL.md:86` still gated free-branch auto-create on `stage >= 1` while story-001 raised `BRANCH_MIN_STAGE["free"]` to 2. Functionally equivalent today (auto-promote always upgrades 1 → 2 before branching code reads stage), but the prose lied about the floor — same coherence-drift charge story-001 fixed in code. Updated to `stage >= 2` with an inline note that Stage 1 auto-promotes inside `branching.py stage`. Same factual behavior, prose now matches the plugin-floor narrative.
+
 ## v3.1.2 — close-skill safety + process polish (M-3 + M-5)
 
 Sprint-058 ships eight parallel-dispatched stories: M-3 closes the close-skill safety holes (Step 4.5 coverage edge + Step 6 e2e), M-5 ships four process-polish improvements, plus two adopted items (probe-divert fix + preload path-space contract). All stories landed via teammate worktrees with the new `ACCEPT_ACTIVE` marker and implicit teammate-cwd discovery from v3.1.1 holding stable across the whole sprint.
