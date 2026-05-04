@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import read_delta
 from conftest import _SMMTestCase, make_event
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_SESSION_END, EVENT_TYPE_STATUS
 
 # ===========================================================================
 # Repair (Milestone 8)
@@ -33,7 +34,7 @@ class TestRepair(_SMMTestCase):
     def test_repair_valid_log_unchanged(self):
         import repair
 
-        events = [make_event(), make_event("decision", topic="t")]
+        events = [make_event(), make_event(EVENT_TYPE_DECISION, topic="t")]
         self._write_events(events)
         result = repair.repair(self.smm_dir)
         self.assertEqual(result["retained"], 2)
@@ -60,7 +61,7 @@ class TestRepair(_SMMTestCase):
 
         good = make_event(content="good")
         bad_no_id = {
-            "type": "status",
+            "type": EVENT_TYPE_STATUS,
             "ts": "2026-01-01T00:00:00+00:00",
             "agent_id": "main",
             "content": "no id",
@@ -289,7 +290,7 @@ class TestMigrate(_SMMTestCase):
         import migrate
 
         event = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             topic="api",
             content="Use REST",
             ts="2026-03-12T00:00:00",
@@ -373,7 +374,7 @@ class TestPerformanceBenchmarks(_SMMTestCase):
         for i in range(10):
             events.append(
                 make_event(
-                    "session_end",
+                    EVENT_TYPE_SESSION_END,
                     content=f"end-{i}",
                     working_on=[],
                     ts=f"2026-02-{i + 1:02d}T00:00:00+00:00",

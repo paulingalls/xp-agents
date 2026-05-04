@@ -21,13 +21,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from conftest import _IntegrationTestCase, _s, _sprint_json, make_event
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
     def test_pre_commit_emits_probe_event_on_file_overlap(self):
         """E2E: pre-commit with staged files overlapping concern → probe event."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             id="abc123def456",
             content="scripts/foo.py is leaking state",
             files=["scripts/foo.py"],
@@ -62,7 +68,7 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
         probes = [
             e
             for e in events
-            if e.get("type") == "status"
+            if e.get("type") == EVENT_TYPE_STATUS
             and e.get("content", "").startswith("resolves_probe_shown:")
         ]
         self.assertEqual(len(probes), 1)
@@ -91,13 +97,13 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
         self._seed_events(
             [
                 make_event(
-                    "sprint",
+                    EVENT_TYPE_SPRINT,
                     ts="2026-03-14T09:00:00+00:00",
                     content="sprint-e2e start",
                     metadata={"sprint_id": "sprint-e2e", "action": "start"},
                 ),
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     ts="2026-03-14T10:00:00+00:00",
                     content="resolves_probe_shown: 1 candidates",
                     metadata={
@@ -107,7 +113,7 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
                     working_on=[],
                 ),
                 make_event(
-                    "commit",
+                    EVENT_TYPE_COMMIT,
                     ts="2026-03-14T10:05:00+00:00",
                     content="fix leak",
                     files=["scripts/foo.py"],
@@ -119,7 +125,7 @@ class TestResolvesLinkFeedbackLoop(_IntegrationTestCase):
                     },
                 ),
                 make_event(
-                    "sprint",
+                    EVENT_TYPE_SPRINT,
                     ts="2026-03-14T11:00:00+00:00",
                     content="sprint-e2e end",
                     metadata={"sprint_id": "sprint-e2e", "action": "end"},

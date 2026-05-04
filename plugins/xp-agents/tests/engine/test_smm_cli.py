@@ -15,6 +15,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _SMMTestCase, make_event, run_cli
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
@@ -86,7 +92,7 @@ class TestGetEvent(_SMMTestCase):
         # Write two events sharing a 4-char prefix but different full IDs.
         shared = "abcd"
         for suffix in ["00000001", "00000002"]:
-            event = make_event("status", content="ambig")
+            event = make_event(EVENT_TYPE_STATUS, content="ambig")
             event["id"] = shared + suffix
             events_file = self.smm_dir / "events.jsonl"
             with events_file.open("a", encoding="utf-8") as f:
@@ -117,7 +123,7 @@ class TestQuestionCloseWontFix(_SMMTestCase):
             f.write(json.dumps(event) + "\n")
 
     def _append_question(self, content: str = "Some open question?") -> str:
-        event = make_event("question", content=content)
+        event = make_event(EVENT_TYPE_QUESTION, content=content)
         self._append_event(event)
         return event["id"]
 
@@ -142,7 +148,9 @@ class TestQuestionCloseWontFix(_SMMTestCase):
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        status_events = [e for e in self._read_events() if e.get("type") == "status"]
+        status_events = [
+            e for e in self._read_events() if e.get("type") == EVENT_TYPE_STATUS
+        ]
         self.assertEqual(len(status_events), 1)
         meta = status_events[0].get("metadata", {})
         self.assertEqual(meta.get("action"), "question_close")
@@ -214,7 +222,7 @@ class TestQuestionCloseWontFix(_SMMTestCase):
         # Pointing the closer at a status event (not a question) must error
         # with a type-mismatch message rather than silently appending a bogus
         # resolution. Covers the type-check guard in _cmd_question_close.
-        status = make_event("status", content="not a question", working_on=[])
+        status = make_event(EVENT_TYPE_STATUS, content="not a question", working_on=[])
         self._append_event(status)
         result = run_cli(
             _CLI,
@@ -237,7 +245,9 @@ class TestQuestionCloseWontFix(_SMMTestCase):
         # Age the question with 3 unrelated events.
         for i in range(3):
             self._append_event(
-                make_event("status", content=f"unrelated event {i}", working_on=[])
+                make_event(
+                    EVENT_TYPE_STATUS, content=f"unrelated event {i}", working_on=[]
+                )
             )
 
         rationale = "Stale — superseded by recent direction"
@@ -258,7 +268,7 @@ class TestQuestionCloseWontFix(_SMMTestCase):
         close_events = [
             e
             for e in self._read_events()
-            if e.get("type") == "status"
+            if e.get("type") == EVENT_TYPE_STATUS
             and e.get("metadata", {}).get("disposition") == "wont_fix"
         ]
         self.assertEqual(len(close_events), 1)
@@ -283,7 +293,7 @@ class TestRiskIdRendering(_SMMTestCase):
                 "content": "Quality gate broken",
                 "source": "curated",
                 "ts": "2026-01-01T00:00:00+00:00",
-                "type": "concern",
+                "type": EVENT_TYPE_CONCERN,
                 "severity": "problem",
             }
         ]
@@ -303,7 +313,7 @@ class TestRiskIdRendering(_SMMTestCase):
                 "content": "Use Postgres",
                 "source": "seed",
                 "ts": "2026-01-01T00:00:00+00:00",
-                "type": "decision",
+                "type": EVENT_TYPE_DECISION,
             }
         ]
         smm_store.save_smm(self.smm_dir, data)

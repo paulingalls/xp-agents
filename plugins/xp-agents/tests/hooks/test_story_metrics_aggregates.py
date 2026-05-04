@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, _s, _sprint_json, commit_event, make_event
+from event_schema import EVENT_TYPE_STATUS
 
 SPRINT_WITH_DOMAINS = _sprint_json(
     [
@@ -187,7 +188,7 @@ class TestPerAgentAggregates(_HookTestCase):
             for i in range(30):
                 events.append(
                     make_event(
-                        "status",
+                        EVENT_TYPE_STATUS,
                         content=f"Working {i}",
                         working_on=[fpath],
                         agent_id=agent_id,

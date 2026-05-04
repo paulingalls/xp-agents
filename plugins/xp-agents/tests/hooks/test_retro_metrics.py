@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
 from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_STATUS,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
@@ -30,7 +32,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         self, resolves: list[str], ts: str, agent_id: str = "main"
     ) -> dict:
         return make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Work",
             ts=ts,
             files=["scripts/x.py"],
@@ -99,7 +101,7 @@ class TestClassifyLifecycleEvents(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="ignored content",
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             )
@@ -112,7 +114,7 @@ class TestClassifyLifecycleEvents(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="ignored",
                 metadata={"action": STATUS_ACTION_SECURITY_COMPLETE},
             )
@@ -126,7 +128,7 @@ class TestClassifyLifecycleEvents(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="ignored",
                 metadata={"action": STATUS_ACTION_SIMPLIFY_COMPLETE},
             )
@@ -144,7 +146,7 @@ class TestClassifyLifecycleEvents(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to scripts/foo.py",
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             )
@@ -166,7 +168,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to scripts/foo.py",
                 metadata={
                     "action": STATUS_ACTION_FILE_WRITE,
@@ -183,7 +185,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="ignored",
                 metadata={"action": STATUS_ACTION_TEST_RUN_COMPLETE},
             )
@@ -196,7 +198,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="ignored",
                 metadata={"action": STATUS_ACTION_LINT_RESOLVED},
             )
@@ -212,13 +214,13 @@ class TestClassifyM2ToolActions(unittest.TestCase):
 
         events = [
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="msg",
                 files=["scripts/x.py"],
                 metadata={"commit_hash": "abc", "code_commit": True},
             ),
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="msg2",
                 files=["scripts/y.py"],
                 metadata={"commit_hash": "def", "code_commit": True},
