@@ -450,15 +450,20 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
 
     The shared template lives in scripts/_close_pipeline_shared.md (covered
     by test_close_preloads_emit_shared.py). Each close skill that runs
-    security review (free/sprint/plan, NOT story) must add a one-line
-    reference instructing the LLM to apply the shared block with its own
-    close-mode and close-skill-name substituted in.
+    security review (free/sprint/plan unconditionally; story conditionally
+    when no sprint envelope wraps the close) must add a reference
+    instructing the LLM to apply the shared block with its own
+    close-mode and close-skill-name substituted in. Story-close gates the
+    block on a shell `if`; the prose contract (heading, substitutions,
+    append.sh metadata, clean separation from the close-reviewer prompt)
+    is identical, so this mixin applies to all four.
 
     Subclasses inherit this mixin PLUS _IntegrationTestCase. Subclasses
     must define:
         _SKILL_MD: Path — absolute path to the close skill's SKILL.md
-        _MODE: str    — "free" | "sprint" | "plan"
-        _SKILL_NAME: str — "xp-free-close" | "xp-sprint-close" | "xp-plan-close"
+        _MODE: str    — "free" | "sprint" | "plan" | "story"
+        _SKILL_NAME: str — "xp-free-close" | "xp-sprint-close" |
+                           "xp-plan-close" | "xp-story-close"
     """
 
     _SKILL_MD: Path

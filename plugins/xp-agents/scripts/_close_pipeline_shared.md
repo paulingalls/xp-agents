@@ -8,8 +8,11 @@ skill's mode-specific tail (Step 7+).
 
 ### Step 4.5: Security Review
 
-Skills that apply this step: **free, sprint, plan** close (story-close
-skips — sprint-close's cumulative diff already covers each story).
+Skills that apply this step: **free, sprint, plan** close unconditionally, plus **story (when no sprint envelope wraps)**.
+Story-close defers to sprint-close's cumulative diff when an active
+sprint wraps the story; otherwise (no sprint, or orphan story branch)
+Step 4.5 fires from story-close itself. See xp-story-close/SKILL.md
+Step 4.5 for the gating clause.
 
 Invoke `/security-review` against the cumulative close diff. The close
 skill is main-agent context, so the PostToolUse:Skill hook fires and
