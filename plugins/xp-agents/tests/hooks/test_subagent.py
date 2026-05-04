@@ -24,6 +24,10 @@ from conftest import (
     write_smm_fixture,
 )
 from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_DISCOVERY,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_STATUS,
     STATUS_ACTION_HOUSEKEEPING_COMPLETE,
     STATUS_ACTION_PLAN_AWAITING_REVIEW,
     STATUS_ACTION_PLAN_COMPLETED,
@@ -106,7 +110,7 @@ class TestUserPromptLog(_HookTestCase):
 
     def test_goals_present_no_block(self):
         """With goals recorded, prompt proceeds normally."""
-        self._write_events([make_event("goal", content="Ship MVP")])
+        self._write_events([make_event(EVENT_TYPE_GOAL, content="Ship MVP")])
         result = user_prompt_log.run(
             {"session_id": "t", "prompt": "do something"},
             smm_dir=self.smm_dir,
@@ -218,8 +222,10 @@ class TestSubagentStop(_HookTestCase):
 
     def test_conflict_detection_runs(self):
         # Set up a contradiction in the log
-        a = make_event("assumption", content="API is REST")
-        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
+        )
         self._write_events([a, d])
 
         subagent_stop.run(
@@ -280,7 +286,7 @@ class TestSubagentStop(_HookTestCase):
     def test_no_false_positive_conflicts(self):
         # Clean log with no conflicts
         self._write_events(
-            [make_event("status", agent_id="main", working_on=["src/a.ts"])]
+            [make_event(EVENT_TYPE_STATUS, agent_id="main", working_on=["src/a.ts"])]
         )
         subagent_stop.run(
             {

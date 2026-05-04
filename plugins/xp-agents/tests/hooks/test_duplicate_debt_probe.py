@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import duplicate_debt_probe as ddp
 from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestNormalize(unittest.TestCase):
@@ -84,12 +89,14 @@ class TestProbeDuplicateDebt(_HookTestCase):
         self.assertEqual(result, [])
 
     def test_no_debt_events_returns_empty(self):
-        self._write_events([make_event("status"), make_event("decision")])
+        self._write_events(
+            [make_event(EVENT_TYPE_STATUS), make_event(EVENT_TYPE_DECISION)]
+        )
         result = ddp.probe_duplicate_debt(self.smm_dir, "some debt content")
         self.assertEqual(result, [])
 
     def test_below_threshold_returns_empty(self):
-        prior = make_event("debt", content="authentication middleware broken")
+        prior = make_event(EVENT_TYPE_DEBT, content="authentication middleware broken")
         self._write_events([prior])
         result = ddp.probe_duplicate_debt(
             self.smm_dir, "deploy pipeline configuration issue"
@@ -98,7 +105,7 @@ class TestProbeDuplicateDebt(_HookTestCase):
 
     def test_above_threshold_returns_match(self):
         prior = make_event(
-            "debt", id="abc123", content="authentication middleware broken"
+            EVENT_TYPE_DEBT, id="abc123", content="authentication middleware broken"
         )
         self._write_events([prior])
         result = ddp.probe_duplicate_debt(
@@ -109,7 +116,7 @@ class TestProbeDuplicateDebt(_HookTestCase):
         self.assertGreater(result[0]["similarity"], 0.8)
 
     def test_exact_duplicate_returns_similarity_1(self):
-        prior = make_event("debt", id="exact1", content="fix the auth bug")
+        prior = make_event(EVENT_TYPE_DEBT, id="exact1", content="fix the auth bug")
         self._write_events([prior])
         result = ddp.probe_duplicate_debt(self.smm_dir, "fix the auth bug")
         self.assertEqual(len(result), 1)
@@ -119,7 +126,9 @@ class TestProbeDuplicateDebt(_HookTestCase):
         events = []
         for i in range(25):
             events.append(
-                make_event("debt", id=f"d{i:03}", content=f"unique debt item {i}")
+                make_event(
+                    EVENT_TYPE_DEBT, id=f"d{i:03}", content=f"unique debt item {i}"
+                )
             )
         # Add a duplicate of the first event (index 0, outside window of 20)
         self._write_events(events)
@@ -131,7 +140,9 @@ class TestProbeDuplicateDebt(_HookTestCase):
         events = []
         for i in range(25):
             events.append(
-                make_event("debt", id=f"d{i:03}", content=f"unique debt item {i}")
+                make_event(
+                    EVENT_TYPE_DEBT, id=f"d{i:03}", content=f"unique debt item {i}"
+                )
             )
         self._write_events(events)
         result = ddp.probe_duplicate_debt(
@@ -141,7 +152,7 @@ class TestProbeDuplicateDebt(_HookTestCase):
         self.assertEqual(result[0]["debt_id"], "d024")
 
     def test_custom_threshold(self):
-        prior = make_event("debt", id="t1", content="auth middleware broken")
+        prior = make_event(EVENT_TYPE_DEBT, id="t1", content="auth middleware broken")
         self._write_events([prior])
         # With threshold 0.99, high-but-not-perfect overlap should not match
         result = ddp.probe_duplicate_debt(
@@ -150,8 +161,8 @@ class TestProbeDuplicateDebt(_HookTestCase):
         self.assertEqual(result, [])
 
     def test_multiple_matches(self):
-        e1 = make_event("debt", id="m1", content="fix auth middleware bug")
-        e2 = make_event("debt", id="m2", content="fix auth middleware issue")
+        e1 = make_event(EVENT_TYPE_DEBT, id="m1", content="fix auth middleware bug")
+        e2 = make_event(EVENT_TYPE_DEBT, id="m2", content="fix auth middleware issue")
         self._write_events([e1, e2])
         result = ddp.probe_duplicate_debt(self.smm_dir, "fix auth middleware bug")
         self.assertGreaterEqual(len(result), 1)
@@ -160,7 +171,7 @@ class TestProbeDuplicateDebt(_HookTestCase):
 
     def test_skips_resolved_debts(self):
         resolved = make_event(
-            "debt",
+            EVENT_TYPE_DEBT,
             id="r1",
             content="auth middleware broken",
             metadata={"resolved": True},
@@ -170,7 +181,9 @@ class TestProbeDuplicateDebt(_HookTestCase):
         self.assertEqual(result, [])
 
     def test_exclude_id_skips_self(self):
-        prior = make_event("debt", id="self1", content="auth middleware broken")
+        prior = make_event(
+            EVENT_TYPE_DEBT, id="self1", content="auth middleware broken"
+        )
         self._write_events([prior])
         result = ddp.probe_duplicate_debt(
             self.smm_dir, "auth middleware broken", exclude_id="self1"
@@ -178,7 +191,9 @@ class TestProbeDuplicateDebt(_HookTestCase):
         self.assertEqual(result, [])
 
     def test_normalization_handles_punctuation_and_case(self):
-        prior = make_event("debt", id="p1", content="Fix: the Auth Middleware, NOW!")
+        prior = make_event(
+            EVENT_TYPE_DEBT, id="p1", content="Fix: the Auth Middleware, NOW!"
+        )
         self._write_events([prior])
         result = ddp.probe_duplicate_debt(self.smm_dir, "fix auth middleware now")
         self.assertEqual(len(result), 1)
@@ -226,7 +241,12 @@ class TestRunProbeAndAppendExceptionNarrowing(unittest.TestCase):
         ):
             ddp.run_probe_and_append(
                 Path("/tmp/fake-smm"),
-                {"type": "debt", "content": "test", "id": "x", "agent_id": "m"},
+                {
+                    "type": EVENT_TYPE_DEBT,
+                    "content": "test",
+                    "id": "x",
+                    "agent_id": "m",
+                },
             )
 
     def test_os_error_swallowed(self):
@@ -235,7 +255,12 @@ class TestRunProbeAndAppendExceptionNarrowing(unittest.TestCase):
         with patch.object(ddp, "probe_duplicate_debt", side_effect=OSError("disk")):
             ddp.run_probe_and_append(
                 Path("/tmp/fake-smm"),
-                {"type": "debt", "content": "test", "id": "x", "agent_id": "m"},
+                {
+                    "type": EVENT_TYPE_DEBT,
+                    "content": "test",
+                    "id": "x",
+                    "agent_id": "m",
+                },
             )
 
 
@@ -243,9 +268,11 @@ class TestDuplicateDebtProbeIntegration(_HookTestCase):
     """Integration: append_safe with debt triggers advisory concern."""
 
     def test_append_duplicate_debt_creates_advisory(self):
-        prior = make_event("debt", id="prior1", content="auth middleware broken")
+        prior = make_event(
+            EVENT_TYPE_DEBT, id="prior1", content="auth middleware broken"
+        )
         self._write_events([prior])
-        new_debt = make_event("debt", content="auth middleware broken")
+        new_debt = make_event(EVENT_TYPE_DEBT, content="auth middleware broken")
         _common.append_safe(self.smm_dir, new_debt)
         events = self._read_events()
         concerns = [e for e in events if e.get("type") == "concern"]
@@ -255,9 +282,9 @@ class TestDuplicateDebtProbeIntegration(_HookTestCase):
         self.assertEqual(advisories[0]["severity"], "low")
 
     def test_append_unique_debt_no_advisory(self):
-        prior = make_event("debt", content="auth middleware broken")
+        prior = make_event(EVENT_TYPE_DEBT, content="auth middleware broken")
         self._write_events([prior])
-        new_debt = make_event("debt", content="deploy pipeline misconfigured")
+        new_debt = make_event(EVENT_TYPE_DEBT, content="deploy pipeline misconfigured")
         _common.append_safe(self.smm_dir, new_debt)
         events = self._read_events()
         concerns = [e for e in events if e.get("type") == "concern"]
@@ -265,15 +292,17 @@ class TestDuplicateDebtProbeIntegration(_HookTestCase):
         self.assertEqual(len(advisories), 0)
 
     def test_append_non_debt_no_probe(self):
-        _common.append_safe(self.smm_dir, make_event("status"))
+        _common.append_safe(self.smm_dir, make_event(EVENT_TYPE_STATUS))
         events = self._read_events()
         concerns = [e for e in events if e.get("type") == "concern"]
         self.assertEqual(len(concerns), 0)
 
     def test_bulk_append_duplicate_debt_creates_advisory(self):
-        prior = make_event("debt", id="bulk1", content="auth middleware broken")
+        prior = make_event(
+            EVENT_TYPE_DEBT, id="bulk1", content="auth middleware broken"
+        )
         self._write_events([prior])
-        new_debt = make_event("debt", content="auth middleware broken")
+        new_debt = make_event(EVENT_TYPE_DEBT, content="auth middleware broken")
         _common.bulk_append_safe(self.smm_dir, [new_debt])
         events = self._read_events()
         advisories = [
@@ -300,7 +329,7 @@ class TestRunDuplicateDebtProbeExceptionNarrowing(unittest.TestCase):
         ):
             _common._run_duplicate_debt_probe(
                 Path("/tmp/fake-smm"),
-                {"type": "debt", "content": "test"},
+                {"type": EVENT_TYPE_DEBT, "content": "test"},
             )
 
     def test_import_error_swallowed(self):
@@ -309,7 +338,7 @@ class TestRunDuplicateDebtProbeExceptionNarrowing(unittest.TestCase):
         with patch.dict("sys.modules", {"duplicate_debt_probe": None}):
             _common._run_duplicate_debt_probe(
                 Path("/tmp/fake-smm"),
-                {"type": "debt", "content": "test"},
+                {"type": EVENT_TYPE_DEBT, "content": "test"},
             )
 
 

@@ -17,6 +17,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_ANSWER,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
 
 # ===========================================================================
 # session_end.py tests
@@ -70,7 +78,7 @@ class TestSessionEnd(_HookTestCase):
     def test_unresolved_questions(self):
         import session_end
 
-        q = make_event("question", content="Unanswered?")
+        q = make_event(EVENT_TYPE_QUESTION, content="Unanswered?")
         self._write_events([q])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
@@ -83,8 +91,8 @@ class TestSessionEnd(_HookTestCase):
     def test_answered_question_not_unresolved(self):
         import session_end
 
-        q = make_event("question", content="Answered!")
-        a = make_event("answer", content="Yes", references=[q["id"]])
+        q = make_event(EVENT_TYPE_QUESTION, content="Answered!")
+        a = make_event(EVENT_TYPE_ANSWER, content="Yes", references=[q["id"]])
         self._write_events([q, a])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
@@ -97,7 +105,7 @@ class TestSessionEnd(_HookTestCase):
     def test_unresolved_concerns(self):
         import session_end
 
-        c = make_event("concern", content="Missing tests")
+        c = make_event(EVENT_TYPE_CONCERN, content="Missing tests")
         self._write_events([c])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
@@ -110,9 +118,9 @@ class TestSessionEnd(_HookTestCase):
     def test_resolved_concern_not_unresolved(self):
         import session_end
 
-        c = make_event("concern", content="Missing tests")
+        c = make_event(EVENT_TYPE_CONCERN, content="Missing tests")
         r = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=["test.py"],
             metadata={"resolves": [c["id"]]},
@@ -129,7 +137,7 @@ class TestSessionEnd(_HookTestCase):
     def test_active_working_on(self):
         import session_end
 
-        s = make_event("status", agent_id="main", working_on=["src/app.ts"])
+        s = make_event(EVENT_TYPE_STATUS, agent_id="main", working_on=["src/app.ts"])
         self._write_events([s])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
@@ -176,7 +184,7 @@ class TestSessionEnd(_HookTestCase):
         # Previous session's events + session_end
         old = make_event(ts="2026-03-12T08:00:00+00:00")
         old_end = make_event(
-            "session_end", ts="2026-03-12T09:00:00+00:00", content="old"
+            EVENT_TYPE_SESSION_END, ts="2026-03-12T09:00:00+00:00", content="old"
         )
         # Current session's events
         new1 = make_event(ts="2026-03-12T10:00:00+00:00")
@@ -263,8 +271,10 @@ class TestSessionEnd(_HookTestCase):
         the session_end event so compaction archives them."""
         import session_end
 
-        g1 = make_event("goal", content="Free session", agent_id="xp-kickoff")
-        g2 = make_event("goal", content="Fix the bug", agent_id="xp-work-selection")
+        g1 = make_event(EVENT_TYPE_GOAL, content="Free session", agent_id="xp-kickoff")
+        g2 = make_event(
+            EVENT_TYPE_GOAL, content="Fix the bug", agent_id="xp-work-selection"
+        )
         self._write_events([g1, g2])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
@@ -282,19 +292,19 @@ class TestSessionEnd(_HookTestCase):
         import session_end
 
         prior_goal = make_event(
-            "goal",
+            EVENT_TYPE_GOAL,
             content="Prior session goal",
             ts="2026-03-12T08:00:00+00:00",
             agent_id="xp-kickoff",
         )
         prior_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             ts="2026-03-12T09:00:00+00:00",
             content="Session ended: prior",
             metadata={"resolves": [prior_goal["id"]]},
         )
         current_goal = make_event(
-            "goal",
+            EVENT_TYPE_GOAL,
             content="Current session goal",
             ts="2026-03-12T10:00:00+00:00",
             agent_id="xp-kickoff",
@@ -315,9 +325,11 @@ class TestSessionEnd(_HookTestCase):
         not claim ownership of a teammate's still-unresolved goals."""
         import session_end
 
-        main_goal = make_event("goal", content="Main goal", agent_id="xp-kickoff")
+        main_goal = make_event(
+            EVENT_TYPE_GOAL, content="Main goal", agent_id="xp-kickoff"
+        )
         teammate_goal = make_event(
-            "goal", content="Teammate goal", agent_id="worktree-story-001"
+            EVENT_TYPE_GOAL, content="Teammate goal", agent_id="worktree-story-001"
         )
         self._write_events([main_goal, teammate_goal])
         session_end.run(
@@ -335,12 +347,16 @@ class TestSessionEnd(_HookTestCase):
         goals — not main's goals nor other teammates' goals."""
         import session_end
 
-        main_goal = make_event("goal", content="Main goal", agent_id="xp-kickoff")
+        main_goal = make_event(
+            EVENT_TYPE_GOAL, content="Main goal", agent_id="xp-kickoff"
+        )
         own_goal = make_event(
-            "goal", content="Own teammate goal", agent_id="worktree-story-001"
+            EVENT_TYPE_GOAL, content="Own teammate goal", agent_id="worktree-story-001"
         )
         other_goal = make_event(
-            "goal", content="Other teammate goal", agent_id="worktree-story-002"
+            EVENT_TYPE_GOAL,
+            content="Other teammate goal",
+            agent_id="worktree-story-002",
         )
         self._write_events([main_goal, own_goal, other_goal])
         session_end.run(

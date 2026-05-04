@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(
     0,
     str(
@@ -21,6 +22,7 @@ sys.path.insert(
 
 import work_selection_decide
 from conftest import _HookTestCase
+from event_schema import EVENT_TYPE_STATUS
 
 
 class _DecideTestCase(_HookTestCase):
@@ -433,7 +435,7 @@ class _ForceCloseTestCase(_DecideTestCase):
                 {
                     "id": f"{i:012x}",
                     "ts": f"2026-01-{i + 1:02d}T00:00:00+00:00",
-                    "type": "status",
+                    "type": EVENT_TYPE_STATUS,
                     "agent_id": "main",
                     "content": f"Defer {i}",
                     "schema_version": 1,

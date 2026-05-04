@@ -16,6 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import SAMPLE_SPRINT_MD as _SAMPLE_SPRINT
 from conftest import _HookTestCase, make_event, write_smm_fixture
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_STATUS,
+)
 
 # ===========================================================================
 # Sprint-aware tier tests (M10)
@@ -277,16 +285,16 @@ class TestSubagentStartHousekeeper(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "decision",
+                    EVENT_TYPE_DECISION,
                     topic="retro-try-fix-thing",
                     content="Adopted retro Try: fix the thing",
                 ),
                 make_event(
-                    "status",
+                    EVENT_TYPE_STATUS,
                     content=("Deferred retro Try: questions_stop_gate"),
                     metadata={"disposition": "deferred"},
                 ),
-                make_event("goal", content="Sprint session"),
+                make_event(EVENT_TYPE_GOAL, content="Sprint session"),
             ]
         )
         result = self._run_housekeeper()
@@ -299,8 +307,8 @@ class TestSubagentStartHousekeeper(_HookTestCase):
         """Without work-selection events, no block is emitted."""
         self._write_events(
             [
-                make_event("customer_input", content="unrelated event"),
-                make_event("concern", content="unrelated concern"),
+                make_event(EVENT_TYPE_CUSTOMER_INPUT, content="unrelated event"),
+                make_event(EVENT_TYPE_CONCERN, content="unrelated concern"),
             ]
         )
         result = self._run_housekeeper()
@@ -311,12 +319,12 @@ class TestSubagentStartHousekeeper(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "decision",
+                    EVENT_TYPE_DECISION,
                     topic="retro-try-old-item",
                     content=("Adopted retro Try: old item from prior session"),
                 ),
                 make_event(
-                    "session_end",
+                    EVENT_TYPE_SESSION_END,
                     content="prior session ended",
                 ),
             ]

@@ -10,6 +10,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestPromptNugget(_HookTestCase):
@@ -29,7 +36,7 @@ class TestPromptNugget(_HookTestCase):
         """Recursion prevention for xp-* agents."""
         import prompt_nugget
 
-        self._write_events([make_event("concern", content="Bug found")])
+        self._write_events([make_event(EVENT_TYPE_CONCERN, content="Bug found")])
         result = prompt_nugget.run(
             {
                 "session_id": "s1",
@@ -44,7 +51,9 @@ class TestPromptNugget(_HookTestCase):
         """New concern appears in nugget."""
         import prompt_nugget
 
-        self._write_events([make_event("concern", content="No tests for auth module")])
+        self._write_events(
+            [make_event(EVENT_TYPE_CONCERN, content="No tests for auth module")]
+        )
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
@@ -57,7 +66,7 @@ class TestPromptNugget(_HookTestCase):
         """New decision appears in nugget."""
         import prompt_nugget
 
-        self._write_events([make_event("decision", content="Use REST API")])
+        self._write_events([make_event(EVENT_TYPE_DECISION, content="Use REST API")])
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
@@ -70,7 +79,7 @@ class TestPromptNugget(_HookTestCase):
         """Status events are not signal types — excluded from nugget."""
         import prompt_nugget
 
-        self._write_events([make_event("status", content="Working on auth")])
+        self._write_events([make_event(EVENT_TYPE_STATUS, content="Working on auth")])
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
@@ -81,7 +90,9 @@ class TestPromptNugget(_HookTestCase):
         """Second call with no new events returns None."""
         import prompt_nugget
 
-        self._write_events([make_event("concern", content="Missing validation")])
+        self._write_events(
+            [make_event(EVENT_TYPE_CONCERN, content="Missing validation")]
+        )
         # First call sees the event
         result1 = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
@@ -100,7 +111,7 @@ class TestPromptNugget(_HookTestCase):
         import prompt_nugget
 
         self._write_events(
-            [make_event("concern", content=f"Issue {i}") for i in range(8)]
+            [make_event(EVENT_TYPE_CONCERN, content=f"Issue {i}") for i in range(8)]
         )
         result = prompt_nugget.run(
             {"session_id": "s1", "agent_id": "main"},
@@ -115,10 +126,10 @@ class TestPromptNugget(_HookTestCase):
 
         self._write_events(
             [
-                make_event("decision", content="Use REST", topic="api"),
-                make_event("debt", content="Missing tests", files=["a.py"]),
-                make_event("concern", content="Auth issue", severity="high"),
-                make_event("assumption", content="API is stable"),
+                make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
+                make_event(EVENT_TYPE_DEBT, content="Missing tests", files=["a.py"]),
+                make_event(EVENT_TYPE_CONCERN, content="Auth issue", severity="high"),
+                make_event(EVENT_TYPE_ASSUMPTION, content="API is stable"),
             ]
         )
         result = prompt_nugget.run(
@@ -139,10 +150,16 @@ class TestPromptNugget(_HookTestCase):
 
         self._write_events(
             [
-                make_event("concern", content="Old concern", severity="high"),
-                make_event("concern", content="Middle concern", severity="high"),
-                make_event("concern", content="Newest concern", severity="high"),
-                make_event("concern", content="Latest concern", severity="high"),
+                make_event(EVENT_TYPE_CONCERN, content="Old concern", severity="high"),
+                make_event(
+                    EVENT_TYPE_CONCERN, content="Middle concern", severity="high"
+                ),
+                make_event(
+                    EVENT_TYPE_CONCERN, content="Newest concern", severity="high"
+                ),
+                make_event(
+                    EVENT_TYPE_CONCERN, content="Latest concern", severity="high"
+                ),
             ]
         )
         result = prompt_nugget.run(
@@ -164,11 +181,13 @@ class TestPromptNugget(_HookTestCase):
 
         self._write_events(
             [
-                make_event("concern", content="Early concern", severity="high"),
-                make_event("decision", content="Decision 1", topic="api"),
-                make_event("decision", content="Decision 2", topic="db"),
-                make_event("decision", content="Decision 3", topic="auth"),
-                make_event("debt", content="Recent debt", files=["a.py"]),
+                make_event(
+                    EVENT_TYPE_CONCERN, content="Early concern", severity="high"
+                ),
+                make_event(EVENT_TYPE_DECISION, content="Decision 1", topic="api"),
+                make_event(EVENT_TYPE_DECISION, content="Decision 2", topic="db"),
+                make_event(EVENT_TYPE_DECISION, content="Decision 3", topic="auth"),
+                make_event(EVENT_TYPE_DEBT, content="Recent debt", files=["a.py"]),
             ]
         )
         result = prompt_nugget.run(
@@ -187,9 +206,11 @@ class TestPromptNugget(_HookTestCase):
         """Concern resolved by a later event should not appear in nugget."""
         import prompt_nugget
 
-        concern = make_event("concern", content="Test failures", severity="high")
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Test failures", severity="high"
+        )
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Tests pass now",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -209,7 +230,7 @@ class TestPromptNugget(_HookTestCase):
 
         self._write_events(
             [
-                make_event("concern", content="Real problem", severity="high"),
+                make_event(EVENT_TYPE_CONCERN, content="Real problem", severity="high"),
             ]
         )
         result = prompt_nugget.run(
@@ -226,12 +247,12 @@ class TestPromptNugget(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test command failed (unittest): Exit code 1",
                     severity="medium",
                 ),
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Test failures detected: 3 failed (unittest)",
                     severity="medium",
                 ),
@@ -250,7 +271,7 @@ class TestPromptNugget(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Lint errors in plugins/xp-agents/scripts/foo.py: 2 errors",
                     severity="medium",
                 ),
@@ -269,7 +290,7 @@ class TestPromptNugget(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     content="Commit touches 12 files",
                     severity="medium",
                 ),
@@ -286,9 +307,9 @@ class TestPromptNugget(_HookTestCase):
         """Debt resolved by a later event should not appear."""
         import prompt_nugget
 
-        debt = make_event("debt", content="Missing test", files=["a.py"])
+        debt = make_event(EVENT_TYPE_DEBT, content="Missing test", files=["a.py"])
         resolution = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Test added",
             working_on=[],
             metadata={"resolves": [debt["id"]]},
