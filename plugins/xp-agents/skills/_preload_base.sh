@@ -167,6 +167,17 @@ emit_hook_guidance() {
     fi
 }
 
+# Clear any ACCEPT_ACTIVE marker so it cannot strand across sessions and
+# block pre_tool_write re-arming of `.accept` in the next session.
+# Idempotent — no-op when absent. Single source of truth for the four
+# close-skill preloads and the xp-kickoff defensive cleanup; without
+# this helper, the same 3-line WHY comment + consume call gets pasted
+# in five places.
+# Usage: clear_accept_active_marker
+clear_accept_active_marker() {
+    consume_marker ACCEPT_ACTIVE
+}
+
 # List all changed files (staged + unstaged + untracked), one per line.
 # Usage: get_changed_files
 get_changed_files() {
