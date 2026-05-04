@@ -9,6 +9,15 @@
 - **Respect**: Honor collective decisions. Deliver what was asked before adding extras.
 
 
+## Pillars
+
+- **Intent** — what we're building. Cap 2-5.
+- **Constraints** — architectural/process bounds. Implementation details belong in code comments, not here. Cap ~20.
+- **Risks** — what could go wrong. Cap 2-5.
+- **Wisdom** — durable lessons. Cap 3-7.
+
+Read Intent and Risks at plan or sprint start; check Constraints when choosing an approach; apply Wisdom continuously.
+
 ## Resolution Discipline
 
 Three link types close events and risk pillar items:
@@ -17,8 +26,6 @@ Three link types close events and risk pillar items:
 - **STRUCTURAL**: `files=[...]` on reviewer concerns — commit-auto-link nudges for a `Resolves-Event:` trailer.
 
 ## When to Run XP Skills
-
-Hooks enforce some as safety nets, but follow the process proactively.
 
 **Plan cycle:** `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Use for multi-file changes (3+ files). Marker-gated: `.plan-awaiting-review` blocks writes until reviewed, `.assign-pending` blocks until assigned.
 
@@ -81,22 +88,6 @@ Link related events by ID: `--references '["question-id"]'`. An answer reference
 
 Add `Resolves-Event: <id>` trailer to commit body when a commit closes an SMM event or risk item. Case-insensitive, comma-separated. IDs are 12 hex chars. The hook auto-populates `metadata.resolves`.
 
-### Common Patterns
-
-```
-append.sh --smm-dir DIR --type status --agent main --content "..." --working-on '[...]'
-append.sh --smm-dir DIR --type decision --agent main --content "..." --topic "..."
-append.sh --smm-dir DIR --type concern --agent main --content "..." --severity medium
-```
-
 ### Refactor Mode
 
-Declare before behavior-preserving changes. TDD metric excludes file writes until the next commit.
-
-```
-append.sh --smm-dir DIR --type assumption --agent main --content "refactor mode: <description>"
-```
-
-Existing tests cover preserved behavior. Add a behavior test for any **new primitive** the refactor extracts (module, function, class) — original-caller tests don't reach it.
-
-Read Intent and Risks before every significant action. Check Constraints when making architectural choices.
+Declare before behavior-preserving changes. TDD metric excludes file writes until the next commit. Existing tests cover preserved behavior. Add a behavior test for any **new primitive** the refactor extracts (module, function, class) — original-caller tests don't reach it.
