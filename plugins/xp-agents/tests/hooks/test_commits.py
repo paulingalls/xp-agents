@@ -558,7 +558,7 @@ Co-Authored-By: Claude
 EOF
 )" """
         result = commits.extract_commit_message(cmd)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertTrue(result.startswith("[release]"))
 
     def test_empty_message(self):

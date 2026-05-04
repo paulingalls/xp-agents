@@ -133,7 +133,7 @@ class TestHooksJsonM65(HooksJsonTestCase):
     def test_worktree_create_command(self):
         """WorktreeCreate must reference worktree_create.py."""
         entry = self._find_default_entry("WorktreeCreate")
-        self.assertIsNotNone(entry, "No default WorktreeCreate entry")
+        assert entry is not None, "No default WorktreeCreate entry"
         cmds = [h["command"] for h in entry["hooks"]]
         self.assertTrue(any("worktree_create.py" in c for c in cmds))
 

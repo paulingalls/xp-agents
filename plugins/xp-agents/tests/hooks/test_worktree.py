@@ -33,6 +33,7 @@ class TestResolveGitRoot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             init_repo(tmpdir)
             result = worktree.resolve_git_root(tmpdir)
+            assert result is not None
             self.assertEqual(os.path.realpath(result), os.path.realpath(tmpdir))
 
     def test_returns_none_for_non_repo(self):

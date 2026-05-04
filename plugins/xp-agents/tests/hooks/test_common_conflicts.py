@@ -204,6 +204,7 @@ class TestDetectConflictsCommon(_HookTestCase):
         found = concerns.detect_conflicts([a, d], "main")
         flag = next(c for c in found if "contradict" in c["content"].lower())
         budget = CONTENT_BUDGETS["concern"]
+        assert budget is not None
         self.assertLessEqual(
             len(flag["content"]),
             budget,

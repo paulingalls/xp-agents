@@ -345,6 +345,7 @@ class TestCreateStoryBranchAutoRecords(unittest.TestCase):
 
             self.assertEqual(result, "paul/story-001-auto-record")
             loaded = sprint_store.load_sprint(smm_dir)
+            assert loaded is not None
             self.assertEqual(
                 loaded["stories"][0].get("branch_name"),
                 "paul/story-001-auto-record",

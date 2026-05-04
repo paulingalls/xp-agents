@@ -81,7 +81,7 @@ class TestReadSprintContent(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         result = sprint_state.read_sprint_content(self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["goal"], "Build auth")
 
     def test_missing(self):

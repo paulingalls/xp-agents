@@ -114,6 +114,7 @@ class TestBashFailure(_HookTestCase):
         statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) > 0, "No status event written")
         budget = CONTENT_BUDGETS["status"]
+        assert budget is not None
         self.assertLessEqual(
             len(statuses[0]["content"]),
             budget,

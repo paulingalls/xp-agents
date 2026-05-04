@@ -329,6 +329,7 @@ class TestWorktreePreamble(unittest.TestCase):
         wt = "/tmp/repo/.claude/worktrees/worktree-story-005"
 
         def capture_tee(cmd, *, cwd=None, env=None, stdin=None, name=None, **kw):
+            assert stdin is not None
             captured["stdin_text"] = stdin.read()
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
