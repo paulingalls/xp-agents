@@ -59,7 +59,7 @@ class TestLintCheck(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         # Should return a nudge string, not write a question event
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("linter", result.lower())
         # No question events written
         events = _common.read_events_raw(self.smm_dir)
@@ -284,7 +284,7 @@ class TestLintCheck(_HookTestCase):
             result = lint_check.detect_linter_config(
                 str(tmpdir), str(tmpdir), file_path="src/app.py"
             )
-            self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result[0], "ruff")
         finally:
             import shutil as sh
@@ -300,7 +300,7 @@ class TestLintCheck(_HookTestCase):
             result = lint_check.detect_linter_config(
                 str(tmpdir), str(tmpdir), file_path="src/app.js"
             )
-            self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result[0], "eslint")
         finally:
             import shutil as sh
@@ -321,7 +321,7 @@ class TestLintCheck(_HookTestCase):
             result = lint_check.detect_linter_config(
                 str(tmpdir), str(tmpdir), file_path="apps/agent/foo.py"
             )
-            self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result[0], "ruff")
         finally:
             import shutil as sh
@@ -353,7 +353,7 @@ class TestLintCheck(_HookTestCase):
                     ),
                     smm_dir=self.smm_dir,
                 )
-            self.assertIsNotNone(result)
+            assert result is not None
             self.assertIn("Lint errors", result)
             self.assertIn("unused import", result)
         finally:

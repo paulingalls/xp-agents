@@ -87,7 +87,7 @@ class TestPlanDivergence(unittest.TestCase):
             self._setup_diverged(td, smm_dir, commits_behind=5)
 
             result = branching.check_plan_divergence(td, smm_dir, threshold=10)
-            self.assertIsNotNone(result)
+            assert result is not None
             self.assertEqual(result["commits_behind"], 5)
             self.assertNotIn("warning", result)
             self.assertNotIn("suggestion", result)
@@ -98,6 +98,7 @@ class TestPlanDivergence(unittest.TestCase):
             self._setup_diverged(td, smm_dir, commits_behind=10)
 
             result = branching.check_plan_divergence(td, smm_dir, threshold=10)
+            assert result is not None
             self.assertIn("warning", result)
             self.assertIn("suggestion", result)
             self.assertEqual(result["commits_behind"], 10)
@@ -108,6 +109,7 @@ class TestPlanDivergence(unittest.TestCase):
             self._setup_diverged(td, smm_dir, commits_behind=15)
 
             result = branching.check_plan_divergence(td, smm_dir, threshold=10)
+            assert result is not None
             self.assertIn("warning", result)
             self.assertEqual(result["commits_behind"], 15)
 
@@ -117,6 +119,7 @@ class TestPlanDivergence(unittest.TestCase):
             self._setup_diverged(td, smm_dir, commits_behind=5)
 
             result = branching.check_plan_divergence(td, smm_dir, threshold=5)
+            assert result is not None
             self.assertIn("warning", result)
             self.assertEqual(result["commits_behind"], 5)
 
@@ -126,6 +129,7 @@ class TestPlanDivergence(unittest.TestCase):
             self._setup_diverged(td, smm_dir, commits_behind=10)
 
             result = branching.check_plan_divergence(td, smm_dir, threshold=10)
+            assert result is not None
             self.assertIn("merge", result["suggestion"].lower())
             self.assertNotIn("rebase", result["suggestion"].lower())
 

@@ -58,7 +58,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("concern", result)
         self.assertIn("No tests for auth module", result)
 
@@ -71,7 +71,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("decision", result)
         self.assertIn("Use REST API", result)
 
@@ -117,7 +117,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.count("[concern]"), 3)
 
     def test_priority_ordering(self):
@@ -136,7 +136,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         lines = result.strip().split("\n")[1:]  # skip header
         self.assertEqual(len(lines), 3)
         # Concern first, then assumption, then debt (decision dropped)
@@ -166,7 +166,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         lines = result.strip().split("\n")[1:]  # skip header
         self.assertEqual(len(lines), 3)
         # Most recent 3, newest first
@@ -194,7 +194,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         lines = result.strip().split("\n")[1:]
         self.assertEqual(len(lines), 3)
         # Concern beats debt beats decision despite recency
@@ -237,7 +237,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Real problem", result)
 
     def test_test_failure_concern_excluded(self):
@@ -300,7 +300,7 @@ class TestPromptNugget(_HookTestCase):
             {"session_id": "s1", "agent_id": "main"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Commit touches", result)
 
     def test_resolved_debt_excluded(self):

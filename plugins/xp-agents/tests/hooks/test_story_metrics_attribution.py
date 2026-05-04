@@ -290,6 +290,7 @@ class TestCodeFreeFlag(unittest.TestCase):
                 [_s("story-001", "Investigate auth gap", "done", file_domain=[])],
             )
             result = story_metrics.compute_story_analysis(smm_dir, [])
+            assert result is not None
             self.assertTrue(result["per_story"][0]["code_free"])
 
     def test_populated_file_domain_is_not_code_free(self):
@@ -309,6 +310,7 @@ class TestCodeFreeFlag(unittest.TestCase):
                 ],
             )
             result = story_metrics.compute_story_analysis(smm_dir, [])
+            assert result is not None
             self.assertFalse(result["per_story"][0]["code_free"])
 
 
@@ -348,7 +350,7 @@ class TestSprintScopedAttribution(unittest.TestCase):
             ]
 
             result = story_metrics.compute_story_analysis(smm_dir, events)
-            self.assertIsNotNone(result)
+            assert result is not None
             story = result["per_story"][0]
             self.assertEqual(story["commits"], 1)
 
@@ -372,7 +374,7 @@ class TestSprintScopedAttribution(unittest.TestCase):
             ]
 
             result = story_metrics.compute_story_analysis(smm_dir, events)
-            self.assertIsNotNone(result)
+            assert result is not None
             story = result["per_story"][0]
             self.assertEqual(story["commits"], 1)
 
