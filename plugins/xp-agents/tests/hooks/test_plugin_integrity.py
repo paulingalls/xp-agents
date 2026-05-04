@@ -158,6 +158,29 @@ class TestMilestone6Files(unittest.TestCase):
         self.assertIn("working_on", content)
         self.assertIn("references", content)
 
+    def test_process_guide_includes_pillars(self):
+        """PROCESS_GUIDE.md must define all four SMM pillars.
+
+        Scopes the assertion to the `## Pillars` section so the four
+        pillar names can't drift to incidental mentions elsewhere
+        (e.g. the Event Types table column).
+        """
+        content = (self.plugin_root / "PROCESS_GUIDE.md").read_text()
+        pillars_idx = content.find("## Pillars")
+        self.assertNotEqual(pillars_idx, -1, "PROCESS_GUIDE.md missing '## Pillars'")
+        section_end = content.find("\n## ", pillars_idx + 1)
+        section = content[pillars_idx : section_end if section_end != -1 else None]
+        for pillar in ("Intent", "Constraints", "Risks", "Wisdom"):
+            self.assertIn(pillar, section, f"Pillar {pillar!r} not in Pillars section")
+        # Pin the proactive-mindset directive: anchor includes the trigger
+        # phrase ("at plan or sprint start") so a future edit that demotes
+        # the line from a directive to a passive mention still trips the test.
+        self.assertIn(
+            "Read Intent and Risks at plan or sprint start",
+            section,
+            "Pillars section missing proactive-mindset directive",
+        )
+
     def test_skill_directories_exist(self):
         """All skill dirs must exist with SKILL.md."""
         for name in _ALL_SKILL_NAMES:
@@ -178,7 +201,7 @@ class TestMilestone6Files(unittest.TestCase):
             )
             # Extract frontmatter
             match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
-            self.assertIsNotNone(match, f"{name}/SKILL.md frontmatter not closed")
+            assert match is not None, f"{name}/SKILL.md frontmatter not closed"
             fm = match.group(1)
             self.assertIn("name:", fm, f"{name}/SKILL.md missing 'name' field")
             self.assertIn(
@@ -186,7 +209,7 @@ class TestMilestone6Files(unittest.TestCase):
             )
             # Name should match directory
             name_match = re.search(r"name:\s*(\S+)", fm)
-            self.assertIsNotNone(name_match)
+            assert name_match is not None
             self.assertEqual(name_match.group(1), name)
 
     def test_skill_token_budgets(self):
@@ -269,7 +292,7 @@ class TestAgentFilesM65(unittest.TestCase):
             content = (self.agents_dir / f"{name}.md").read_text()
             self.assertTrue(content.startswith("---"), f"{name} missing frontmatter")
             match = re.search(r"^name:\s*(.+)$", content, re.MULTILINE)
-            self.assertIsNotNone(match, f"{name} missing name field")
+            assert match is not None, f"{name} missing name field"
             self.assertEqual(match.group(1).strip(), name)
 
     def test_frontmatter_has_description(self):
@@ -316,7 +339,7 @@ class TestAgentFilesM65(unittest.TestCase):
         skill_file = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
         content = skill_file.read_text()
         match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
-        self.assertIsNotNone(match)
+        assert match is not None
         fm = match.group(1)
         self.assertNotIn("context: fork", fm)
         self.assertNotIn("agent:", fm)
@@ -427,7 +450,7 @@ class TestPluginIntegrity(unittest.TestCase):
         content = skill_file.read_text()
         # Extract frontmatter
         match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
-        self.assertIsNotNone(match)
+        assert match is not None
         fm = match.group(1)
         self.assertIn("Read", fm)
 
