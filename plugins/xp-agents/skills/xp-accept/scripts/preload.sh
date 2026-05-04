@@ -46,9 +46,10 @@ echo ""
 python3 "${SKILL_DIR}/scripts/acceptance_types.py" --sprint-file "${SPRINT_FILE}" || true
 echo ""
 
-# Detect teammate worktrees — emits `story-id: abs-path` per live worktree
-# so the SKILL prose can cd into each story's worktree before running its
-# acceptance command (the unmerged teammate edits live there).
+# Detect teammate worktrees — emits `story-id<TAB>abs-path` per live
+# worktree so the SKILL prose can cd into each story's worktree before
+# running its acceptance command (the unmerged teammate edits live
+# there). Tab-delimited — paths can contain spaces on macOS.
 teammate_wts=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" --smm-dir "${SMM_DIR}" \
     list-teammate-worktree-paths --cwd . 2>/dev/null || true)
 if [ -n "$teammate_wts" ]; then

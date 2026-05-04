@@ -61,6 +61,20 @@ def init_repo(td: str) -> None:
     )
 
 
+def init_repo_in_spaced_parent(parent: str, repo_name: str = "repo") -> str:
+    """Init a fresh git repo under ``<parent>/has space/<repo_name>`` and
+    return its path. Used by tests that need a worktree at a path with a
+    space in it — tempfile.mkdtemp's path never contains spaces, so the
+    space must be injected via a custom subdir layered on top.
+    """
+    spaced = Path(parent) / "has space"
+    spaced.mkdir()
+    repo = spaced / repo_name
+    repo.mkdir()
+    init_repo(str(repo))
+    return str(repo)
+
+
 def get_current_branch(cwd: str) -> str:
     """Return the current branch name (HEAD short ref)."""
     return subprocess.run(

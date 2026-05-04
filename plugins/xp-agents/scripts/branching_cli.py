@@ -88,9 +88,14 @@ def _cmd_extract_story_id(args: argparse.Namespace) -> int:
 
 
 def _cmd_list_teammate_worktree_paths(args: argparse.Namespace) -> int:
-    """Print ``story-id: abs-path`` per live teammate. Empty stdout = none."""
+    """Print ``story-id\\tabs-path`` per live teammate. Empty stdout = none.
+
+    Tab-delimited: worktree paths can contain spaces on macOS
+    (``/Users/foo bar/...``); tab guarantees consumers can split on a
+    single byte that cannot legally appear in either field.
+    """
     for story_id, wt_path in worktree.list_live_teammate_worktree_paths(args.cwd):
-        print(f"{story_id}: {wt_path}")
+        print(f"{story_id}\t{wt_path}")
     return 0
 
 
@@ -106,7 +111,7 @@ def _cmd_find_teammate_worktree(args: argparse.Namespace) -> int:
 
 
 def _cmd_find_closing_teammate_worktree(args: argparse.Namespace) -> int:
-    """Print `<abs-path> <branch>` for the worktree of the just-done story.
+    """Print ``<abs-path>\\t<branch>`` for the worktree of the just-done story.
 
     Implicit-derivation discovery for /xp-story-close: pairs the live
     teammate worktree with its sprint.json story status; prints exactly
@@ -114,6 +119,12 @@ def _cmd_find_closing_teammate_worktree(args: argparse.Namespace) -> int:
     or no teammate finished). Non-zero exit + stderr on multi-match —
     that signals broken /xp-accept iteration; fail loud rather than
     guess which worktree to close.
+
+    Tab-delimited: worktree paths can contain spaces on macOS; the
+    prior space-delimited emit forced bash consumers to lean on the
+    implicit "git refs cannot contain spaces" invariant via
+    ``${var% *}``/``${var##* }``. That invariant happens to hold but is
+    not self-documenting — tab makes the contract explicit.
     """
     try:
         result = worktree.find_closing_teammate_worktree(Path(args.smm_dir), args.cwd)
@@ -122,7 +133,7 @@ def _cmd_find_closing_teammate_worktree(args: argparse.Namespace) -> int:
         return 1
     if result is not None:
         abs_path, branch = result
-        print(f"{abs_path} {branch}")
+        print(f"{abs_path}\t{branch}")
     return 0
 
 
@@ -247,7 +258,7 @@ def main() -> int:
 
     p_ltwp = sub.add_parser(
         "list-teammate-worktree-paths",
-        help="List live teammate worktrees as `story-id: abs-path` rows",
+        help="List live teammate worktrees as `story-id<TAB>abs-path` rows",
     )
     p_ltwp.add_argument("--cwd", required=True)
     p_ltwp.set_defaults(func=_cmd_list_teammate_worktree_paths)
@@ -262,7 +273,7 @@ def main() -> int:
 
     p_fctw = sub.add_parser(
         "find-closing-teammate-worktree",
-        help="Print `<abs-path> <branch>` for the worktree of the just-done story",
+        help="Print `<abs-path><TAB><branch>` for the worktree of the just-done story",
     )
     p_fctw.add_argument("--cwd", required=True)
     p_fctw.set_defaults(func=_cmd_find_closing_teammate_worktree)
