@@ -16,6 +16,11 @@ from conftest import (
     make_event,
     write_smm_fixture,
 )
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_QUESTION,
+)
 
 _PRELOAD_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -172,7 +177,7 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
 
     def test_shows_triage_debts(self):
         """Unresolved debt events appear under Open Debts."""
-        events = [make_event("debt", content="Fix auth module")]
+        events = [make_event(EVENT_TYPE_DEBT, content="Fix auth module")]
         self._seed_events(events)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -181,7 +186,7 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
 
     def test_shows_triage_concerns(self):
         """Unresolved concern events appear under Open Concerns."""
-        events = [make_event("concern", content="Security gap")]
+        events = [make_event(EVENT_TYPE_CONCERN, content="Security gap")]
         self._seed_events(events)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -190,7 +195,7 @@ class TestWorkSelectionPreload(_IntegrationTestCase):
 
     def test_shows_triage_questions(self):
         """Unresolved question events appear under Open Questions."""
-        events = [make_event("question", content="Use REST?")]
+        events = [make_event(EVENT_TYPE_QUESTION, content="Use REST?")]
         self._seed_events(events)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
