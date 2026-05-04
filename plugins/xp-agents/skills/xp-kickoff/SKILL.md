@@ -83,7 +83,7 @@ Then proceed to Step 2.5.
 
 ## Step 2.5: Auto-create free branch on protected (free sessions only)
 
-If the user chose **free session** AND the branching stage is `>= 1` AND the current branch is a protected branch (`main` or `master`), create and check out a fresh free branch so the session never commits directly to a protected branch.
+If the user chose **free session** AND the branching stage is `>= 2` (the plugin floor — Stage 1 auto-promotes to 2 inside `branching.py stage`) AND the current branch is a protected branch (`main` or `master`), create and check out a fresh free branch so the session never commits directly to a protected branch.
 
 Read the stage:
 ```bash
