@@ -54,7 +54,7 @@ class TestParseResultEvent(unittest.TestCase):
         import teammate_output_filter
 
         result = teammate_output_filter.parse_result_event(_MOCK_LINES)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertAlmostEqual(result["total_cost_usd"], 0.32)
         self.assertEqual(result["duration_ms"], 192000)
         self.assertEqual(result["num_turns"], 45)
@@ -74,7 +74,7 @@ class TestParseResultEvent(unittest.TestCase):
 
         lines = ["not json", "{bad", _RESULT_LINE]
         result = teammate_output_filter.parse_result_event(lines)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_handles_empty_input(self):
         """Returns None for empty input."""

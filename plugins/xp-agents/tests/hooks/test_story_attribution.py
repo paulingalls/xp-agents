@@ -16,6 +16,7 @@ import _common
 import bash_post_tool
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _s, _sprint_json
+from event_schema import EVENT_TYPE_COMMIT
 
 
 class TestResolveStoryId(_HookTestCase):
@@ -178,7 +179,7 @@ class TestResolveStoryId(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commit_ev = [e for e in events if e.get("type") == "commit"]
+        commit_ev = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(commit_ev), 1)
         self.assertEqual(commit_ev[0]["metadata"]["story_id"], "story-003")
 
@@ -193,7 +194,7 @@ class TestResolveStoryId(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commit_ev = [e for e in events if e.get("type") == "commit"]
+        commit_ev = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(commit_ev), 1)
         self.assertNotIn("story_id", commit_ev[0]["metadata"])
 

@@ -105,13 +105,24 @@ PRODUCT_SPEC = """\
 class TestPrepareReviewData(_HookTestCase):
     """M11: prepare_review_data reads sprint + execution_plan, computes velocity."""
 
-    def test_basic_velocity(self):
-        """2 done, 1 deferred, 1 ready -> planned=4, delivered=2, carried=1."""
+    def _run_with(self, sprint_text: str) -> dict:
+        """Write sprint.json, run prepare_review_data, return non-None result.
+
+        Centralizes the Optional-narrowing assert that pyright basic mode
+        requires after Optional-returning calls — negative tests
+        (test_no_sprint_returns_none, test_malformed_sprint_returns_none,
+        test_atomic_write_uses_target_path) opt out and call directly.
+        """
         import prepare_review_data
 
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
+        (self.smm_dir / "sprint.json").write_text(sprint_text)
         result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        assert result is not None
+        return result
+
+    def test_basic_velocity(self):
+        """2 done, 1 deferred, 1 ready -> planned=4, delivered=2, carried=1."""
+        result = self._run_with(SPRINT_MIXED)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 4)
         self.assertEqual(vel["stories_delivered"], 2)
@@ -119,11 +130,7 @@ class TestPrepareReviewData(_HookTestCase):
 
     def test_review_input_structure(self):
         """Output dict has structured keys + paths, not embedded content."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_MIXED)
         expected = (
             "sprint_id",
             "goal",
@@ -147,11 +154,7 @@ class TestPrepareReviewData(_HookTestCase):
 
     def test_all_done_velocity(self):
         """3/3 done -> planned=3, delivered=3, carried=0."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_ALL_DONE)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 3)
         self.assertEqual(vel["stories_delivered"], 3)
@@ -159,11 +162,7 @@ class TestPrepareReviewData(_HookTestCase):
 
     def test_all_deferred_velocity(self):
         """0/2 delivered, 2/2 carried."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DEFERRED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_ALL_DEFERRED)
         vel = result["velocity"]
         self.assertEqual(vel["stories_planned"], 2)
         self.assertEqual(vel["stories_delivered"], 0)
@@ -188,78 +187,48 @@ class TestPrepareReviewData(_HookTestCase):
 
     def test_sprint_id_in_output(self):
         """sprint_id matches what's in sprint.json."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
+        result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["sprint_id"], "sprint-001")
 
     def test_goal_in_output(self):
         """goal matches sprint heading."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
+        result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["goal"], "Build auth system")
 
     def test_execution_plan_path_set(self):
         """execution_plan.json exists -> execution_plan_md_path is non-empty."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         (self.smm_dir / "execution_plan.json").write_text("{}")
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_MIXED)
         path = result["execution_plan_md_path"]
         self.assertTrue(path)
         self.assertTrue(Path(path).is_file())
 
     def test_missing_execution_plan_empty_path(self):
         """No execution_plan.json -> execution_plan_md_path=''."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["execution_plan_md_path"], "")
 
     def test_execution_plan_symlink_empty_path(self):
         """execution_plan.json is symlink -> execution_plan_md_path=''."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
         target = self.smm_dir / "_fake_target.json"
         target.write_text("{}")
         (self.smm_dir / "execution_plan.json").symlink_to(target)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["execution_plan_md_path"], "")
 
     def test_milestone_populated_from_sprint(self):
         """Sprint with Milestone header -> milestone key populated."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_WITH_MILESTONE)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_WITH_MILESTONE)
         self.assertEqual(result["milestone"], "Milestone 1: Auth Foundation")
 
     def test_milestone_empty_when_not_in_sprint(self):
         """Sprint without Milestone header -> milestone is ''."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["milestone"], "")
 
     def test_execution_plan_md_path_key_always_present(self):
         """execution_plan_md_path always present as key in output."""
-        import prepare_review_data
-
-        (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED)
-        result = prepare_review_data.run(self.smm_dir, self.smm_dir / f"{_SRI}json")
-        self.assertIsNotNone(result)
+        result = self._run_with(SPRINT_MIXED)
         self.assertIn("execution_plan_md_path", result)
 
 

@@ -334,7 +334,7 @@ class TestSaveRetroStampsTryIds(unittest.TestCase):
             (smm_dir / "events.jsonl").write_text("")
             (smm_dir / "retrospectives").mkdir()
             result = save_retrospective.run(kft, smm_dir=smm_dir)
-            self.assertIsNotNone(result)
+            assert result is not None
 
             retro = json.loads(Path(result["retro_file"]).read_text())
             for item in retro["try"]:
@@ -356,7 +356,7 @@ class TestSaveRetroStampsTryIds(unittest.TestCase):
             (smm_dir / "events.jsonl").write_text("")
             (smm_dir / "retrospectives").mkdir()
             result = save_retrospective.run(kft, smm_dir=smm_dir)
-            self.assertIsNotNone(result)
+            assert result is not None
 
             retro = json.loads(Path(result["retro_file"]).read_text())
             self.assertEqual(retro["try"][0]["id"], "existing00001")

@@ -69,6 +69,7 @@ class TestCreatePlanBranch(unittest.TestCase):
                 branching.create_plan_branch(td, "redesign", smm_dir)
 
             plan = execution_plan_store.load_plan(smm_dir)
+            assert plan is not None
             self.assertEqual(plan["branch"], "paul/plan-redesign")
 
     def test_resume_re_records_branch_into_plan(self):
@@ -91,6 +92,7 @@ class TestCreatePlanBranch(unittest.TestCase):
             _write_system_context(smm_dir, stage=2)
             _seed_plan(smm_dir)
             plan = execution_plan_store.load_plan(smm_dir)
+            assert plan is not None
             plan["branch"] = "preexisting/value"
             execution_plan_store.save_plan(smm_dir, plan, enforce_budget=False)
 
@@ -99,6 +101,7 @@ class TestCreatePlanBranch(unittest.TestCase):
 
             self.assertEqual(result, "paul/plan-redesign")
             plan = execution_plan_store.load_plan(smm_dir)
+            assert plan is not None
             self.assertEqual(plan["branch"], "paul/plan-redesign")
 
     def test_resume_records_branch_when_plan_branch_was_null(self):
@@ -119,6 +122,7 @@ class TestCreatePlanBranch(unittest.TestCase):
                 branching.create_plan_branch(td, "redesign", smm_dir)
 
             plan = execution_plan_store.load_plan(smm_dir)
+            assert plan is not None
             self.assertEqual(plan["branch"], "paul/plan-redesign")
 
     def test_dirty_tree_exits(self):
@@ -339,6 +343,7 @@ class TestPlanFreeCLI(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("test/plan-redesign", r.stdout)
             plan = execution_plan_store.load_plan(smm_dir)
+            assert plan is not None
             self.assertEqual(plan["branch"], "test/plan-redesign")
 
     def test_create_free_cli(self):
