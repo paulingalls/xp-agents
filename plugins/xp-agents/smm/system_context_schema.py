@@ -8,7 +8,7 @@ Follows the same pattern as execution_plan_schema.py: hand-rolled validator,
 no external jsonschema dependency, stdlib-only.
 """
 
-from smm_schema import EVENT_ID_RE
+from smm_schema import EVENT_ID_RE, is_iso8601
 
 SYSTEM_CONTEXT_FILENAME = "system_context.json"
 
@@ -28,6 +28,10 @@ CONVENTION_MAXLENGTH: int = 150
 BRANCHING_STRATEGY_FIELD_MAXLENGTH: dict[str, int] = {
     "rationale": 300,
     "user_namespace": 50,
+    # None = never dismissed; ISO 8601 string = dismissed at that time.
+    # ISO 8601 with offset is ~32 chars; 50 leaves headroom for fractional
+    # seconds + future format variants without re-bumping the budget.
+    "stage_prompt_dismissed_at": 50,
 }
 
 _BRANCHING_STRATEGY_REQUIRED = frozenset({"stage"})
@@ -242,6 +246,28 @@ def _validate_branching_strategy(
                 errors.append(
                     f"branching_strategy.rationale exceeds budget"
                     f" ({len(bs['rationale'])} > {max_len} chars)"
+                )
+
+    if "stage_prompt_dismissed_at" in bs:
+        val = bs["stage_prompt_dismissed_at"]
+        if val is not None and not isinstance(val, str):
+            errors.append(
+                "branching_strategy.stage_prompt_dismissed_at must be a string or null"
+            )
+        elif isinstance(val, str):
+            if enforce_budget:
+                max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH[
+                    "stage_prompt_dismissed_at"
+                ]
+                if len(val) > max_len:
+                    errors.append(
+                        f"branching_strategy.stage_prompt_dismissed_at exceeds"
+                        f" budget ({len(val)} > {max_len} chars)"
+                    )
+            if not is_iso8601(val):
+                errors.append(
+                    "branching_strategy.stage_prompt_dismissed_at must be"
+                    " an ISO 8601 timestamp string"
                 )
 
     return errors
