@@ -20,11 +20,13 @@ import commits
 import worktree
 from duplicate_debt_probe import STOPWORDS
 from event_schema import (
+    METADATA_KEY_CLOSE_CYCLE_ID,
     METADATA_KEY_CLOSE_MODE,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_IN_SPRINT_BATCH,
     SELECTION_REASON_KEYWORD,
     SELECTION_REASON_RECENCY,
     STATUS_CONTENT_RESOLVES_PROBE,
@@ -69,12 +71,44 @@ def _is_recent(event_ts: str, now_ts: str) -> bool:
     return event_date >= cutoff
 
 
-def _close_mode(candidate: dict) -> str | None:
-    """Return candidate's close_mode value (sprint/plan/free) or None."""
-    metadata = candidate.get("metadata") or {}
+def _metadata_field(event: dict, key: str) -> str | None:
+    """Read event.metadata[key]; None when missing or metadata is not a dict.
+
+    Centralized accessor so every metadata-key reader doesn't repeat the
+    `event.get("metadata") or {} → isinstance guard → .get(key) or None`
+    shape. Coerces empty-string to None so callers can use `if value:`
+    truthiness without re-handling the empty case.
+    """
+    metadata = event.get("metadata") or {}
     if not isinstance(metadata, dict):
         return None
-    return metadata.get(METADATA_KEY_CLOSE_MODE) or None
+    return metadata.get(key) or None
+
+
+def _find_active_cycle_id(events: list[dict], now_ts: str) -> str | None:
+    """Return the close_cycle_id of the most-recent recent concern carrying one.
+
+    The "active cycle" is the close-reviewer batch the current commit is
+    plausibly working through. Defined as the close_cycle_id of the
+    newest concern within _RECENCY_DAYS of now_ts that has the metadata
+    key set. Returns None when no such concern exists — keeps the new
+    in-sprint-batch axis dormant outside live close cycles.
+    """
+    newest_ts = ""
+    newest_cycle: str | None = None
+    for e in events:
+        if e.get("type") != "concern":
+            continue
+        cycle = _metadata_field(e, METADATA_KEY_CLOSE_CYCLE_ID)
+        if not cycle:
+            continue
+        ts = e.get("ts") or ""
+        if not _is_recent(ts, now_ts):
+            continue
+        if ts > newest_ts:
+            newest_ts = ts
+            newest_cycle = cycle
+    return newest_cycle
 
 
 def _ts_sort_key(candidate: dict) -> float:
@@ -94,19 +128,28 @@ def _score_candidate(
     commit_file_set: set[str],
     cwd: str,
     now_ts: str,
+    *,
+    active_cycle_id: str | None = None,
 ) -> tuple[int, list[str]]:
     """Rank score + the signals that contributed.
 
     Returns `(score, reasons)`. Reasons are emitted in deterministic order
-    (keyword, file_overlap, recency, close_mode) so test assertions can
-    pin shape. A signal contributes a reason iff it contributed non-zero
-    score — score and reasons are built in lockstep so they cannot drift.
+    (keyword, file_overlap, recency, close_mode, in_sprint_batch) so test
+    assertions can pin shape. A signal contributes a reason iff it
+    contributed non-zero score — score and reasons are built in lockstep
+    so they cannot drift.
 
     haystack_keywords and commit_file_set are pre-computed once per commit by
     the caller — _score_candidate runs per candidate. commit_file_set members
     are normalized via worktree.normalize_path; candidate files are normalized
     here to match (mirrors commits.open_issues_matching_commit's intersection
     semantics so abs/rel/./ path forms all match).
+
+    active_cycle_id (optional) is the close-reviewer cycle the current commit
+    plausibly belongs to (computed once per probe by find_probe_candidates).
+    Candidates carrying the same metadata.close_cycle_id score +1 and emit
+    SELECTION_REASON_IN_SPRINT_BATCH — closes the divert gap where in-batch
+    siblings had no file/keyword tie to the fix commit.
     """
     reasons: list[str] = []
 
@@ -139,11 +182,19 @@ def _score_candidate(
     if recency:
         reasons.append(SELECTION_REASON_RECENCY)
 
-    provenance = 1 if _close_mode(candidate) else 0
+    provenance = 1 if _metadata_field(candidate, METADATA_KEY_CLOSE_MODE) else 0
     if provenance:
         reasons.append(SELECTION_REASON_CLOSE_MODE)
 
-    return keyword_score + file_overlap + recency + provenance, reasons
+    candidate_cycle = _metadata_field(candidate, METADATA_KEY_CLOSE_CYCLE_ID)
+    in_sprint_batch = 1 if active_cycle_id and candidate_cycle == active_cycle_id else 0
+    if in_sprint_batch:
+        reasons.append(SELECTION_REASON_IN_SPRINT_BATCH)
+
+    return (
+        keyword_score + file_overlap + recency + provenance + in_sprint_batch,
+        reasons,
+    )
 
 
 def changed_files(cwd: str) -> list[str]:
@@ -169,17 +220,50 @@ def find_probe_candidates(
     commit_message: str = "",
     now_ts: str | None = None,
 ) -> list[dict]:
-    """Open concerns/debts with file overlap, ranked by score, capped.
+    """Open concerns/debts with file overlap OR in-sprint-batch tie, ranked.
 
     Score combines keyword match (commit_message + file basenames vs concern
-    content), file overlap, recency, and close-review provenance. Sorts by
-    score descending, ts descending as tiebreak.
+    content), file overlap, recency, close-review provenance, and an
+    in-sprint-batch axis (sibling concerns from the same active close-reviewer
+    cycle, surfaced even without file/keyword overlap to close the
+    probe-divert gap). Sorts by score descending, ts descending as tiebreak.
     """
+    if not commit_files:
+        return []
+    # Load events once so both the file-match and in-cycle-sibling lookups
+    # share the same snapshot — also lets us derive active_cycle_id without
+    # a second disk read.
+    if events is None:
+        events, resolutions = _common.load_events_with_resolutions(smm_dir)
+    elif resolutions is None:
+        import resolution
+
+        resolutions = resolution.compute_resolutions(events)
+
+    resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
+    active_cycle_id = _find_active_cycle_id(events, resolved_now)
+
     open_matches = commits.open_issues_matching_commit(
         smm_dir, commit_files, cwd, events=events, resolutions=resolutions
     )
-    unresolved = [c for c in open_matches if c["id"] not in resolves]
-    resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
+    matched_ids = {c["id"] for c in open_matches}
+    sibling_matches: list[dict] = []
+    if active_cycle_id:
+        resolved_set = (
+            resolutions["resolved_concern_ids"] | resolutions["resolved_debt_ids"]
+        )
+        for e in events:
+            if e.get("type") not in ("concern", "debt"):
+                continue
+            eid = e.get("id")
+            if eid in resolved_set or eid in matched_ids:
+                continue
+            if _metadata_field(e, METADATA_KEY_CLOSE_CYCLE_ID) == active_cycle_id:
+                sibling_matches.append(e)
+
+    unresolved = [
+        c for c in (open_matches + sibling_matches) if c["id"] not in resolves
+    ]
     haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
     haystack_keywords = _extract_keywords(" ".join(haystack_parts))
     commit_file_set: set[str] = set()
@@ -191,7 +275,12 @@ def find_probe_candidates(
     scored = []
     for c in unresolved:
         score, reasons = _score_candidate(
-            c, haystack_keywords, commit_file_set, cwd, resolved_now
+            c,
+            haystack_keywords,
+            commit_file_set,
+            cwd,
+            resolved_now,
+            active_cycle_id=active_cycle_id,
         )
         scored.append((score, reasons, c))
     scored.sort(key=lambda triple: (-triple[0], -_ts_sort_key(triple[2])))
@@ -219,7 +308,7 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
         # "unknown" is a display-only sentinel — never round-tripped to validation
         severity = c.get("severity") or "unknown"
         tag = f"[{etype}|{severity}|{c['id']}]"
-        mode = _close_mode(c)
+        mode = _metadata_field(c, METADATA_KEY_CLOSE_MODE)
         suffix = f" (from {mode}-close-reviewer)" if mode else ""
         items.append(f"- {tag}: {content}{suffix}")
     ids = ", ".join(c["id"] for c in candidates)

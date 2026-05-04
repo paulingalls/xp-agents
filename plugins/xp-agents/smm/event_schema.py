@@ -163,6 +163,7 @@ METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
+METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
 
 # Per-candidate selector signals attached by resolves_probe._score_candidate
 # and persisted on probe status events so retro_metrics can attribute
@@ -183,6 +184,11 @@ SELECTION_REASON_KEYWORD = "keyword"
 SELECTION_REASON_FILE_OVERLAP = "file_overlap"
 SELECTION_REASON_RECENCY = "recency"
 SELECTION_REASON_CLOSE_MODE = "close_mode"
+# 5th axis (sprint-058): siblings from the same close-reviewer batch as a
+# recent close event surface even without keyword/file overlap. Closes the
+# probe-divert gap where in-batch siblings were missed because they had no
+# file or keyword tie to the current commit.
+SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
 
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,

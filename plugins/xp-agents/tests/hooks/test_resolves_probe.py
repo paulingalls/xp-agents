@@ -20,6 +20,7 @@ from event_schema import (
     METADATA_KEY_PROBE_SELECTION_REASONS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_IN_SPRINT_BATCH,
     SELECTION_REASON_KEYWORD,
     SELECTION_REASON_RECENCY,
     STATUS_CONTENT_RESOLVES_PROBE,
@@ -206,7 +207,15 @@ class _ScoringHelpers:
         base.update(kwargs)
         return base
 
-    def _score(self, candidate, *, commit_message="", commit_files=None, now_ts=None):
+    def _score(
+        self,
+        candidate,
+        *,
+        commit_message="",
+        commit_files=None,
+        now_ts=None,
+        active_cycle_id=None,
+    ):
         """Convenience: compute haystack/file_set as find_probe_candidates does.
 
         Mirrors the production code path: commit_file_set is built via
@@ -221,11 +230,18 @@ class _ScoringHelpers:
             commit_message=commit_message,
             commit_files=commit_files,
             now_ts=now_ts,
+            active_cycle_id=active_cycle_id,
         )
         return score
 
     def _score_with_reasons(
-        self, candidate, *, commit_message="", commit_files=None, now_ts=None
+        self,
+        candidate,
+        *,
+        commit_message="",
+        commit_files=None,
+        now_ts=None,
+        active_cycle_id=None,
     ):
         commit_files = commit_files or []
         haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
@@ -233,7 +249,12 @@ class _ScoringHelpers:
         cwd = "/"
         commit_file_set = {worktree.normalize_path(f, cwd) for f in commit_files}
         return resolves_probe._score_candidate(
-            candidate, haystack_keywords, commit_file_set, cwd, now_ts or self.NOW
+            candidate,
+            haystack_keywords,
+            commit_file_set,
+            cwd,
+            now_ts or self.NOW,
+            active_cycle_id=active_cycle_id,
         )
 
 
@@ -381,10 +402,13 @@ class TestSelectionReasons(_ScoringHelpers, unittest.TestCase):
             content="auth middleware leaks tokens",
             files=["scripts/auth.py"],
             ts=self.RECENT_TS,
-            metadata={"close_mode": "sprint"},
+            metadata={"close_mode": "sprint", "close_cycle_id": "abc123def456"},
         )
         _, reasons = self._score_with_reasons(
-            cand, commit_message="fix auth bug", commit_files=["scripts/auth.py"]
+            cand,
+            commit_message="fix auth bug",
+            commit_files=["scripts/auth.py"],
+            active_cycle_id="abc123def456",
         )
         self.assertEqual(
             reasons,
@@ -393,8 +417,234 @@ class TestSelectionReasons(_ScoringHelpers, unittest.TestCase):
                 SELECTION_REASON_FILE_OVERLAP,
                 SELECTION_REASON_RECENCY,
                 SELECTION_REASON_CLOSE_MODE,
+                SELECTION_REASON_IN_SPRINT_BATCH,
             ],
         )
+
+
+class TestInSprintBatchAxis(_ScoringHelpers, unittest.TestCase):
+    """5th axis: candidates from the active close-reviewer cycle score even
+    without keyword/file/recency overlap. Closes the probe-divert gap where
+    in-batch siblings were missed because they had no other tie to the
+    current commit."""
+
+    CYCLE = "abc123def456"
+
+    def test_matching_close_cycle_id_adds_one(self):
+        cand = self._candidate(
+            content="zzz", files=[], metadata={"close_cycle_id": self.CYCLE}
+        )
+        in_batch = self._score(cand, active_cycle_id=self.CYCLE)
+        out_of_batch = self._score(cand, active_cycle_id="otherrrr01234")
+        self.assertEqual(in_batch - out_of_batch, 1)
+
+    def test_matching_close_cycle_id_emits_reason(self):
+        cand = self._candidate(
+            content="zzz", files=[], metadata={"close_cycle_id": self.CYCLE}
+        )
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertIn(SELECTION_REASON_IN_SPRINT_BATCH, reasons)
+
+    def test_different_close_cycle_id_does_not_fire(self):
+        cand = self._candidate(
+            content="zzz", files=[], metadata={"close_cycle_id": "different01234"}
+        )
+        score, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertEqual(score, 0)
+        self.assertNotIn(SELECTION_REASON_IN_SPRINT_BATCH, reasons)
+
+    def test_no_active_cycle_does_not_fire(self):
+        cand = self._candidate(
+            content="zzz", files=[], metadata={"close_cycle_id": self.CYCLE}
+        )
+        score, reasons = self._score_with_reasons(cand, active_cycle_id=None)
+        self.assertEqual(score, 0)
+        self.assertNotIn(SELECTION_REASON_IN_SPRINT_BATCH, reasons)
+
+    def test_candidate_without_close_cycle_id_does_not_fire(self):
+        cand = self._candidate(content="zzz", files=[], metadata={})
+        score, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertEqual(score, 0)
+        self.assertNotIn(SELECTION_REASON_IN_SPRINT_BATCH, reasons)
+
+    def test_axis_is_additive_with_existing_axes(self):
+        """In-cycle candidate that ALSO matches keyword/file/recency keeps
+        every existing axis contribution and adds +1 for the new one."""
+        cand = self._candidate(
+            content="auth middleware leaks tokens",
+            files=["scripts/auth.py"],
+            ts=self.RECENT_TS,
+            metadata={"close_mode": "sprint", "close_cycle_id": self.CYCLE},
+        )
+        with_axis = self._score(
+            cand,
+            commit_message="fix auth bug",
+            commit_files=["scripts/auth.py"],
+            active_cycle_id=self.CYCLE,
+        )
+        without_axis = self._score(
+            cand,
+            commit_message="fix auth bug",
+            commit_files=["scripts/auth.py"],
+            active_cycle_id=None,
+        )
+        self.assertEqual(with_axis - without_axis, 1)
+
+
+class TestFindActiveCycleId(unittest.TestCase):
+    """_find_active_cycle_id picks the most-recent recent concern's
+    close_cycle_id from events.jsonl context."""
+
+    NOW = "2026-04-29T00:00:00+00:00"
+    RECENT = "2026-04-27T00:00:00+00:00"
+    OLDER_RECENT = "2026-04-25T00:00:00+00:00"
+    STALE = "2026-04-01T00:00:00+00:00"  # outside 5-day recency window
+
+    def test_returns_most_recent_close_cycle_id(self):
+        events = [
+            {
+                "type": "concern",
+                "ts": self.OLDER_RECENT,
+                "metadata": {"close_cycle_id": "older0001cyc"},
+            },
+            {
+                "type": "concern",
+                "ts": self.RECENT,
+                "metadata": {"close_cycle_id": "newest01cyc1"},
+            },
+        ]
+        self.assertEqual(
+            resolves_probe._find_active_cycle_id(events, self.NOW),
+            "newest01cyc1",
+        )
+
+    def test_ignores_stale_concerns_outside_recency_window(self):
+        events = [
+            {
+                "type": "concern",
+                "ts": self.STALE,
+                "metadata": {"close_cycle_id": "stale001cyc1"},
+            },
+        ]
+        self.assertIsNone(resolves_probe._find_active_cycle_id(events, self.NOW))
+
+    def test_ignores_concerns_without_close_cycle_id(self):
+        events = [
+            {"type": "concern", "ts": self.RECENT, "metadata": {}},
+            {"type": "concern", "ts": self.RECENT},
+        ]
+        self.assertIsNone(resolves_probe._find_active_cycle_id(events, self.NOW))
+
+    def test_ignores_non_concern_events(self):
+        events = [
+            {
+                "type": "status",
+                "ts": self.RECENT,
+                "metadata": {"close_cycle_id": "shouldskip00"},
+            },
+        ]
+        self.assertIsNone(resolves_probe._find_active_cycle_id(events, self.NOW))
+
+    def test_empty_events_returns_none(self):
+        self.assertIsNone(resolves_probe._find_active_cycle_id([], self.NOW))
+
+
+class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
+    """find_probe_candidates surfaces in-cycle siblings even when they have
+    no file/keyword overlap with the staged commit (the divert-gap case)."""
+
+    NOW = "2026-04-29T00:00:00+00:00"
+    RECENT = "2026-04-27T00:00:00+00:00"
+    CYCLE_ACTIVE = "active01cycle"
+    CYCLE_OTHER = "other001cycle"
+
+    def _seed_concern(
+        self,
+        content: str,
+        files: list[str],
+        cycle_id: str | None,
+        ts: str = RECENT,
+    ) -> str:
+        metadata = {}
+        if cycle_id is not None:
+            metadata = {"close_cycle_id": cycle_id, "close_mode": "sprint"}
+        c = make_event(
+            "concern", content=content, files=files, ts=ts, metadata=metadata
+        )
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def test_sibling_without_file_overlap_surfaces_via_axis(self):
+        # Active cycle established by a concern that ALSO has file overlap
+        # with the commit (so the active cycle is detected; this concern
+        # itself is excluded by the resolves filter below).
+        anchor = self._seed_concern(
+            "anchor concern", ["scripts/auth.py"], self.CYCLE_ACTIVE
+        )
+        # Sibling: same cycle, totally different file, no keyword overlap
+        sibling = self._seed_concern(
+            "completely unrelated text", ["docs/unrelated.md"], self.CYCLE_ACTIVE
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [anchor],
+            cwd=str(self.smm_dir),
+            commit_message="fix auth",
+            now_ts=self.NOW,
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(sibling, ids)
+        sib = next(c for c in result if c["id"] == sibling)
+        self.assertIn(SELECTION_REASON_IN_SPRINT_BATCH, sib["selection_reasons"])
+
+    def test_only_in_cycle_sibling_surfaces_among_three(self):
+        """E2E AC: 3 close-cycle siblings (1 in-cycle, 2 out-of-cycle) and
+        none have file/keyword overlap with the commit. Only the 1 in-cycle
+        appears via the new axis."""
+        # Anchor: triggers active-cycle detection AND provides the file overlap
+        # the existing pipeline needs to start producing candidates.
+        anchor = self._seed_concern("anchor", ["scripts/auth.py"], self.CYCLE_ACTIVE)
+        in_cycle = self._seed_concern("sibling A", ["docs/a.md"], self.CYCLE_ACTIVE)
+        out_b = self._seed_concern("sibling B", ["docs/b.md"], self.CYCLE_OTHER)
+        out_c = self._seed_concern("sibling C", ["docs/c.md"], self.CYCLE_OTHER)
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [anchor],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(in_cycle, ids)
+        self.assertNotIn(out_b, ids)
+        self.assertNotIn(out_c, ids)
+
+    def test_no_active_cycle_when_only_stale_close_concerns(self):
+        # All close-cycle concerns are outside the recency window → no
+        # active cycle → axis fires nowhere → only the file-matching
+        # concern surfaces (via existing pipeline).
+        old = "2026-04-01T00:00:00+00:00"  # 28 days ago
+        file_match = self._seed_concern(
+            "file match", ["scripts/auth.py"], cycle_id=None, ts=self.RECENT
+        )
+        stale_anchor = self._seed_concern(
+            "stale anchor", ["docs/x.md"], self.CYCLE_ACTIVE, ts=old
+        )
+        stale_sibling = self._seed_concern(
+            "stale sibling", ["docs/y.md"], self.CYCLE_ACTIVE, ts=old
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(file_match, ids)
+        self.assertNotIn(stale_anchor, ids)
+        self.assertNotIn(stale_sibling, ids)
 
 
 class TestSelectionReasonVocabularyCap(unittest.TestCase):
@@ -402,7 +652,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
     payload size bounded and force deliberate review when adding a new
     selector signal.
 
-    Adding a 5th constant requires:
+    Adding a 6th constant requires:
       1. Updating _score_candidate to emit it (in deterministic order)
       2. Bumping this expected count
       3. Reviewing the divert-narrative payload size impact (each probe
@@ -411,7 +661,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
          strings per probe event).
     """
 
-    def test_exactly_four_selection_reason_constants(self):
+    def test_exactly_five_selection_reason_constants(self):
         # Substring match catches both public (SELECTION_REASON_*) and
         # private (_SELECTION_REASON_*) — a private constant still grows
         # the divert payload, so it counts toward the cap.
@@ -423,6 +673,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
                 "SELECTION_REASON_FILE_OVERLAP",
                 "SELECTION_REASON_RECENCY",
                 "SELECTION_REASON_CLOSE_MODE",
+                "SELECTION_REASON_IN_SPRINT_BATCH",
             },
             "Selector-signal vocabulary changed — see this test's docstring "
             "for the deliberate-review checklist before updating the expected set.",
