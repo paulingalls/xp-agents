@@ -16,6 +16,13 @@ sys.path.insert(
 
 import triage_preload
 from conftest import _SMMTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestFormatTriageSection(unittest.TestCase):
@@ -23,7 +30,7 @@ class TestFormatTriageSection(unittest.TestCase):
 
     def test_formats_with_aging(self):
         item = make_event(
-            "debt",
+            EVENT_TYPE_DEBT,
             content="Fix auth",
             ts="2026-01-01T00:00:00+00:00",
         )
@@ -41,7 +48,7 @@ class TestFormatTriageSection(unittest.TestCase):
 
     def test_singular_session(self):
         item = make_event(
-            "debt",
+            EVENT_TYPE_DEBT,
             content="Fix it",
             ts="2026-01-01T00:00:00+00:00",
         )
@@ -57,7 +64,7 @@ class TestFormatTriageSection(unittest.TestCase):
 
     def test_zero_age(self):
         item = make_event(
-            "debt",
+            EVENT_TYPE_DEBT,
             content="Fresh",
             ts="2026-04-01T00:00:00+00:00",
         )
@@ -69,9 +76,9 @@ class TestRun(_SMMTestCase):
     """run() produces complete triage output from events."""
 
     def test_outputs_all_three_sections(self):
-        d = make_event("debt", content="A debt item")
-        c = make_event("concern", content="A concern item")
-        q = make_event("question", content="A question item")
+        d = make_event(EVENT_TYPE_DEBT, content="A debt item")
+        c = make_event(EVENT_TYPE_CONCERN, content="A concern item")
+        q = make_event(EVENT_TYPE_QUESTION, content="A question item")
         self._write_events([d, c, q])
 
         output = triage_preload.run(self.smm_dir)
@@ -80,9 +87,9 @@ class TestRun(_SMMTestCase):
         self.assertIn("### Open Questions:", output)
 
     def test_excludes_resolved_events(self):
-        d = make_event("debt", content="Resolved debt")
+        d = make_event(EVENT_TYPE_DEBT, content="Resolved debt")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             metadata={"resolves": [d["id"]]},
         )
@@ -96,7 +103,7 @@ class TestRun(_SMMTestCase):
         self.assertEqual(output, "")
 
     def test_omits_empty_sections(self):
-        d = make_event("debt", content="Only debt")
+        d = make_event(EVENT_TYPE_DEBT, content="Only debt")
         self._write_events([d])
 
         output = triage_preload.run(self.smm_dir)
@@ -105,7 +112,7 @@ class TestRun(_SMMTestCase):
         self.assertNotIn("### Open Questions:", output)
 
     def test_includes_event_ids(self):
-        d = make_event("debt", content="Track me")
+        d = make_event(EVENT_TYPE_DEBT, content="Track me")
         self._write_events([d])
 
         output = triage_preload.run(self.smm_dir)
@@ -117,13 +124,13 @@ class TestFormatWithOverlap(unittest.TestCase):
 
     def test_annotated_concern_shows_likely_addressed(self):
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Auth bug",
             files=["scripts/auth.py"],
             ts="2026-01-01T00:00:00+00:00",
         )
         commit = make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Fix token leak in auth",
             files=["scripts/auth.py"],
             ts="2026-01-02T00:00:00+00:00",
@@ -137,7 +144,7 @@ class TestFormatWithOverlap(unittest.TestCase):
 
     def test_no_annotation_without_overlap(self):
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Auth bug",
             ts="2026-01-01T00:00:00+00:00",
         )
@@ -150,13 +157,13 @@ class TestRunWithOverlap(_SMMTestCase):
 
     def test_concern_with_overlap_annotated(self):
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Auth validation bug",
             files=["scripts/auth.py"],
             ts="2026-01-01T00:00:00+00:00",
         )
         commit = make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Fix auth validation",
             files=["scripts/auth.py"],
             ts="2026-01-02T00:00:00+00:00",

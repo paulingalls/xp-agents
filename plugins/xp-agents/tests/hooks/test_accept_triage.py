@@ -17,6 +17,7 @@ sys.path.insert(
 
 import concern_triage
 from conftest import make_event
+from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN
 
 
 class TestFindConcernsForStory(unittest.TestCase):
@@ -24,7 +25,7 @@ class TestFindConcernsForStory(unittest.TestCase):
 
     def test_finds_overlapping_concern(self):
         concern = make_event(
-            "concern", content="Bug in auth", files=["scripts/auth.py"]
+            EVENT_TYPE_CONCERN, content="Bug in auth", files=["scripts/auth.py"]
         )
         story = {"id": "story-001", "file_domain": ["scripts/auth.py"]}
         result = concern_triage.find_concerns_for_story(story, [concern])
@@ -32,19 +33,25 @@ class TestFindConcernsForStory(unittest.TestCase):
         self.assertEqual(result[0]["id"], concern["id"])
 
     def test_excludes_non_overlapping(self):
-        concern = make_event("concern", content="Bug in db", files=["scripts/db.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Bug in db", files=["scripts/db.py"]
+        )
         story = {"id": "story-001", "file_domain": ["scripts/auth.py"]}
         result = concern_triage.find_concerns_for_story(story, [concern])
         self.assertEqual(len(result), 0)
 
     def test_story_without_file_domain(self):
-        concern = make_event("concern", content="Bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Bug", files=["scripts/auth.py"]
+        )
         story = {"id": "story-001"}
         result = concern_triage.find_concerns_for_story(story, [concern])
         self.assertEqual(len(result), 0)
 
     def test_file_domain_with_em_dash_description(self):
-        concern = make_event("concern", content="Bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Bug", files=["scripts/auth.py"]
+        )
         story = {
             "id": "story-001",
             "file_domain": ["scripts/auth.py — authentication module"],
@@ -58,7 +65,7 @@ class TestFormatConcernTriage(unittest.TestCase):
 
     def test_formats_concern_with_id_and_files(self):
         concern = make_event(
-            "concern", content="Bug in auth", files=["scripts/auth.py"]
+            EVENT_TYPE_CONCERN, content="Bug in auth", files=["scripts/auth.py"]
         )
         result = concern_triage.format_concern_triage("story-001", [concern], [])
         self.assertIn("### Concerns for story-001", result)
@@ -71,9 +78,11 @@ class TestFormatConcernTriage(unittest.TestCase):
 
     def test_likely_addressed_annotation(self):
         concern = make_event(
-            "concern", content="Bug in auth", files=["scripts/auth.py"]
+            EVENT_TYPE_CONCERN, content="Bug in auth", files=["scripts/auth.py"]
         )
-        commit = make_event("commit", content="Fix auth bug", files=["scripts/auth.py"])
+        commit = make_event(
+            EVENT_TYPE_COMMIT, content="Fix auth bug", files=["scripts/auth.py"]
+        )
         commit["ts"] = "2099-01-01T00:00:00Z"
         result = concern_triage.format_concern_triage("story-001", [concern], [commit])
         self.assertIn("LIKELY ADDRESSED", result)
