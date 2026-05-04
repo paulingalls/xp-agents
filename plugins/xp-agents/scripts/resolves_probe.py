@@ -93,6 +93,15 @@ def _find_active_cycle_id(events: list[dict], now_ts: str) -> str | None:
     newest concern within _RECENCY_DAYS of now_ts that has the metadata
     key set. Returns None when no such concern exists — keeps the new
     in-sprint-batch axis dormant outside live close cycles.
+
+    Newest-wins tie-break: with concurrent teammate close cycles, the
+    "active" cycle is whichever wrote most recently. From a fix-commit's
+    perspective in another worktree this is non-deterministic — siblings
+    of an older concurrent cycle drop out of the candidate set when a
+    newer cycle's concern lands. Acceptable today (probe candidates are
+    a hint, not a contract), but if cycle-stickiness becomes load-bearing,
+    scope active_cycle_id to events whose source_branch matches the
+    current branch (close-reviewer concerns carry `metadata.source_branch`).
     """
     newest_ts = ""
     newest_cycle: str | None = None

@@ -25,6 +25,7 @@ from event_schema import (
     DISPOSITION_WONT_FIX,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_QUESTION,
+    METADATA_KEY_CLOSE_CYCLE_ID,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
     STATUS_ACTION_CONCERN_CLASSIFY,
@@ -298,7 +299,7 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
             continue
         if args.category and meta.get("category") != args.category:
             continue
-        if args.cycle_id and meta.get("close_cycle_id") != args.cycle_id:
+        if args.cycle_id and meta.get(METADATA_KEY_CLOSE_CYCLE_ID) != args.cycle_id:
             continue
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
@@ -325,7 +326,7 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         if args.severity and event.get("severity") != args.severity:
             continue
         meta = event.get("metadata", {})
-        if args.cycle_id and meta.get("close_cycle_id") != args.cycle_id:
+        if args.cycle_id and meta.get(METADATA_KEY_CLOSE_CYCLE_ID) != args.cycle_id:
             continue
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue

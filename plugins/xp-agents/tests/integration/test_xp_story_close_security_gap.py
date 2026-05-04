@@ -133,6 +133,60 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
             "removed — replaced by the conditional Step 4.5",
         )
 
+    def test_step_1b_wires_validate_domain(self):
+        # Closes BLOCK b6c1eeac62c1: story-003 commit-message claimed
+        # xp-story-close calls validate-domain but no skill actually
+        # invoked it. Pin the wiring so a future edit can't silently
+        # drop it again.
+        self.assertIn(
+            "validate-domain",
+            self.body,
+            "xp-story-close SKILL.md must invoke sprint_cli.py validate-domain "
+            "(closes BLOCK b6c1eeac62c1: story-003 commit message claimed a "
+            "caller that didn't exist)",
+        )
+        self.assertRegex(
+            self.body,
+            r"sprint_cli\.py[\s\S]{0,120}?validate-domain[\s\S]{0,120}?--base",
+            "validate-domain invocation must pass --base (the sprint base "
+            "the diff is computed against)",
+        )
+        # --cwd ${TEAMMATE_CWD:-.} is critical: validate-domain runs git
+        # diff, so when /xp-accept dispatches story-close for a teammate
+        # the diff MUST run in the teammate's worktree (not the
+        # orchestrator's). Pin the same pattern used by Steps 1/2/3/4.5.
+        self.assertRegex(
+            self.body,
+            r"validate-domain[\s\S]{0,200}?--cwd\s+\$\{TEAMMATE_CWD:-\.\}",
+            "validate-domain must pass --cwd ${TEAMMATE_CWD:-.} so the "
+            "git diff runs in the teammate's worktree (matches Steps "
+            "1/2/3/4.5 cwd-routing pattern)",
+        )
+
+    def test_step_4_5_gate_uses_literal_match_protocol(self):
+        # Closes concern 325e52f58f60: prior version set bash STEP_4_5_APPLIES
+        # var with no shown mechanism for the LLM to read it across steps.
+        # The gate must print one of two literal strings the LLM can match
+        # verbatim ("STEP_4_5: APPLIES" / "STEP_4_5: SKIP").
+        self.assertIn(
+            "STEP_4_5: APPLIES",
+            self.body,
+            "Step 4.5 gate must emit literal 'STEP_4_5: APPLIES' for the "
+            "LLM to match — prior STEP_4_5_APPLIES bash var was unreadable "
+            "across LLM tool-call steps",
+        )
+        self.assertIn(
+            "STEP_4_5: SKIP",
+            self.body,
+            "Step 4.5 gate must emit literal 'STEP_4_5: SKIP' for the SKIP path",
+        )
+        self.assertNotIn(
+            "STEP_4_5_APPLIES=1",
+            self.body,
+            "Old bash-var protocol must be removed — replaced by stdout "
+            "literal-match protocol",
+        )
+
     def test_step_4_5_section_appears_with_conditional_marker(self):
         # The Step 4.5 section in story-close must be marked as conditional
         # — a future reader skimming the headings should see immediately
