@@ -292,19 +292,19 @@ class TestSessionEnd(_HookTestCase):
         import session_end
 
         prior_goal = make_event(
-            "goal",
+            EVENT_TYPE_GOAL,
             content="Prior session goal",
             ts="2026-03-12T08:00:00+00:00",
             agent_id="xp-kickoff",
         )
         prior_end = make_event(
-            "session_end",
+            EVENT_TYPE_SESSION_END,
             ts="2026-03-12T09:00:00+00:00",
             content="Session ended: prior",
             metadata={"resolves": [prior_goal["id"]]},
         )
         current_goal = make_event(
-            "goal",
+            EVENT_TYPE_GOAL,
             content="Current session goal",
             ts="2026-03-12T10:00:00+00:00",
             agent_id="xp-kickoff",
