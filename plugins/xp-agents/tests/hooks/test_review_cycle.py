@@ -68,7 +68,7 @@ class TestReviewCycleDone(_HookTestCase):
 
     def test_security_review_returns_continuation_nudge(self):
         """/security-review completion returns continuation context so orchestrated
-        callers (xp-accept Tier 2, close-skill Tier 3) can proceed past the skill's
+        callers (close-skill Step 4.5 gate) can proceed past the skill's
         'reply with markdown report only' stop-instruction.
         """
         result = review_cycle_done.run(
