@@ -14,9 +14,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _close_fixtures import _quality_meta, _security_meta
 from conftest import _SMMTestCase, make_event, run_cli, write_events
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
+
+# Distinct 12-hex cycle ids used by the realistic close-cycle fixture
+# tests below — keeps them visually distinguishable when scanning the
+# fixtures and matches the module-constant pattern in the e2e suite.
+_CYCLE_SOLO = "ccccddddeeee"
+_CYCLE_A = "aaaa00001111"
+_CYCLE_B = "bbbb22223333"
 
 
 def _concern(severity: str, **kwargs) -> dict:
@@ -152,6 +160,76 @@ class TestCountConcerns(_SMMTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "2")
+
+    def test_realistic_close_cycle_fixture_with_kind_security_and_quality(
+        self,
+    ) -> None:
+        # Realistic shape regression guard for the sprint-055 class of
+        # bug (concern 0825da9526de): close-reviewer's quality blocks
+        # carry the full close_mode/source_branch/target_branch/
+        # close_cycle_id metadata block, while Step 4.5 security blocks
+        # carry kind=security alongside close_cycle_id. The Step 6
+        # count-concerns query must include BOTH under one cycle-id —
+        # `kind` is not a filter, only severity + close_cycle_id are.
+        cycle = _CYCLE_SOLO
+        write_events(
+            self.events_file,
+            [
+                _concern("high", metadata=_quality_meta(cycle)),  # quality #1
+                _concern("high", metadata=_quality_meta(cycle)),  # quality #2
+                _concern("high", metadata=_security_meta(cycle)),  # kind=security
+                _concern("medium", metadata=_security_meta(cycle)),  # medium: skipped
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", cycle],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "3",
+            "count must include both kind=security AND quality blocks "
+            "(no `kind`) when scoped to a single close_cycle_id",
+        )
+
+    def test_realistic_two_concurrent_cycles_isolated_by_cycle_id(self) -> None:
+        # Two concurrent close-cycles in the same events.jsonl (e.g. two
+        # teammate worktrees both running close skills against the
+        # shared SMM). Filtering by cycle A must exclude every cycle B
+        # event regardless of severity, kind, source/target branch, or
+        # event ordering.
+        write_events(
+            self.events_file,
+            [
+                _concern("high", metadata=_quality_meta(_CYCLE_A)),
+                _concern("high", metadata=_security_meta(_CYCLE_A)),
+                # Cycle B noise — same severity, same kind shapes — must NOT leak.
+                _concern(
+                    "high",
+                    metadata=_quality_meta(
+                        _CYCLE_B, close_mode="free", source_branch="free-branch"
+                    ),
+                ),
+                _concern("high", metadata=_security_meta(_CYCLE_B, close_mode="free")),
+                _concern("high", metadata=_security_meta(_CYCLE_B, close_mode="free")),
+            ],
+        )
+        result_a = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", _CYCLE_A],
+            self.smm_dir,
+        )
+        result_b = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", _CYCLE_B],
+            self.smm_dir,
+        )
+        self.assertEqual(result_a.returncode, 0, result_a.stderr)
+        self.assertEqual(result_b.returncode, 0, result_b.stderr)
+        self.assertEqual(result_a.stdout.strip(), "2")
+        self.assertEqual(result_b.stdout.strip(), "3")
 
     def test_skips_malformed_lines(self) -> None:
         # parse_jsonl handles bad lines — pin contract at the CLI boundary.
