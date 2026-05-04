@@ -41,6 +41,7 @@ import event_schema
 import post_tool_exit_plan
 import post_tool_use
 import review_cycle_done
+import smm_cli
 import subagent_stop
 from _bases import _PLUGIN_ROOT
 from _commit_helpers import patch_commits
@@ -188,6 +189,24 @@ def _drive_review_cycle(skill: str) -> Driver:
     return _runner
 
 
+def _drive_question_close(smm_dir: Path) -> list[dict]:
+    # Seed an open question, then drive smm_cli's _cmd_question_close
+    # in-process via a constructed argparse.Namespace (mirrors how the
+    # CLI dispatch invokes it).
+    import argparse
+
+    q = make_event("question", content="aging question?")
+    _common.append_safe(smm_dir, q)
+    smm_cli._cmd_question_close(
+        argparse.Namespace(
+            smm_dir=smm_dir,
+            event_id=q["id"],
+            rationale="smoke",
+        )
+    )
+    return _events(smm_dir)
+
+
 def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     # iteration_complete fires only when .accept exists and the sprint has
     # no in-progress stories — otherwise save_sprint treats this as a
@@ -227,6 +246,7 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_ASSIGN_COMPLETE": _drive_review_cycle("xp-assign"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
+    "STATUS_ACTION_QUESTION_CLOSE": _drive_question_close,
 }
 
 

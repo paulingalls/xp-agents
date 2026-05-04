@@ -103,6 +103,171 @@ class TestSmmCliHelp(_SMMTestCase):
         self.assertIn("Examples:", result.stdout)
 
 
+class TestQuestionCloseWontFix(_SMMTestCase):
+    """`question close --won-fix` appends a status event resolving the question.
+
+    Mirrors the disposition pattern used by work_selection_decide.py for
+    triage actions, so existing question-aging tooling treats the new
+    metadata combination as terminal without further changes.
+    """
+
+    def _append_event(self, event: dict) -> None:
+        events_file = self.smm_dir / "events.jsonl"
+        with events_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+
+    def _append_question(self, content: str = "Some open question?") -> str:
+        event = make_event("question", content=content)
+        self._append_event(event)
+        return event["id"]
+
+    def _read_events(self) -> list[dict]:
+        import _common
+
+        return _common.read_events_raw(self.smm_dir)
+
+    def test_won_fix_appends_status_event_with_correct_metadata(self):
+        qid = self._append_question()
+        result = run_cli(
+            _CLI,
+            [
+                "question",
+                "close",
+                "--won-fix",
+                "--event-id",
+                qid,
+                "--rationale",
+                "No longer relevant to current direction",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status_events = [e for e in self._read_events() if e.get("type") == "status"]
+        self.assertEqual(len(status_events), 1)
+        meta = status_events[0].get("metadata", {})
+        self.assertEqual(meta.get("action"), "question_close")
+        self.assertEqual(meta.get("disposition"), "wont_fix")
+        self.assertEqual(meta.get("resolves"), [qid])
+
+    def test_nonexistent_event_id_returns_nonzero_with_stderr(self):
+        result = run_cli(
+            _CLI,
+            [
+                "question",
+                "close",
+                "--won-fix",
+                "--event-id",
+                "deadbeef0000",
+                "--rationale",
+                "test",
+            ],
+            self.smm_dir,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not found", result.stderr.lower())
+
+    def test_already_resolved_question_is_noop(self):
+        qid = self._append_question()
+        first = run_cli(
+            _CLI,
+            [
+                "question",
+                "close",
+                "--won-fix",
+                "--event-id",
+                qid,
+                "--rationale",
+                "first close",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        events_after_first = self._read_events()
+
+        second = run_cli(
+            _CLI,
+            [
+                "question",
+                "close",
+                "--won-fix",
+                "--event-id",
+                qid,
+                "--rationale",
+                "second attempt",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(second.returncode, 0, second.stderr)
+        events_after_second = self._read_events()
+
+        # No additional resolving event was appended.
+        resolving = [
+            e
+            for e in events_after_second
+            if e.get("metadata", {}).get("resolves") == [qid]
+        ]
+        self.assertEqual(len(resolving), 1)
+        # Total event count unchanged — events.jsonl uncorrupted.
+        self.assertEqual(len(events_after_second), len(events_after_first))
+
+    def test_non_question_event_id_rejected(self):
+        # Pointing the closer at a status event (not a question) must error
+        # with a type-mismatch message rather than silently appending a bogus
+        # resolution. Covers the type-check guard in _cmd_question_close.
+        status = make_event("status", content="not a question", working_on=[])
+        self._append_event(status)
+        result = run_cli(
+            _CLI,
+            [
+                "question",
+                "close",
+                "--won-fix",
+                "--event-id",
+                status["id"],
+                "--rationale",
+                "should fail",
+            ],
+            self.smm_dir,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("question", result.stderr.lower())
+
+    def test_e2e_aged_question_with_rationale(self):
+        qid = self._append_question(content="Should we adopt approach X?")
+        # Age the question with 3 unrelated events.
+        for i in range(3):
+            self._append_event(
+                make_event("status", content=f"unrelated event {i}", working_on=[])
+            )
+
+        rationale = "Stale — superseded by recent direction"
+        result = run_cli(
+            _CLI,
+            [
+                "question",
+                "close",
+                "--won-fix",
+                "--event-id",
+                qid,
+                "--rationale",
+                rationale,
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        close_events = [
+            e
+            for e in self._read_events()
+            if e.get("type") == "status"
+            and e.get("metadata", {}).get("disposition") == "wont_fix"
+        ]
+        self.assertEqual(len(close_events), 1)
+        close = close_events[0]
+        self.assertEqual(close["metadata"]["resolves"], [qid])
+        self.assertEqual(close["metadata"]["action"], "question_close")
+        self.assertIn(rationale, close.get("content", ""))
+
+
 class TestRiskIdRendering(_SMMTestCase):
     """Risk entries should render with [id] suffix for discoverability."""
 

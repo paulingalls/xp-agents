@@ -10,17 +10,25 @@ Also provides extract_pillar / extract_pillars for subsetting
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import _common
+import identity
 import marker_names
 import smm_store
 from append_validation import parse_jsonl
 from event_schema import (
+    DISPOSITION_WONT_FIX,
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_QUESTION,
+    METADATA_KEY_DISPOSITION,
+    METADATA_KEY_RESOLVES,
     STATUS_ACTION_CONCERN_CLASSIFY,
+    STATUS_ACTION_QUESTION_CLOSE,
     VALID_SEVERITIES,
 )
 from smm_schema import PILLAR_RISKS, PILLARS
@@ -164,6 +172,52 @@ def _cmd_update_item(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_question_close(args: argparse.Namespace) -> int:
+    """Close a question with --won-fix disposition.
+
+    Appends a status event with metadata.action='question_close',
+    metadata.disposition='wont_fix', metadata.resolves=[Q]. Mirrors the
+    triage disposition shape in work_selection_decide.py so existing
+    aging tooling treats this as terminal via metadata.resolves alone.
+
+    No-op (without corrupting events.jsonl) when the question is already
+    resolved by a prior answer or close — prints a notice and exits 0.
+    """
+    try:
+        full_id, event = smm_store.lookup_event(args.smm_dir, args.event_id)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if event.get("type") != EVENT_TYPE_QUESTION:
+        print(
+            f"Error: event {full_id} is type {event.get('type')!r}, "
+            f"not {EVENT_TYPE_QUESTION!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    _, resolutions = _common.load_events_with_resolutions(args.smm_dir)
+    if full_id in resolutions["answered_question_ids"]:
+        print(f"Question {full_id} already resolved — no-op")
+        return 0
+
+    agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
+    status = _common.make_event(
+        "status",
+        agent_id,
+        f"Closed question {full_id[:8]} as won't-fix: {args.rationale}",
+        working_on=[],
+        metadata={
+            "action": STATUS_ACTION_QUESTION_CLOSE,
+            METADATA_KEY_DISPOSITION: DISPOSITION_WONT_FIX,
+            METADATA_KEY_RESOLVES: [full_id],
+        },
+    )
+    _common.append_safe(args.smm_dir, status)
     return 0
 
 
@@ -446,6 +500,27 @@ def main() -> None:
         help="Target pillar (default: derived from event type)",
     )
 
+    # `question close --won-fix` — terminal disposition for aging questions
+    # that won't be answered. Status event with metadata.resolves=[Q]
+    # already trips question-aging tooling; --won-fix is the explicit
+    # signal for retros.
+    q_p = sub.add_parser("question", help="Question subcommands")
+    q_sub = q_p.add_subparsers(dest="question_action", required=True)
+    q_close = q_sub.add_parser("close", help="Close a question")
+    q_close.add_argument(
+        "--won-fix",
+        dest="won_fix",
+        action="store_true",
+        required=True,
+        help="Close as won't-fix (the only supported disposition today)",
+    )
+    q_close.add_argument(
+        "--event-id", required=True, help="Question event UUID or prefix"
+    )
+    q_close.add_argument(
+        "--rationale", required=True, help="One-line rationale for closing"
+    )
+
     args = parser.parse_args()
 
     dispatch = {
@@ -461,6 +536,7 @@ def main() -> None:
         "count-classifications": _cmd_count_classifications,
         "count-concerns": _cmd_count_concerns,
         "promote-event": _cmd_promote_event,
+        "question": _cmd_question_close,
     }
 
     sys.exit(dispatch[args.command](args))

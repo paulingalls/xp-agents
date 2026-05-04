@@ -131,6 +131,12 @@ STATUS_ACTION_PLAN_EXITED = "plan_exited"
 #   metadata.concern_id  — the 12-hex ID of the concern being classified.
 STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 
+# Question-close (won't-fix) discriminator. Producer: smm_cli question close
+# --won-fix. Consumer: question-aging tooling, which already treats this
+# metadata combination (action=question_close + disposition=wont_fix +
+# resolves=[Q]) as a terminal disposition via metadata.resolves alone.
+STATUS_ACTION_QUESTION_CLOSE = "question_close"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
@@ -190,6 +196,10 @@ SELECTION_REASON_CLOSE_MODE = "close_mode"
 DISPOSITION_ADOPTED = "adopted"
 DISPOSITION_DEFERRED = "deferred"
 DISPOSITION_DROPPED = "dropped"
+# question close --won-fix disposition. Paired with
+# STATUS_ACTION_QUESTION_CLOSE on a status event resolving a question id
+# via metadata.resolves.
+DISPOSITION_WONT_FIX = "wont_fix"
 
 # Pre-commit probe status event contracts.
 # Resolves-trailer probe (resolves_probe.emit_probe_status):
