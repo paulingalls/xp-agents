@@ -4,11 +4,21 @@ Re-exported from conftest. Import from `conftest` (canonical) or directly
 from this module (also fine).
 """
 
+import json
 import secrets
 from collections.abc import Sequence
 from pathlib import Path
 
 from event_schema import STATUS_ACTION_FILE_WRITE, STATUS_ACTION_TEST_RUN_COMPLETE
+
+
+def write_events(events_file: Path, events: list[dict]) -> None:
+    """Write events as JSONL — one event per line, trailing newline.
+
+    Mirrors append.sh's on-disk shape: each line is a complete JSON
+    object, terminated by `\n`. No header, no trailing comma.
+    """
+    events_file.write_text("".join(json.dumps(e) + "\n" for e in events))
 
 
 def make_event(event_type: str = "customer_input", **kwargs) -> dict:

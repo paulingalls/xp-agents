@@ -68,7 +68,7 @@ class TestReviewCycleDone(_HookTestCase):
 
     def test_security_review_returns_continuation_nudge(self):
         """/security-review completion returns continuation context so orchestrated
-        callers (xp-accept Tier 2, close-skill Tier 3) can proceed past the skill's
+        callers (close-skill Step 4.5 gate) can proceed past the skill's
         'reply with markdown report only' stop-instruction.
         """
         result = review_cycle_done.run(
@@ -78,11 +78,10 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertIn("orchestrated", result.lower())
 
     def test_security_review_for_xp_agent_emits_event_and_returns_nudge(self):
-        """xp-* subagents invoking /security-review (e.g. xp-close-reviewer for
-        Tier 3 close) MUST receive both the SECURITY_COMPLETE event and the
-        continuation nudge — the recursion-prevention skip excludes
-        /security-review because the close-reviewer is the primary intended
-        caller.
+        """xp-* subagents invoking /security-review MUST receive both the
+        SECURITY_COMPLETE event and the continuation nudge — the
+        recursion-prevention skip excludes /security-review because the
+        orchestrated close-skill flow needs both signals to proceed.
         """
         input_data = _make_skill_input(
             "security-review", agent_type="xp-close-reviewer"

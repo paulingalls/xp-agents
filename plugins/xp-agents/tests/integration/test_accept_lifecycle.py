@@ -21,6 +21,31 @@ _PROCESS_GUIDE = _PLUGIN_ROOT / "PROCESS_GUIDE.md"
 _LIFECYCLE_STATES = ("ready", "scheduled", "in-progress", "reviewing", "done")
 
 
+class TestAcceptHasNoTier2(unittest.TestCase):
+    """xp-accept must not contain Tier 2 security-review prose.
+
+    M-8 sprint-055 / story-004: Tier 2 security review migrated out of
+    /xp-accept Step 1c into the close skills' Step 4.5 (free/sprint/plan).
+    The cumulative coverage for a story now lands at /xp-sprint-close,
+    not at /xp-accept time. Pin the absence so the migrated prose can
+    never silently re-emerge.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_no_tier_2_or_step_1c_or_security_review_references(self):
+        for needle in ("Tier 2", "Step 1c", "security-review"):
+            with self.subTest(needle=needle):
+                self.assertNotIn(
+                    needle,
+                    self.text,
+                    f"xp-accept/SKILL.md must not reference {needle!r} "
+                    "(Tier 2 migrated to close-skill Step 4.5 in M-8)",
+                )
+
+
 class TestAcceptReviewingLifecycle(unittest.TestCase):
     """SKILL.md prose for the per-story promote/demote contract."""
 

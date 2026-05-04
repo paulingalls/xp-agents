@@ -80,16 +80,21 @@ prompt sections — the agent reads them from the prompt.
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nsprint\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nsprint\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Close Cycle ID\n<CLOSE_CYCLE_ID>\n\n## Context\nClosing sprint branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with sprint-mode focus (cross-cutting changes, duplication across stories, API coherence, drift from in-flight constraints). Return Keep / Concern / Block summary."
 )
 ```
+
+## Step 4.5: Apply shared Security Review
+
+Apply the shared `### Step 4.5: Security Review` block above with
+`<close-mode>` → `sprint` and `<close-skill-name>` → `xp-sprint-close`.
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
 The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
 the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4, then continue with Step 7 below.
+steps in order after Step 4.5, then continue with Step 7 below.
 
 **No auto-merge override here.** Sprint-close uses the shared Step 6
 `AskUserQuestion` confirmation as written. Only `/xp-story-close` and

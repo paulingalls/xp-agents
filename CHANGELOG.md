@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.1.0 — security review migration to close skills
+
+Sprint-055 / M-8 ships the security review architecture migration. `/security-review` now fires from main-agent context inside each close skill, not from the misfiring subagent context where the PostToolUse:Skill hook didn't reliably emit `SECURITY_COMPLETE`. Six stories merged into the sprint branch.
+
+### Migrated: `/security-review` now lives at close-skill Step 4.5
+
+The shared close-pipeline reference (`scripts/_close_pipeline_shared.md`) gains a new **Step 4.5: Security Review** block applied by `/xp-{free,sprint,plan}-close` (story-close skips — sprint-close's cumulative diff already covers each story). Each close skill invokes `/security-review` against the cumulative close diff, parses the prose, and files Block findings as `severity=high` concerns and Concern findings as `severity=medium` — both with `metadata.kind=security`, `metadata.close_cycle_id`, and `metadata.close_mode`. The Skill tool runs in main-agent context, so `PostToolUse:Skill` fires correctly and emits `SECURITY_COMPLETE`.
+
+### Deleted: Tier 2 (xp-accept Step 1c) and Tier 3 (xp-close-reviewer Step 3.5)
+
+The xp-accept Step 1c and xp-close-reviewer Step 3.5 paths are removed entirely. `/xp-accept` no longer runs `/security-review` per story (cumulative coverage shifts to the next `/xp-sprint-close`). xp-close-reviewer is now quality-only across all modes — `Skill` dropped from its frontmatter tools list and no Skill invocations remain in the body. `Skill` also dropped from `xp-accept` frontmatter (no Skill invocations remain there either). v3.0.1 + v3.0.2 deterministic Tier-1 patterns at commit time are retained as defense-in-depth.
+
+### Step 6 abort-default uses deterministic event count
+
+The shared Step 6 abort-default flag now derives from `smm_cli.py count-concerns --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>` (new subcommand). Both quality blocks (from xp-close-reviewer) and security blocks (from each close skill's Step 4.5) land at `severity=high`, so a single deterministic count covers both. The prior text-keyword prose-match check is dropped per the canonical-event constraint. `--severity` is constrained by `argparse choices=sorted(VALID_SEVERITIES)` so a typo (e.g. `--severity High`) errors up-front instead of returning a silent zero — a silent zero on a security gate would default the merge confirmation away from "Abort" exactly when it shouldn't. `CLOSE_START_TS` now emitted by all four close-skill preloads (was only in story+free).
+
+### Doctrine sweep
+
+Stale "Tier 2 fires at /xp-accept" / "Tier 3 at close-reviewer" references swept across `PROCESS_GUIDE.md`, `TEAMMATE_GUIDE.md`, `agents/xp-retrospective.md`, `smm/seed_smm.py` (wisdom seed), `scripts/review_cycle_done.py` (`_SECURITY_CONTINUATION_NUDGE` text + comment), `scripts/pre_tool_bash.py` (comment), `skills/xp-story-close/SKILL.md` (security-exclusion addendum reframed away from Step 3.5), and several test docstrings. Reviewer-prompt prose for `/xp-plan-close` lost the obsolete "security posture" focus bullet (it was telling the reviewer to do work the reviewer didn't actually do).
+
+### Schema is additive
+
+New `metadata.kind="security"` on close-skill security concerns and the new `smm_cli count-concerns` subcommand are additive — no event-schema break. Negative-pin tests (`TestAcceptHasNoTier2` in `test_accept_lifecycle.py`, `TestCloseReviewerHasNoTier3` in `test_xp_close_reviewer.py`) pin the migrated prose absent so it cannot silently re-emerge. The reviewer-prompt scope detection in `_close_fixtures.py` uses paren-depth walking (not naive `find(")")`) so a security leak in the Instructions block can't slip past the close-reviewer-prompt-clean test.
+
 ## v3.0.3 — Stage 2 floor + reviewing lifecycle + teammate cwd-drift fix
 
 Sprint-054 / M-7 ships ahead of M-8's v3.1.0 because its content delivers user-facing value independently. Nine stories merged into the sprint branch, plus one chore courage-fix that resolved a silent-failure inversion the close-reviewer caught mid-sprint.

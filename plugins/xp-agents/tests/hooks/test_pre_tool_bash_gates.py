@@ -62,7 +62,8 @@ class TestPreToolBashReviewCycle(_HookTestCase):
 
     def test_below_threshold_passes(self):
         """M-4: below-threshold commits (<3 code files) skip the review-cycle
-        gate entirely. Tier 2/3 cover security at /xp-accept and close."""
+        gate entirely. /security-review covers the cumulative diff at
+        /xp-{free,sprint,plan}-close Step 4.5."""
         with patch(self._CODE_FILES_PATCH, return_value=["a.py"]):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
