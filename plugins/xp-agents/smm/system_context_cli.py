@@ -181,6 +181,71 @@ def _cmd_edit_branching(args: argparse.Namespace) -> int:
     return _cmd_edit_field(args)
 
 
+def _cmd_edit_branching_field(args: argparse.Namespace) -> int:
+    """Set or clear an optional field nested under branching_strategy.
+
+    Mirrors edit-stack-field: top-level edit-field can't reach nested
+    keys, and rewriting the whole branching_strategy via edit-branching
+    would force the caller to re-supply stage and any other already-set
+    fields. This narrow path edits one nested field at a time and lets
+    the schema validator catch typos (unknown field, value too long,
+    wrong type/format).
+
+    Reads the new value from stdin as JSON. Pass ``null`` to clear.
+
+    Side-effect: when the system_context lacks branching_strategy
+    entirely, the CLI seeds it with ``{"stage": 0}`` before applying
+    the edit (mirrors edit-branching). Pre-seeding lets the validator
+    accept the result; the caller can then bump stage explicitly via
+    edit-branching if needed.
+    """
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("No system context found.", file=sys.stderr)
+        return 1
+
+    raw = sys.stdin.read()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON: {exc}", file=sys.stderr)
+        return 1
+
+    bs = data.setdefault("branching_strategy", {"stage": 0})
+    if value is None:
+        bs.pop(args.name, None)
+    else:
+        bs[args.name] = value
+
+    try:
+        store.save_system_context(args.smm_dir, data)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_get_branching_field(args: argparse.Namespace) -> int:
+    """Print the value of a nested branching_strategy field, or empty
+    string if unset. Read-only counterpart to edit-branching-field.
+
+    Exits 0 with empty stdout when system_context.json is missing OR
+    the field is unset — that uniform "absent → empty" signal lets
+    shell callers plug the value into ``KEY=$(...)`` without exit-code
+    branching. Mirrors get-stack-field.
+
+    Used by xp-kickoff Step 2.4 to read stage_prompt_dismissed_at and
+    skip the migration prompt while the dismissal is in effect.
+    """
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("")
+        return 0
+    val = data.get("branching_strategy", {}).get(args.name)
+    print(val if val is not None else "")
+    return 0
+
+
 def _cmd_get_stack_field(args: argparse.Namespace) -> int:
     """Print the value of a nested stack field, or empty string if unset.
 
@@ -218,6 +283,11 @@ def _cmd_edit_stack_field(args: argparse.Namespace) -> int:
     (unknown stack field, value too long, wrong type).
 
     Reads the new value from stdin as JSON. Pass `null` to clear.
+
+    Side-effect: when the system_context lacks stack entirely, the CLI
+    seeds it with ``{"languages": []}`` before applying the edit.
+    Pre-seeding lets the validator accept the result; the caller can
+    populate languages explicitly via edit-field if needed.
     """
     data = store.load_system_context(args.smm_dir)
     if data is None:
@@ -303,6 +373,22 @@ def main() -> None:
     sub.add_parser("add-decision", help="Add key decision from stdin JSON")
     sub.add_parser("add-convention", help="Add convention from stdin JSON")
     sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
+
+    edit_branching_field_p = sub.add_parser(
+        "edit-branching-field",
+        help="Edit a nested branching_strategy field from stdin JSON",
+    )
+    edit_branching_field_p.add_argument(
+        "name", help="Branching strategy field name (e.g. stage_prompt_dismissed_at)"
+    )
+
+    get_branching_field_p = sub.add_parser(
+        "get-branching-field",
+        help="Print a nested branching_strategy field's value (or empty if unset)",
+    )
+    get_branching_field_p.add_argument(
+        "name", help="Branching strategy field name (e.g. stage_prompt_dismissed_at)"
+    )
     sub.add_parser(
         "edit-acceptance-surfaces",
         help="Set acceptance_surfaces from stdin JSON",
@@ -329,6 +415,8 @@ def main() -> None:
         "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-branching": _cmd_edit_branching,
+        "edit-branching-field": _cmd_edit_branching_field,
+        "get-branching-field": _cmd_get_branching_field,
     }
 
     sys.exit(dispatch[args.command](args))

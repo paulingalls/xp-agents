@@ -131,5 +131,74 @@ class TestBranchingStrategyValidation(unittest.TestCase):
         )
 
 
+class TestStagePromptDismissedAt(unittest.TestCase):
+    """Optional ISO timestamp recording when the user dismissed the
+    Stage 2 floor migration prompt at xp-kickoff Step 2.4. Sticky
+    dismissal: when present (non-null) the prompt skips firing on
+    subsequent kickoffs.
+    """
+
+    def test_valid_iso_timestamp_accepted(self) -> None:
+        doc = valid_doc(
+            branching_strategy={
+                "stage": 0,
+                "stage_prompt_dismissed_at": "2026-05-04T17:30:00+00:00",
+            }
+        )
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
+    def test_field_absent_accepted(self) -> None:
+        doc = valid_doc(branching_strategy={"stage": 0})
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
+    def test_field_null_accepted(self) -> None:
+        doc = valid_doc(
+            branching_strategy={"stage": 0, "stage_prompt_dismissed_at": None}
+        )
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
+    def test_non_string_value_rejected(self) -> None:
+        doc = valid_doc(
+            branching_strategy={"stage": 0, "stage_prompt_dismissed_at": 12345}
+        )
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("stage_prompt_dismissed_at" in e for e in errors),
+            f"Expected error naming the field; got: {errors}",
+        )
+
+    def test_over_budget_string_rejected(self) -> None:
+        doc = valid_doc(
+            branching_strategy={
+                "stage": 0,
+                "stage_prompt_dismissed_at": "x" * 100,
+            }
+        )
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any(
+                "stage_prompt_dismissed_at" in e and "budget" in e.lower()
+                for e in errors
+            ),
+            f"Expected over-budget error; got: {errors}",
+        )
+
+    def test_non_iso_string_rejected(self) -> None:
+        doc = valid_doc(
+            branching_strategy={
+                "stage": 0,
+                "stage_prompt_dismissed_at": "not a timestamp",
+            }
+        )
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("stage_prompt_dismissed_at" in e and "ISO" in e for e in errors),
+            f"Expected ISO-format error; got: {errors}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
