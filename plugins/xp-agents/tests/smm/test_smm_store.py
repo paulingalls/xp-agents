@@ -152,7 +152,10 @@ class TestSaveSMM(_StoreTestCase):
     def test_roundtrip_preserves_all_fields(self):
         entry = {
             **_VALID_ENTRY,
-            "type": EVENT_TYPE_GOAL,
+            # Intent pillar "type" is governed by smm_schema.VALID_INTENT_TYPES,
+            # not event_schema.VALID_TYPES. Bare literal is correct;
+            # pin allowlists this file.
+            "type": "goal",
             "source_event_id": "aaabbbcccddd",
         }
         data = _minimal_smm(intent=[entry])
