@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for retro_flags: deterministic threshold evaluation."""
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import retro_flags
+from conftest import _SMMTestCase, make_event, write_events
 
 
 def _healthy_signals():
@@ -333,6 +335,67 @@ class TestDecisionAwareSuppression(unittest.TestCase):
         flags = retro_flags.evaluate_flags(h, w, s, ss, decisions=[])
         names = [f["metric"] for f in flags]
         self.assertIn("max_events_to_commit", names)
+
+
+def _decision(action: str | None = None) -> dict:
+    """Decision event with optional metadata.action."""
+    metadata = {"action": action} if action is not None else {}
+    return make_event("decision", metadata=metadata)
+
+
+class TestHighZeroDecisionRate(unittest.TestCase):
+    def test_fires_when_explicit_zero_rate_above_threshold(self):
+        # 4 explicit_zero out of 5 total = 80% > 50%
+        events = [_decision("explicit_zero")] * 4 + [_decision("substantive")]
+        h, w, s, ss = _healthy_signals()
+        flags = retro_flags.evaluate_flags(h, w, s, ss, events=events)
+        target = [f for f in flags if f["metric"] == "high_zero_decision_rate"]
+        self.assertEqual(len(target), 1)
+        self.assertIn("80%", target[0]["message"])
+
+    def test_no_flag_when_explicit_zero_rate_below_threshold(self):
+        # 1 explicit_zero out of 5 total = 20% < 50%
+        events = [_decision("explicit_zero")] + [_decision("substantive")] * 4
+        h, w, s, ss = _healthy_signals()
+        flags = retro_flags.evaluate_flags(h, w, s, ss, events=events)
+        names = [f["metric"] for f in flags]
+        self.assertNotIn("high_zero_decision_rate", names)
+
+    def test_no_flag_and_no_zero_div_when_no_decisions(self):
+        events = [make_event("status", working_on=[])]
+        h, w, s, ss = _healthy_signals()
+        flags = retro_flags.evaluate_flags(h, w, s, ss, events=events)
+        names = [f["metric"] for f in flags]
+        self.assertNotIn("high_zero_decision_rate", names)
+
+
+class TestHighZeroDecisionRateE2E(_SMMTestCase):
+    def test_three_sprints_of_decisions_via_temp_smm(self):
+        # 3 sprints: 7 explicit_zero + 3 substantive = 70% > 50%.
+        # Round-trips events through events.jsonl in a temp SMM dir to
+        # verify the flag computes correctly on disk-loaded events (not
+        # just in-memory dicts).
+        decisions = []
+        for _ in range(3):
+            decisions.extend(
+                [_decision("explicit_zero")] * 2 + [_decision("substantive")]
+            )
+        decisions.append(_decision("explicit_zero"))
+
+        write_events(self.events_file, decisions)
+        loaded = [
+            json.loads(line)
+            for line in self.events_file.read_text().splitlines()
+            if line.strip()
+        ]
+
+        h, w, s, ss = _healthy_signals()
+        flags = retro_flags.evaluate_flags(h, w, s, ss, events=loaded)
+
+        target = [f for f in flags if f["metric"] == "high_zero_decision_rate"]
+        self.assertEqual(len(target), 1)
+        self.assertIn("70%", target[0]["message"])
+        self.assertIn("7/10", target[0]["message"])
 
 
 if __name__ == "__main__":
