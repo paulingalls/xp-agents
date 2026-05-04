@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
 import execution_plan_store
+from _branching_fixtures import write_system_context
 from _system_context_fixtures import valid_doc
 from conftest import _SMMTestCase
 
@@ -129,51 +130,68 @@ class TestIsProtectedBranch(unittest.TestCase):
 
 
 class TestGetPrimaryBranch(unittest.TestCase):
-    def _write_ctx(self, td: str, ctx: dict) -> Path:
+    def _write_stage_3_ctx(self, td: str, **bs_extras: object) -> Path:
+        """Stage-3 docs need extras (integration_branch) the shared
+        write_system_context fixture doesn't take. write_system_context
+        is the canonical helper for stage-only cases — used directly.
+        """
         p = Path(td)
-        (p / "system_context.json").write_text(json.dumps(ctx))
+        doc = valid_doc(branching_strategy={"stage": 3, **bs_extras})
+        (p / "system_context.json").write_text(json.dumps(doc))
         return p
 
     def test_returns_main_at_stage_1(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_ctx(td, {"branching_strategy": {"stage": 1}})
+            smm = Path(td)
+            write_system_context(smm, stage=1)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_main_at_stage_2(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_ctx(td, {"branching_strategy": {"stage": 2}})
+            smm = Path(td)
+            write_system_context(smm, stage=2)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_integration_branch_at_stage_3(self):
         with tempfile.TemporaryDirectory() as td:
-            ctx = {
-                "branching_strategy": {
-                    "stage": 3,
-                    "integration_branch": "develop",
-                }
-            }
-            smm = self._write_ctx(td, ctx)
+            smm = self._write_stage_3_ctx(td, integration_branch="develop")
             self.assertEqual(branching.get_primary_branch(smm), "develop")
 
     def test_falls_back_to_main_at_stage_3_when_missing(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_ctx(td, {"branching_strategy": {"stage": 3}})
+            smm = self._write_stage_3_ctx(td)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_falls_back_to_main_at_stage_3_when_null(self):
         with tempfile.TemporaryDirectory() as td:
-            ctx = {
-                "branching_strategy": {
-                    "stage": 3,
-                    "integration_branch": None,
-                }
-            }
-            smm = self._write_ctx(td, ctx)
+            smm = self._write_stage_3_ctx(td, integration_branch=None)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_main_when_no_system_context(self):
         with tempfile.TemporaryDirectory() as td:
             self.assertEqual(branching.get_primary_branch(Path(td)), "main")
+
+    def test_at_stage_1_triggers_auto_promote(self):
+        """Routing through get_branching_stage means primary-branch reads
+        also fire the Stage 1 -> 2 auto-promote side-effect — single
+        chokepoint for stage progression.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertEqual(
+                json.loads((smm / "system_context.json").read_text())[
+                    "branching_strategy"
+                ]["stage"],
+                1,
+            )
+            self.assertEqual(branching.get_primary_branch(smm), "main")
+            self.assertEqual(
+                json.loads((smm / "system_context.json").read_text())[
+                    "branching_strategy"
+                ]["stage"],
+                2,
+            )
 
 
 class TestGetMergeTarget(unittest.TestCase):

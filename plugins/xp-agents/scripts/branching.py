@@ -182,10 +182,14 @@ def get_primary_branch(smm_dir: Path) -> str:
     Stage 0-2: always 'main'. Stage 3 reads system_context's
     branching_strategy.integration_branch, defaulting to 'main' when
     missing or null.
+
+    Routes through ``get_branching_stage`` so reads of the primary
+    branch also fire the Stage 1 -> 2 auto-promote side-effect — single
+    chokepoint guarantees stage progression regardless of entry path.
     """
-    bs = _load_branching_strategy(smm_dir)
-    if bs.get("stage", 0) < 3:
+    if get_branching_stage(smm_dir) < 3:
         return _DEFAULT_PRIMARY
+    bs = _load_branching_strategy(smm_dir)
     return bs.get("integration_branch") or _DEFAULT_PRIMARY
 
 
