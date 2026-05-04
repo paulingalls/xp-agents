@@ -25,7 +25,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _close_fixtures import _ClosePreloadCommonTests
+from _close_fixtures import (
+    _ClosePreloadCommonTests,
+    _record_quality_block,
+    _record_security_block,
+)
 from conftest import _IntegrationTestCase, run_cli
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -1029,45 +1033,6 @@ class TestStep6CountConcernsRealisticE2E(_IntegrationTestCase):
     and what the counter filters on.
     """
 
-    def _record_quality_block(
-        self, cycle_id: str, content: str, file_path: str
-    ) -> subprocess.CompletedProcess:
-        metadata = json.dumps(
-            {
-                "close_mode": "sprint",
-                "source_branch": "sprint-058",
-                "target_branch": "main",
-                "close_cycle_id": cycle_id,
-            }
-        )
-        return self._run_append(
-            "--type", "concern",
-            "--agent", "xp-close-reviewer",
-            "--severity", "high",
-            "--content", content,
-            "--files", json.dumps([file_path]),
-            "--metadata", metadata,
-        )  # fmt: skip
-
-    def _record_security_block(
-        self, cycle_id: str, content: str, file_path: str
-    ) -> subprocess.CompletedProcess:
-        metadata = json.dumps(
-            {
-                "kind": "security",
-                "close_cycle_id": cycle_id,
-                "close_mode": "sprint",
-            }
-        )
-        return self._run_append(
-            "--type", "concern",
-            "--agent", "xp-sprint-close",
-            "--severity", "high",
-            "--content", content,
-            "--files", json.dumps([file_path]),
-            "--metadata", metadata,
-        )  # fmt: skip
-
     def _count_high_concerns_for(self, cycle_id: str) -> int:
         result = run_cli(
             _SMM_CLI,
@@ -1084,9 +1049,10 @@ class TestStep6CountConcernsRealisticE2E(_IntegrationTestCase):
             ("Block: foo helper duplicates bar helper", "scripts/foo.py"),
             ("Block: missing test for edge case", "scripts/bar.py"),
         ]:
-            r = self._record_quality_block(_CYCLE_A, content, path)
+            r = _record_quality_block(self, _CYCLE_A, content, path)
             self.assertEqual(r.returncode, 0, r.stderr)
-        r = self._record_security_block(
+        r = _record_security_block(
+            self,
             _CYCLE_A,
             "Security Block: hardcoded credential in fixture",
             "scripts/sec.py",
@@ -1096,22 +1062,14 @@ class TestStep6CountConcernsRealisticE2E(_IntegrationTestCase):
         # Cycle B noise: a medium-severity quality concern (wrong severity
         # for the count) and a status event (wrong type for the count). No
         # high-severity concern under B, so the cycle-B count is zero.
-        noise_metadata = json.dumps(
-            {
-                "close_mode": "sprint",
-                "source_branch": "other-branch",
-                "target_branch": "main",
-                "close_cycle_id": _CYCLE_B,
-            }
+        r = _record_quality_block(
+            self,
+            _CYCLE_B,
+            "Concern: noise from a parallel close",
+            "scripts/noise.py",
+            severity="medium",
+            source_branch="other-branch",
         )
-        r = self._run_append(
-            "--type", "concern",
-            "--agent", "xp-close-reviewer",
-            "--severity", "medium",
-            "--content", "Concern: noise from a parallel close",
-            "--files", json.dumps(["scripts/noise.py"]),
-            "--metadata", noise_metadata,
-        )  # fmt: skip
         self.assertEqual(r.returncode, 0, r.stderr)
         r = self._run_append(
             "--type", "status",
@@ -1161,16 +1119,17 @@ class TestStep6CountConcernsRealisticE2E(_IntegrationTestCase):
             ("Block: cycle A first", "scripts/a1.py"),
             ("Block: cycle A second", "scripts/a2.py"),
         ]:
-            r = self._record_quality_block(_CYCLE_A, content, path)
+            r = _record_quality_block(self, _CYCLE_A, content, path)
             self.assertEqual(r.returncode, 0, r.stderr)
         for content, path in [
             ("Block: cycle B first", "scripts/b1.py"),
             ("Block: cycle B second", "scripts/b2.py"),
             ("Block: cycle B third", "scripts/b3.py"),
         ]:
-            r = self._record_quality_block(_CYCLE_B, content, path)
+            r = _record_quality_block(self, _CYCLE_B, content, path)
             self.assertEqual(r.returncode, 0, r.stderr)
-        r = self._record_security_block(
+        r = _record_security_block(
+            self,
             _CYCLE_B,
             "Security Block: cycle B hardcoded secret",
             "scripts/b_sec.py",

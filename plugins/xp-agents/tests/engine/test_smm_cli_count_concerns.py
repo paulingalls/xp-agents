@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _close_fixtures import _quality_meta, _security_meta
 from conftest import _SMMTestCase, make_event, run_cli, write_events
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
@@ -29,31 +30,6 @@ _CYCLE_B = "bbbb22223333"
 def _concern(severity: str, **kwargs) -> dict:
     """Concern event factory keyed by severity. Other fields kwargs-overridable."""
     return make_event("concern", severity=severity, files=[], **kwargs)
-
-
-def _quality_meta(
-    cycle_id: str,
-    *,
-    close_mode: str = "sprint",
-    source_branch: str = "sprint-058",
-    target_branch: str = "main",
-) -> dict:
-    """xp-close-reviewer quality-block metadata shape (no `kind` field)."""
-    return {
-        "close_mode": close_mode,
-        "source_branch": source_branch,
-        "target_branch": target_branch,
-        "close_cycle_id": cycle_id,
-    }
-
-
-def _security_meta(cycle_id: str, *, close_mode: str = "sprint") -> dict:
-    """Step 4.5 security-block metadata shape (kind=security)."""
-    return {
-        "kind": "security",
-        "close_cycle_id": cycle_id,
-        "close_mode": close_mode,
-    }
 
 
 class TestCountConcerns(_SMMTestCase):
