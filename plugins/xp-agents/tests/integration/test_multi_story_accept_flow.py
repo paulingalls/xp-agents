@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
 import pre_tool_write
+import sprint_state
 from conftest import _IntegrationTestCase, _make_write_input, _s, _sprint_json
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -62,7 +63,12 @@ class TestMultiStoryAcceptFlow(_IntegrationTestCase):
         )
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
 
-        # Step 2 (story-001): pre_tool_write does NOT re-arm .accept
+        # Step 2 (story-001): pre_tool_write does NOT re-arm .accept.
+        # Pin the trigger precondition so the assertion isn't
+        # tautological — without has_in_progress_stories True the
+        # gate's input branch never fires, and "absent before, absent
+        # after" would pass for the wrong reason.
+        self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
         pre_tool_write.run(main_input, smm_dir=self.smm_dir)
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
 
