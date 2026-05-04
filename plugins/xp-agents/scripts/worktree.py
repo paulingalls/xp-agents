@@ -13,6 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import sprint_store
+
 _WORKTREE_PREFIX = "worktree-"
 
 _git_root_cache: dict[str, str | None] = {}
@@ -74,11 +76,17 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
 
 
 def _iter_live_teammate_worktrees(cwd: str):
-    """Yield worktree paths under `.claude/worktrees/worktree-story-*`
-    that are non-prunable and exist on disk.
+    """Yield ``(worktree_path, branch)`` for non-prunable teammate
+    worktrees that exist on disk.
 
-    Shared by has_live_teammates (boolean check) and
-    find_teammate_worktree_for_story (per-story lookup).
+    The porcelain output already carries each worktree's branch; emit
+    both so callers don't have to re-spawn ``git -C <path> rev-parse``
+    per worktree (was N subprocesses per /xp-story-close dispatch).
+
+    Shared by has_live_teammates (boolean check),
+    list_live_teammate_worktree_paths (story-id ⇄ path mapping),
+    find_teammate_worktree_for_story (per-story lookup), and
+    find_closing_teammate_worktree (path + branch lookup).
     """
     try:
         out = subprocess.check_output(
@@ -93,11 +101,15 @@ def _iter_live_teammate_worktrees(cwd: str):
     for block in out.split("\n\n"):
         if "prunable" in block:
             continue
+        wt_path = ""
+        branch = ""
         for line in block.splitlines():
             if line.startswith("worktree ") and wt_marker in line:
                 wt_path = line[len("worktree ") :]
-                if Path(wt_path).is_dir():
-                    yield wt_path
+            elif line.startswith("branch refs/heads/"):
+                branch = line[len("branch refs/heads/") :]
+        if wt_path and Path(wt_path).is_dir():
+            yield wt_path, branch
 
 
 def has_live_teammates(cwd: str) -> bool:
@@ -124,8 +136,46 @@ def list_live_teammate_worktree_paths(cwd: str) -> list[tuple[str, str]]:
     skip = len(_WORKTREE_PREFIX)
     return [
         (Path(wt_path).name[skip:], wt_path)
-        for wt_path in _iter_live_teammate_worktrees(cwd)
+        for wt_path, _branch in _iter_live_teammate_worktrees(cwd)
     ]
+
+
+def find_closing_teammate_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] | None:
+    """Locate the teammate worktree corresponding to the just-done story.
+
+    Returns ``(abs_path, branch)`` for the live teammate worktree whose
+    sprint.json story has ``status == "done"`` — implicit-derivation
+    discovery used by /xp-story-close to know which teammate worktree
+    it's closing without requiring /xp-accept to pass context. Returns
+    ``None`` when no live teammate worktree matches a done story (solo
+    flow, or no teammates running).
+
+    Per /xp-accept's per-story dispatch loop (Step 1.0→2→2b runs per
+    story before moving to the next), at most ONE done-status story
+    can have a live worktree at /xp-story-close dispatch time. Two or
+    more matches signals a broken iteration model — raise ValueError
+    rather than guess which to close.
+    """
+    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        return None
+    stories_by_id = {s["id"]: s for s in sprint.get("stories", [])}
+    skip = len(_WORKTREE_PREFIX)
+    matches: list[tuple[str, str]] = []
+    for wt_path, branch in _iter_live_teammate_worktrees(cwd):
+        story_id = Path(wt_path).name[skip:]
+        story = stories_by_id.get(story_id)
+        if story is None or story.get("status") != "done":
+            continue
+        matches.append((wt_path, branch))
+    if len(matches) > 1:
+        ids = sorted(Path(p).name[skip:] for p, _ in matches)
+        raise ValueError(
+            "multiple done stories with live teammate worktrees "
+            f"({', '.join(ids)}); /xp-accept iteration is expected to "
+            "dispatch /xp-story-close per story, not in batch"
+        )
+    return matches[0] if matches else None
 
 
 def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:
@@ -139,7 +189,7 @@ def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:
     naming convention defined in spawn_teammate.py + identity._TEAMMATE_PREFIX.
     """
     target = f"{_WORKTREE_PREFIX}{story_id}"
-    for wt_path in _iter_live_teammate_worktrees(cwd):
+    for wt_path, _branch in _iter_live_teammate_worktrees(cwd):
         if Path(wt_path).name == target:
             return target
     return None

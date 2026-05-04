@@ -182,8 +182,12 @@ logic almost always made at least one decision worth a slug + sentence.
 
 ### Step 2b.ii: Invoke /xp-story-close
 
-/xp-story-close owns the per-story review + merge + JIT-create-next
-pipeline:
+/xp-story-close auto-discovers teammate worktree state from sprint.json
++ live worktrees (the just-marked-`done` story whose live teammate
+worktree exists). No explicit context-passing from /xp-accept is
+required — both solo and teammate stories close transparently through
+the same dispatch. /xp-story-close owns the per-story review + merge +
+JIT-create-next pipeline:
 
 - Forks `xp-close-reviewer` in story mode (AC alignment, file_domain,
   scope creep, regression risk in unmodified stories)

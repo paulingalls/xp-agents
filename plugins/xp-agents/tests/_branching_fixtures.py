@@ -147,6 +147,42 @@ def write_system_context(smm_dir: Path, stage: int) -> None:
     (smm_dir / "system_context.json").write_text(json.dumps(doc))
 
 
+def seed_sprint_with_stories(smm_dir: Path, stories: "list[tuple[str, str]]") -> None:
+    """Write a minimal sprint.json from ``[(story_id, status), ...]`` pairs.
+
+    Single-source-of-truth fixture — replaces three near-identical
+    helpers (test_worktree.py, test_branching_cli_detection.py,
+    test_story_close.py) that built the same sprint shape with slight
+    naming drift (`_write_sprint` vs `_write_sprint_with_stories`).
+    """
+    story_dicts = [
+        {
+            "id": sid,
+            "title": f"t-{sid}",
+            "status": status,
+            "dependencies": [],
+            "milestone_ref": "",
+            "design_sources": "",
+            "context": "",
+            "file_domain": [],
+            "interface_contracts": [],
+            "acceptance_criteria": [],
+        }
+        for sid, status in stories
+    ]
+    (smm_dir / "sprint.json").write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-001",
+                "goal": "g",
+                "started": "2026-05-04",
+                "milestone": "",
+                "stories": story_dicts,
+            }
+        )
+    )
+
+
 def seed_plan(smm_dir: Path, branch: str | None = None) -> None:
     """Write a minimal valid execution_plan.json. Optionally sets the branch field."""
     plan = {
