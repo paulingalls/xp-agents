@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import markers
 import pre_tool_write
+import sprint_state
 from conftest import (
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
@@ -211,6 +213,40 @@ class TestAcceptMarker(_HookTestCase):
         )
         pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
         self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_no_rearm_when_accept_active_marker_present(self):
+        # The multi-in-progress fix: when xp-accept has set ACCEPT_ACTIVE,
+        # pre_tool_write must NOT re-arm .accept on Edits during the
+        # acceptance session — even if other stories are still
+        # in-progress (which keeps has_in_progress_stories True). Pins
+        # the contract that unblocks teammate sprints.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        # Explicit precondition: the gate only fires when
+        # has_in_progress_stories returns True; pin the fixture's
+        # contract so a future fixture change can't silently make the
+        # test a no-op.
+        self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
+        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "active")
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
+
+    def test_rearm_when_accept_active_absent(self):
+        # Regression-pin existing behavior: with no ACCEPT_ACTIVE marker
+        # the existing re-arm path still fires. Renamed/clarified
+        # variant of test_sets_accept_marker_when_in_progress_stories
+        # — this one explicitly asserts the absence of ACCEPT_ACTIVE
+        # is what allows the re-arm.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT))
 
 
 if __name__ == "__main__":

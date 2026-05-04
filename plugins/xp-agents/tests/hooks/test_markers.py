@@ -273,6 +273,24 @@ class TestMarkerNameConstants(unittest.TestCase):
 
         self.assertEqual(marker_names.NEEDS_SYSTEM_CONTEXT, ".needs-system-context")
 
+    def test_accept_active_exists(self):
+        # Pins the filename across the Python/shell sys.path boundary —
+        # _preload_base.sh's write_marker/consume_marker resolve the
+        # name via getattr, so a typo here breaks the shell wrappers
+        # silently.
+        import marker_names
+
+        self.assertEqual(marker_names.ACCEPT_ACTIVE, ".accept-active")
+
+
+class TestAcceptActiveMarker(unittest.TestCase):
+    """Tests for markers.ACCEPT_ACTIVE MarkerDef descriptor."""
+
+    def test_accept_active_is_text_marker(self):
+        self.assertEqual(markers.ACCEPT_ACTIVE.name, ".accept-active")
+        self.assertEqual(markers.ACCEPT_ACTIVE.content_type, "text")
+        self.assertFalse(markers.ACCEPT_ACTIVE.agent_scoped)
+
 
 if __name__ == "__main__":
     unittest.main()
