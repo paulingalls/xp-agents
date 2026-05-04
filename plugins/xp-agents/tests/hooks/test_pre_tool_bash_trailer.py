@@ -24,6 +24,7 @@ from conftest import (
     _ProbeTestHelpers,
     make_event,
 )
+from event_schema import EVENT_TYPE_CONCERN, METADATA_KEY_PROBE_CANDIDATES
 
 _COMMIT_CMD = "git commit -m 'test'"
 
@@ -57,7 +58,9 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
     """Pre-commit nudge when staged files overlap open concerns."""
 
     def _write_concern(self, content: str, files: list[str]) -> str:
-        event = make_event("concern", content=content, severity="medium", files=files)
+        event = make_event(
+            EVENT_TYPE_CONCERN, content=content, severity="medium", files=files
+        )
         self._write_events([event])
         return event["id"]
 
@@ -160,7 +163,9 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertEqual(len(self._probes()), 1)
-        self.assertEqual(self._probes()[0]["metadata"]["probe_candidates"], [cid])
+        self.assertEqual(
+            self._probes()[0]["metadata"][METADATA_KEY_PROBE_CANDIDATES], [cid]
+        )
 
     @patch("commits.get_staged_files", return_value=["scripts/other.py"])
     @patch("git_commits.is_git_commit", return_value=True)
@@ -254,7 +259,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
         """Both probes fire: resolves block AND story nudge present, story FIRST."""
         mock_load.return_value = _multi_story_sprint()
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="auth bypass risk",
             severity="medium",
             files=["scripts/auth.py"],

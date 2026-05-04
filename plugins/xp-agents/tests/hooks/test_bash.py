@@ -21,7 +21,13 @@ import bash_post_tool
 import commits
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
-from event_schema import STATUS_ACTION_QR_COMPLETE, STATUS_ACTION_TEST_RUN_COMPLETE
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+)
 from test_parsing import PARSER_STATUS_FAILED, PARSER_STATUS_PARSED, PARSER_STATUS_ZERO
 
 
@@ -36,7 +42,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commits_ev = [e for e in events if e.get("type") == "commit"]
+        commits_ev = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(commits_ev), 1)
         self.assertIn("Add auth", commits_ev[0]["content"])
         self.assertEqual(commits_ev[0]["files"], ["a", "b", "c"])
@@ -58,7 +64,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commit_ev = next(e for e in events if e.get("type") == "commit")
+        commit_ev = next(e for e in events if e.get("type") == EVENT_TYPE_COMMIT)
         self.assertEqual(
             commit_ev["metadata"]["resolves"],
             ["4eb35ddcd24e", "a55290ae79b9"],
@@ -76,7 +82,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commit_ev = next(e for e in events if e.get("type") == "commit")
+        commit_ev = next(e for e in events if e.get("type") == EVENT_TYPE_COMMIT)
         self.assertNotIn("resolves", commit_ev["metadata"])
 
     def test_git_commit_strips_co_author_trailer(self):
@@ -92,7 +98,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commits_ev = [e for e in events if e.get("type") == "commit"]
+        commits_ev = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(commits_ev), 1)
         self.assertNotIn("Co-Authored-By", commits_ev[0]["content"])
         self.assertIn("Detailed explanation", commits_ev[0]["content"])
@@ -107,7 +113,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(len(concerns), 0)
 
     def test_git_commit_large_appends_concern(self):
@@ -123,7 +129,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("12 files" in c["content"] for c in concerns))
 
@@ -141,7 +147,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        committed = [e for e in events if e.get("type") == "commit"]
+        committed = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(committed), 1)
         self.assertTrue(committed[0].get("metadata", {}).get("code_commit"))
 
@@ -159,7 +165,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        committed = [e for e in events if e.get("type") == "commit"]
+        committed = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(committed), 1)
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
 
@@ -182,7 +188,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        committed = [e for e in events if e.get("type") == "commit"]
+        committed = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(committed), 1)
         self.assertEqual(
             committed[0].get("metadata", {}).get("sprint_id"),
@@ -198,7 +204,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
         self.assertTrue(any("5 passed" in s["content"] for s in statuses))
 
@@ -211,7 +217,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("fail" in c["content"].lower() for c in concerns))
 
@@ -221,7 +227,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
 
     def test_jest_fail(self):
@@ -233,7 +239,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(concerns) >= 1)
 
     def test_go_test_pass(self):
@@ -245,7 +251,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
 
     def test_go_test_fail(self):
@@ -257,7 +263,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(concerns) >= 1)
 
     def test_non_git_non_test_ignored(self):
@@ -332,7 +338,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         _common.append_safe(
             self.smm_dir,
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Quality review complete. No issues.",
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
@@ -347,7 +353,9 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
 
     def test_commit_no_nudge_when_no_file_overlap(self):
         """Concern's files don't intersect commit files -> no nudge."""
-        concern = make_event("concern", content="Other bug", files=["scripts/foo.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Other bug", files=["scripts/foo.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         self._seed_qr_status()
         result = self._run_commit(
@@ -382,7 +390,7 @@ class TestM2TestRunActions(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1, f"expected 1 status, got {len(statuses)}")
         return statuses[0]
 

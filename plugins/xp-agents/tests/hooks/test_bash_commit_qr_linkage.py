@@ -22,20 +22,25 @@ import _common
 import bash_post_tool
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
-from event_schema import STATUS_ACTION_QR_COMPLETE
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_QR_COMPLETE,
+)
 
 
 class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
     """Per-commit quality-review linkage warning."""
 
     def _seed_commit_event(self, agent_id: str = "main") -> str:
-        ev = make_event("commit", agent_id=agent_id, content="Prior commit")
+        ev = make_event(EVENT_TYPE_COMMIT, agent_id=agent_id, content="Prior commit")
         _common.append_safe(self.smm_dir, ev)
         return ev["id"]
 
     def _seed_qr_status(self, agent_id: str = "xp-quality-review") -> str:
         ev = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             agent_id=agent_id,
             content="Quality review complete. No issues: [].",
             metadata={"action": STATUS_ACTION_QR_COMPLETE},
@@ -134,12 +139,12 @@ class TestResolutionComputationCount(_HookTestCase):
         norm_b = worktree.normalize_path("scripts/routes.py", cwd)
 
         c1 = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm_a}:\nE302",
             severity="medium",
         )
         c2 = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm_b}:\nE303",
             severity="medium",
         )
@@ -173,9 +178,9 @@ class TestCheckQRLinkagePhrasings(unittest.TestCase):
 
     def test_qr_abbreviation_satisfies_nudge(self):
         events = [
-            make_event("commit", content="prior commit", agent_id="main"),
+            make_event(EVENT_TYPE_COMMIT, content="prior commit", agent_id="main"),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="QR complete. Fixed: chrome.ts",
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
@@ -199,7 +204,7 @@ class TestM2CommitSuccessAction(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commits = [e for e in events if e.get("type") == "commit"]
+        commits = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(len(commits), 1)
         metadata = commits[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "commit_success")
@@ -216,7 +221,7 @@ class TestM2LintResolvedAction(_HookTestCase):
         from concerns import LINT_CONCERN_PREFIX
 
         seeded = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"{LINT_CONCERN_PREFIX}scripts/foo.py: 1 error (X)",
             files=["scripts/foo.py"],
         )
@@ -246,7 +251,7 @@ class TestM2LintResolvedAction(_HookTestCase):
         resolvers = [
             e
             for e in events
-            if e.get("type") == "status"
+            if e.get("type") == EVENT_TYPE_STATUS
             and "Lint concern resolved" in e.get("content", "")
         ]
         self.assertEqual(len(resolvers), 1)

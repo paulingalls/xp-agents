@@ -23,6 +23,7 @@ from conftest import (
     _make_bash_input,
     make_event,
 )
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_QUESTION
 
 _COMMIT_CMD = "git commit -m 'test'"
 
@@ -167,19 +168,19 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
     def test_decision_without_resolves_lists_open_questions(self):
         """Decision append without --metadata lists each open question."""
         q_open = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             id="aaaaaaaaaaaa",
             topic="auth",
             content="Should refresh tokens rotate on every request?",
         )
         q_resolved = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             id="bbbbbbbbbbbb",
             topic="auth",
             content="Do we need SSO in v1?",
         )
         d_resolver = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             id="cccccccccccc",
             topic="auth",
             content="No SSO in v1",
@@ -200,7 +201,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
     def test_decision_with_resolves_metadata_no_injection(self):
         """Decision append carrying --metadata resolves ... does not nudge."""
         q_open = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             id="aaaaaaaaaaaa",
             topic="auth",
             content="Should refresh tokens rotate on every request?",
@@ -222,7 +223,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
     def test_non_decision_append_no_injection(self):
         """Append of any non-decision type does not trigger the nudge."""
         q_open = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             id="aaaaaaaaaaaa",
             topic="auth",
             content="Should refresh tokens rotate?",
@@ -249,7 +250,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
     def test_quoted_decision_text_is_ignored(self):
         """'--type decision' inside a quoted --content must not trigger the nudge."""
         q_open = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             id="aaaaaaaaaaaa",
             topic="auth",
             content="Should refresh tokens rotate?",

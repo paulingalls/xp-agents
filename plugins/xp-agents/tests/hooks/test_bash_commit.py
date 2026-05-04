@@ -21,7 +21,12 @@ import bash_post_tool
 import markers
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
-from event_schema import STATUS_ACTION_QR_COMPLETE
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_QR_COMPLETE,
+)
 
 
 class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
@@ -43,7 +48,7 @@ class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
         _common.append_safe(
             self.smm_dir,
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Quality review complete.",
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
@@ -107,7 +112,9 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
     def test_xp_agent_type_does_not_block_commit_event(self):
         with self._patch_commit_lookups():
             self._run_leaked_commit()
-        commit_events = [e for e in self._read_events() if e.get("type") == "commit"]
+        commit_events = [
+            e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT
+        ]
         self.assertEqual(len(commit_events), 1)
 
     def test_xp_agent_type_still_skips_non_commit_bash(self):
@@ -304,7 +311,9 @@ class TestBashPostToolGreenNudge(_HookTestCase):
     def test_green_after_failure_confirms_resolution(self):
         """Tests pass after prior failure -> context confirms resolution."""
         concern = make_event(
-            "concern", content="Test failures detected: 3 failed", severity="high"
+            EVENT_TYPE_CONCERN,
+            content="Test failures detected: 3 failed",
+            severity="high",
         )
         _common.append_safe(self.smm_dir, concern)
 
@@ -368,7 +377,7 @@ class TestBashPostToolPushNoLongerNudges(_HookTestCase):
 
     def test_push_with_unresolved_concerns_does_not_warn(self):
         self._write_events(
-            [make_event("concern", content="Open issue", severity="medium")]
+            [make_event(EVENT_TYPE_CONCERN, content="Open issue", severity="medium")]
         )
         result = bash_post_tool.run(
             _make_bash_input(command="git push origin main", stdout=""),
@@ -377,7 +386,7 @@ class TestBashPostToolPushNoLongerNudges(_HookTestCase):
         self.assertIsNone(result)
 
     def test_push_does_not_nudge_summary(self):
-        self._write_events([make_event("status", content="All done")])
+        self._write_events([make_event(EVENT_TYPE_STATUS, content="All done")])
         result = bash_post_tool.run(
             _make_bash_input(command="git push origin main", stdout=""),
             smm_dir=self.smm_dir,
@@ -419,7 +428,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
             head_sha="bbbbbbb2222222", body="second commit", files=["scripts/b.py"]
         )
 
-        commits = [e for e in self._read_events() if e.get("type") == "commit"]
+        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
         hashes = [(e.get("metadata") or {}).get("commit_hash") for e in commits]
         self.assertEqual(
             len(commits),
@@ -437,13 +446,13 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     id="78ab5a70ca1b",
                     content="leading-slash drop",
                     severity="medium",
                 ),
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     id="87e022ad0693",
                     content="python-bias extension list",
                     severity="medium",
@@ -467,7 +476,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
         )
 
         # The second commit event should carry both IDs in metadata.resolves.
-        commits = [e for e in self._read_events() if e.get("type") == "commit"]
+        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
         fixture_commits = [
             e
             for e in commits
@@ -515,7 +524,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        commits = [e for e in self._read_events() if e.get("type") == "commit"]
+        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(
             len(commits),
             1,
@@ -552,7 +561,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "concern",
+                    EVENT_TYPE_CONCERN,
                     id="c008a0479ecd",
                     content="auto-extract concern",
                     severity="medium",
@@ -580,7 +589,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-        commits = [e for e in self._read_events() if e.get("type") == "commit"]
+        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
         self.assertEqual(
             len(commits),
             1,

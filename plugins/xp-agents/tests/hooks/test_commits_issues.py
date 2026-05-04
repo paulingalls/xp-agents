@@ -17,6 +17,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import commits
 from conftest import _SMMTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
 
 _SUBPROCESS = "commits.subprocess.run"
 
@@ -162,7 +170,9 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.cwd = str(self.smm_dir)
 
     def test_returns_concern_with_file_overlap(self):
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         result = commits.open_issues_matching_commit(
             self.smm_dir,
@@ -173,7 +183,9 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result[0]["id"], concern["id"])
 
     def test_normalizes_path_variants(self):
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         result = commits.open_issues_matching_commit(
             self.smm_dir, ["./scripts/auth.py"], self.cwd
@@ -182,10 +194,12 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result[0]["id"], concern["id"])
 
     def test_excludes_resolved_concerns(self):
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         decision = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="fix auth",
             topic="auth",
             metadata={"resolves": [concern["id"]]},
@@ -197,8 +211,8 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result, [])
 
     def test_excludes_concerns_without_files(self):
-        no_files = make_event("concern", content="no files")
-        empty_files = make_event("concern", content="empty", files=[])
+        no_files = make_event(EVENT_TYPE_CONCERN, content="no files")
+        empty_files = make_event(EVENT_TYPE_CONCERN, content="empty", files=[])
         _common.append_safe(self.smm_dir, no_files)
         _common.append_safe(self.smm_dir, empty_files)
         result = commits.open_issues_matching_commit(
@@ -207,7 +221,9 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result, [])
 
     def test_includes_debt_with_file_overlap(self):
-        debt = make_event("debt", content="legacy code", files=["scripts/auth.py"])
+        debt = make_event(
+            EVENT_TYPE_DEBT, content="legacy code", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, debt)
         result = commits.open_issues_matching_commit(
             self.smm_dir, ["scripts/auth.py"], self.cwd
@@ -216,10 +232,12 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result[0]["id"], debt["id"])
 
     def test_excludes_resolved_debt(self):
-        debt = make_event("debt", content="legacy code", files=["scripts/auth.py"])
+        debt = make_event(
+            EVENT_TYPE_DEBT, content="legacy code", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, debt)
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="fixed",
             metadata={"resolves": [debt["id"]]},
         )
@@ -230,9 +248,11 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result, [])
 
     def test_excludes_non_concern_non_debt_events(self):
-        question = make_event("question", content="why?", files=["scripts/auth.py"])
+        question = make_event(
+            EVENT_TYPE_QUESTION, content="why?", files=["scripts/auth.py"]
+        )
         assumption = make_event(
-            "assumption", content="guess", files=["scripts/auth.py"]
+            EVENT_TYPE_ASSUMPTION, content="guess", files=["scripts/auth.py"]
         )
         for ev in (question, assumption):
             _common.append_safe(self.smm_dir, ev)
@@ -242,7 +262,9 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result, [])
 
     def test_no_overlap_returns_empty(self):
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         result = commits.open_issues_matching_commit(
             self.smm_dir, ["README.md"], self.cwd
@@ -250,14 +272,18 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         self.assertEqual(result, [])
 
     def test_empty_commit_files_returns_empty(self):
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         result = commits.open_issues_matching_commit(self.smm_dir, [], self.cwd)
         self.assertEqual(result, [])
 
     def test_events_kwarg_skips_disk_read(self):
         """events= provided filters from given events, no disk read."""
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         events = _common.read_events_raw(self.smm_dir)
         with patch("commits._common.read_events_raw") as mock_read:
@@ -275,7 +301,9 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         """Both events= and resolutions= skips compute_resolutions."""
         import resolution
 
-        concern = make_event("concern", content="auth bug", files=["scripts/auth.py"])
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
+        )
         _common.append_safe(self.smm_dir, concern)
         events = _common.read_events_raw(self.smm_dir)
         resolutions = resolution.compute_resolutions(events)

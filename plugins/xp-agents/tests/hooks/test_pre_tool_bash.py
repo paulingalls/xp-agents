@@ -24,7 +24,11 @@ from conftest import (
     _ProbeTestHelpers,
     make_event,
 )
-from event_schema import METADATA_KEY_PROBE_CANDIDATES
+from event_schema import (
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    METADATA_KEY_PROBE_CANDIDATES,
+)
 from markers import write_review_cycle
 
 
@@ -34,8 +38,8 @@ class TestPreToolBashNoDelta(_HookTestCase):
     def test_bash_no_context_injection(self):
         """Bash (non-commit) no longer gets Active Context."""
         events = [
-            make_event("goal", content="Ship v1"),
-            make_event("decision", content="Use REST", topic="api-style"),
+            make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api-style"),
         ]
         self._write_events(events)
         result = pre_tool_bash.run(
@@ -48,7 +52,9 @@ class TestPreToolBashNoDelta(_HookTestCase):
 
     def test_bash_commit_no_delta(self):
         """Bash with git commit no longer gets delta."""
-        events = [make_event("decision", content="Use REST", topic="api-style")]
+        events = [
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api-style")
+        ]
         self._write_events(events)
         result = pre_tool_bash.run(
             _make_bash_input(command="git commit -m 'test'"),

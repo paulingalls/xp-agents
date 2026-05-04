@@ -19,6 +19,7 @@ from conftest import (
     _make_write_input,
     make_event,
 )
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION, EVENT_TYPE_STATUS
 
 # ===========================================================================
 # pre_tool_write.py helper tests
@@ -289,7 +290,9 @@ class TestPreToolWriteRun(_HookTestCase):
 
     def test_write_no_delta_injection(self):
         """M5: Write tool no longer gets smm-delta injection."""
-        events = [make_event("question", priority="\U0001f534", content="blocker?")]
+        events = [
+            make_event(EVENT_TYPE_QUESTION, priority="\U0001f534", content="blocker?")
+        ]
         self._write_events(events)
         result = pre_tool_write.run(
             _make_write_input(tool_input={"file_path": "src/new.ts"}),
@@ -301,7 +304,7 @@ class TestPreToolWriteRun(_HookTestCase):
 
     def test_read_tool_no_injection(self):
         """Read tool input passed to pre_tool_write returns None."""
-        events = [make_event("status", content="working")]
+        events = [make_event(EVENT_TYPE_STATUS, content="working")]
         self._write_events(events)
         result = pre_tool_write.run(
             {
@@ -333,7 +336,7 @@ class TestPreToolWriteRun(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0]["severity"], "high")
         self.assertIn("CONFLICT", concerns[0]["content"])
@@ -350,7 +353,7 @@ class TestPreToolWriteRun(_HookTestCase):
 
     def test_bash_input_returns_none(self):
         """Bash input passed to pre_tool_write returns None."""
-        events = [make_event("status", content="Working on API")]
+        events = [make_event(EVENT_TYPE_STATUS, content="Working on API")]
         self._write_events(events)
         result = pre_tool_write.run(
             _make_bash_input(command="npm test"),
@@ -364,7 +367,7 @@ class TestPreToolWriteNoDelta(_HookTestCase):
 
     def test_write_no_delta(self):
         """Write tool no longer gets delta."""
-        events = [make_event("status", content="Working on app")]
+        events = [make_event(EVENT_TYPE_STATUS, content="Working on app")]
         self._write_events(events)
         result = pre_tool_write.run(
             _make_write_input(tool_input={"file_path": "/tmp/src/new.ts"}),
@@ -376,7 +379,7 @@ class TestPreToolWriteNoDelta(_HookTestCase):
 
     def test_read_tool_no_injection(self):
         """Read tool does not get SMM context injection."""
-        events = [make_event("status", content="Working")]
+        events = [make_event(EVENT_TYPE_STATUS, content="Working")]
         self._write_events(events)
         result = pre_tool_write.run(
             {
@@ -398,7 +401,7 @@ class TestPreToolWritePerformance(_HookTestCase):
         """100 invocations should complete well under 2 seconds."""
         import time
 
-        events = [make_event("status", content=f"s{i}") for i in range(10)]
+        events = [make_event(EVENT_TYPE_STATUS, content=f"s{i}") for i in range(10)]
         self._write_events(events)
 
         input_data = _make_write_input(session_id="perf")
