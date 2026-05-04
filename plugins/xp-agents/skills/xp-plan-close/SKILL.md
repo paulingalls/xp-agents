@@ -73,16 +73,21 @@ Substitute the captured value as `<DIFF_CMD>` in the agent prompt below.
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
-  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nplan\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Context\nClosing plan branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with plan-mode focus (architectural coherence across the whole plan, accumulated debt, security posture of the cumulative diff, decisions whose rationale weakened). Return Keep / Concern / Block summary."
+  prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nplan\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Context\nClosing plan branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with plan-mode focus (architectural coherence across the whole plan, accumulated debt, decisions whose rationale weakened). Return Keep / Concern / Block summary."
 )
 ```
+
+## Step 4.5: Apply shared Security Review
+
+Apply the shared `### Step 4.5: Security Review` block above with
+`<close-mode>` → `plan` and `<close-skill-name>` → `xp-plan-close`.
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
 The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
 the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4, then continue with Step 7 below.
+steps in order after Step 4.5, then continue with Step 7 below.
 
 **Plan-close addendum to Step 6:** the shared Step 6's "stop here on
 abort" rule means the plan stays unarchived — Step 7 below is the
