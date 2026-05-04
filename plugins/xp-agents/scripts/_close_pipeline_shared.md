@@ -41,8 +41,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ```
 
 Substitute `<close-skill-name>` (e.g. `xp-free-close`), `<close-mode>`
-(`free`/`sprint`/`plan`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>` from the
-preload values at the top of this context.
+(`free`/`sprint`/`plan`/`story`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>`
+from the preload values at the top of this context.
 
 The shared Step 6 abort-default reads severity=high concerns filtered
 by `close_cycle_id` + `since-ts` (deterministic event count) — Block
