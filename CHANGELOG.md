@@ -1,5 +1,50 @@
 # Changelog
 
+## v3.1.2 — close-skill safety + process polish (M-3 + M-5)
+
+Sprint-058 ships eight parallel-dispatched stories: M-3 closes the close-skill safety holes (Step 4.5 coverage edge + Step 6 e2e), M-5 ships four process-polish improvements, plus two adopted items (probe-divert fix + preload path-space contract). All stories landed via teammate worktrees with the new `ACCEPT_ACTIVE` marker and implicit teammate-cwd discovery from v3.1.1 holding stable across the whole sprint.
+
+### `/xp-story-close` Step 1b: surface file_domain drift at commit time
+
+New `sprint_cli.py validate-domain <story-id> --base <TARGET_BRANCH>` subcommand diffs a story's actual git changes against the declared `file_domain` set. `/xp-story-close` invokes it as Step 1b before the close-reviewer fork. Drift records a `concern` event (severity=medium, `metadata.kind=file_domain_drift`) and continues — the retro is the right place to surface drift trends, not per-story interruption. This catches in-domain courage moves (small quality fixes outside strict scope) and surfaces them as audit signal without bottlenecking the close cycle.
+
+### `/xp-story-close` Step 4.5 conditional security review
+
+Story-close historically skipped Step 4.5 with a blanket exclusion, relying on sprint-close's cumulative `/security-review` to cover each merged story. That assumption fails when no sprint envelope wraps the close — orphan story branches and free-mode-style story-close on tip got only Tier-1 commit-time coverage. Step 4.5 now fires from story-close when `sprint_cli.py exists` returns false OR `branching.py list-story-orphans` includes `<CURRENT_BRANCH>`. Gate uses an `echo "STEP_4_5: APPLIES (...)"` / `echo "STEP_4_5: SKIP (...)"` literal-stdout protocol so the LLM can match verbatim across tool-call boundaries (a bash variable would be unreadable across steps).
+
+### Step 6 abort-default e2e + shared close-cycle test fixtures
+
+`tests/integration/test_close_preloads_emit_shared.py` gains an end-to-end test that writes real xp-close-reviewer Block + Step 4.5 security concerns via `append.sh` (no mocks) and asserts `count-concerns --severity high --cycle-id X` returns the expected count under cross-cycle isolation. The metadata-shape helpers (`_quality_meta`, `_security_meta`, `_record_quality_block`, `_record_security_block`) are extracted from per-file definitions to `tests/_close_fixtures.py` — single source of truth for the close-reviewer metadata contract.
+
+### `retro_flags` high-zero-decision-rate signal
+
+`evaluate_flags()` gains an optional `events=` parameter and a new `high_zero_decision_rate` Honesty-lens signal that fires when the rate of decision events with `metadata.action="explicit_zero"` exceeds 50% across a window. Surfaces "we keep declining to record decisions" as a flag once `/xp-accept`'s decision-nudge starts producing explicit_zero events at scale. Wiring at `retrospective.py:139` deferred to a follow-up; window-semantics spec recorded as a decision event.
+
+### `smm_cli question close --won-fix` subcommand
+
+Aging questions accumulate across sessions when there's no terminal disposition for "close as won't-fix" — only an answer event resolves them. New subcommand emits a status event with `metadata.action='question_close'`, `metadata.disposition='wont_fix'`, `metadata.resolves=[Q]`. Mirrors the triage disposition shape from `work_selection_decide.py`; `resolution.py` already routes any `metadata.resolves` on a question to `question_answers` regardless of resolver event type. Idempotent on already-resolved questions; rejects non-question event-ids fast. Future-proof dispatch via `question_action` subparser so a future `question reopen` won't silently route to close.
+
+### `/xp-work-selection` FORCE-CLOSE gate on Try adoption
+
+A plain `defer` is now refused once the same Try has been deferred 3+ times — carrying it further is dishonest (per wisdom item 97efcb0d53f6, the META-Try that landed after 5 retros). Caller must escape with `--force-adopt <topic>`, `--force-drop`, or `--force-defer-with-date <YYYY-MM-DD>`. Force flags are mutually exclusive at the argparse level. `--force-defer-with-date` validates ISO format AND requires the date >= today (past dates would silently launder the Try past the gate).
+
+### `resolves_probe` in-sprint sibling axis
+
+`_score_candidate` gains a 5th axis `SELECTION_REASON_IN_SPRINT_BATCH`. Closes the probe-divert gap from sprint-057: when xp-close-reviewer files a batch of N concerns sharing `close_cycle_id`, agents picked sibling concerns the existing 4-axis selector missed because they had no file_overlap or keyword tie to the fix commit. The new axis is purely additive — same ranking math, +1 score and a 5th reason whenever a candidate's `metadata.close_cycle_id` matches the active cycle. Active cycle is the `close_cycle_id` of the newest concern within `_RECENCY_DAYS` carrying the metadata key. Newest-wins tie-break under concurrent teammate cycles is documented as a known non-determinism (probe candidates are a hint, not a contract); future scoping path via `metadata.source_branch` is named in the docstring. `find_probe_candidates` no longer early-returns on empty `commit_files` — empty-stage commits with an active cycle still surface siblings.
+
+### `branching_cli` tab-delimited teammate-discovery emit
+
+`list-teammate-worktree-paths` and `find-closing-teammate-worktree` now emit tab-separated fields. Removes implicit dependency on the "git refs cannot contain spaces" invariant that prior bash consumers were leaning on, and unblocks the LLM-side parse in `xp-accept/SKILL.md` (which would have split a spaced path wrong under the old space-delimited form). Both `xp-story-close/scripts/preload.sh` and `xp-accept/scripts/preload.sh` parse the new format. Honest framing: the original bash split happened to work because git refs reject spaces; the load-bearing fragility was the LLM-facing prose, not the bash. Tab-delimit ships either way for self-documenting clarity.
+
+### Mid-sprint courage: 6 fix-cycles inline
+
+The close-reviewer raised 16 concerns across 8 stories during the close cycle; 5 BLOCKs/concerns were addressed inline before merge rather than deferred:
+- story-001: Step 4.5 conditional invocation wired into xp-story-close
+- story-005: future-proof question subparser dispatch
+- story-006: list all gated refs in FORCE-CLOSE message + reject past `--force-defer-with-date` dates
+- story-007: drop early-return on empty `commit_files` so in-sprint axis surfaces siblings on amend-no-files commits
+- sprint-close fixes: validate-domain wired into xp-story-close Step 1b (closes BLOCK b6c1eeac62c1: story-003 commit-message claimed a caller that didn't exist), `METADATA_KEY_CLOSE_CYCLE_ID` substituted in smm_cli, Step 4.5 gate uses literal-match stdout protocol
+
 ## v3.1.1 — teammate-workflow correctness gaps closed (M-2)
 
 Sprint-057 / M-2 closes the two teammate-workflow correctness gaps surfaced by sprint-056. Three stories merged into the sprint branch; the capstone E2E uncovered + fixed three additional production bugs in flight.
