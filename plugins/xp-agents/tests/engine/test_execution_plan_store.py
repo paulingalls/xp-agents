@@ -24,6 +24,7 @@ class TestLoadPlan(_SMMTestCase):
         plan = _make_plan()
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         loaded = store.load_plan(self.smm_dir)
+        assert loaded is not None
         self.assertEqual(loaded["title"], "Test Plan")
 
     def test_load_missing_returns_none(self):
@@ -332,6 +333,7 @@ class TestArchive(_SMMTestCase):
         plan = _make_plan()
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         archived_path = store.archive(self.smm_dir)
+        assert archived_path is not None
         self.assertFalse((self.smm_dir / "execution_plan.json").exists())
         self.assertTrue(archived_path.exists())
         self.assertTrue(archived_path.parent.name == "plans")
@@ -348,6 +350,7 @@ class TestArchive(_SMMTestCase):
         plan = _make_plan(title="Archived Plan")
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         archived_path = store.archive(self.smm_dir)
+        assert archived_path is not None
         loaded = json.loads(archived_path.read_text())
         self.assertEqual(loaded["title"], "Archived Plan")
 

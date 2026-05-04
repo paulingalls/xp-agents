@@ -108,6 +108,7 @@ class TestSaveSystemContext(_SMMTestCase):
         doc["product"] = "x" * (FIELD_MAXLENGTH["product"] + 100)
         save_system_context(self.smm_dir, doc, enforce_budget=False)
         result = load_system_context(self.smm_dir)
+        assert result is not None
         self.assertEqual(result["product"], doc["product"])
 
     def test_save_rejects_over_budget_by_default(self) -> None:
