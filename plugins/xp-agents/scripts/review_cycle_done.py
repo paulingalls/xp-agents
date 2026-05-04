@@ -8,8 +8,8 @@ Detects /simplify, /xp-quality-review, /security-review, /xp-review-plan,
 inline agent via tool_input.subagent_type. For each, appends a canonical
 status event with metadata.action so consumers can detect skill completions
 without regex-matching LLM-authored content. Per-commit review-cycle flags
-are set only for /simplify and /xp-quality-review (M-4: security review
-moved to Tier 2 at /xp-accept and Tier 3 at close).
+are set only for /simplify and /xp-quality-review (security review fires
+at the close-skill Step 4.5, not per-commit).
 
 The TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
 execution mode (solo vs teammates) is decided by xp-assign — the nudge can
@@ -114,17 +114,17 @@ _TASK_CREATION_NUDGE = (
 
 # /security-review's skill prompt ends with "reply must contain markdown
 # report and nothing else" — correct for direct user invocations, but it
-# stops orchestrated callers (xp-accept Tier 2, close-skill Tier 3) mid-
-# flight. This nudge is delivered as PostToolUse:Skill additionalContext
-# next to the tool result so the next model call sees both the skill's
-# stop clause and this override; the calling agent has full context to
-# decide whether to honor it (orchestrated → continue, direct user → stop).
+# stops orchestrated callers (close-skill Step 4.5) mid-flight. This nudge
+# is delivered as PostToolUse:Skill additionalContext next to the tool
+# result so the next model call sees both the skill's stop clause and this
+# override; the calling agent has full context to decide whether to honor
+# it (orchestrated → continue, direct user → stop).
 _SECURITY_CONTINUATION_NUDGE = (
     "/security-review's 'reply with markdown report only' clause is intended "
     "for direct user invocations. If this call was part of an orchestrated "
-    "flow (e.g. an xp-accept tier-2 gate or a close-skill tier-3 sweep), "
-    "ignore that clause: record any findings as concerns at the appropriate "
-    "severity, then proceed to the next step in the calling skill."
+    "flow (e.g. a /xp-{free,sprint,plan}-close Step 4.5 gate), ignore that "
+    "clause: record any findings as concerns at the appropriate severity, "
+    "then proceed to the next step in the calling skill."
 )
 
 
@@ -147,8 +147,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # in tool_input.subagent_type. Both paths converge here so the housekeeper
     # can be invoked either way. Target detection runs BEFORE the recursion-
     # prevention skip below so /security-review can be carved out as the one
-    # exception — xp-close-reviewer (xp-*) is the primary intended caller of
-    # the SECURITY_COMPLETE event (Tier 3) AND the continuation nudge.
+    # exception — orchestrated callers (close-skill Step 4.5) need both the
+    # SECURITY_COMPLETE event and the continuation nudge to proceed.
     target_name = tool_input.get("skill") or tool_input.get("subagent_type") or ""
     target = _detect_target(target_name)
     if target is None:

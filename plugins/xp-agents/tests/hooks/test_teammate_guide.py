@@ -66,12 +66,12 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         self.assertIn("500 lines", result)
 
     def test_teammate_guide_has_review_cycle(self):
-        """Teammate guide has review cycle commands (security via /xp-accept Tier 2)."""
+        """Teammate guide has review cycle commands (security at close-skill Step 4.5)."""  # noqa: E501
         result = self._run_teammate()
         self.assertIn("/simplify", result)
         self.assertIn("/xp-quality-review", result)
         self.assertNotIn("/xp-security-triage", result)
-        self.assertIn("/xp-accept", result)
+        self.assertIn("/security-review", result)
 
     def test_teammate_guide_has_event_recording(self):
         """Teammate guide shows how to record events."""

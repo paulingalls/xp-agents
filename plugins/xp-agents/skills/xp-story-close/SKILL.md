@@ -86,13 +86,13 @@ the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
 steps in order after Step 4, then continue with Step 7 below.
 
-**Story-close addendum to Step 6 (Tier 3 exclusion):** story-close is
-excluded from the Tier 3 security skill (per `agents/xp-close-reviewer.md`
-"Step 3.5: Tier 3 Security Review" — Tier 3 = sprint/plan/free).
-The shared Step 6's Block-flip-default rule still fires here — Step 4's
-general Block bullets are recorded at severity high by the
-close-reviewer and trigger the same Abort-default flip — but no Tier 3
-security findings will appear in the reviewer's summary for a story.
+**Story-close addendum to Step 6 (security exclusion):** story-close
+does not run `/security-review` — only the close skills that merge to
+primary (free/sprint/plan) apply the shared Step 4.5 security review.
+The sprint-close cumulative diff already covers each story. The shared
+Step 6's abort-default still fires here from Step 4's quality Block
+bullets (recorded at severity=high by the close-reviewer); the
+deterministic count picks them up the same way.
 
 **Story-close override for Step 6 (auto-merge gate):** if ALL of these
 hold, skip the shared Step 6's `AskUserQuestion` and proceed directly

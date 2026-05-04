@@ -55,9 +55,9 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
     def test_full_review_cycle_sequence(self):
         """Walk through the M-4 stop gate sequence end-to-end.
 
-        Post-M-4 ladder: simplify → quality-review → commit. The security
-        rung was removed when the per-commit security gate moved to Tier 2/3
-        (at /xp-accept and close).
+        Post-M-4 ladder: simplify → quality-review → commit. The per-commit
+        security rung was removed when LLM /security-review moved to the
+        close-skill Step 4.5 (cumulative diff at sprint/plan/free close).
         """
         import markers
         import teammate_stop_gate

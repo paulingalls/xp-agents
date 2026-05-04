@@ -430,9 +430,9 @@ def generate_smm(root: Path) -> dict:
         _seed_entry(
             "wisdom",
             "Complete the review cycle before committing code changes "
-            "— /simplify → /xp-quality-review → commit. Tier 1 patterns "
-            "scan staged diffs; Tier 2 LLM review fires at /xp-accept; "
-            "Tier 3 fires at close.",
+            "— /simplify → /xp-quality-review → commit. Deterministic "
+            "patterns scan staged diffs; LLM /security-review fires at "
+            "/xp-{free,sprint,plan}-close Step 4.5 (cumulative close diff).",
         ),
         _seed_entry(
             "wisdom",
