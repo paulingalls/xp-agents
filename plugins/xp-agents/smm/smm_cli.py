@@ -175,6 +175,15 @@ def _cmd_update_item(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_question(args: argparse.Namespace) -> int:
+    match args.question_action:
+        case "close":
+            return _cmd_question_close(args)
+        case _:
+            print(f"unknown question action: {args.question_action}", file=sys.stderr)
+            return 2
+
+
 def _cmd_question_close(args: argparse.Namespace) -> int:
     """Close a question with --won-fix disposition.
 
@@ -536,7 +545,7 @@ def main() -> None:
         "count-classifications": _cmd_count_classifications,
         "count-concerns": _cmd_count_concerns,
         "promote-event": _cmd_promote_event,
-        "question": _cmd_question_close,
+        "question": _cmd_question,
     }
 
     sys.exit(dispatch[args.command](args))
