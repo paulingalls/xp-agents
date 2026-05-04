@@ -192,6 +192,12 @@ def _cmd_edit_branching_field(args: argparse.Namespace) -> int:
     wrong type/format).
 
     Reads the new value from stdin as JSON. Pass ``null`` to clear.
+
+    Side-effect: when the system_context lacks branching_strategy
+    entirely, the CLI seeds it with ``{"stage": 0}`` before applying
+    the edit (mirrors edit-branching). Pre-seeding lets the validator
+    accept the result; the caller can then bump stage explicitly via
+    edit-branching if needed.
     """
     data = store.load_system_context(args.smm_dir)
     if data is None:
@@ -277,6 +283,11 @@ def _cmd_edit_stack_field(args: argparse.Namespace) -> int:
     (unknown stack field, value too long, wrong type).
 
     Reads the new value from stdin as JSON. Pass `null` to clear.
+
+    Side-effect: when the system_context lacks stack entirely, the CLI
+    seeds it with ``{"languages": []}`` before applying the edit.
+    Pre-seeding lets the validator accept the result; the caller can
+    populate languages explicitly via edit-field if needed.
     """
     data = store.load_system_context(args.smm_dir)
     if data is None:
