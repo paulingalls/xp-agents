@@ -19,7 +19,7 @@ from conftest import _IntegrationTestCase, make_event
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
-from event_schema import EVENT_TYPE_QUESTION
+from event_schema import EVENT_TYPE_QUESTION, EVENT_TYPE_SESSION_END
 
 
 class TestSessionStartIntegration(_IntegrationTestCase):
@@ -95,7 +95,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         self.assertEqual(result.stdout, "")
 
         events = self._read_events()
-        se = [e for e in events if e.get("type") == "session_end"]
+        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
         self.assertEqual(len(se), 1)
         self.assertIn("user_logout", se[0]["content"])
         self.assertEqual(se[0]["event_count"], 2)
@@ -115,7 +115,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
             },
         )
         events = self._read_events()
-        se = next(e for e in events if e.get("type") == "session_end")
+        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
         self.assertIn(q["id"], se["unresolved_items"])
 
     def test_xp_agent_creates_no_events(self):
@@ -130,7 +130,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        se = [e for e in events if e.get("type") == "session_end"]
+        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
         self.assertEqual(len(se), 0)
 
 
@@ -255,8 +255,6 @@ class TestMilestone65Integration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         # Should output additionalContext JSON
-        import json
-
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("xp-review-plan", ctx)

@@ -21,9 +21,12 @@ from conftest import _IntegrationTestCase, make_event
 # make_event(...) call's behavior.
 from event_schema import (
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
     EVENT_TYPE_CUSTOMER_INTENT,
     EVENT_TYPE_DEBT,
     EVENT_TYPE_GOAL,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_END,
     EVENT_TYPE_STATUS,
 )
 
@@ -72,8 +75,8 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertEqual(r3.returncode, 0)
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
-        se = [e for e in events if e.get("type") == "session_end"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
         self.assertEqual(len(statuses), 1)
         self.assertEqual(len(se), 1)
 
@@ -130,15 +133,15 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         # Verify full event chain
         events = self._read_events()
         types = [e["type"] for e in events]
-        self.assertIn("customer_input", types)
-        self.assertIn("status", types)
-        self.assertIn("session_end", types)
+        self.assertIn(EVENT_TYPE_CUSTOMER_INPUT, types)
+        self.assertIn(EVENT_TYPE_STATUS, types)
+        self.assertIn(EVENT_TYPE_SESSION_END, types)
 
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(ci[0]["content"], "Please refactor auth")
         self.assertEqual(ci[0]["agent_id"], "customer")
 
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         task_status = [s for s in statuses if s.get("agent_id") == "task-1"]
         self.assertTrue(len(task_status) >= 1)
         self.assertIn("task-1", task_status[0]["content"])
@@ -239,7 +242,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "goal")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_GOAL)
 
         import materialize as mat
 
@@ -266,7 +269,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "debt")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_DEBT)
         self.assertEqual(events[0]["files"], ["src/auth.py", "src/legacy.py"])
 
         import materialize as mat
@@ -291,7 +294,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
 
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "customer_intent")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_CUSTOMER_INTENT)
         self.assertEqual(events[0]["intent_status"], "open")
 
         import materialize as mat
@@ -355,7 +358,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertIn("RETRO_FILE=", result.stdout)
 
         events = self._read_events()
-        retros = [e for e in events if e.get("type") == "retrospective"]
+        retros = [e for e in events if e.get("type") == EVENT_TYPE_RETROSPECTIVE]
         self.assertEqual(len(retros), 1)
         self.assertIn("1 keeps, 1 fixes, 1 tries", retros[0]["content"])
 
@@ -369,7 +372,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == "retrospective")
+        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
 
     def test_cleans_up_input_file(self):
