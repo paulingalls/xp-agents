@@ -16,6 +16,8 @@
 - **Risks** — what could go wrong. Cap 2-5.
 - **Wisdom** — durable lessons. Cap 3-7.
 
+Read Intent and Risks at plan or sprint start; check Constraints when choosing an approach; apply Wisdom continuously.
+
 ## Resolution Discipline
 
 Three link types close events and risk pillar items:
