@@ -17,6 +17,10 @@ import smm_cli
 import smm_schema
 from conftest import _HookTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_GOAL, EVENT_TYPE_STATUS
+
 
 def _entry(content, source="seed", **extra):
     """Build a valid entry with a fresh id."""
@@ -161,7 +165,7 @@ def _smm_with_intent(content: str = "Ship v1") -> str:
             "content": content,
             "source": "seed",
             "ts": "2026-01-01T00:00:00+00:00",
-            "type": "goal",
+            "type": EVENT_TYPE_GOAL,
         }
     ]
     return json.dumps(data)
@@ -183,8 +187,8 @@ class TestSaveCommand(_HookTestCase):
     def test_updates_curation_watermark(self):
         self._write_events(
             [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
+                make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+                make_event(EVENT_TYPE_CONCERN, content="No tests"),
             ]
         )
         smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
@@ -213,7 +217,7 @@ class TestSaveCommand(_HookTestCase):
     def test_triggers_compaction(self):
         from unittest.mock import patch
 
-        self._write_events([make_event("goal", content="Ship v1")])
+        self._write_events([make_event(EVENT_TYPE_GOAL, content="Ship v1")])
         with patch("compact.compact_after_curation") as mock:
             smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
         mock.assert_called_once_with(self.smm_dir)
@@ -234,8 +238,8 @@ class TestCompleteCuration(_HookTestCase):
     def test_updates_watermark(self):
         self._write_events(
             [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
+                make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+                make_event(EVENT_TYPE_CONCERN, content="No tests"),
             ]
         )
         smm_cli.complete_curation(self.smm_dir)
@@ -248,7 +252,7 @@ class TestCompleteCuration(_HookTestCase):
     def test_runs_compaction(self):
         from unittest.mock import patch
 
-        self._write_events([make_event("goal", content="Ship v1")])
+        self._write_events([make_event(EVENT_TYPE_GOAL, content="Ship v1")])
         with patch("compact.compact_after_curation") as mock:
             smm_cli.complete_curation(self.smm_dir)
         mock.assert_called_once_with(self.smm_dir)
@@ -256,16 +260,17 @@ class TestCompleteCuration(_HookTestCase):
     def test_compaction_failure_does_not_raise(self):
         from unittest.mock import patch
 
-        self._write_events([make_event("goal", content="Ship v1")])
+        self._write_events([make_event(EVENT_TYPE_GOAL, content="Ship v1")])
         with patch("compact.compact_after_curation", side_effect=OSError("boom")):
             smm_cli.complete_curation(self.smm_dir)
 
     def test_watermark_advances_after_compaction(self):
         from _append_impl import append_event
 
-        events = [make_event("goal", content="Ship v1")]
+        events = [make_event(EVENT_TYPE_GOAL, content="Ship v1")]
         events += [
-            make_event("status", content=f"work {i}", working_on=[]) for i in range(20)
+            make_event(EVENT_TYPE_STATUS, content=f"work {i}", working_on=[])
+            for i in range(20)
         ]
         self._write_events(events)
         smm_cli.complete_curation(self.smm_dir)
@@ -275,7 +280,7 @@ class TestCompleteCuration(_HookTestCase):
         self.assertEqual(wm1["event_count"], 21)
 
         for i in range(10):
-            e = make_event("status", content=f"more {i}", working_on=[])
+            e = make_event(EVENT_TYPE_STATUS, content=f"more {i}", working_on=[])
             append_event(self.smm_dir, e)
 
         smm_cli.complete_curation(self.smm_dir)
@@ -286,7 +291,7 @@ class TestCompleteCuration(_HookTestCase):
     def test_save_calls_complete_curation(self):
         from unittest.mock import patch
 
-        self._write_events([make_event("goal", content="Ship v1")])
+        self._write_events([make_event(EVENT_TYPE_GOAL, content="Ship v1")])
         with patch.object(smm_cli, "complete_curation") as mock:
             smm_cli.save(_valid_smm_json(), smm_dir=self.smm_dir)
         mock.assert_called_once_with(self.smm_dir)
@@ -312,7 +317,7 @@ class TestPromoteEventCommand(_HookTestCase):
         import io
         from unittest.mock import patch
 
-        event = make_event("goal", content="Ship v1")
+        event = make_event(EVENT_TYPE_GOAL, content="Ship v1")
         self._write_events([event])
         with patch("sys.stdout", new_callable=io.StringIO) as out:
             result = smm_cli._cmd_promote_event(
