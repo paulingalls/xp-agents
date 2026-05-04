@@ -117,6 +117,27 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(REPO_ROOT)).replace("\\", "/")
 
 
+def _files_to_scan(root: Path) -> list[Path]:
+    """Files the pin walks: `test_*.py` + `conftest.py` + `_*.py` helpers.
+
+    Excludes `__init__.py` (no event literals; package marker only) and
+    the pin file itself (it asserts other files, not itself). Helper
+    modules like `_event_fixtures.py` were the sprint-060 escape route —
+    glob extension closes that gap.
+    """
+    self_path = Path(__file__).resolve()
+    paths: list[Path] = []
+    for p in root.rglob("*.py"):
+        if p.name == "__init__.py" or p.resolve() == self_path:
+            continue
+        if p.name.startswith(("test_", "_")):
+            paths.append(p)
+    conftest = root / "conftest.py"
+    if conftest.exists():
+        paths.append(conftest)
+    return paths
+
+
 class TestEventVocabularyPin(unittest.TestCase):
     """No test_*.py file under tests/ may contain a bare event-type
     literal in a make_event call or `{"type": ...}` dict literal.
@@ -127,12 +148,7 @@ class TestEventVocabularyPin(unittest.TestCase):
 
     def test_no_bare_event_type_literals_in_tests(self) -> None:
         violations: dict[str, list[tuple[int, str, str]]] = {}
-        scanned: list[Path] = list(TESTS_ROOT.rglob("test_*.py"))
-        conftest = TESTS_ROOT / "conftest.py"
-        if conftest.exists():
-            scanned.append(conftest)
-
-        for py_file in scanned:
+        for py_file in _files_to_scan(TESTS_ROOT):
             rel = _rel(py_file)
             if rel in ALLOWLIST:
                 continue
@@ -243,6 +259,74 @@ class TestEventVocabularyPin(unittest.TestCase):
                 justification.strip(),
                 msg=f"ALLOWLIST['{path}'] has empty justification",
             )
+
+    def test_files_to_scan_includes_underscore_helpers(self) -> None:
+        """`_*.py` helper modules (e.g., `_event_fixtures.py`) must be
+        scanned — they're test-tree code that imports `make_event` and
+        was the escape route for pre-sweep regressions in sprint-060.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_a.py").write_text("# test\n")
+            (root / "_event_fixtures.py").write_text("# helper\n")
+            (root / "_close_fixtures.py").write_text("# helper\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertIn("_event_fixtures.py", scanned)
+            self.assertIn("_close_fixtures.py", scanned)
+            self.assertIn("test_a.py", scanned)
+
+    def test_files_to_scan_excludes_dunder_init(self) -> None:
+        """`__init__.py` is excluded from the `_*.py` glob — package
+        markers don't carry event-type literals and would create noise.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "__init__.py").write_text("")
+            (root / "_helper.py").write_text("# helper\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertNotIn("__init__.py", scanned)
+            self.assertIn("_helper.py", scanned)
+
+    def test_files_to_scan_includes_root_conftest(self) -> None:
+        """`conftest.py` at the scan root must be included — pin
+        catches bare literals there too. Nested conftests are not added
+        by special-case (they'd be picked up only via test_*.py glob if
+        their name matched, which it doesn't); only the root conftest
+        is appended explicitly.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "conftest.py").write_text("# root conftest\n")
+            (root / "test_a.py").write_text("# test\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertIn("conftest.py", scanned)
+
+    def test_files_to_scan_excludes_pin_file_itself(self) -> None:
+        """The pin file is in `tests/hooks/test_*.py` and would otherwise
+        match the glob. Excluding it keeps the pin self-isolating —
+        the pin asserts other files, not itself.
+        """
+        scanned = _files_to_scan(TESTS_ROOT)
+        scanned_resolved = {p.resolve() for p in scanned}
+        self.assertNotIn(Path(__file__).resolve(), scanned_resolved)
+
+    def test_helper_file_violation_surfaces(self) -> None:
+        """An `_event_fixtures.py`-style helper with a bare literal
+        produces a `make_event-call` violation — pin coverage extends
+        beyond `test_*.py` to the fixture helpers themselves.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "_event_fixtures.py"
+            tmp.write_text(
+                "from event_schema import EVENT_TYPE_CONCERN\n"
+                "\n"
+                "def make_concern():\n"
+                '    return make_event("concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0][1], "concern")
+            self.assertEqual(violations[0][2], "make_event-call")
 
     def test_walker_catches_kwarg_event_type(self) -> None:
         """`make_event(event_type="concern", ...)` is a violation just like
