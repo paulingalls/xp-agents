@@ -45,7 +45,7 @@ class TestSessionStartPathValidation(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         # Should degrade gracefully, not crash
-        self.assertIsNotNone(result)
+        assert result is not None
 
 
 class TestNoSmmLeakOnFallback(_HookTestCase):
@@ -119,7 +119,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "clear"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_clear_source_sets_marker_with_clear(self):
@@ -143,7 +143,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_compact_returns_context(self):
@@ -154,7 +154,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Shared Mental Model", result)
 
     def test_resume_returns_context(self):
@@ -165,7 +165,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "resume"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_gupp_in_output(self):
         import session_start
@@ -175,6 +175,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_skills_in_output(self):
@@ -185,6 +186,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_no_retro_instruction_in_output(self):
@@ -198,6 +200,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("Run a retrospective", result)
         self.assertNotIn("Action Required", result)
 
@@ -212,7 +215,7 @@ class TestSessionStart(_HookTestCase):
                 {"session_id": "test", "source": "startup"},
                 smm_dir=fake_dir,
             )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("SMM init failed", result)
 
     def test_empty_events_file(self):
@@ -224,7 +227,7 @@ class TestSessionStart(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         # Should still return GUPP and skills even with empty SMM
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_multiple_events_returns_gupp(self):
@@ -236,6 +239,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         # SMM deferred to kickoff — only GUPP + skills here
         self.assertIn("xp-kickoff", result)
 
@@ -315,6 +319,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("<smm-context>", result)
         self.assertNotIn("Project Goals", result)
 
@@ -327,6 +332,7 @@ class TestSessionStart(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("xp-goal-collection", result)
 
 
@@ -347,6 +353,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("xp-goal-collection", result)
 
     def test_no_question_nudge_removed(self):
@@ -367,6 +374,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("xp-question-triage", result)
 
 
@@ -387,7 +395,7 @@ class TestSessionStartXPValues(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
         self.assertIn("Courage", result)
 
@@ -400,6 +408,7 @@ class TestSessionStartXPValues(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("EnterPlanMode", result)
 
     def test_compact_includes_xp_values_and_process(self):
@@ -412,6 +421,7 @@ class TestSessionStartXPValues(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertIn("Extreme Programming", result)
         self.assertIn("EnterPlanMode", result)
 
@@ -424,6 +434,7 @@ class TestSessionStartXPValues(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_no_smm_in_session_start(self):
@@ -435,6 +446,7 @@ class TestSessionStartXPValues(_HookTestCase):
             {"session_id": "test", "source": "startup"},
             smm_dir=self.smm_dir,
         )
+        assert result is not None
         self.assertNotIn("<smm-context>", result)
 
 
