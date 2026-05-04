@@ -163,6 +163,9 @@ METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
+# Set on a status event with disposition=deferred when the user forces a
+# defer past the FORCE-CLOSE gate via --force-defer-with-date; YYYY-MM-DD.
+METADATA_KEY_DEFER_UNTIL = "defer_until"
 
 # Per-candidate selector signals attached by resolves_probe._score_candidate
 # and persisted on probe status events so retro_metrics can attribute

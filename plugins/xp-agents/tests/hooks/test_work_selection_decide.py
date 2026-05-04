@@ -416,6 +416,249 @@ class TestTriageDrop(_DecideTestCase):
         self.assertIn("abc123de", event["content"])
 
 
+# ---------------------------------------------------------------------------
+# FORCE-CLOSE gate — refuse plain defer when a Try has been deferred 3+ times.
+# Carrying a Try across 3+ retros without adoption is dishonest.
+# Gate fires on the 4th defer attempt; user must use a force flag.
+# ---------------------------------------------------------------------------
+
+
+class _ForceCloseTestCase(_DecideTestCase):
+    """Helpers for seeding prior-defer history against a Try id."""
+
+    def _seed_prior_defers(self, try_ref_id: str, count: int) -> None:
+        events = []
+        for i in range(count):
+            events.append(
+                {
+                    "id": f"{i:012x}",
+                    "ts": f"2026-01-{i + 1:02d}T00:00:00+00:00",
+                    "type": "status",
+                    "agent_id": "main",
+                    "content": f"Defer {i}",
+                    "schema_version": 1,
+                    "working_on": [],
+                    "metadata": {
+                        "resolves": [try_ref_id],
+                        "disposition": "deferred",
+                    },
+                }
+            )
+        self._write_events(events)
+
+
+class TestForceCloseGate(_ForceCloseTestCase):
+    """Plain defer is allowed up to 2 prior defers, refused at 3+."""
+
+    def test_zero_prior_defers_allowed(self):
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Defer this [refs: aaaaaaaaaaaa]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_two_prior_defers_allowed(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 2)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Defer again [refs: aaaaaaaaaaaa]",
+        )
+        # Last event is the new defer; the seeded 2 still precede.
+        self.assertEqual(len(self._read_events()), 3)
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_three_prior_defers_plain_defer_refused(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Defer once more [refs: aaaaaaaaaaaa]",
+            )
+        msg = str(ctx.exception)
+        self.assertIn("FORCE-CLOSE", msg)
+        # The Try id is named so the user can find the offending item.
+        self.assertIn("aaaaaaaa", msg)
+        # No new event was written.
+        self.assertEqual(len(self._read_events()), 3)
+
+    def test_four_prior_defers_plain_defer_refused(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 4)
+        with self.assertRaises(ValueError):
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="And again [refs: aaaaaaaaaaaa]",
+            )
+
+    def test_no_refs_skips_gate(self):
+        """No refs means nothing to count — defer always allowed."""
+        # Seed unrelated history; without refs in content, gate can't link.
+        self._seed_prior_defers("aaaaaaaaaaaa", 5)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Defer with no refs",
+        )
+        self.assertEqual(self._last_event()["metadata"], {"disposition": "deferred"})
+
+    def test_defers_for_other_try_dont_count(self):
+        """Only defers whose resolves overlap with the current refs count."""
+        self._seed_prior_defers("bbbbbbbbbbbb", 5)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Different Try [refs: aaaaaaaaaaaa]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+
+class TestForceAdoptBreaksGate(_ForceCloseTestCase):
+    """--force-adopt converts the gated defer into an adopt decision."""
+
+    def test_force_adopt_at_threshold_writes_decision(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Adopt now [refs: aaaaaaaaaaaa]",
+            force_adopt_topic="retro-try-finally-adopted",
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], "decision")
+        self.assertEqual(event["topic"], "retro-try-finally-adopted")
+        self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
+        self.assertEqual(event["content"], "Adopt now")
+
+
+class TestForceDropBreaksGate(_ForceCloseTestCase):
+    """--force-drop converts the gated defer into a drop status."""
+
+    def test_force_drop_at_threshold_writes_dropped(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Drop forever [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["metadata"]["disposition"], "dropped")
+        self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
+
+
+class TestForceDeferWithDateBreaksGate(_ForceCloseTestCase):
+    """--force-defer-with-date defers but records a target date in metadata."""
+
+    def test_force_defer_with_date_writes_defer_until(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Hold until [refs: aaaaaaaaaaaa]",
+            force_defer_until="2026-09-01",
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["metadata"]["disposition"], "deferred")
+        self.assertEqual(event["metadata"]["defer_until"], "2026-09-01")
+        self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
+
+    def test_force_defer_with_date_rejects_bad_date_format(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError):
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Hold until [refs: aaaaaaaaaaaa]",
+                force_defer_until="next quarter",
+            )
+
+
+class TestForceCloseCli(_ForceCloseTestCase):
+    """End-to-end CLI argparse coverage for the new flags."""
+
+    def test_cli_plain_defer_at_threshold_exits_nonzero(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        code = self._run_main(
+            [
+                "defer",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--content",
+                "Plain defer [refs: aaaaaaaaaaaa]",
+            ]
+        )
+        self.assertNotEqual(code, 0)
+
+    def test_cli_force_adopt_at_threshold_persists_decision(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        code = self._run_main(
+            [
+                "defer",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--content",
+                "Adopt now [refs: aaaaaaaaaaaa]",
+                "--force-adopt",
+                "retro-try-cli-forced",
+            ]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(self._last_event()["type"], "decision")
+
+    def test_cli_force_drop_at_threshold_persists_drop(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        code = self._run_main(
+            [
+                "defer",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--content",
+                "Drop now [refs: aaaaaaaaaaaa]",
+                "--force-drop",
+            ]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "dropped")
+
+    def test_cli_force_defer_with_date_persists_defer_until(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        code = self._run_main(
+            [
+                "defer",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--content",
+                "Hold until [refs: aaaaaaaaaaaa]",
+                "--force-defer-with-date",
+                "2026-09-01",
+            ]
+        )
+        self.assertEqual(code, 0)
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["defer_until"], "2026-09-01")
+
+    def test_cli_force_flags_mutually_exclusive(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        code = self._run_main(
+            [
+                "defer",
+                "--smm-dir",
+                str(self.smm_dir),
+                "--content",
+                "Conflict [refs: aaaaaaaaaaaa]",
+                "--force-drop",
+                "--force-adopt",
+                "retro-try-x",
+            ]
+        )
+        self.assertNotEqual(code, 0)
+
+
 class TestTriageCliArgparse(_DecideTestCase):
     """End-to-end argparse for triage subcommands."""
 
