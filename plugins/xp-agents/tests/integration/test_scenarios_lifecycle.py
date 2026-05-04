@@ -16,6 +16,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONVENTION,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_RETROSPECTIVE,
+)
+
 
 class TestFullSessionLifecycle(_IntegrationTestCase):
     """M7: Chain session_start → pre_tool_write → post_tool_use → session_end."""
@@ -97,12 +106,12 @@ class TestPlanReviewFlow(_IntegrationTestCase):
         self._seed_events(
             [
                 make_event(
-                    "decision",
+                    EVENT_TYPE_DECISION,
                     content="Use REST API",
                     topic="api",
                 ),
                 make_event(
-                    "convention",
+                    EVENT_TYPE_CONVENTION,
                     content="TDD for all features",
                     topic="testing",
                 ),
@@ -204,7 +213,9 @@ class TestThreeSessionAccumulation(_IntegrationTestCase):
 
         # Mark retro as done + add session 2 work events
         events = self._read_events()
-        events.append(make_event("retrospective", content="Retrospective complete"))
+        events.append(
+            make_event(EVENT_TYPE_RETROSPECTIVE, content="Retrospective complete")
+        )
         for i in range(6):
             events.append(make_event(content=f"s2-e{i}"))
         self._seed_events(events)

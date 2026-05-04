@@ -16,6 +16,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INTENT,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_STATUS,
+)
+
 
 class TestSessionRoundTripIntegration(_IntegrationTestCase):
     def test_start_write_end_captures_full_session(self):
@@ -222,7 +233,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         """Goal event is recorded in the event log (current_smm stays empty
         until housekeeper merges it)."""
         r = self._run_append(
-            "--type", "goal", "--agent", "main", "--content", "Ship v2.0"
+            "--type", EVENT_TYPE_GOAL, "--agent", "main", "--content", "Ship v2.0"
         )
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -243,7 +254,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         """Debt event appears in new_since_last_curation.debt for housekeeper."""
         r = self._run_append(
             "--type",
-            "debt",
+            EVENT_TYPE_DEBT,
             "--agent",
             "main",
             "--content",
@@ -268,7 +279,7 @@ class TestNewEventTypesIntegration(_IntegrationTestCase):
         """Customer intent event recorded (current_smm empty until curated)."""
         r = self._run_append(
             "--type",
-            "customer_intent",
+            EVENT_TYPE_CUSTOMER_INTENT,
             "--agent",
             "main",
             "--content",
@@ -384,7 +395,7 @@ class TestSessionEndWarningIntegration(_IntegrationTestCase):
     def test_returns_warning_with_unresolved_concerns(self):
         self._seed_events(
             [
-                make_event("concern", content="Flaky test", severity="medium"),
+                make_event(EVENT_TYPE_CONCERN, content="Flaky test", severity="medium"),
             ]
         )
         result = self._run_script(
@@ -397,7 +408,7 @@ class TestSessionEndWarningIntegration(_IntegrationTestCase):
     def test_returns_summary_nudge_without_concerns(self):
         self._seed_events(
             [
-                make_event("status", content="Working on auth"),
+                make_event(EVENT_TYPE_STATUS, content="Working on auth"),
             ]
         )
         result = self._run_script(
@@ -410,7 +421,7 @@ class TestSessionEndWarningIntegration(_IntegrationTestCase):
     def test_xp_agent_skips(self):
         self._seed_events(
             [
-                make_event("concern", content="Bug", severity="high"),
+                make_event(EVENT_TYPE_CONCERN, content="Bug", severity="high"),
             ]
         )
         result = self._run_script(
