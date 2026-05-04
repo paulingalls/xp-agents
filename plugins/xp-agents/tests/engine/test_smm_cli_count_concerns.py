@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _close_fixtures import _quality_meta, _security_meta
 from conftest import _SMMTestCase, make_event, run_cli, write_events
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
@@ -29,7 +30,7 @@ _CYCLE_B = "bbbb22223333"
 
 def _concern(severity: str, **kwargs) -> dict:
     """Concern event factory keyed by severity. Other fields kwargs-overridable."""
-    return make_event("concern", severity=severity, files=[], **kwargs)
+    return make_event(EVENT_TYPE_CONCERN, severity=severity, files=[], **kwargs)
 
 
 class TestCountConcerns(_SMMTestCase):
@@ -43,7 +44,11 @@ class TestCountConcerns(_SMMTestCase):
         # Status events must not be counted — only type==concern.
         write_events(
             self.events_file,
-            [make_event("status", working_on=[], metadata={"action": "qr_complete"})],
+            [
+                make_event(
+                    EVENT_TYPE_STATUS, working_on=[], metadata={"action": "qr_complete"}
+                )
+            ],
         )
         result = run_cli(_CLI, ["count-concerns"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)

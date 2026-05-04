@@ -16,7 +16,11 @@ import concerns
 import lint_check
 import worktree
 from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
-from event_schema import STATUS_ACTION_LINT_RESOLVED
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_LINT_RESOLVED,
+)
 
 
 class TestAutoResolveTestConcerns(_HookTestCase):
@@ -31,7 +35,7 @@ class TestAutoResolveTestConcerns(_HookTestCase):
     def test_passing_resolves_prior_failure_concern(self):
         """Seed failure concern, pass tests, verify resolution."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
@@ -51,12 +55,12 @@ class TestAutoResolveTestConcerns(_HookTestCase):
     def test_passing_resolves_multiple_concerns(self):
         """Two different failure concerns should both be resolved."""
         c1 = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
         c2 = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test run failed: 1 error",
             severity="high",
         )
@@ -85,12 +89,12 @@ class TestAutoResolveTestConcerns(_HookTestCase):
     def test_skip_already_resolved_concerns(self):
         """No duplicate resolutions."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 1 failed (pytest)",
             severity="high",
         )
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Test concern resolved",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -111,7 +115,7 @@ class TestAutoResolveTestConcerns(_HookTestCase):
     def test_failing_tests_no_auto_resolve(self):
         """Still-failing tests should not resolve anything."""
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 2 failed (pytest)",
             severity="high",
         )
@@ -129,18 +133,18 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         import tdd_stop_gate
 
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Test failures detected: 1 failed (pytest)",
             severity="high",
         )
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Test concern resolved: 1 concern auto-resolved",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
         )
         pass_status = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Tests: 5 passed, 0 failed (pytest)",
             working_on=[],
         )
@@ -193,7 +197,7 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
         """Seed lint concern for src/app.py, pass lint -> resolved."""
         norm = self._normalized("src/app.py")
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
             severity="medium",
         )
@@ -215,7 +219,7 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
         was missed when the action vocabulary was introduced."""
         norm = self._normalized("src/app.py")
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
             severity="medium",
         )
@@ -236,7 +240,7 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
         """Lint concern for src/other.py not resolved by src/app.py."""
         norm_other = self._normalized("src/other.py")
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm_other}:\nE302",
             severity="medium",
         )
@@ -257,12 +261,12 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
         """Already-resolved lint concern not re-resolved."""
         norm = self._normalized("src/app.py")
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm}:\nE302",
             severity="medium",
         )
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Lint concern resolved",
             working_on=[],
             metadata={"resolves": [concern["id"]]},
@@ -288,7 +292,7 @@ class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
 
         norm = worktree.normalize_path("src/app.py", str(self._lint_tmpdir))
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
             severity="medium",
         )
@@ -361,7 +365,7 @@ class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
         target.touch()
         norm = worktree.normalize_path(rel_path, str(self._lint_tmpdir))
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm}:\nE302 expected 2 blank lines",
             severity="medium",
             files=[norm],
@@ -423,7 +427,7 @@ class TestSweepOrphanLintConcerns(_LintTmpDirMixin, _HookTestCase):
         """Concern on a file that no longer exists -> skip, don't crash."""
         norm = worktree.normalize_path("src/gone.py", str(self._lint_tmpdir))
         concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content=f"Lint errors in {norm}:\nE302",
             severity="medium",
             files=[norm],

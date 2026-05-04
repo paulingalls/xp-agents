@@ -16,15 +16,27 @@ import read_delta
 import resolution
 from _lock_helpers import held_events_lock
 from conftest import _SMMTestCase, make_event, make_retrospective_with_try
+from event_schema import (
+    EVENT_TYPE_ANSWER,
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestMetadataResolves(unittest.TestCase):
     """Tests for compute_resolutions() using metadata.resolves mechanism."""
 
     def test_goal_resolved_via_metadata_resolves(self):
-        goal = make_event("goal", content="Ship v1.0")
+        goal = make_event(EVENT_TYPE_GOAL, content="Ship v1.0")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Goal completed",
             working_on=["src/app.py"],
             metadata={"resolves": [goal["id"]]},
@@ -35,9 +47,9 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(goal["id"], result["resolved_goal_ids"])
 
     def test_concern_resolved_via_metadata_resolves(self):
-        concern = make_event("concern", content="Missing tests")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Missing tests")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Tests added",
             working_on=["test.py"],
             metadata={"resolves": [concern["id"]]},
@@ -47,9 +59,11 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(concern["id"], result["resolved_concern_ids"])
 
     def test_debt_resolved_via_metadata_resolves(self):
-        debt = make_event("debt", content="Hardcoded secret", files=["config.py"])
+        debt = make_event(
+            EVENT_TYPE_DEBT, content="Hardcoded secret", files=["config.py"]
+        )
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Debt fixed",
             working_on=["config.py"],
             metadata={"resolves": [debt["id"]]},
@@ -60,9 +74,9 @@ class TestMetadataResolves(unittest.TestCase):
 
     def test_old_references_pattern_does_not_resolve_concern(self):
         """The old pattern (references without metadata.resolves) no longer resolves."""
-        concern = make_event("concern", content="Missing tests")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Missing tests")
         non_resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Added tests",
             working_on=["test.py"],
             references=[concern["id"]],  # old pattern, no metadata.resolves
@@ -71,10 +85,10 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertNotIn(concern["id"], result["concern_resolutions"])
 
     def test_multiple_resolves_in_one_event(self):
-        goal = make_event("goal", content="Ship v1.0")
-        concern = make_event("concern", content="Lint error")
+        goal = make_event(EVENT_TYPE_GOAL, content="Ship v1.0")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Lint error")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Cleaned up",
             working_on=["app.py"],
             metadata={"resolves": [goal["id"], concern["id"]]},
@@ -85,17 +99,17 @@ class TestMetadataResolves(unittest.TestCase):
 
     def test_question_answer_still_works(self):
         """Question-answer linking via answer type + references is unchanged."""
-        q = make_event("question", content="Which DB?")
-        a = make_event("answer", content="Postgres", references=[q["id"]])
+        q = make_event(EVENT_TYPE_QUESTION, content="Which DB?")
+        a = make_event(EVENT_TYPE_ANSWER, content="Postgres", references=[q["id"]])
         result = resolution.compute_resolutions([q, a])
         self.assertIn(q["id"], result["question_answers"])
         self.assertIn(q["id"], result["answered_question_ids"])
 
     def test_question_resolved_via_metadata_resolves(self):
         """Questions can be resolved via metadata.resolves too."""
-        q = make_event("question", content="Should Sprint replace Intent?")
+        q = make_event(EVENT_TYPE_QUESTION, content="Should Sprint replace Intent?")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved: decided to keep them separate",
             working_on=[],
             metadata={"resolves": [q["id"]]},
@@ -106,14 +120,14 @@ class TestMetadataResolves(unittest.TestCase):
 
     def test_question_answer_event_takes_precedence(self):
         """If both answer event and metadata.resolves exist, answer event wins."""
-        q = make_event("question", content="Which DB?")
+        q = make_event(EVENT_TYPE_QUESTION, content="Which DB?")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved via housekeeping",
             working_on=[],
             metadata={"resolves": [q["id"]]},
         )
-        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        answer = make_event(EVENT_TYPE_ANSWER, content="Postgres", references=[q["id"]])
         result = resolution.compute_resolutions([q, resolver, answer])
         self.assertIn(q["id"], result["question_answers"])
         # Answer event should be the resolution, not the metadata resolver
@@ -121,10 +135,10 @@ class TestMetadataResolves(unittest.TestCase):
 
     def test_question_answer_precedence_reverse_order(self):
         """Answer event wins even if it appears before metadata.resolves."""
-        q = make_event("question", content="Which DB?")
-        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        q = make_event(EVENT_TYPE_QUESTION, content="Which DB?")
+        answer = make_event(EVENT_TYPE_ANSWER, content="Postgres", references=[q["id"]])
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved via housekeeping",
             working_on=[],
             metadata={"resolves": [q["id"]]},
@@ -133,9 +147,9 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertEqual(result["question_answers"][q["id"]], answer)
 
     def test_unresolved_items_not_in_results(self):
-        goal = make_event("goal", content="Ship v1.0")
-        concern = make_event("concern", content="Missing tests")
-        debt = make_event("debt", content="Tech debt", files=["old.py"])
+        goal = make_event(EVENT_TYPE_GOAL, content="Ship v1.0")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Missing tests")
+        debt = make_event(EVENT_TYPE_DEBT, content="Tech debt", files=["old.py"])
         result = resolution.compute_resolutions([goal, concern, debt])
         self.assertEqual(len(result["goal_resolutions"]), 0)
         self.assertEqual(len(result["concern_resolutions"]), 0)
@@ -144,7 +158,7 @@ class TestMetadataResolves(unittest.TestCase):
     def test_resolve_only_targets_known_events(self):
         """metadata.resolves referencing unknown IDs are ignored."""
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed stuff",
             working_on=["app.py"],
             metadata={"resolves": ["nonexistent-id"]},
@@ -156,11 +170,11 @@ class TestMetadataResolves(unittest.TestCase):
 
     def test_resolve_via_full_id(self):
         """metadata.resolves with full 12-char ID matches exactly."""
-        concern = make_event("concern", content="Test failure")
-        goal = make_event("goal", content="Fix tests")
-        debt = make_event("debt", content="Legacy code", files=["old.py"])
+        concern = make_event(EVENT_TYPE_CONCERN, content="Test failure")
+        goal = make_event(EVENT_TYPE_GOAL, content="Fix tests")
+        debt = make_event(EVENT_TYPE_DEBT, content="Legacy code", files=["old.py"])
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="All fixed",
             working_on=[],
             metadata={
@@ -177,9 +191,9 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(debt["id"], result["debt_resolutions"])
 
     def test_assumption_resolved_via_metadata_resolves(self):
-        assumption = make_event("assumption", content="API returns JSON")
+        assumption = make_event(EVENT_TYPE_ASSUMPTION, content="API returns JSON")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Verified: API returns JSON",
             working_on=[],
             metadata={"resolves": [assumption["id"]]},
@@ -189,7 +203,7 @@ class TestMetadataResolves(unittest.TestCase):
         self.assertIn(assumption["id"], result["resolved_assumption_ids"])
 
     def test_unresolved_assumption_not_in_results(self):
-        assumption = make_event("assumption", content="API returns JSON")
+        assumption = make_event(EVENT_TYPE_ASSUMPTION, content="API returns JSON")
         result = resolution.compute_resolutions([assumption])
         self.assertEqual(len(result["assumption_resolutions"]), 0)
         self.assertEqual(len(result["resolved_assumption_ids"]), 0)
@@ -197,12 +211,12 @@ class TestMetadataResolves(unittest.TestCase):
     def test_status_event_resolved_via_metadata_resolves(self):
         """Resolving a status/sprint event should be tracked (Try item refs)."""
         sprint_evt = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             content="Sprint completed",
             metadata={"sprint_id": "sprint-013", "action": "end"},
         )
         dropper = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Dropped retro Try: truncated UUID bug already fixed",
             working_on=[],
             metadata={"resolves": [sprint_evt["id"]], "disposition": "dropped"},
@@ -214,12 +228,12 @@ class TestMetadataResolves(unittest.TestCase):
     def test_other_resolution_includes_disposition(self):
         """Resolutions of non-standard types preserve metadata like disposition."""
         status_evt = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Some status event",
             working_on=[],
         )
         resolver = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="Adopted retro Try item",
             topic="retro-try-fix",
             metadata={"resolves": [status_evt["id"]]},
@@ -229,14 +243,14 @@ class TestMetadataResolves(unittest.TestCase):
 
     def test_resolve_prefix_ambiguous_skipped(self):
         """If a prefix matches multiple events, skip it (ambiguous)."""
-        c1 = make_event("concern", content="First concern")
-        c2 = make_event("concern", content="Second concern")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="First concern")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Second concern")
         # Force same prefix by overwriting IDs
         shared = "abcdef12"
         c1["id"] = shared + "-0000-0000-0000-000000000001"
         c2["id"] = shared + "-0000-0000-0000-000000000002"
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=[],
             metadata={"resolves": [shared]},
@@ -257,7 +271,7 @@ class TestRetroTryResolution(unittest.TestCase):
     def test_compute_resolutions_resolves_try_id_nested_in_retrospective(self):
         retro = make_retrospective_with_try("a1b2c3d4e5f6", "Adopt commit-after-green")
         dropper = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Dropped retro Try",
             working_on=[],
             metadata={"resolves": ["a1b2c3d4e5f6"], "disposition": "dropped"},
@@ -270,7 +284,7 @@ class TestRetroTryResolution(unittest.TestCase):
     def test_compute_resolutions_resolves_try_id_via_decision_adopt(self):
         retro = make_retrospective_with_try("b2c3d4e5f6a1", "Adopt fairness batch")
         adopter = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="Adopting retro Try fairness batch",
             topic="retro-try-fairness",
             metadata={"resolves": ["b2c3d4e5f6a1"]},
@@ -283,16 +297,16 @@ class TestRetroTryResolution(unittest.TestCase):
         the top-level event wins. Resolution targets the real event."""
         shared_id = "c3d4e5f6a1b2"
         # Top-level concern with the colliding ID
-        concern = make_event("concern", content="Real concern")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Real concern")
         concern["id"] = shared_id
         # Retro with a try whose id collides
         retro = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Session retrospective",
             **{"try": [{"id": shared_id, "content": "Phantom try", "event_refs": []}]},
         )
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Resolved",
             working_on=[],
             metadata={"resolves": [shared_id]},
@@ -317,26 +331,26 @@ class TestCascadeResolution(unittest.TestCase):
     """
 
     def test_concern_cascade_closes_when_referenced_question_answered(self):
-        q = make_event("question", content="Which DB?")
+        q = make_event(EVENT_TYPE_QUESTION, content="Which DB?")
         flag = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Stale question: blocking question unanswered",
             references=[q["id"]],
         )
-        answer = make_event("answer", content="Postgres", references=[q["id"]])
+        answer = make_event(EVENT_TYPE_ANSWER, content="Postgres", references=[q["id"]])
         result = resolution.compute_resolutions([q, flag, answer])
         self.assertIn(flag["id"], result["resolved_concern_ids"])
         self.assertEqual(result["concern_resolutions"][flag["id"]], answer)
 
     def test_concern_cascade_closes_when_referenced_decision_resolved(self):
-        decision = make_event("decision", content="Use JWT", topic="auth")
+        decision = make_event(EVENT_TYPE_DECISION, content="Use JWT", topic="auth")
         flag = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Superseded decision on auth",
             references=[decision["id"]],
         )
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Decision explicitly retired",
             working_on=[],
             metadata={"resolves": [decision["id"]]},
@@ -346,7 +360,7 @@ class TestCascadeResolution(unittest.TestCase):
 
     def test_no_cascade_when_target_unresolved(self):
         flag = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="References an event that never resolves",
             references=["deadbeef0000"],
         )
@@ -354,23 +368,27 @@ class TestCascadeResolution(unittest.TestCase):
         self.assertNotIn(flag["id"], result["resolved_concern_ids"])
 
     def test_cascade_handles_multiple_references_or_semantics(self):
-        a = make_event("question", content="A?")
-        b = make_event("question", content="B?")
+        a = make_event(EVENT_TYPE_QUESTION, content="A?")
+        b = make_event(EVENT_TYPE_QUESTION, content="B?")
         flag = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             content="Flag referencing A and B",
             references=[a["id"], b["id"]],
         )
         # Only A resolves; flag still closes (ANY referenced id resolving is enough).
-        answer_a = make_event("answer", content="A answered", references=[a["id"]])
+        answer_a = make_event(
+            EVENT_TYPE_ANSWER, content="A answered", references=[a["id"]]
+        )
         result = resolution.compute_resolutions([a, b, flag, answer_a])
         self.assertIn(flag["id"], result["resolved_concern_ids"])
 
     def test_cascade_is_single_level_only(self):
-        q = make_event("question", content="root")
-        c_inner = make_event("concern", content="inner", references=[q["id"]])
-        c_outer = make_event("concern", content="outer", references=[c_inner["id"]])
-        answer = make_event("answer", content="answered", references=[q["id"]])
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        c_inner = make_event(EVENT_TYPE_CONCERN, content="inner", references=[q["id"]])
+        c_outer = make_event(
+            EVENT_TYPE_CONCERN, content="outer", references=[c_inner["id"]]
+        )
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
         result = resolution.compute_resolutions([q, c_inner, c_outer, answer])
         # Inner cascades closed (references a resolved question).
         self.assertIn(c_inner["id"], result["resolved_concern_ids"])
@@ -378,16 +396,16 @@ class TestCascadeResolution(unittest.TestCase):
         self.assertNotIn(c_outer["id"], result["resolved_concern_ids"])
 
     def test_cascade_self_reference_is_no_op(self):
-        flag = make_event("concern", content="self-ref")
+        flag = make_event(EVENT_TYPE_CONCERN, content="self-ref")
         flag["references"] = [flag["id"]]
         result = resolution.compute_resolutions([flag])
         self.assertNotIn(flag["id"], result["resolved_concern_ids"])
 
     def test_cascade_respects_event_type_buckets(self):
         """A goal with references to a resolved event lands in goal_resolutions."""
-        q = make_event("question", content="root")
-        g = make_event("goal", content="dependent goal", references=[q["id"]])
-        answer = make_event("answer", content="resolved", references=[q["id"]])
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        g = make_event(EVENT_TYPE_GOAL, content="dependent goal", references=[q["id"]])
+        answer = make_event(EVENT_TYPE_ANSWER, content="resolved", references=[q["id"]])
         result = resolution.compute_resolutions([q, g, answer])
         self.assertIn(g["id"], result["resolved_goal_ids"])
         self.assertNotIn(g["id"], result["resolved_concern_ids"])
@@ -460,12 +478,12 @@ class TestMetadataResolvesEndToEnd(unittest.TestCase):
         from event_schema import PRIORITY_BLOCKING
 
         question = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             content="A blocking question",
             priority=PRIORITY_BLOCKING,
         )
         decision = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             topic="answer",
             content="Decision answering the question",
             metadata={"resolves": [question["id"]]},

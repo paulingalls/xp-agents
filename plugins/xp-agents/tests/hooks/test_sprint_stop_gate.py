@@ -24,6 +24,7 @@ from conftest import (
     _make_stop_input,
     make_event,
 )
+from event_schema import EVENT_TYPE_SPRINT
 
 
 class TestSprintStopGateEarlyExits(_HookTestCase):
@@ -207,7 +208,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         event = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             agent_id="xp-sprint-reviewer",
             content="Sprint end",
             metadata={"sprint_id": "sprint-001", "action": "end"},
@@ -233,7 +234,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         event = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             agent_id="xp-sprint-reviewer",
             content="Sprint end",
             metadata={"sprint_id": "sprint-999", "action": "end"},
@@ -252,7 +253,7 @@ class TestSprintStopGatePostReview(_HookTestCase):
         import _common
 
         event = make_event(
-            "sprint",
+            EVENT_TYPE_SPRINT,
             agent_id="xp-sprint-reviewer",
             content="Sprint end",
             metadata={"sprint_id": sprint_id, "action": "end"},
