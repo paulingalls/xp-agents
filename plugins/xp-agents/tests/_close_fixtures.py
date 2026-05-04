@@ -234,7 +234,7 @@ class _CloseSkillTextCommonTests(_MixinBase):
         super().setUpClass()
         # Fail-fast on missing shared file — silently falling back to
         # SKILL.md alone would let receiver-side prose assertions
-        # (Step 3.5 / Block finding / Recommended) appear to pass while
+        # (Step 4.5 / Block finding / Recommended) appear to pass while
         # the actual close pipeline is missing the shared content.
         skill_text = cls._SKILL_MD.read_text()
         shared_text = cls._SHARED_PIPELINE.read_text()
