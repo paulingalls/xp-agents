@@ -12,12 +12,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import markers
 import pre_tool_bash
 from conftest import _HookTestCase, _make_bash_input, make_event
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_QUESTION
 
 _APPEND = "bash /plugin/smm/append.sh"
 
 
 def _decision_cmd() -> str:
-    return f"{_APPEND} --type decision --topic foo --content bar"
+    return f"{_APPEND} --type {EVENT_TYPE_DECISION} --topic foo --content bar"
 
 
 class TestNudgeDedupCache(_HookTestCase):
@@ -33,7 +34,7 @@ class TestNudgeDedupCache(_HookTestCase):
         self._write_events(
             [
                 make_event(
-                    "question",
+                    EVENT_TYPE_QUESTION,
                     id=qid,
                     topic="auth",
                     content="Should refresh tokens rotate on every request?",
@@ -95,13 +96,13 @@ class TestNudgeDedupCache(_HookTestCase):
     def test_resolved_question_not_nudged(self):
         """Question resolved between fires doesn't appear in nudge."""
         q = make_event(
-            "question",
+            EVENT_TYPE_QUESTION,
             id="aaaaaaaaaaaa",
             topic="auth",
             content="Should refresh tokens rotate?",
         )
         d = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             id="cccccccccccc",
             topic="auth",
             content="Yes, rotate on every request",
