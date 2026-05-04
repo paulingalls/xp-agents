@@ -6,6 +6,13 @@ against fixed thresholds. Returns structured flags that the retro agent
 uses directly — no LLM judgment on numeric thresholds.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+
+from event_schema import EVENT_TYPE_DECISION, event_action
+
 
 def _flag(
     metric: str,
@@ -28,6 +35,23 @@ _FLAG_SUPPRESSIONS: dict[str, str] = {
     "max_events_to_commit": "retro-try-kickoff-exemption",
 }
 
+# Fraction of decision events with metadata.action="explicit_zero" above
+# which the retro flags "we keep declining to record decisions" (Honesty lens).
+ZERO_DECISION_RATE_THRESHOLD = 0.5
+
+
+def _count_explicit_zero_decisions(events: list[dict]) -> tuple[int, int]:
+    """Return (explicit_zero_count, total_decision_count) over events."""
+    zero = 0
+    total = 0
+    for event in events:
+        if event.get("type") != EVENT_TYPE_DECISION:
+            continue
+        total += 1
+        if event_action(event) == "explicit_zero":
+            zero += 1
+    return zero, total
+
 
 def evaluate_flags(
     honesty_signals: dict,
@@ -35,6 +59,7 @@ def evaluate_flags(
     status_summary: dict,
     session_stats: dict,
     decisions: list[str] | None = None,
+    events: list[dict] | None = None,
 ) -> list[dict]:
     """Evaluate all metrics against thresholds. Returns list of flags."""
     flags: list[dict] = []
@@ -186,5 +211,22 @@ def evaluate_flags(
                 f" {review_required} review-required commits",
             )
         )
+
+    if events is not None:
+        zero, total = _count_explicit_zero_decisions(events)
+        if total > 0 and zero / total > ZERO_DECISION_RATE_THRESHOLD:
+            pct = round(zero * 100 / total)
+            threshold_pct = int(ZERO_DECISION_RATE_THRESHOLD * 100)
+            flags.append(
+                _flag(
+                    "high_zero_decision_rate",
+                    pct,
+                    threshold_pct,
+                    "Honesty",
+                    f"{pct}% of decisions are explicit_zero "
+                    f"({zero}/{total}) — recording 'no decision' too often "
+                    f"(threshold: {threshold_pct}%)",
+                )
+            )
 
     return flags
