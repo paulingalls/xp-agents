@@ -18,6 +18,18 @@ import _common
 import post_tool_use
 from conftest import _HookTestCase, _make_write_input, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONVENTION,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_DISCOVERY,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
+
 # ===========================================================================
 # post_tool_use.py tests — Milestone 3.3
 # ===========================================================================
@@ -126,7 +138,9 @@ class TestPostToolUse(_HookTestCase):
         # Another agent claims the same file
         self._write_events(
             [
-                make_event("status", agent_id="other", working_on=["src/app.ts"]),
+                make_event(
+                    EVENT_TYPE_STATUS, agent_id="other", working_on=["src/app.ts"]
+                ),
             ]
         )
         post_tool_use.run(
@@ -139,7 +153,7 @@ class TestPostToolUse(_HookTestCase):
         self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
 
     def test_conflict_stale_question(self):
-        q = make_event("question", priority="\U0001f534", content="Blocking?")
+        q = make_event(EVENT_TYPE_QUESTION, priority="\U0001f534", content="Blocking?")
         filler = [make_event(content=f"filler {i}") for i in range(21)]
         self._write_events([q, *filler])
         post_tool_use.run(
@@ -153,8 +167,8 @@ class TestPostToolUse(_HookTestCase):
     def test_conflict_superseded_decision(self):
         self._write_events(
             [
-                make_event("decision", topic="db", content="Use Postgres"),
-                make_event("decision", topic="db", content="Use MySQL"),
+                make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres"),
+                make_event(EVENT_TYPE_DECISION, topic="db", content="Use MySQL"),
             ]
         )
         post_tool_use.run(
@@ -166,8 +180,10 @@ class TestPostToolUse(_HookTestCase):
         self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
 
     def test_conflict_assumption_contradicted(self):
-        a = make_event("assumption", content="API is REST")
-        d = make_event("discovery", content="Actually GraphQL", references=[a["id"]])
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY, content="Actually GraphQL", references=[a["id"]]
+        )
         self._write_events([a, d])
         post_tool_use.run(
             _make_write_input(),
@@ -180,8 +196,12 @@ class TestPostToolUse(_HookTestCase):
     def test_conflict_convention_violation(self):
         self._write_events(
             [
-                make_event("convention", topic="naming", content="Use camelCase"),
-                make_event("decision", topic="naming", content="Use snake_case"),
+                make_event(
+                    EVENT_TYPE_CONVENTION, topic="naming", content="Use camelCase"
+                ),
+                make_event(
+                    EVENT_TYPE_DECISION, topic="naming", content="Use snake_case"
+                ),
             ]
         )
         post_tool_use.run(
@@ -196,8 +216,8 @@ class TestPostToolUse(_HookTestCase):
         # Clean log with no conflicts
         self._write_events(
             [
-                make_event("status", agent_id="main", working_on=["src/a.ts"]),
-                make_event("decision", topic="db", content="Use Postgres"),
+                make_event(EVENT_TYPE_STATUS, agent_id="main", working_on=["src/a.ts"]),
+                make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres"),
             ]
         )
         post_tool_use.run(
@@ -211,7 +231,7 @@ class TestPostToolUse(_HookTestCase):
     def test_semantic_references(self):
         # Decision references our file
         d = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             topic="auth",
             content="Use JWT",
             working_on=["src/auth.ts"],
@@ -229,7 +249,7 @@ class TestPostToolUse(_HookTestCase):
 
     def test_no_semantic_refs_unrelated(self):
         d = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             topic="auth",
             content="Use JWT",
             working_on=["src/other.ts"],

@@ -18,10 +18,18 @@ import _common
 import concerns
 from conftest import _HookTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_STATUS,
+)
+
 
 class TestReadEventsRaw(_HookTestCase):
     def test_reads_valid_events(self):
-        events = [make_event(), make_event("status")]
+        events = [make_event(), make_event(EVENT_TYPE_STATUS)]
         self._write_events(events)
         result = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(result), 2)
@@ -48,14 +56,20 @@ class TestFindRelatedDecisions(unittest.TestCase):
 
     def test_matches_via_working_on(self):
         d = make_event(
-            "decision", topic="auth", content="Use JWT", working_on=["/tmp/src/auth.ts"]
+            EVENT_TYPE_DECISION,
+            topic="auth",
+            content="Use JWT",
+            working_on=["/tmp/src/auth.ts"],
         )
         result = concerns.find_related_decisions([d], "/tmp/src/auth.ts", "/tmp")
         self.assertIn(d["id"], result)
 
     def test_no_match_different_file(self):
         d = make_event(
-            "decision", topic="auth", content="Use JWT", working_on=["/tmp/src/auth.ts"]
+            EVENT_TYPE_DECISION,
+            topic="auth",
+            content="Use JWT",
+            working_on=["/tmp/src/auth.ts"],
         )
         result = concerns.find_related_decisions([d], "/tmp/src/other.ts", "/tmp")
         self.assertNotIn(d["id"], result)
@@ -63,7 +77,7 @@ class TestFindRelatedDecisions(unittest.TestCase):
     def test_no_substring_false_positive_via_references(self):
         """'a.py' must not match a reference to 'data.py'."""
         d = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             topic="naming",
             content="Naming convention",
             references=["data.py"],
@@ -74,13 +88,18 @@ class TestFindRelatedDecisions(unittest.TestCase):
     def test_exact_reference_match(self):
         """Exact normalized path in references should match."""
         d = make_event(
-            "decision", topic="auth", content="Use JWT", references=["src/auth.ts"]
+            EVENT_TYPE_DECISION,
+            topic="auth",
+            content="Use JWT",
+            references=["src/auth.ts"],
         )
         result = concerns.find_related_decisions([d], "src/auth.ts", "/tmp")
         self.assertIn(d["id"], result)
 
     def test_skips_non_decision_events(self):
-        s = make_event("status", content="Working", working_on=["/tmp/src/app.ts"])
+        s = make_event(
+            EVENT_TYPE_STATUS, content="Working", working_on=["/tmp/src/app.ts"]
+        )
         result = concerns.find_related_decisions([s], "/tmp/src/app.ts", "/tmp")
         self.assertEqual(result, [])
 
@@ -102,13 +121,13 @@ class TestAppendSafeBudget(_HookTestCase):
     """Verify _common.append_safe drops over-budget events silently."""
 
     def test_append_safe_drops_over_budget(self):
-        event = make_event("status", content="x" * 201, working_on=[])
+        event = make_event(EVENT_TYPE_STATUS, content="x" * 201, working_on=[])
         _common.append_safe(self.smm_dir, event)
         events = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(events), 0)
 
     def test_append_safe_writes_within_budget(self):
-        event = make_event("status", content="x" * 200, working_on=[])
+        event = make_event(EVENT_TYPE_STATUS, content="x" * 200, working_on=[])
         _common.append_safe(self.smm_dir, event)
         events = _common.read_events_raw(self.smm_dir)
         self.assertEqual(len(events), 1)
