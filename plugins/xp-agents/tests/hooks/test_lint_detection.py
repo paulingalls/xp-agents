@@ -31,19 +31,19 @@ class TestDetectLinterConfig(unittest.TestCase):
     def test_detects_ruff_config(self):
         (self.tmpdir / "ruff.toml").touch()
         result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result[0], "ruff")
 
     def test_detects_eslint_config(self):
         (self.tmpdir / ".eslintrc.json").touch()
         result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result[0], "eslint")
 
     def test_detects_pyproject_ruff(self):
         (self.tmpdir / "pyproject.toml").write_text("[tool.ruff]\nline-length = 88\n")
         result = lint_check.detect_linter_config(str(self.tmpdir), str(self.tmpdir))
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result[0], "ruff")
 
     def test_no_config_returns_none(self):

@@ -293,7 +293,7 @@ class TestBashPostToolGreenNudge(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("commit", result.lower())
 
     def test_green_no_uncommitted_code_no_nudge(self):
@@ -325,7 +325,7 @@ class TestBashPostToolGreenNudge(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("prior test failures resolved", result.lower())
         self.assertIn("commit", result.lower())
 
