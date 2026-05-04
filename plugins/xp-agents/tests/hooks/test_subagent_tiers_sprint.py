@@ -58,7 +58,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
         # Should NOT get SMM content (that comes from preload)
         self.assertNotIn("Ship v1", result)
@@ -78,7 +78,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                     },
                     smm_dir=self.smm_dir,
                 )
-                self.assertIsNotNone(result)
+                assert result is not None
                 self.assertIn(f"SMM_DIR={self.smm_dir}", result)
                 self.assertIn(
                     f"RETRO_INPUT={self.smm_dir}/.retro-input.json",
@@ -119,7 +119,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
         self.assertNotIn("Ship v1", result)
 
@@ -133,7 +133,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Ship v1", result)
         self.assertNotIn("Teammate Guide", result)
 
@@ -147,7 +147,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Ship v1", result)
         self.assertNotIn("sprint-001", result)
 
@@ -162,7 +162,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
 
     def test_code_reviewer_gets_full_smm(self):
@@ -180,7 +180,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
                     },
                     smm_dir=self.smm_dir,
                 )
-                self.assertIsNotNone(result)
+                assert result is not None
                 self.assertIn("Intent", result)
                 self.assertIn("Ship v1", result)
                 self.assertIn("Constraints", result)
@@ -199,7 +199,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
 
     def test_explore_unchanged(self):
@@ -212,7 +212,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Intent", result)
         self.assertIn("Constraints", result)
         self.assertNotIn("sprint-001", result)
@@ -223,7 +223,7 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Intent", result)
         self.assertIn("Risks", result)
         self.assertNotIn("sprint-001", result)
@@ -259,7 +259,7 @@ class TestSubagentStartHousekeeper(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         return result
 
     def test_writes_curation_input_and_injects_paths(self):
