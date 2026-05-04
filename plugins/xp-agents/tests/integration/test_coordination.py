@@ -27,6 +27,16 @@ from conftest import (
     passing_tests_status,
 )
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_ANSWER,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_QUESTION,
+)
+
 # ---------------------------------------------------------------------------
 # teammate_idle.py — TeammateIdle hook
 # ---------------------------------------------------------------------------
@@ -136,7 +146,7 @@ class TestQuestionAnsweredIntegration(_IntegrationTestCase):
         self.assertFalse((self.smm_dir / ".asking-user").exists())
 
         events = self._read_events()
-        answers = [e for e in events if e.get("type") == "answer"]
+        answers = [e for e in events if e.get("type") == EVENT_TYPE_ANSWER]
         self.assertEqual(len(answers), 1)
         self.assertIn("Yes, use A", answers[0]["content"])
         self.assertEqual(answers[0].get("references"), [question_id])
@@ -157,8 +167,8 @@ class TestQuestionAnsweredIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.smm_dir / ".asking-user").exists())
         events = self._read_events()
-        self.assertEqual([e for e in events if e.get("type") == "answer"], [])
-        inputs = [e for e in events if e.get("type") == "customer_input"]
+        self.assertEqual([e for e in events if e.get("type") == EVENT_TYPE_ANSWER], [])
+        inputs = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(len(inputs), 1)
 
     def test_failure_sets_asking_user_marker(self):
@@ -190,8 +200,8 @@ class TestPromptNuggetIntegration(_IntegrationTestCase):
     def test_watermark_persists_across_subprocess_calls(self):
         self._seed_events(
             [
-                make_event("concern", content="Flaky DB test"),
-                make_event("question", content="Which DB?"),
+                make_event(EVENT_TYPE_CONCERN, content="Flaky DB test"),
+                make_event(EVENT_TYPE_QUESTION, content="Which DB?"),
             ]
         )
 

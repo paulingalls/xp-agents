@@ -17,6 +17,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_SESSION_END,
+)
+
 _SMM_CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
 
@@ -44,7 +54,7 @@ class TestCompactIntegration(_IntegrationTestCase):
             )
             events.append(
                 make_event(
-                    "session_end",
+                    EVENT_TYPE_SESSION_END,
                     content=f"end-{s}",
                     working_on=[],
                     ts=f"2026-03-{s + 1:02d}T23:59:59+00:00",
@@ -79,8 +89,8 @@ class TestCompactIntegration(_IntegrationTestCase):
     def test_compact_then_session_start(self):
         """After compact, session_start can still read the log."""
         events = [
-            make_event("goal", content="Ship v1"),
-            make_event("session_end", content="end", working_on=[]),
+            make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+            make_event(EVENT_TYPE_SESSION_END, content="end", working_on=[]),
         ]
         self._seed_events(events)
 
@@ -163,7 +173,7 @@ class TestRepairIntegration(_IntegrationTestCase):
 
     def test_repair_then_materialize(self):
         """After repair, materialize works correctly."""
-        good = make_event("goal", content="Ship v1")
+        good = make_event(EVENT_TYPE_GOAL, content="Ship v1")
         lines = [json.dumps(good), "corrupt line"]
         (self.smm_dir / "events.jsonl").write_text("\n".join(lines) + "\n")
 
@@ -270,9 +280,9 @@ class TestSaveSMMIntegration(_IntegrationTestCase):
 
         self._seed_events(
             [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
-                make_event("decision", topic="db", content="Use PG"),
+                make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+                make_event(EVENT_TYPE_CONCERN, content="No tests"),
+                make_event(EVENT_TYPE_DECISION, topic="db", content="Use PG"),
             ]
         )
         result = self._run_save_smm(json.dumps(smm_schema.empty_smm()))
@@ -304,9 +314,9 @@ class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
         """
         self._seed_events(
             [
-                make_event("goal", content="Ship v1"),
-                make_event("concern", content="No tests"),
-                make_event("decision", topic="db", content="Use PG"),
+                make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+                make_event(EVENT_TYPE_CONCERN, content="No tests"),
+                make_event(EVENT_TYPE_DECISION, topic="db", content="Use PG"),
             ]
         )
 
@@ -329,7 +339,7 @@ class TestHousekeepingRoundTripIntegration(_IntegrationTestCase):
                 "content": "Curated: Ship v1",
                 "source": "curated",
                 "ts": "2026-04-01T00:00:00+00:00",
-                "type": "goal",
+                "type": EVENT_TYPE_GOAL,
             }
         )
 
