@@ -24,12 +24,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import _common
 from event_builder import build_event
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
+
 
 def _ns(**kwargs) -> argparse.Namespace:
     """Build a Namespace with all build_event-recognized fields defaulted to
     None / falsy, then override via kwargs."""
     defaults = {
-        "type": "decision",
+        "type": EVENT_TYPE_DECISION,
         "agent": "main",
         "content": "",
         "references": None,
@@ -131,7 +135,7 @@ class TestMakeEventRefsExtraction(unittest.TestCase):
 
     def test_extracts_refs_suffix_into_metadata_resolves(self):
         event = _common.make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             "main",
             "adopting Try foo bar [refs: abc123def456]",
             topic="t",
@@ -141,7 +145,7 @@ class TestMakeEventRefsExtraction(unittest.TestCase):
 
     def test_unions_explicit_metadata_resolves_with_suffix(self):
         event = _common.make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             "main",
             "adopting [refs: bbbbbbbbbbbb]",
             topic="t",
@@ -153,21 +157,27 @@ class TestMakeEventRefsExtraction(unittest.TestCase):
 
     def test_ignores_bare_hex_in_content_without_refs_wrapper(self):
         event = _common.make_event(
-            "decision", "main", "see commit abc123def456 for context", topic="t"
+            EVENT_TYPE_DECISION,
+            "main",
+            "see commit abc123def456 for context",
+            topic="t",
         )
         self.assertEqual(event["content"], "see commit abc123def456 for context")
         self.assertNotIn("metadata", event)
 
     def test_idempotent_when_no_suffix(self):
         event = _common.make_event(
-            "decision", "main", "just regular content", topic="t"
+            EVENT_TYPE_DECISION, "main", "just regular content", topic="t"
         )
         self.assertEqual(event["content"], "just regular content")
         self.assertNotIn("metadata", event)
 
     def test_drops_malformed_tokens_keeps_valid(self):
         event = _common.make_event(
-            "decision", "main", "adopting [refs: not-hex, abc123def456]", topic="t"
+            EVENT_TYPE_DECISION,
+            "main",
+            "adopting [refs: not-hex, abc123def456]",
+            topic="t",
         )
         self.assertEqual(event["content"], "adopting")
         self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
@@ -175,7 +185,7 @@ class TestMakeEventRefsExtraction(unittest.TestCase):
     def test_status_with_disposition_and_refs(self):
         """The work_selection_decide.py path: status + disposition + refs."""
         event = _common.make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             "xp-work-selection",
             "Dropped Try [refs: aaaaaaaaaaaa]",
             working_on=[],
