@@ -61,7 +61,7 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
     Kinds: `make_event-call`, `dict-literal`. Empty list = clean.
     Syntax errors return [] — they're a different bug class.
     """
-    src = path.read_text()
+    src = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(src)
     except SyntaxError:
