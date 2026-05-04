@@ -226,7 +226,7 @@ class TestAcceptMarker(_HookTestCase):
         # contract so a future fixture change can't silently make the
         # test a no-op.
         self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "active")
+        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,

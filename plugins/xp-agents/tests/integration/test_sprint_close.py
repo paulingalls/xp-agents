@@ -52,7 +52,7 @@ class TestSprintClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
     def test_consumes_accept_active_marker(self):
         # End-of-flow safety net: sprint-close preload must consume any
         # ACCEPT_ACTIVE marker so it never persists across sprint boundaries.
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "active")
+        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
