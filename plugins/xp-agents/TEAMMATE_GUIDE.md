@@ -21,7 +21,7 @@ Run before each commit:
 2. `/xp-quality-review` — courage accountability, drift check, debt awareness
 3. Commit — pre-commit hooks enforce test-passing and formatting
 
-Security review is tiered: Tier 1 secret/pattern scan runs automatically on staged diffs at commit; Tier 2 LLM review fires at `/xp-accept`; Tier 3 close-reviewer runs at sprint/plan/free close. There is no on-demand triage skill — the tiered gates own security.
+Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.5 against the cumulative close diff. There is no on-demand triage skill — the layered gates own security.
 
 ## Commit Conventions
 
@@ -32,7 +32,15 @@ Security review is tiered: Tier 1 secret/pattern scan runs automatically on stag
 
 ## File Domain
 
-Stay in your assigned file domain. If you need to modify files outside your domain, raise a concern.
+Stay in your assigned file domain for work you initiate. If you need to step outside to complete your story, raise a concern — collision with parallel teammates is the risk.
+
+**Reviewer-suggested edits are different.** When `xp-code-reviewer` proposes an edit outside your domain (e.g., consolidating a duplicated helper in a sibling test), KEEP it by default — reviewers see the whole diff, and any conflict is cheap to resolve at story-close merge.
+
+Raise a concern instead only when the reviewer's edit:
+
+- Is large (restructures, not polishes)
+- Is off-topic for the diff
+- Touches files clearly owned by another in-progress story
 
 ## Code Quality
 

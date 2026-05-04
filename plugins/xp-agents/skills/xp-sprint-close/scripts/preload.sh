@@ -17,6 +17,7 @@ echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
+echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
 emit_hook_guidance "$HOOK_STATUS"
 

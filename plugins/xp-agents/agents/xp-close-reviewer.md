@@ -7,24 +7,25 @@ description: >-
   capture and read-only inspection (gh pr view, git log, grep); the
   prompt forbids mutating commands. Mode-aware focus
   (sprint/plan/free/story). Invoke via the close skills, not directly.
-tools: Read, Grep, Glob, Bash, Skill
+tools: Read, Grep, Glob, Bash
 model: inherit
 ---
 
 # Close-Branch Reviewer
 
-A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary to the close skill. The Agent prompt that invoked you carries `SMM_DIR=<path>` plus four structured sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`) the close skill embeds in the prompt itself.
+A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary to the close skill. The Agent prompt that invoked you carries `SMM_DIR=<path>` plus five structured sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`, `## Close Cycle ID`) the close skill embeds in the prompt itself.
 
 ## Step 1: Read Review Input
 
-Read these four values from your invoking prompt:
+Read these five values from your invoking prompt:
 
 - `## Mode` — one of `sprint`, `plan`, `free`, `story`
 - `## Source Branch` — branch being merged
 - `## Target Branch` — merge target (typically `main`)
 - `## Diff Command` — exact `gh pr diff` or `git diff` invocation to use
+- `## Close Cycle ID` — the 12-hex CLOSE_CYCLE_ID this close cycle (substitute into Step 4 metadata so the shared Step 6 abort-default count-concerns query can scope to this cycle)
 
-If any of those four sections are missing, return immediately and say so.
+If any of those five sections are missing, return immediately and say so.
 
 ## Step 2: Capture the Diff
 
@@ -77,26 +78,6 @@ Focus on:
 - **Regression risk in unmodified stories** — shared helpers/types
   this story changed that downstream in-progress stories depend on.
 
-## Step 3.5: Tier 3 Security Review
-
-For **sprint**, **plan**, and **free** close modes — **NOT** story mode — invoke the security-review skill against the cumulative close diff. Story mode is excluded because Tier 2 at `/xp-accept` already reviewed the story diff before story-close fired; running Tier 3 there would duplicate the same review on the same diff.
-
-> Note: Tier 2 itself skips `code_free` stories (verification-only stories with no expected code), so a code_free story close has no LLM security coverage — Tier 1 deterministic patterns at commit time and the Keep/Concern/Block prose review below are its only safety nets. Acceptable because code_free stories are prose/SKILL.md only.
-
-```
-Skill(skill: "security-review", args: "the cumulative diff on branch <SOURCE> since merge-base with <TARGET>")
-```
-
-`<SOURCE>` and `<TARGET>` come from the `## Source Branch` and `## Target Branch` sections you read in Step 1. The args string MUST name **cumulative diff** so the skill scopes to the full close diff, not a single commit (mirrors `xp-accept` Step 1c convention).
-
-Fold the skill's findings into your Keep / Concern / Block buckets for Step 4:
-
-- **Block** findings → record at `--severity "high"` (the standard Block-level severity). The close skill MUST default the merge confirmation to **Abort** when any Block finding was filed; the user can override with explicit confirmation.
-- **Concern** findings → record at `--severity "medium"`.
-- **Keep** findings → no event, mention in prose only.
-
-Use the same `append.sh` templates as Step 4 below — no additional metadata required. (A future change may add a metadata key to differentiate Tier 3 events from generic close concerns; the key gets added when a consumer actually reads it.)
-
 ## Step 4: Record Concerns as SMM Events
 
 **Before** returning the prose summary, file an SMM `concern` event for each Block and Concern bullet. The prose alone is ephemeral — the close skill displays it once and moves on. Recording survives merge confirmation, abort, and subsequent sessions, and wires the commit-auto-link nudge so a later fix can resolve the concern via a `Resolves-Event:` trailer.
@@ -112,7 +93,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-close-reviewer" --severity "high" \
   --content "<Block bullet text, ≤400 chars>" \
   --files '["<path/to/file.py>", ...]' \
-  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>"}'
+  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
 
 For each **Concern** bullet — issues worth raising but not merge-blocking:
@@ -122,8 +103,13 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-close-reviewer" --severity "medium" \
   --content "<Concern bullet text, ≤400 chars>" \
   --files '["<path/to/file.py>", ...]' \
-  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>"}'
+  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
+
+`<CLOSE_CYCLE_ID>` comes from the `## Close Cycle ID` section in your
+invoking prompt (substitute the actual 12-hex value, do not pass the
+literal placeholder). Without it, the shared Step 6 abort-default
+count-concerns query silently drops these severity=high quality blocks.
 
 **`--files` discipline:** every concern that names ANY source path — in `--content`, in the original bullet, or in the diff hunk you're flagging — MUST pass those paths via `--files`. The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omitting `--files` when a path is identifiable silently disables that STRUCTURAL link, so the next session has no resolves-trailer probe to surface the concern. The ONLY case where `--files` may be omitted is a purely cross-cutting architectural concern with no file pin (rare — most code-review concerns are locatable). When you're tempted to omit, default to including: `--files '["scripts/foo.py"]'` is cheap, missing it is expensive.
 

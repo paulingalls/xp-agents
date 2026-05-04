@@ -17,7 +17,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _branching_fixtures import write_system_context
-from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
+from _close_fixtures import (
+    _ClosePreloadCommonTests,
+    _CloseSkillTextCommonTests,
+    _Step4_5SecurityIncludeTests,
+)
 from conftest import _extract_preload_var, _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -64,6 +68,14 @@ class TestFreeCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
 
     _SKILL_MD = _SKILL_MD
     _MODE = "free"
+
+
+class TestFreeCloseStep4_5(_Step4_5SecurityIncludeTests, _IntegrationTestCase):
+    """Step 4.5 (Security Review) wired into xp-free-close."""
+
+    _SKILL_MD = _SKILL_MD
+    _MODE = "free"
+    _SKILL_NAME = "xp-free-close"
 
 
 if __name__ == "__main__":

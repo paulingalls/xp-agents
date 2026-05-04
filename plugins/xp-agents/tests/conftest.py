@@ -81,6 +81,7 @@ from _event_fixtures import (  # noqa: E402, F401
     make_retrospective_with_try,
     passing_tests_status,
     tests_run_status,
+    write_events,
     write_smm_fixture,
 )
 from _hook_inputs import (  # noqa: E402, F401
@@ -155,6 +156,10 @@ def _sprint_json(
 
 SPRINT_IN_PROGRESS = _sprint_json(
     [_s("story-001", "As a user I can log in", "in-progress")]
+)
+
+SPRINT_REVIEWING_ONLY = _sprint_json(
+    [_s("story-001", "As a user I can log in", "reviewing")]
 )
 
 SPRINT_READY_ONLY = _sprint_json([_s("story-001", "As a user I can log in", "ready")])

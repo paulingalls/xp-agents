@@ -13,10 +13,16 @@ from execution_plan_schema import VALID_BRANCH_NAME_RE
 SPRINT_FILENAME = "sprint.json"
 
 VALID_STORY_STATUSES = frozenset(
-    {"ready", "scheduled", "in-progress", "done", "deferred"}
+    {"ready", "scheduled", "in-progress", "reviewing", "done", "deferred"}
 )
 TERMINAL_STORY_STATUSES = frozenset({"done", "deferred"})
 ACTIVE_STORY_STATUSES = VALID_STORY_STATUSES - TERMINAL_STORY_STATUSES
+# Stories with work currently in motion: branched + actively edited or
+# under acceptance verification. Narrower than ACTIVE (which also covers
+# ready/scheduled — pre-branch states). Drives cascade-deferral and the
+# orphan-branch active-set: a deferred story's in-motion descendants are
+# invalidated; an in-motion story's branch is never orphan.
+IN_MOTION_STORY_STATUSES = frozenset({"in-progress", "reviewing"})
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,

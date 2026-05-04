@@ -44,11 +44,70 @@ _CONTENT_SKILL_NAMES = (
 )
 
 
+_PLUGIN_ROOT = Path(__file__).parent.parent.parent
+_PLUGIN_JSON = _PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+_REPO_ROOT = _PLUGIN_ROOT.parent.parent
+_CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
+
+
+class TestV310Release(unittest.TestCase):
+    """v3.1.0 ships M-8 security review migration to close skills.
+
+    Pins both the manifest version bump AND the CHANGELOG top-entry so a
+    later doc-only or manifest-only edit can't quietly desynchronize them.
+    """
+
+    def test_plugin_version_is_3_1_0(self):
+        manifest = json.loads(_PLUGIN_JSON.read_text())
+        self.assertEqual(
+            manifest["version"],
+            "3.1.0",
+            "plugin.json version must be bumped to 3.1.0 for M-8 release",
+        )
+
+    def test_changelog_top_entry_is_v3_1_0(self):
+        content = _CHANGELOG.read_text()
+        # First "## " heading line — `## v3.1.0 — ...`
+        first_heading = next(
+            (line for line in content.splitlines() if line.startswith("## ")),
+            "",
+        )
+        self.assertTrue(
+            first_heading.startswith("## v3.1.0"),
+            f"CHANGELOG top entry must be v3.1.0; got: {first_heading!r}",
+        )
+
+    def test_changelog_v3_1_0_names_security_migration(self):
+        # Pin the load-bearing M-8 facts so a future edit can't quietly
+        # drop them: the migration target, the deletions, and the
+        # additive metadata key.
+        content = _CHANGELOG.read_text()
+        # Scope to the v3.1.0 section only.
+        v310_start = content.find("## v3.1.0")
+        v310_end = content.find("\n## ", v310_start + 1)
+        if v310_end == -1:
+            v310_end = len(content)
+        section = content[v310_start:v310_end]
+        for needle in (
+            "Step 4.5",
+            "/security-review",
+            "xp-accept",
+            "xp-close-reviewer",
+            "metadata.kind",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(
+                    needle,
+                    section,
+                    f"v3.1.0 CHANGELOG entry must name {needle!r}",
+                )
+
+
 class TestMilestone6Files(unittest.TestCase):
     """Verify presence and content of M6 files."""
 
     def setUp(self):
-        self.plugin_root = Path(__file__).parent.parent.parent
+        self.plugin_root = _PLUGIN_ROOT
 
     def test_xp_values_exists(self):
         """XP_VALUES.md must exist at plugin root."""
@@ -193,7 +252,7 @@ class TestAgentFilesM65(unittest.TestCase):
     """Verify all plugin subagent files exist with correct frontmatter."""
 
     def setUp(self):
-        self.agents_dir = Path(__file__).parent.parent.parent / "agents"
+        self.agents_dir = _PLUGIN_ROOT / "agents"
 
     def test_agents_directory_exists(self):
         self.assertTrue(self.agents_dir.is_dir(), "agents/ directory missing")
@@ -253,9 +312,7 @@ class TestAgentFilesM65(unittest.TestCase):
 
     def test_xp_assign_skill_is_inline(self):
         """xp-assign SKILL.md must not have context: fork or agent: field."""
-        skill_file = (
-            Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"
-        )
+        skill_file = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
         content = skill_file.read_text()
         match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
         self.assertIsNotNone(match)
@@ -273,12 +330,7 @@ class TestQualityReviewSkill(unittest.TestCase):
     """Quality review skill uses xp-code-reviewer subagent."""
 
     def setUp(self):
-        self.skill_file = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-quality-review"
-            / "SKILL.md"
-        )
+        self.skill_file = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "SKILL.md"
         self.content = self.skill_file.read_text()
         match = re.match(r"^---\n(.*?)\n---", self.content, re.DOTALL)
         self.fm = match.group(1) if match else ""
@@ -301,7 +353,7 @@ class TestPluginIntegrity(unittest.TestCase):
     """M7: marketplace.json, hooks.json references, and structural checks."""
 
     def setUp(self):
-        self.plugin_root = Path(__file__).parent.parent.parent
+        self.plugin_root = _PLUGIN_ROOT
 
     def test_marketplace_json_exists_and_valid(self):
         """marketplace.json has required fields."""

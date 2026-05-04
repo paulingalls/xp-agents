@@ -18,7 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import marker_names
 import smm_store
 from append_validation import parse_jsonl
-from event_schema import STATUS_ACTION_CONCERN_CLASSIFY
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    STATUS_ACTION_CONCERN_CLASSIFY,
+    VALID_SEVERITIES,
+)
 from smm_schema import PILLAR_RISKS, PILLARS
 
 _PILLAR_TITLES = {
@@ -240,6 +244,33 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_count_concerns(args: argparse.Namespace) -> int:
+    """Count type==concern events filtered by severity, cycle-id, since-ts.
+
+    Always exits 0 (missing file / malformed lines → 0) so callers can
+    `$(...)` capture without exit-code branching.
+    """
+    events_path = Path(args.smm_dir) / "events.jsonl"
+    if not events_path.exists():
+        print(0)
+        return 0
+    events, _skipped = parse_jsonl(events_path.read_text())
+    count = 0
+    for event in events:
+        if event.get("type") != EVENT_TYPE_CONCERN:
+            continue
+        if args.severity and event.get("severity") != args.severity:
+            continue
+        meta = event.get("metadata", {})
+        if args.cycle_id and meta.get("close_cycle_id") != args.cycle_id:
+            continue
+        if args.since_ts and event.get("ts", "") < args.since_ts:
+            continue
+        count += 1
+    print(count)
+    return 0
+
+
 def _cmd_get_event(args: argparse.Namespace) -> int:
     try:
         _, event = smm_store.lookup_event(args.smm_dir, args.event_id)
@@ -383,6 +414,29 @@ def main() -> None:
         help="ISO 8601 timestamp; events with ts < this are excluded",
     )
 
+    cc_p = sub.add_parser(
+        "count-concerns",
+        help="Count concern events filtered by severity + cycle-id + since-ts",
+    )
+    cc_p.add_argument(
+        "--severity",
+        default=None,
+        choices=sorted(VALID_SEVERITIES),
+        help="Filter by severity; omit to count all severities. "
+        "choices= rejects typos so a silent zero never defeats the gate.",
+    )
+    cc_p.add_argument(
+        "--cycle-id",
+        default=None,
+        help="Filter by metadata.close_cycle_id; events without the key "
+        "never match, so concurrent close-cycles do not leak in.",
+    )
+    cc_p.add_argument(
+        "--since-ts",
+        default=None,
+        help="ISO 8601 timestamp; events with ts < this are excluded",
+    )
+
     prm_p = sub.add_parser("promote-event", help="Promote event to SMM")
     prm_p.add_argument("event_id", help="Event UUID or prefix")
     prm_p.add_argument(
@@ -405,6 +459,7 @@ def main() -> None:
         "remove-item": _cmd_remove_item,
         "get-event": _cmd_get_event,
         "count-classifications": _cmd_count_classifications,
+        "count-concerns": _cmd_count_concerns,
         "promote-event": _cmd_promote_event,
     }
 

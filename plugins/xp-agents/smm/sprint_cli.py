@@ -55,7 +55,7 @@ def _cmd_scheduled_overlap(args: argparse.Namespace) -> int:
 
 
 def _cmd_find_transitive_dependents(args: argparse.Namespace) -> int:
-    deps = store.transitive_in_progress_dependents(args.smm_dir, args.story_id)
+    deps = store.transitive_active_dependents(args.smm_dir, args.story_id)
     if deps:
         print(" ".join(deps))
     return 0
@@ -317,8 +317,9 @@ def main() -> None:
     ftd_p = sub.add_parser(
         "find-transitive-dependents",
         help=(
-            "Print space-separated in-progress story ids that depend "
-            "(transitively) on the given story; powers cascade-deferral"
+            "Print space-separated in-motion (in-progress or reviewing) "
+            "story ids that depend (transitively) on the given story; "
+            "powers cascade-deferral"
         ),
     )
     ftd_p.add_argument("story_id", help="Story ID to walk dependents of")
