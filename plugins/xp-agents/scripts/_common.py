@@ -146,7 +146,7 @@ def truncate(text: str, max_len: int) -> str:
     return text[: max_len - 3] + "..."
 
 
-def _log_hook_error(reason: str, error_class: str, **ctx: object) -> None:
+def log_hook_error(reason: str, error_class: str, **ctx: object) -> None:
     """Best-effort diagnostic log for silent-failure paths.
 
     Mirrors to stderr always; appends a JSON line to ``${SMM_DIR}/hook_errors.jsonl``
@@ -199,7 +199,7 @@ def read_hook_input() -> dict:
     try:
         raw = sys.stdin.read(_MAX_STDIN_SIZE + 1)
         if len(raw) > _MAX_STDIN_SIZE:
-            _log_hook_error(
+            log_hook_error(
                 f"stdin exceeded {_MAX_STDIN_SIZE} bytes",
                 error_class="stdin_oversize",
                 size=len(raw),
@@ -207,7 +207,7 @@ def read_hook_input() -> dict:
             sys.exit(0)
         return json.loads(raw)
     except (json.JSONDecodeError, ValueError) as e:
-        _log_hook_error(
+        log_hook_error(
             f"stdin parse failed: {e}",
             error_class=type(e).__name__,
             head=raw[:200],
@@ -395,7 +395,7 @@ def append_safe(smm_dir: Path, event: dict) -> None:
         try:
             _append_impl.append_event(smm_dir, event)
         except _append_impl.LockTimeoutError as e:
-            _log_hook_error(
+            log_hook_error(
                 f"append_safe dropped event: {e}",
                 error_class=type(e).__name__,
                 event_id=event.get("id"),
@@ -460,7 +460,7 @@ def bulk_append_safe(smm_dir: Path, events: list[dict]) -> None:
     try:
         _append_impl.bulk_append(smm_dir, valid)
     except (_append_impl.LockTimeoutError, ValueError) as e:
-        _log_hook_error(
+        log_hook_error(
             f"bulk_append_safe dropped {len(valid)} event(s): {e}",
             error_class=type(e).__name__,
             event_types_sample=[ev.get("type") for ev in valid[:5]],
