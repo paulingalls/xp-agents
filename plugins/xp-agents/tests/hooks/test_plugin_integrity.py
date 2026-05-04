@@ -172,6 +172,14 @@ class TestMilestone6Files(unittest.TestCase):
         section = content[pillars_idx : section_end if section_end != -1 else None]
         for pillar in ("Intent", "Constraints", "Risks", "Wisdom"):
             self.assertIn(pillar, section, f"Pillar {pillar!r} not in Pillars section")
+        # Pin the proactive-mindset directive: anchor includes the trigger
+        # phrase ("at plan or sprint start") so a future edit that demotes
+        # the line from a directive to a passive mention still trips the test.
+        self.assertIn(
+            "Read Intent and Risks at plan or sprint start",
+            section,
+            "Pillars section missing proactive-mindset directive",
+        )
 
     def test_skill_directories_exist(self):
         """All skill dirs must exist with SKILL.md."""
