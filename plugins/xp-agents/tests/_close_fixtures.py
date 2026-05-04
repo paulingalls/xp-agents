@@ -328,6 +328,32 @@ class _CloseSkillTextCommonTests(_MixinBase):
         self.assertIn("xp-agents:xp-close-reviewer", self.text)
         self.assertIn("subagent_type", self.text)
 
+    def test_reviewer_prompt_passes_close_cycle_id(self):
+        # Critical: xp-close-reviewer's append.sh templates set
+        # metadata.close_cycle_id from the prompt's `## Close Cycle ID`
+        # section. Without that section in the Agent prompt, every
+        # reviewer-filed Block has no close_cycle_id and is silently
+        # invisible to the shared Step 6 count-concerns query — which
+        # scopes by --cycle-id. This test pins the section so a future
+        # edit can't quietly delete it and re-introduce the same
+        # silent-drop bug the sprint-close reviewer caught at sprint-055.
+        self.assertIn(
+            "## Close Cycle ID",
+            self.text,
+            f"{self._MODE}-close Agent prompt must include "
+            "'## Close Cycle ID\\n<CLOSE_CYCLE_ID>' so xp-close-reviewer "
+            "can substitute the cycle id into its append.sh metadata; "
+            "without it, severity=high quality Blocks never reach the "
+            "Step 6 abort-default count-concerns query.",
+        )
+        self.assertIn(
+            "<CLOSE_CYCLE_ID>",
+            self.text,
+            f"{self._MODE}-close Agent prompt must reference "
+            "<CLOSE_CYCLE_ID> placeholder so the LLM substitutes the "
+            "actual cycle id from the preload.",
+        )
+
     def test_merge_invocation_appears_after_review(self):
         # The merge step must run AFTER the close-reviewer fork — never
         # before — so the user has the reviewer's findings before

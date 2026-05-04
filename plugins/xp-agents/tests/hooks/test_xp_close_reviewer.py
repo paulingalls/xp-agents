@@ -90,6 +90,32 @@ class TestCloseReviewerAgent(unittest.TestCase):
         self.assertNotIn("Edit", frontmatter)
         self.assertNotIn("Write", frontmatter)
 
+    def test_metadata_template_includes_close_cycle_id(self):
+        # Critical: without close_cycle_id in the metadata template,
+        # severity=high quality Blocks recorded by the reviewer fall
+        # outside the shared Step 6 count-concerns query (which filters
+        # by --cycle-id). The Block bullet would be invisible to the
+        # abort-default flag — silently undermining the M-8 promise that
+        # "deterministic count covers both quality and security blocks".
+        # The sprint-close reviewer caught this at sprint-055; this pin
+        # prevents recurrence.
+        body = self.text.split("---", 2)[2]
+        self.assertIn(
+            "close_cycle_id",
+            body,
+            "xp-close-reviewer metadata template must include "
+            "close_cycle_id so the shared Step 6 abort-default's "
+            "count-concerns --cycle-id query picks up severity=high "
+            "quality Blocks. Without it, quality Blocks silently drop.",
+        )
+        self.assertIn(
+            "## Close Cycle ID",
+            body,
+            "Step 1 must read '## Close Cycle ID' from the invoking "
+            "prompt — the close skills inject it as a top-level prompt "
+            "section so the reviewer can substitute it into metadata.",
+        )
+
     def test_records_concerns_via_append_sh(self):
         # Concerns + blocks must be filed BEFORE prose so an aborted
         # merge doesn't lose them. Pinned across two append.sh blocks:

@@ -13,18 +13,19 @@ model: inherit
 
 # Close-Branch Reviewer
 
-A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary to the close skill. The Agent prompt that invoked you carries `SMM_DIR=<path>` plus four structured sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`) the close skill embeds in the prompt itself.
+A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary to the close skill. The Agent prompt that invoked you carries `SMM_DIR=<path>` plus five structured sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`, `## Close Cycle ID`) the close skill embeds in the prompt itself.
 
 ## Step 1: Read Review Input
 
-Read these four values from your invoking prompt:
+Read these five values from your invoking prompt:
 
 - `## Mode` — one of `sprint`, `plan`, `free`, `story`
 - `## Source Branch` — branch being merged
 - `## Target Branch` — merge target (typically `main`)
 - `## Diff Command` — exact `gh pr diff` or `git diff` invocation to use
+- `## Close Cycle ID` — the 12-hex CLOSE_CYCLE_ID this close cycle (substitute into Step 4 metadata so the shared Step 6 abort-default count-concerns query can scope to this cycle)
 
-If any of those four sections are missing, return immediately and say so.
+If any of those five sections are missing, return immediately and say so.
 
 ## Step 2: Capture the Diff
 
@@ -92,7 +93,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-close-reviewer" --severity "high" \
   --content "<Block bullet text, ≤400 chars>" \
   --files '["<path/to/file.py>", ...]' \
-  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>"}'
+  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
 
 For each **Concern** bullet — issues worth raising but not merge-blocking:
@@ -102,8 +103,13 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-close-reviewer" --severity "medium" \
   --content "<Concern bullet text, ≤400 chars>" \
   --files '["<path/to/file.py>", ...]' \
-  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>"}'
+  --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
+
+`<CLOSE_CYCLE_ID>` comes from the `## Close Cycle ID` section in your
+invoking prompt (substitute the actual 12-hex value, do not pass the
+literal placeholder). Without it, the shared Step 6 abort-default
+count-concerns query silently drops these severity=high quality blocks.
 
 **`--files` discipline:** every concern that names ANY source path — in `--content`, in the original bullet, or in the diff hunk you're flagging — MUST pass those paths via `--files`. The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omitting `--files` when a path is identifiable silently disables that STRUCTURAL link, so the next session has no resolves-trailer probe to surface the concern. The ONLY case where `--files` may be omitted is a purely cross-cutting architectural concern with no file pin (rare — most code-review concerns are locatable). When you're tempted to omit, default to including: `--files '["scripts/foo.py"]'` is cheap, missing it is expensive.
 
