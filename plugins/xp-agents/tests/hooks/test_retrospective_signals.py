@@ -20,6 +20,9 @@ from conftest import (
     tests_run_status,
 )
 from event_schema import (
+    EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_STATUS,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
@@ -101,7 +104,7 @@ class TestHonestySignals(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="x",  # deliberately non-matching for the regex path
                 working_on=["src/app.py"],
                 metadata={"action": STATUS_ACTION_FILE_WRITE, "files": ["src/app.py"]},
@@ -121,7 +124,7 @@ class TestHonestySignals(unittest.TestCase):
             file_write_status("src/a.py"),
             file_write_status("src/b.py"),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="opaque",
                 metadata={
                     "action": STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -144,17 +147,17 @@ class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
 
         events = [
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Fix bug",
                 metadata={"code_commit": True, "commit_hash": "abc"},
             ),
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Update docs",
                 metadata={"code_commit": False, "commit_hash": "def"},
             ),
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Add feature",
                 metadata={"code_commit": True, "commit_hash": "ghi"},
             ),
@@ -167,12 +170,12 @@ class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="plan_awaiting_review: Plan completed",
             ),
-            make_event("status", content="Working on tests"),
+            make_event(EVENT_TYPE_STATUS, content="Working on tests"),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="plan_awaiting_review: Plan completed",
             ),
         ]
@@ -182,7 +185,7 @@ class TestCodeCommitsAndPlanningEvents(unittest.TestCase):
     def test_no_planning_events(self):
         import honesty_signals
 
-        events = [make_event("status", content="Working on tests")]
+        events = [make_event(EVENT_TYPE_STATUS, content="Working on tests")]
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["planning_events"], 0)
 
@@ -195,17 +198,17 @@ class TestReviewRequiredCommits(unittest.TestCase):
 
         events = [
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Big change",
                 metadata={"code_commit": True, "code_file_count": 3},
             ),
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Small fix",
                 metadata={"code_commit": True, "code_file_count": 1},
             ),
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Config only",
                 metadata={"code_commit": False, "code_file_count": 0},
             ),
@@ -219,7 +222,7 @@ class TestReviewRequiredCommits(unittest.TestCase):
 
         events = [
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Old commit",
                 metadata={"code_commit": True, "commit_hash": "abc"},
             ),
@@ -240,7 +243,7 @@ class TestCommitAsSignalEvent(_HookTestCase):
         import retrospective
 
         commit = make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Fix auth bug\n\nDetailed explanation of the fix.",
             metadata={"commit_hash": "abc123", "code_commit": True},
             files=["src/auth.py"],
@@ -262,11 +265,11 @@ class TestRefactorModeExclusion(unittest.TestCase):
     def _make_refactor_mode_assumption(
         self, content: str = "refactor mode: splitting modules"
     ) -> dict:
-        return make_event("assumption", content=content)
+        return make_event(EVENT_TYPE_ASSUMPTION, content=content)
 
     def _make_commit(self) -> dict:
         return make_event(
-            "commit",
+            EVENT_TYPE_COMMIT,
             content="Fix something",
             metadata={"code_commit": True, "commit_hash": "abc123"},
         )

@@ -14,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_STATUS,
+)
 
 
 class TestDecisionTopicsWiring(_HookTestCase):
@@ -27,13 +34,15 @@ class TestDecisionTopicsWiring(_HookTestCase):
         import retrospective
 
         decision = make_event(
-            "decision",
+            EVENT_TYPE_DECISION,
             content="Adopted retro Try: kickoff exemption",
             topic="retro-try-kickoff-exemption",
         )
-        code_event = make_event("status", content="wrote code", working_on=["foo.py"])
+        code_event = make_event(
+            EVENT_TYPE_STATUS, content="wrote code", working_on=["foo.py"]
+        )
         filler = [make_event(content=f"f{i}") for i in range(80)]
-        commit = make_event("commit", content="git commit")
+        commit = make_event(EVENT_TYPE_COMMIT, content="git commit")
         events = [decision, code_event, *filler, commit]
         self._write_events(events)
         retrospective.run(
@@ -48,9 +57,11 @@ class TestDecisionTopicsWiring(_HookTestCase):
     def test_no_decision_topics_flags_fire(self):
         import retrospective
 
-        code_event = make_event("status", content="wrote code", working_on=["foo.py"])
+        code_event = make_event(
+            EVENT_TYPE_STATUS, content="wrote code", working_on=["foo.py"]
+        )
         filler = [make_event(content=f"f{i}") for i in range(80)]
-        commit = make_event("commit", content="git commit")
+        commit = make_event(EVENT_TYPE_COMMIT, content="git commit")
         events = [code_event, *filler, commit]
         self._write_events(events)
         retrospective.run(
@@ -75,13 +86,13 @@ class TestDroppedTryResolution(_HookTestCase):
 
         old_concern_id = "aabb11223344"
         old_concern = make_event(
-            "concern",
+            EVENT_TYPE_CONCERN,
             id=old_concern_id,
             content="Test coverage gap",
             severity="medium",
         )
         retro_event = make_event(
-            "retrospective",
+            EVENT_TYPE_RETROSPECTIVE,
             content="Session retro: 3 keeps, 2 fixes, 1 try",
             keep=[{"content": "Good work", "event_refs": []}],
             fix=[],
@@ -109,7 +120,7 @@ class TestDroppedTryResolution(_HookTestCase):
         retro_file.write_text(json.dumps(retro_json))
 
         drop_event = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fix coverage",
             working_on=[],
             metadata={

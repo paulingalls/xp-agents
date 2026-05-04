@@ -10,7 +10,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event, tests_run_status
-from event_schema import STATUS_ACTION_COMMIT_SUCCESS, STATUS_ACTION_TEST_RUN_COMPLETE
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+)
 from test_parsing import PARSER_STATUS_FAILED
 
 
@@ -31,8 +39,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("concern", content="Missing error handling"),
-            make_event("commit", content="Add error handling to API"),
+            make_event(EVENT_TYPE_CONCERN, content="Missing error handling"),
+            make_event(EVENT_TYPE_COMMIT, content="Add error handling to API"),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["concerns_addressed_by_commits"], 1)
@@ -43,8 +51,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("commit", content="Initial work"),
-            make_event("concern", content="Missing tests"),
+            make_event(EVENT_TYPE_COMMIT, content="Initial work"),
+            make_event(EVENT_TYPE_CONCERN, content="Missing tests"),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["concerns_addressed_by_commits"], 0)
@@ -55,9 +63,9 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("concern", content="Issue A"),
-            make_event("concern", content="Issue B"),
-            make_event("commit", content="Fix both issues"),
+            make_event(EVENT_TYPE_CONCERN, content="Issue A"),
+            make_event(EVENT_TYPE_CONCERN, content="Issue B"),
+            make_event(EVENT_TYPE_COMMIT, content="Fix both issues"),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["concerns_addressed_by_commits"], 2)
@@ -103,10 +111,10 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("commit", content="First commit"),
-            make_event("status", content="Wrote to a.py", working_on=["a.py"]),
-            make_event("status", content="Tests passed", working_on=[]),
-            make_event("commit", content="Second commit"),
+            make_event(EVENT_TYPE_COMMIT, content="First commit"),
+            make_event(EVENT_TYPE_STATUS, content="Wrote to a.py", working_on=["a.py"]),
+            make_event(EVENT_TYPE_STATUS, content="Tests passed", working_on=[]),
+            make_event(EVENT_TYPE_COMMIT, content="Second commit"),
         ]
         result = work_signals.build_work_signals(events)
         # 2 events: the edit + the test status
@@ -117,12 +125,12 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("status", working_on=["a.py"]),
-            make_event("commit", content="Quick commit"),
-            make_event("status", working_on=["b.py"]),
-            make_event("status", content="Concern raised"),
-            make_event("status", content="Tests passed", working_on=[]),
-            make_event("commit", content="Slow commit"),
+            make_event(EVENT_TYPE_STATUS, working_on=["a.py"]),
+            make_event(EVENT_TYPE_COMMIT, content="Quick commit"),
+            make_event(EVENT_TYPE_STATUS, working_on=["b.py"]),
+            make_event(EVENT_TYPE_STATUS, content="Concern raised"),
+            make_event(EVENT_TYPE_STATUS, content="Tests passed", working_on=[]),
+            make_event(EVENT_TYPE_COMMIT, content="Slow commit"),
         ]
         result = work_signals.build_work_signals(events)
         # First cycle: 1 event. Second cycle: 3 events.
@@ -133,8 +141,8 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("concern", content="Some concern"),
-            make_event("decision", content="Use REST", topic="api"),
+            make_event(EVENT_TYPE_CONCERN, content="Some concern"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_events_to_commit"], 0)
@@ -144,10 +152,10 @@ class TestWorkSignals(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("goal", content="Ship v1"),
-            make_event("decision", content="Use REST", topic="api"),
-            make_event("status", working_on=["a.py"]),
-            make_event("commit", content="First commit"),
+            make_event(EVENT_TYPE_GOAL, content="Ship v1"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
+            make_event(EVENT_TYPE_STATUS, working_on=["a.py"]),
+            make_event(EVENT_TYPE_COMMIT, content="First commit"),
         ]
         result = work_signals.build_work_signals(events)
         # 1 event (the edit), NOT 3 (goal + decision + edit)
@@ -159,23 +167,23 @@ class TestWorkSignals(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to sprint.json",
                 working_on=["sprint.json"],
             ),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to plan.md",
                 working_on=["plan.md"],
             ),
-            make_event("status", content="Some hook status", working_on=[]),
-            make_event("status", content="Some hook status", working_on=[]),
+            make_event(EVENT_TYPE_STATUS, content="Some hook status", working_on=[]),
+            make_event(EVENT_TYPE_STATUS, content="Some hook status", working_on=[]),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to auth.py",
                 working_on=["scripts/auth.py"],
             ),
-            make_event("commit", content="Add auth"),
+            make_event(EVENT_TYPE_COMMIT, content="Add auth"),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_events_to_commit"], 1)
@@ -186,13 +194,13 @@ class TestWorkSignals(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Wrote to auth.py",
                 working_on=["scripts/auth.py"],
             ),
-            make_event("status", content="Some status", working_on=[]),
-            make_event("status", content="Some status", working_on=[]),
-            make_event("commit", content="Add auth"),
+            make_event(EVENT_TYPE_STATUS, content="Some status", working_on=[]),
+            make_event(EVENT_TYPE_STATUS, content="Some status", working_on=[]),
+            make_event(EVENT_TYPE_COMMIT, content="Add auth"),
         ]
         result = work_signals.build_work_signals(events)
         self.assertEqual(result["max_events_to_commit"], 3)
@@ -208,7 +216,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
 
         events = [
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="opaque",
                 metadata={
                     "action": STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -218,7 +226,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 },
             ),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="opaque",
                 metadata={
                     "action": STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -228,7 +236,7 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
                 },
             ),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="opaque",
                 metadata={
                     "action": STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -262,9 +270,9 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
         import work_signals
 
         events = [
-            make_event("concern", content="Missing tests"),
+            make_event(EVENT_TYPE_CONCERN, content="Missing tests"),
             make_event(
-                "commit",
+                EVENT_TYPE_COMMIT,
                 content="Add tests",
                 files=["tests/foo.py"],
                 metadata={"action": STATUS_ACTION_COMMIT_SUCCESS, "commit_hash": "abc"},

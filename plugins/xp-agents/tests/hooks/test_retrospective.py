@@ -17,6 +17,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SPRINT,
+)
 
 # ===========================================================================
 # retrospective.py tests
@@ -125,7 +131,7 @@ class TestRetrospective(_HookTestCase):
         events = [make_event(content=f"event {i}") for i in range(3)]
         events.extend(
             make_event(
-                "decision",
+                EVENT_TYPE_DECISION,
                 topic=f"zero-{i}",
                 content=f"explicit zero {i}",
                 metadata={"action": "explicit_zero"},
@@ -134,7 +140,7 @@ class TestRetrospective(_HookTestCase):
         )
         events.append(
             make_event(
-                "decision",
+                EVENT_TYPE_DECISION,
                 topic="real-decision",
                 content="a real decision",
             )
@@ -155,7 +161,7 @@ class TestRetrospective(_HookTestCase):
         events = [make_event(content=f"event {i}") for i in range(3)]
         events.append(
             make_event(
-                "decision",
+                EVENT_TYPE_DECISION,
                 topic="zero",
                 content="explicit zero",
                 metadata={"action": "explicit_zero"},
@@ -163,7 +169,7 @@ class TestRetrospective(_HookTestCase):
         )
         events.extend(
             make_event(
-                "decision",
+                EVENT_TYPE_DECISION,
                 topic=f"real-{i}",
                 content=f"real decision {i}",
             )
@@ -180,7 +186,7 @@ class TestRetrospective(_HookTestCase):
         import retrospective
 
         events = [make_event(content=f"event {i}") for i in range(7)]
-        events.append(make_event("retrospective", content="retro done"))
+        events.append(make_event(EVENT_TYPE_RETROSPECTIVE, content="retro done"))
         events.extend([make_event(content=f"post {i}") for i in range(2)])
         self._write_events(events)
         result = retrospective.run(
@@ -195,7 +201,7 @@ class TestRetrospective(_HookTestCase):
         import retrospective
 
         events = [make_event(content=f"event {i}") for i in range(3)]
-        sprint_retro = make_event("retrospective", content="sprint retro")
+        sprint_retro = make_event(EVENT_TYPE_RETROSPECTIVE, content="sprint retro")
         sprint_retro["metadata"] = {"action": "sprint_retro_done"}
         events.append(sprint_retro)
         events.extend([make_event(content=f"post {i}") for i in range(3)])
@@ -207,7 +213,7 @@ class TestRetrospective(_HookTestCase):
         import retrospective
 
         events = [make_event(content=f"event {i}") for i in range(3)]
-        session_retro = make_event("retrospective", content="session retro")
+        session_retro = make_event(EVENT_TYPE_RETROSPECTIVE, content="session retro")
         session_retro["metadata"] = {"action": "session_retro_done"}
         events.append(session_retro)
         events.extend([make_event(content=f"post {i}") for i in range(3)])
@@ -220,7 +226,7 @@ class TestRetrospective(_HookTestCase):
         import retrospective
 
         events = [make_event(content=f"event {i}") for i in range(3)]
-        events.append(make_event("retrospective", content="legacy retro"))
+        events.append(make_event(EVENT_TYPE_RETROSPECTIVE, content="legacy retro"))
         events.extend([make_event(content=f"post {i}") for i in range(3)])
         start = retrospective._find_unanalyzed_start(events)
         self.assertEqual(start, 4)
@@ -244,7 +250,7 @@ class TestRetrospective(_HookTestCase):
         events = [make_event(content=f"event {i}") for i in range(8)]
         events.append(
             make_event(
-                "sprint",
+                EVENT_TYPE_SPRINT,
                 content="Sprint ended",
                 metadata={"sprint_id": "sprint-042", "action": "end"},
             )
@@ -269,12 +275,12 @@ class TestRetrospective(_HookTestCase):
         self._sprint_md()
         events = [
             make_event(
-                "sprint",
+                EVENT_TYPE_SPRINT,
                 content="Sprint started",
                 metadata={"sprint_id": "sprint-042", "action": "start"},
             ),
             make_event(
-                "sprint",
+                EVENT_TYPE_SPRINT,
                 content="Sprint ended",
                 metadata={"sprint_id": "sprint-042", "action": "end"},
             ),
@@ -312,7 +318,7 @@ class TestRetrospective(_HookTestCase):
         events = [make_event(content=f"event {i}") for i in range(5)]
         events.append(
             make_event(
-                "sprint",
+                EVENT_TYPE_SPRINT,
                 content="Sprint ended",
                 metadata={"sprint_id": "sprint-042", "action": "end"},
             )
@@ -333,11 +339,11 @@ class TestRetrospective(_HookTestCase):
         import retrospective
 
         events = [make_event(content=f"event {i}") for i in range(3)]
-        session_retro = make_event("retrospective", content="session")
+        session_retro = make_event(EVENT_TYPE_RETROSPECTIVE, content="session")
         session_retro["metadata"] = {"action": "session_retro_done"}
         events.append(session_retro)
         events.extend([make_event(content=f"mid {i}") for i in range(2)])
-        sprint_retro = make_event("retrospective", content="sprint")
+        sprint_retro = make_event(EVENT_TYPE_RETROSPECTIVE, content="sprint")
         sprint_retro["metadata"] = {"action": "sprint_retro_done"}
         events.append(sprint_retro)
         events.extend([make_event(content=f"post {i}") for i in range(2)])
@@ -417,9 +423,9 @@ class TestRetrospective(_HookTestCase):
         import retrospective
 
         events = [
-            make_event("decision", content="decided X", topic="arch"),
-            make_event("decision", content="decided Y", topic="api"),
-            make_event("concern", content="issue A", severity="high"),
+            make_event(EVENT_TYPE_DECISION, content="decided X", topic="arch"),
+            make_event(EVENT_TYPE_DECISION, content="decided Y", topic="api"),
+            make_event(EVENT_TYPE_CONCERN, content="issue A", severity="high"),
             make_event(content="input 1"),
             make_event(content="input 2"),
             make_event(content="input 3"),

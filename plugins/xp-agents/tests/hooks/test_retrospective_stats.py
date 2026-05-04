@@ -15,7 +15,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event
-from event_schema import STATUS_ACTION_ITERATION_COMPLETE
+from event_schema import (
+    EVENT_TYPE_ANSWER,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_ITERATION_COMPLETE,
+)
 
 
 class TestSessionStats(_HookTestCase):
@@ -40,9 +47,9 @@ class TestSessionStats(_HookTestCase):
         import retrospective
 
         events = [
-            make_event("status", content="Working", working_on=["a.py"]),
-            make_event("status", content="Working2", working_on=["b.py"]),
-            make_event("status", content="Working3", working_on=["c.py"]),
+            make_event(EVENT_TYPE_STATUS, content="Working", working_on=["a.py"]),
+            make_event(EVENT_TYPE_STATUS, content="Working2", working_on=["b.py"]),
+            make_event(EVENT_TYPE_STATUS, content="Working3", working_on=["c.py"]),
             make_event(content="filler 1"),
             make_event(content="filler 2"),
         ]
@@ -58,10 +65,10 @@ class TestSessionStats(_HookTestCase):
     def test_session_stats_concerns(self):
         import retrospective
 
-        c1 = make_event("concern", content="Issue A")
-        c2 = make_event("concern", content="Issue B")
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Issue A")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Issue B")
         resolver = make_event(
-            "status",
+            EVENT_TYPE_STATUS,
             content="Fixed",
             working_on=["test.py"],
             metadata={"resolves": [c1["id"]]},
@@ -80,9 +87,9 @@ class TestSessionStats(_HookTestCase):
     def test_session_stats_questions(self):
         import retrospective
 
-        q1 = make_event("question", content="Q1?", priority="\U0001f534")
-        q2 = make_event("question", content="Q2?", priority="\U0001f7e1")
-        a = make_event("answer", content="Yes", references=[q1["id"]])
+        q1 = make_event(EVENT_TYPE_QUESTION, content="Q1?", priority="\U0001f534")
+        q2 = make_event(EVENT_TYPE_QUESTION, content="Q2?", priority="\U0001f7e1")
+        a = make_event(EVENT_TYPE_ANSWER, content="Yes", references=[q1["id"]])
         events = [q1, q2, a, make_event(content="f1"), make_event(content="f2")]
         self._write_events(events)
         retrospective.run(
@@ -98,8 +105,8 @@ class TestSessionStats(_HookTestCase):
         import retrospective
 
         events = [
-            make_event("decision", content="Use Postgres", topic="db"),
-            make_event("decision", content="Use REST", topic="api"),
+            make_event(EVENT_TYPE_DECISION, content="Use Postgres", topic="db"),
+            make_event(EVENT_TYPE_DECISION, content="Use REST", topic="api"),
             make_event(content="f1"),
             make_event(content="f2"),
             make_event(content="f3"),
@@ -118,16 +125,16 @@ class TestSessionStats(_HookTestCase):
         import retrospective
 
         events = [
-            make_event("status", content="work", working_on=["a.py"]),
+            make_event(EVENT_TYPE_STATUS, content="work", working_on=["a.py"]),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Iteration complete \u2014 accept verification done.",
                 working_on=[],
                 metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},
             ),
-            make_event("status", content="more work", working_on=["b.py"]),
+            make_event(EVENT_TYPE_STATUS, content="more work", working_on=["b.py"]),
             make_event(
-                "status",
+                EVENT_TYPE_STATUS,
                 content="Iteration complete \u2014 accept verification done.",
                 working_on=[],
                 metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},
@@ -161,9 +168,9 @@ class TestSessionStats(_HookTestCase):
         import retrospective
 
         events = [
-            make_event("status", content="Working", working_on=["a.py"]),
-            make_event("concern", content="Issue A"),
-            make_event("decision", content="Use X", topic="arch"),
+            make_event(EVENT_TYPE_STATUS, content="Working", working_on=["a.py"]),
+            make_event(EVENT_TYPE_CONCERN, content="Issue A"),
+            make_event(EVENT_TYPE_DECISION, content="Use X", topic="arch"),
             make_event(content="filler 1"),
             make_event(content="filler 2"),
         ]
@@ -189,19 +196,31 @@ class TestSessionStats(_HookTestCase):
 
         events = [
             make_event(
-                "status", content="Working", working_on=["a.py"], agent_id="teammate-1"
+                EVENT_TYPE_STATUS,
+                content="Working",
+                working_on=["a.py"],
+                agent_id="teammate-1",
             ),
             make_event(
-                "status", content="Working", working_on=["b.py"], agent_id="teammate-1"
+                EVENT_TYPE_STATUS,
+                content="Working",
+                working_on=["b.py"],
+                agent_id="teammate-1",
             ),
             make_event(
-                "status", content="Working", working_on=["c.py"], agent_id="teammate-2"
+                EVENT_TYPE_STATUS,
+                content="Working",
+                working_on=["c.py"],
+                agent_id="teammate-2",
             ),
-            make_event("concern", content="Issue A", agent_id="teammate-1"),
-            make_event("concern", content="Issue B", agent_id="teammate-2"),
-            make_event("concern", content="Issue C", agent_id="teammate-2"),
+            make_event(EVENT_TYPE_CONCERN, content="Issue A", agent_id="teammate-1"),
+            make_event(EVENT_TYPE_CONCERN, content="Issue B", agent_id="teammate-2"),
+            make_event(EVENT_TYPE_CONCERN, content="Issue C", agent_id="teammate-2"),
             make_event(
-                "decision", content="Use X", topic="arch", agent_id="teammate-1"
+                EVENT_TYPE_DECISION,
+                content="Use X",
+                topic="arch",
+                agent_id="teammate-1",
             ),
         ]
         self._write_events(events)
