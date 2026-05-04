@@ -117,13 +117,13 @@ class TestReadHookInputErrorLogging(_HookTestCase):
 
     def test_oversized_entry_triggers_paranoid_backstop(self):
         # Per-field truncation alone can't bound total line size if a caller
-        # passes many ctx fields. _log_hook_error's backstop drops the
+        # passes many ctx fields. log_hook_error's backstop drops the
         # context dict and re-serializes when the full line still exceeds
         # 2 KB. Each value is far larger than the per-field truncation cap
         # so it gets clamped before serialization, but 30 clamped fields +
         # keys still exceed 2 KB — forcing the backstop deterministically.
         big_ctx = {f"f{i}": "x" * 1000 for i in range(30)}
-        _common._log_hook_error("oversized test", error_class="probe", **big_ctx)
+        _common.log_hook_error("oversized test", error_class="probe", **big_ctx)
         path = self.smm_dir / "hook_errors.jsonl"
         line = path.read_text().splitlines()[0]
         self.assertLessEqual(

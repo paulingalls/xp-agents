@@ -104,7 +104,7 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         # Schema-validation ValueError is intentionally NOT caught — it
         # signals a corrupt input or a code bug, both of which deserve to
         # crash loud rather than silently mask the contract.
-        _common._log_hook_error(
+        _common.log_hook_error(
             f"branching auto-promote failed: {e}",
             error_class=type(e).__name__,
             from_stage=1,
