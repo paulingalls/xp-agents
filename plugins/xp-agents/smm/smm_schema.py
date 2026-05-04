@@ -49,12 +49,14 @@ def _is_valid_id(value: object) -> bool:
     return isinstance(value, str) and bool(EVENT_ID_RE.match(value))
 
 
-def _is_iso8601(value: object) -> bool:
+def is_iso8601(value: object) -> bool:
+    """Return True iff ``value`` is an ISO 8601 timestamp string in the
+    offset form we emit (e.g. ``"2026-04-09T02:15:28+00:00"``). Non-string
+    inputs and bare ``Z``-suffix forms return False — only ``+HH:MM`` /
+    ``-HH:MM`` offsets are accepted, matching what the SMM writes.
+    """
     if not isinstance(value, str):
         return False
-    # datetime.fromisoformat parses the canonical offset form we write
-    # (e.g. "2026-04-09T02:15:28+00:00") on Python 3.10+; bare "Z" suffix
-    # is rejected here by design — we only emit offset-form timestamps.
     try:
         datetime.fromisoformat(value)
     except ValueError:
@@ -140,7 +142,7 @@ def _validate_base_entry(
             f"{pillar}[{idx}] field 'source' must be one of {sorted(VALID_SOURCES)}"
         )
 
-    if not _is_iso8601(entry["ts"]):
+    if not is_iso8601(entry["ts"]):
         errors.append(f"{pillar}[{idx}] field 'ts' must be an ISO-8601 timestamp")
 
     if "source_event_id" in entry and not _is_valid_id(entry["source_event_id"]):

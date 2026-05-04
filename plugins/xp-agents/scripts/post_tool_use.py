@@ -55,7 +55,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     refs = concerns.find_related_decisions(events, file_path, cwd)
 
     # Auto-status event. metadata.action+files are the canonical structured
-    # signal (sprint-042 M2 doctrine); content is dual-emitted as a digest.
+    # signal per the deterministic-event vocabulary; content is dual-emitted
+    # as a digest.
     extra: dict = {
         "working_on": [normalized],
         "metadata": {

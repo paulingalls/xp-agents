@@ -9,6 +9,8 @@ Extracted from _append_impl.py for module size management.
 
 import bisect
 
+from smm_schema import EVENT_ID_RE
+
 # ---------------------------------------------------------------------------
 # Session aging utility
 # ---------------------------------------------------------------------------
@@ -82,7 +84,7 @@ STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
 # Review-cycle lifecycle actions — vocabulary for the deterministic-event
-# doctrine (sprint-041). The sole producer is review_cycle_done.py, which
+# doctrine. The sole producer is review_cycle_done.py, which
 # sets metadata.action to one of these values so consumers (retro_metrics,
 # bash_post_tool) can detect skill completions without regex-matching
 # LLM-authored content.
@@ -93,8 +95,9 @@ STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
 STATUS_ACTION_ASSIGN_COMPLETE = "assign_complete"
 STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 
-# Tool-action lifecycle vocabulary — sprint-042 M2 of the deterministic-event
-# doctrine. Each constant is emitted by exactly one hook; consumers read
+# Tool-action lifecycle vocabulary — extends the review-cycle doctrine
+# above with structured tool events. Each constant is emitted by exactly
+# one hook; consumers read
 # metadata.action so structured fields (files, exit_code, framework, etc.)
 # are not parsed back out of LLM-authored content. Producer map:
 #   STATUS_ACTION_FILE_WRITE        — post_tool_use.py (Write/Edit/MultiEdit)
@@ -109,8 +112,9 @@ STATUS_ACTION_LINT_RESOLVED = "lint_resolved"
 STATUS_ACTION_BASH_FAILED = "bash_failed"
 STATUS_ACTION_COMMIT_SUCCESS = "commit_success"
 
-# Subagent + plan lifecycle vocabulary — sprint-043 M3 of the deterministic-event
-# doctrine. Closes the cleanup window opened in M2. Producer map:
+# Subagent + plan lifecycle vocabulary — extends the tool-action wave
+# with subagent stop signals. Closes the cleanup window opened by the
+# prior tool-action vocabulary. Producer map:
 #   STATUS_ACTION_SUBAGENT_COMPLETE     — subagent_stop.py (every subagent)
 #   STATUS_ACTION_PLAN_COMPLETED        — subagent_stop.py (Plan subagent stop)
 #   STATUS_ACTION_PLAN_AWAITING_REVIEW  — subagent_stop.py (Plan subagent gate)
@@ -124,10 +128,10 @@ STATUS_ACTION_PLAN_EXITED = "plan_exited"
 # Step 5c (close skills) — concern classification per finding.
 # Producer: story-close + free-close at Step 5c (LLM via append.sh).
 # Consumer: count-classifications subcommand for the Step 6 auto-merge
-# gate; retro tooling for the spike-008 §10 prediction-loop validation.
+# gate; retro tooling for prediction-loop validation.
 # Companion metadata fields the producer also sets:
 #   metadata.route       — "fix" | "ask" — which dispatch route the LLM took.
-#   metadata.category    — spike-008 §3 vocabulary (lint, test_failure, ...).
+#   metadata.category    — classification vocabulary (lint, test_failure, ...).
 #   metadata.concern_id  — the 12-hex ID of the concern being classified.
 STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 
@@ -155,9 +159,12 @@ def event_action(event: dict) -> str | None:
 # Cross-module metadata keys. Centralized here so producer and consumer
 # cannot drift on the spelling.
 #   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this
-#                                 event closes. Written by bash_post_tool,
-#                                 concerns, and work_selection_decide;
-#                                 read by pre_tool_bash, retrospective,
+#                                 event closes. Shape: list[str] of
+#                                 12-hex-char IDs (validate_event rejects
+#                                 scalars; resolution.py iterates the list).
+#                                 Written by bash_post_tool, concerns,
+#                                 and work_selection_decide; read by
+#                                 pre_tool_bash, retrospective,
 #                                 materialize, resolution.
 #   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit events
 #                                 (bash_post_tool.py).
@@ -193,8 +200,8 @@ SELECTION_REASON_KEYWORD = "keyword"
 SELECTION_REASON_FILE_OVERLAP = "file_overlap"
 SELECTION_REASON_RECENCY = "recency"
 SELECTION_REASON_CLOSE_MODE = "close_mode"
-# 5th axis (sprint-058): siblings from the same close-reviewer batch as a
-# recent close event surface even without keyword/file overlap. Closes the
+# Siblings axis: events from the same close-reviewer batch as a recent
+# close event surface even without keyword/file overlap. Closes the
 # probe-divert gap where in-batch siblings were missed because they had no
 # file or keyword tie to the current commit.
 SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
@@ -319,8 +326,29 @@ def validate_event(event: dict) -> list[str]:
             errors.append("Field 'references' must be an array")
         elif not all(isinstance(r, str) for r in event["references"]):
             errors.append("Field 'references' items must be strings")
-    if "metadata" in event and not isinstance(event["metadata"], dict):
-        errors.append("Field 'metadata' must be an object")
+    if "metadata" in event:
+        metadata = event["metadata"]
+        if not isinstance(metadata, dict):
+            errors.append("Field 'metadata' must be an object")
+        elif METADATA_KEY_RESOLVES in metadata:
+            resolves = metadata[METADATA_KEY_RESOLVES]
+            if not isinstance(resolves, list):
+                errors.append(
+                    f"metadata.{METADATA_KEY_RESOLVES} must be a list of event IDs"
+                    f" (got {type(resolves).__name__})"
+                )
+            else:
+                for idx, item in enumerate(resolves):
+                    if not isinstance(item, str):
+                        errors.append(
+                            f"metadata.{METADATA_KEY_RESOLVES}[{idx}] must be a string"
+                            f" (got {type(item).__name__})"
+                        )
+                    elif not EVENT_ID_RE.match(item):
+                        errors.append(
+                            f"metadata.{METADATA_KEY_RESOLVES}[{idx}] must be a"
+                            f" 12-char hex event ID (got {item!r})"
+                        )
     if "schema_version" in event and not isinstance(event["schema_version"], int):
         errors.append("Field 'schema_version' must be an integer")
 

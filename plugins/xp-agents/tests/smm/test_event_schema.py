@@ -124,5 +124,76 @@ class TestStatusActionConstants(unittest.TestCase):
                 )
 
 
+class TestMetadataResolvesValidation(unittest.TestCase):
+    """metadata.resolves must be list[str] of 12-hex-char event IDs.
+
+    The original bug (decision 311a2af6fce7) emitted resolves as a
+    string scalar instead of a list. resolution.py:128 then iterated
+    the string char-by-char, finding nothing — STRONG resolution
+    silently failed. The schema validator now rejects scalars at
+    write time so this class of bug cannot recur.
+    """
+
+    _BASE_EVENT: ClassVar[dict] = {
+        "id": "abc123def456",
+        "ts": "2026-05-04T17:00:00+00:00",
+        "type": "status",
+        "agent_id": "main",
+        "content": "test",
+        "schema_version": 1,
+        "working_on": [],
+    }
+
+    def _event_with_resolves(self, value: object) -> dict:
+        return {**self._BASE_EVENT, "metadata": {"resolves": value}}
+
+    def test_list_of_valid_ids_accepted(self):
+        event = self._event_with_resolves(["abc123def456", "fedcba654321"])
+        self.assertEqual(event_schema.validate_event(event), [])
+
+    def test_metadata_without_resolves_accepted(self):
+        event = {**self._BASE_EVENT, "metadata": {"action": "explicit_zero"}}
+        self.assertEqual(event_schema.validate_event(event), [])
+
+    def test_no_metadata_at_all_accepted(self):
+        self.assertEqual(event_schema.validate_event(self._BASE_EVENT), [])
+
+    def test_string_scalar_rejected(self):
+        event = self._event_with_resolves("abc123def456")
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("resolves" in e and "list" in e for e in errors),
+            f"Expected list-shape error; got: {errors}",
+        )
+
+    def test_non_list_non_string_rejected(self):
+        event = self._event_with_resolves(12345)
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("resolves" in e and "list" in e for e in errors),
+            f"Expected list-shape error; got: {errors}",
+        )
+
+    def test_list_with_non_string_item_rejected(self):
+        event = self._event_with_resolves(["abc123def456", 42])
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("resolves" in e for e in errors),
+            f"Expected element-type error; got: {errors}",
+        )
+
+    def test_list_with_malformed_id_rejected(self):
+        event = self._event_with_resolves(["abc123def456", "not-an-id"])
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("resolves" in e for e in errors),
+            f"Expected ID-format error; got: {errors}",
+        )
+
+    def test_empty_list_accepted(self):
+        event = self._event_with_resolves([])
+        self.assertEqual(event_schema.validate_event(event), [])
+
+
 if __name__ == "__main__":
     unittest.main()

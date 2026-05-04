@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
 import execution_plan_store
+from _branching_fixtures import write_system_context
 from _system_context_fixtures import valid_doc
 from conftest import _SMMTestCase
 
@@ -75,6 +76,25 @@ class TestGetBranchingStage(unittest.TestCase):
             }
             (Path(td) / "system_context.json").write_text(json.dumps(ctx))
             self.assertEqual(branching.get_branching_stage(Path(td)), 0)
+
+
+class TestBranchMinStage(unittest.TestCase):
+    """All branch types require Stage 2+ — Stage 1 is dead code under
+    auto-promote (any read of the stage promotes 1 to 2 before it's
+    observed). Keeping any threshold at 1 lies about the floor.
+    """
+
+    def test_all_thresholds_at_stage_2(self):
+        self.assertEqual(
+            branching.BRANCH_MIN_STAGE,
+            {
+                "story": 2,
+                "sprint": 2,
+                "plan": 2,
+                "free": 2,
+                "scaffold": 2,
+            },
+        )
 
 
 class TestSprintBranchName(unittest.TestCase):
@@ -129,51 +149,68 @@ class TestIsProtectedBranch(unittest.TestCase):
 
 
 class TestGetPrimaryBranch(unittest.TestCase):
-    def _write_ctx(self, td: str, ctx: dict) -> Path:
+    def _write_stage_3_ctx(self, td: str, **bs_extras: object) -> Path:
+        """Stage-3 docs need extras (integration_branch) the shared
+        write_system_context fixture doesn't take. write_system_context
+        is the canonical helper for stage-only cases — used directly.
+        """
         p = Path(td)
-        (p / "system_context.json").write_text(json.dumps(ctx))
+        doc = valid_doc(branching_strategy={"stage": 3, **bs_extras})
+        (p / "system_context.json").write_text(json.dumps(doc))
         return p
 
     def test_returns_main_at_stage_1(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_ctx(td, {"branching_strategy": {"stage": 1}})
+            smm = Path(td)
+            write_system_context(smm, stage=1)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_main_at_stage_2(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_ctx(td, {"branching_strategy": {"stage": 2}})
+            smm = Path(td)
+            write_system_context(smm, stage=2)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_integration_branch_at_stage_3(self):
         with tempfile.TemporaryDirectory() as td:
-            ctx = {
-                "branching_strategy": {
-                    "stage": 3,
-                    "integration_branch": "develop",
-                }
-            }
-            smm = self._write_ctx(td, ctx)
+            smm = self._write_stage_3_ctx(td, integration_branch="develop")
             self.assertEqual(branching.get_primary_branch(smm), "develop")
 
     def test_falls_back_to_main_at_stage_3_when_missing(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_ctx(td, {"branching_strategy": {"stage": 3}})
+            smm = self._write_stage_3_ctx(td)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_falls_back_to_main_at_stage_3_when_null(self):
         with tempfile.TemporaryDirectory() as td:
-            ctx = {
-                "branching_strategy": {
-                    "stage": 3,
-                    "integration_branch": None,
-                }
-            }
-            smm = self._write_ctx(td, ctx)
+            smm = self._write_stage_3_ctx(td, integration_branch=None)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_main_when_no_system_context(self):
         with tempfile.TemporaryDirectory() as td:
             self.assertEqual(branching.get_primary_branch(Path(td)), "main")
+
+    def test_at_stage_1_triggers_auto_promote(self):
+        """Routing through get_branching_stage means primary-branch reads
+        also fire the Stage 1 -> 2 auto-promote side-effect — single
+        chokepoint for stage progression.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertEqual(
+                json.loads((smm / "system_context.json").read_text())[
+                    "branching_strategy"
+                ]["stage"],
+                1,
+            )
+            self.assertEqual(branching.get_primary_branch(smm), "main")
+            self.assertEqual(
+                json.loads((smm / "system_context.json").read_text())[
+                    "branching_strategy"
+                ]["stage"],
+                2,
+            )
 
 
 class TestGetMergeTarget(unittest.TestCase):
@@ -320,6 +357,42 @@ class TestAutoPromote(_SMMTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertEqual(result, "paul/sprint-001-e2e")
+        self.assertEqual(self._stage_in_file(), 2)
+        self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
+        self.assertEqual(len(self._promote_events()), 1)
+
+    def test_create_story_branch_promotes_stage_1_e2e(self):
+        """E2E AC for story-001: a Stage 1 fixture, when create_story_branch
+        runs (which reads stage internally via get_branching_stage through
+        _create_or_resume_branch), the story branch IS created (the
+        stage>=2 floor gate passes because auto-promote ran transparently)
+        AND the persisted file now reads stage=2.
+
+        Mirrors test_create_sprint_branch_promotes_stage_1_e2e but for the
+        story-branch path. Pins the contract that the auto-promote
+        chokepoint fires on every stage-aware branch-create entry, not
+        just the sprint path.
+        """
+        self._write_ctx(1)
+
+        fake_proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("branching.identity.user_namespace", return_value="paul"),
+            patch("branching.branch_exists", return_value=False),
+            patch("branching.is_worktree_clean", return_value=True),
+            patch("branching._git", return_value=fake_proc),
+            patch("branching.git_remote.push_branch", return_value=True),
+            # short-circuits the post-create set_story_branch lookup
+            patch("branching.sprint_store.sprint_exists", return_value=False),
+        ):
+            result = branching.create_story_branch(
+                cwd=str(self.smm_dir),
+                story_id="story-001",
+                slug="e2e",
+                smm_dir=self.smm_dir,
+                base="main",
+            )
+        self.assertEqual(result, "paul/story-001-e2e")
         self.assertEqual(self._stage_in_file(), 2)
         self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
         self.assertEqual(len(self._promote_events()), 1)

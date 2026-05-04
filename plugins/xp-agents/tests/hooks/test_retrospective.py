@@ -106,6 +106,76 @@ class TestRetrospective(_HookTestCase):
         self.assertIn("flags", data["digest"])
         self.assertIsInstance(data["digest"]["flags"], list)
 
+    def _has_high_zero_decision_flag(self) -> bool:
+        with open(self.smm_dir / ".retro-input.json") as f:
+            data = json.load(f)
+        return any(
+            f.get("metric") == "high_zero_decision_rate"
+            for f in data["digest"]["flags"]
+        )
+
+    def test_high_zero_decision_rate_fires_when_majority_explicit_zero(self):
+        """Wires retrospective.py:139 to pass events= so the
+        high_zero_decision_rate signal fires in production. Per
+        decision 3aebbd3df455, SessionStart retro passes the full
+        events list (multi-sprint cumulative view).
+        """
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        events.extend(
+            make_event(
+                "decision",
+                topic=f"zero-{i}",
+                content=f"explicit zero {i}",
+                metadata={"action": "explicit_zero"},
+            )
+            for i in range(4)
+        )
+        events.append(
+            make_event(
+                "decision",
+                topic="real-decision",
+                content="a real decision",
+            )
+        )
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertTrue(self._has_high_zero_decision_flag())
+
+    def test_high_zero_decision_rate_silent_when_below_threshold(self):
+        """Regression guard: flag must NOT fire when explicit_zero
+        rate is below the 50% threshold.
+        """
+        import retrospective
+
+        events = [make_event(content=f"event {i}") for i in range(3)]
+        events.append(
+            make_event(
+                "decision",
+                topic="zero",
+                content="explicit zero",
+                metadata={"action": "explicit_zero"},
+            )
+        )
+        events.extend(
+            make_event(
+                "decision",
+                topic=f"real-{i}",
+                content=f"real decision {i}",
+            )
+            for i in range(3)
+        )
+        self._write_events(events)
+        retrospective.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(self._has_high_zero_decision_flag())
+
     def test_counts_events_after_last_retro(self):
         import retrospective
 

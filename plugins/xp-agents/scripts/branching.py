@@ -72,7 +72,7 @@ def _load_branching_strategy(smm_dir: Path) -> dict:
 
 
 def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
-    """Auto-promote Stage 1 -> Stage 2 (M-7 plugin floor). Idempotent.
+    """Auto-promote Stage 1 -> Stage 2 (plugin floor). Idempotent.
 
     Mutates system_context.json's branching_strategy.stage in place
     and emits a one-time decision event. Returns 2 on success; on an
@@ -92,7 +92,7 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         event = _common.make_event(
             "decision",
             "branching",
-            "Auto-promoted branching stage 1 -> 2 (M-7 plugin floor)",
+            "Auto-promoted branching stage 1 -> 2 (plugin floor)",
             topic="branching-stage-auto-promote",
             metadata={"action": "stage_auto_promote", "from_stage": 1, "to_stage": 2},
         )
@@ -104,7 +104,7 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         # Schema-validation ValueError is intentionally NOT caught — it
         # signals a corrupt input or a code bug, both of which deserve to
         # crash loud rather than silently mask the contract.
-        _common._log_hook_error(
+        _common.log_hook_error(
             f"branching auto-promote failed: {e}",
             error_class=type(e).__name__,
             from_stage=1,
@@ -114,7 +114,7 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
 
 
 def get_branching_stage(smm_dir: Path) -> int:
-    """Return the branching stage. NOT side-effect free under M-7.
+    """Return the branching stage. NOT side-effect free.
 
     A stage=1 read triggers a one-time auto-promotion (file mutation
     + decision event) via `_maybe_auto_promote`. Read-only or locked
@@ -182,10 +182,14 @@ def get_primary_branch(smm_dir: Path) -> str:
     Stage 0-2: always 'main'. Stage 3 reads system_context's
     branching_strategy.integration_branch, defaulting to 'main' when
     missing or null.
+
+    Routes through ``get_branching_stage`` so reads of the primary
+    branch also fire the Stage 1 -> 2 auto-promote side-effect — single
+    chokepoint guarantees stage progression regardless of entry path.
     """
-    bs = _load_branching_strategy(smm_dir)
-    if bs.get("stage", 0) < 3:
+    if get_branching_stage(smm_dir) < 3:
         return _DEFAULT_PRIMARY
+    bs = _load_branching_strategy(smm_dir)
     return bs.get("integration_branch") or _DEFAULT_PRIMARY
 
 
@@ -330,11 +334,11 @@ def _create_or_resume_branch(
 # skip message. Sharing the values here prevents the inner enforcement
 # and the outer message from drifting if a stage threshold ever moves.
 BRANCH_MIN_STAGE: dict[str, int] = {
-    "story": 1,
+    "story": 2,
     "sprint": 2,
     "plan": 2,
-    "free": 1,
-    "scaffold": 1,
+    "free": 2,
+    "scaffold": 2,
 }
 
 
@@ -396,8 +400,8 @@ def _utc_today_iso() -> str:
 def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
     """Create or resume ``<user>/scaffold-<surface>`` off the primary branch.
 
-    Scaffold branches host the M-4 commit landed by /xp-scaffold-acceptance
-    Step 8 at stage 1+. Returns None at stage 0 (no branch discipline).
+    Scaffold branches host the commit landed by /xp-scaffold-acceptance
+    Step 8. Returns None below the plugin floor (stage < 2).
     Passes ``allow_dirty=True`` because the scaffold flow has already
     written files to disk before this call — the dirty state is the
     work being branched, not stale uncommitted changes.
@@ -424,9 +428,9 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     """Create or resume <user>/free-YYYY-MM-DD-<slug> off the primary branch.
 
     Free branches are scratch work outside of plans/sprints. Date is UTC.
-    Returns None when branching stage < 1 (Stage 0 has no branch
-    discipline). Per BRANCH_LIFECYCLE design, free-branch protection
-    activates at Stage 1+ to keep exploratory work off protected branches.
+    Returns None below the plugin floor (stage < 2). Per BRANCH_LIFECYCLE
+    design, free-branch protection activates at the floor to keep
+    exploratory work off protected branches.
     """
     user_ns = identity.user_namespace(cwd)
     name = free_branch_name(user_ns, slug)

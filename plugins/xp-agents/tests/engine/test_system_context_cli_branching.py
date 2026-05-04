@@ -357,5 +357,128 @@ class TestRenderBranchingStrategy(_SMMTestCase):
         self.assertIn("Stage 1", result.stdout)
 
 
+# ── edit-branching-field / get-branching-field ─────────────────
+
+
+class TestEditBranchingFieldCommand(_SMMTestCase):
+    """edit-branching-field is the affordance for setting nested
+    branching_strategy fields (stage_prompt_dismissed_at, rationale,
+    user_namespace, etc.) without rewriting the entire branching
+    strategy via edit-branching. Mirrors edit-stack-field.
+    """
+
+    def test_sets_stage_prompt_dismissed_at(self) -> None:
+        doc = valid_doc(branching_strategy={"stage": 0})
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+            stdin_data='"2026-05-04T17:30:00+00:00"',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(
+            data["branching_strategy"]["stage_prompt_dismissed_at"],
+            "2026-05-04T17:30:00+00:00",
+        )
+
+    def test_preserves_other_branching_fields(self) -> None:
+        doc = valid_doc(
+            branching_strategy={
+                "stage": 0,
+                "user_namespace": "paul",
+                "rationale": "explicit Stage 0 for solo prototyping",
+            }
+        )
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+            stdin_data='"2026-05-04T17:30:00+00:00"',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        bs = data["branching_strategy"]
+        self.assertEqual(bs["stage"], 0)
+        self.assertEqual(bs["user_namespace"], "paul")
+        self.assertEqual(bs["rationale"], "explicit Stage 0 for solo prototyping")
+        self.assertEqual(bs["stage_prompt_dismissed_at"], "2026-05-04T17:30:00+00:00")
+
+    def test_null_clears_field(self) -> None:
+        doc = valid_doc(
+            branching_strategy={
+                "stage": 0,
+                "stage_prompt_dismissed_at": "2026-05-04T17:30:00+00:00",
+            }
+        )
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+            stdin_data="null",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("stage_prompt_dismissed_at", data["branching_strategy"])
+
+    def test_validates_iso_format(self) -> None:
+        doc = valid_doc(branching_strategy={"stage": 0})
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+            stdin_data='"not a timestamp"',
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Validation error", result.stderr)
+
+
+class TestGetBranchingFieldCommand(_SMMTestCase):
+    """Read-only counterpart to edit-branching-field. Always exits 0;
+    empty stdout is the canonical "not set" signal so shell callers can
+    plug the value into KEY=$(...) without exit-code branching.
+    """
+
+    def test_returns_value(self) -> None:
+        doc = valid_doc(
+            branching_strategy={
+                "stage": 0,
+                "stage_prompt_dismissed_at": "2026-05-04T17:30:00+00:00",
+            }
+        )
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["get-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "2026-05-04T17:30:00+00:00")
+
+    def test_empty_when_unset(self) -> None:
+        doc = valid_doc(branching_strategy={"stage": 0})
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["get-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_empty_when_no_system_context(self) -> None:
+        result = run_cli(
+            _CLI,
+            ["get-branching-field", "stage_prompt_dismissed_at"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -58,17 +58,32 @@ Read the branching stage:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
 ```
 
-If the stage is `>= 2`, **skip this step** — the project is already at the v3.1 plugin floor (Stage 2). Stage 1 auto-promotes to 2 inside `branching.py stage`, so only an explicit Stage 0 declaration reaches the prompt below.
+If the stage is `>= 2`, **skip this step** — the project is already at the v3.1 plugin floor (Stage 2). Stage 1 auto-promotes to 2 inside `branching.py stage`, so only an explicit Stage 0 declaration reaches the gate below.
 
-Otherwise (stage `< 2`), prompt the user via `AskUserQuestion`, substituting the actual stage value into the prose: **"This project is on branching Stage <N>. Stage 2 is the v3.1 plugin floor (sprint branches required for production-grade discipline). Migrate now via /xp-sprint-start, or continue at Stage <N> for this session?"**
+Otherwise (stage `< 2`), check whether the user has previously dismissed the prompt for this project — sticky dismissal so a deliberate Stage 0 declaration doesn't re-prompt every kickoff:
+```bash
+DISMISSED_AT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> \
+  get-branching-field stage_prompt_dismissed_at)
+```
 
-If the user picks **migrate**, invoke `/xp-sprint-start` immediately and let it walk through the upgrade. After it completes, proceed to Step 2.5 (which re-reads stage fresh).
+If `DISMISSED_AT` is non-empty, **skip the prompt** — log a brief note to the user that includes the timestamp AND the re-opt-in command, so they can undo without grep'ing the SKILL: *"Stage 2 migration prompt was dismissed at {DISMISSED_AT}. To re-enable, run `printf null | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-branching-field stage_prompt_dismissed_at`"*. The prompt re-fires only after the user clears the field or the stage declaration changes.
 
-If the user picks **continue**, proceed to Step 2.5. The prompt re-fires every kickoff until the project migrates or the stage declaration changes.
+Otherwise prompt the user via `AskUserQuestion`, substituting the actual stage value into the prose: **"This project is on branching Stage <N>. Stage 2 is the v3.1 plugin floor (sprint branches required for production-grade discipline). Migrate now via /xp-sprint-start, or continue at Stage <N> for this session?"**
+
+If the user picks **migrate**, invoke `/xp-sprint-start` immediately and let it walk through the upgrade. Do NOT record a dismissal — the migration path is the non-dismissed branch. After it completes, proceed to Step 2.5 (which re-reads stage fresh).
+
+If the user picks **continue**, record the dismissal so the prompt sticks until the user opts back in:
+```bash
+TS=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())")
+printf '%s' "\"$TS\"" | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> \
+  edit-branching-field stage_prompt_dismissed_at
+```
+
+Then proceed to Step 2.5.
 
 ## Step 2.5: Auto-create free branch on protected (free sessions only)
 
-If the user chose **free session** AND the branching stage is `>= 1` AND the current branch is a protected branch (`main` or `master`), create and check out a fresh free branch so the session never commits directly to a protected branch.
+If the user chose **free session** AND the branching stage is `>= 2` (the plugin floor — Stage 1 auto-promotes to 2 inside `branching.py stage`) AND the current branch is a protected branch (`main` or `master`), create and check out a fresh free branch so the session never commits directly to a protected branch.
 
 Read the stage:
 ```bash
