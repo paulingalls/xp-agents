@@ -28,6 +28,10 @@ fi
 # ask an agent to run rm.
 consume_marker ACCEPT
 
+# Signal pre_tool_write to skip .accept gate re-arm during multi-story
+# fix-cycles. Consumed by xp-sprint-close on entry.
+write_marker ACCEPT_ACTIVE ""
+
 echo "### STORIES_TO_ACCEPT"
 echo "Sprint has ${in_progress_count} in-progress stories to verify."
 echo "SPRINT_FILE=${SPRINT_FILE}"

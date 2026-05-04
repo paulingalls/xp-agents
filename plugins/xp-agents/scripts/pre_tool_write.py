@@ -310,12 +310,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             parts.append(tdd_nudge)
 
     # Accept marker — signal "needs acceptance" when writing during active sprint.
-    # Plan files are exempt (writing a plan isn't iteration work).
+    # Plan files are exempt (writing a plan isn't iteration work). ACCEPT_ACTIVE
+    # suppresses re-arm during xp-accept fix-cycles in multi-in-progress sprints
+    # (where reviewing carve-out alone isn't enough — other stories keep
+    # has_in_progress_stories True).
     if (
         smm_dir
         and not is_plan_file
         and sprint_state.has_in_progress_stories(smm_dir)
         and not markers.marker_exists(smm_dir, markers.ACCEPT)
+        and not markers.marker_exists(smm_dir, markers.ACCEPT_ACTIVE)
     ):
         markers.marker_write(smm_dir, markers.ACCEPT, "done")
 
