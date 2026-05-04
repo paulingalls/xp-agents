@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _helpers import init_git_identity, run_git, valid_system_context
 from conftest import run_cli
+from event_schema import EVENT_TYPE_DECISION
 from test_scaffold_cli_apply import _ApplyCliTestBase
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -119,7 +120,7 @@ class TestApplyRecord(_ApplyCliRecordTestBase):
             .read_text(encoding="utf-8")
             .splitlines()
         ]
-        decisions = [e for e in events if e.get("type") == "decision"]
+        decisions = [e for e in events if e.get("type") == EVENT_TYPE_DECISION]
         self.assertEqual(len(decisions), 1)
         self.assertEqual(
             decisions[0].get("metadata", {}).get("resolves"), ["abc123def456"]

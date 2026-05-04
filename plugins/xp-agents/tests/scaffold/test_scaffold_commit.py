@@ -225,6 +225,7 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
             concern_id=None,
         )
         self.assertTrue(result.ok, result.reason)
+        assert result.branch is not None
         self.assertTrue(
             result.branch.endswith("/scaffold-browser"), f"branch={result.branch!r}"
         )

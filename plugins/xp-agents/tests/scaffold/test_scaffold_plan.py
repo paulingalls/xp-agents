@@ -5,6 +5,7 @@ import ast
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
@@ -18,8 +19,8 @@ from scaffold_plan import (
 )
 
 
-def _sample_plan(**overrides) -> ScaffoldPlan:
-    args = dict(
+def _sample_plan(**overrides: Any) -> ScaffoldPlan:
+    args: dict[str, Any] = dict(
         surface="browser",
         tool="playwright",
         tool_version="1.51.0",
@@ -325,6 +326,7 @@ class TestDeclineIfUnreliable(unittest.TestCase):
 
     def test_reason_mentions_tool_name(self) -> None:
         result = decline_if_unreliable("obscure-runner", None)
+        assert result.reason is not None
         self.assertIn("obscure-runner", result.reason)
 
 

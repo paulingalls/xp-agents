@@ -125,7 +125,7 @@ class TestSchemaJson(unittest.TestCase):
             if_clause = entry.get("if", {}).get("properties", {}).get("type", {})
             if if_clause.get("const") == "sprint":
                 sprint_req = entry.get("then", {}).get("required", [])
-        self.assertIsNotNone(sprint_req, "No allOf entry for sprint type")
+        assert sprint_req is not None, "No allOf entry for sprint type"
         self.assertIn("metadata", sprint_req)
 
 

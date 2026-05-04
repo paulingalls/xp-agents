@@ -209,6 +209,7 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         # held by a teammate worktree (cleanup_teammate.py owns
         # deletion), so the chain must exit 0.
         teammate_branch = _extract_preload_var(sc.stdout, "CURRENT_BRANCH")
+        assert teammate_branch is not None
         merge = subprocess.run(
             [
                 sys.executable,

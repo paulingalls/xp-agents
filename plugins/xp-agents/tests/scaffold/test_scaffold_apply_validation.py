@@ -191,6 +191,7 @@ class TestApplyPhaseLogs(_ApplyTestBase):
         plan = _plan(install_cmds=['sh -c "echo from-stdout; exit 1"'])
         result = apply_plan(plan, repo_root=self.repo)
         self._track_snapshot(result)
+        assert result.snapshot_dir is not None
         log = Path(result.snapshot_dir) / "install.log"
         self.assertTrue(log.exists())
         self.assertIn("from-stdout", log.read_text(encoding="utf-8"))
@@ -209,6 +210,7 @@ class TestApplyPhaseLogs(_ApplyTestBase):
         )
         result = apply_plan(plan, repo_root=self.repo)
         self._track_snapshot(result)
+        assert result.snapshot_dir is not None
         snap_dir = Path(result.snapshot_dir)
         self.assertTrue((snap_dir / "install.log").exists())
         self.assertTrue((snap_dir / "verify.log").exists())
@@ -273,7 +275,7 @@ class TestApplyPlanCleansUpSnapshot(_ApplyTestBase):
         self._track_snapshot(result)
         self.assertFalse(result.ok)
         self.assertEqual(result.unrestored, [])
-        self.assertIsNotNone(result.snapshot_dir)
+        assert result.snapshot_dir is not None
         self.assertTrue(Path(result.snapshot_dir).exists())
         self.assertTrue((Path(result.snapshot_dir) / "install.log").exists())
 
@@ -302,7 +304,7 @@ class TestApplyPlanCleansUpSnapshot(_ApplyTestBase):
         self._track_snapshot(result)
         self.assertFalse(result.ok)
         self.assertNotEqual(result.unrestored, [])
-        self.assertIsNotNone(result.snapshot_dir)
+        assert result.snapshot_dir is not None
         self.assertTrue(Path(result.snapshot_dir).exists())
         self.assertIn(result.snapshot_dir, result.recovery or "")
 

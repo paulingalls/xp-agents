@@ -165,7 +165,10 @@ def _smm_with_intent(content: str = "Ship v1") -> str:
             "content": content,
             "source": "seed",
             "ts": "2026-01-01T00:00:00+00:00",
-            "type": EVENT_TYPE_GOAL,
+            # Intent pillar "type" is governed by smm_schema.VALID_INTENT_TYPES,
+            # not event_schema.VALID_TYPES. Bare literal is correct;
+            # pin allowlists this file.
+            "type": "goal",
         }
     ]
     return json.dumps(data)

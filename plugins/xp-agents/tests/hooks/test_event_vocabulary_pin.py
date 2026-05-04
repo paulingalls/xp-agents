@@ -46,6 +46,11 @@ ALLOWLIST: dict[str, str] = {
         "event_schema.VALID_TYPES; bare 'goal' for SMM pillar 'type' "
         "is intentionally domain-specific"
     ),
+    "plugins/xp-agents/tests/smm/test_smm_store.py": (
+        "smm_schema.VALID_INTENT_TYPES is a distinct vocabulary from "
+        "event_schema.VALID_TYPES; bare 'goal' for SMM pillar 'type' "
+        "in test_roundtrip_preserves_all_fields is intentionally domain-specific"
+    ),
 }
 
 
