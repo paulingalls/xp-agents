@@ -14,10 +14,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import markers
-from conftest import _IntegrationTestCase
+from conftest import (
+    SPRINT_ALL_DONE,
+    SPRINT_IN_PROGRESS,
+    _IntegrationTestCase,
+)
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_BASE = _PLUGIN_ROOT / "skills" / "_preload_base.sh"
+_XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 
 
 class TestMarkerShellHelpers(_IntegrationTestCase):
@@ -62,3 +67,25 @@ class TestMarkerShellHelpers(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         marker_path = self.smm_dir / markers.NEEDS_HOUSEKEEPING.name
         self.assertFalse(marker_path.exists())
+
+
+class TestXpAcceptPreloadAcceptActive(_IntegrationTestCase):
+    """xp-accept preload arms ACCEPT_ACTIVE iff there are in-progress stories."""
+
+    def test_arms_marker_when_in_progress(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        result = self._run_preload(_XP_ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
+            msg=f"stdout={result.stdout}",
+        )
+
+    def test_skips_marker_when_no_in_progress(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        result = self._run_preload(_XP_ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
+            msg=f"stdout={result.stdout}",
+        )
