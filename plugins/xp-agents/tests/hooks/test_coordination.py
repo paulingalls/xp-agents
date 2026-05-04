@@ -119,6 +119,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("other", result)
 
     def test_self_overlap_ignored(self):
@@ -230,6 +231,7 @@ class TestCrossWorktreeOverlap(unittest.TestCase):
             self.smm_dir, "agent-b", "src/app.py", str(self.wt_dir)
         )
         self.assertIsNotNone(result, "Cross-worktree conflict should be detected")
+        assert result is not None
         self.assertIn("agent-a", result)
 
     def test_cross_worktree_no_false_conflict(self):

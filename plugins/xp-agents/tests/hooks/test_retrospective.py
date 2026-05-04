@@ -417,6 +417,7 @@ class TestRetrospective(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("6", result)
 
     def test_event_type_counts(self):
@@ -459,6 +460,7 @@ class TestRetrospectiveNudge(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-kickoff", result)
 
     def test_retro_below_threshold_no_nudge(self):

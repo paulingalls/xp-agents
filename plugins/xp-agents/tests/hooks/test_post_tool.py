@@ -306,6 +306,7 @@ class TestPostToolExitPlan(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-review-plan", result)
 
     def test_writes_marker_file(self):

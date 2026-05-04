@@ -194,6 +194,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
         )
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("aaaaaaaaaaaa", result)
         self.assertIn("Should refresh tokens rotate", result)
         self.assertNotIn("bbbbbbbbbbbb", result)
@@ -281,6 +282,7 @@ class TestMainBranchGate(_HookTestCase):
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("story branch", result)
 
     @patch("identity.get_current_branch", return_value="main")
@@ -347,6 +349,7 @@ class TestMainBranchGate(_HookTestCase):
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("story branch", result)
 
 
@@ -363,6 +366,7 @@ class TestSprintBranchGate(_HookTestCase):
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("sprint branch", result)
         self.assertIn("story branch", result)
 

@@ -125,6 +125,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertNotIn("auth bypass", result)
         self.assertIn("Resolves-Event:", result)
 
