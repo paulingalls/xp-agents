@@ -25,6 +25,8 @@ from conftest import (
 )
 from event_schema import (
     EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CUSTOMER_INPUT,
     EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_STATUS,
@@ -48,7 +50,7 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(len(ci), 1)
         self.assertEqual(ci[0]["content"], "Hello world")
 
@@ -58,7 +60,7 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(ci[0]["agent_id"], "customer")
 
     def test_xp_agent_skips(self):
@@ -83,7 +85,7 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(len(ci), 0)
 
     def test_task_notification_skips(self):
@@ -95,7 +97,7 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(len(ci), 0)
 
     def test_long_prompt_truncated(self):
@@ -105,7 +107,7 @@ class TestUserPromptLog(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        ci = [e for e in events if e.get("type") == "customer_input"]
+        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
         self.assertEqual(len(ci[0]["content"]), 10000)
 
     def test_goals_present_no_block(self):
@@ -168,7 +170,7 @@ class TestSubagentStop(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
         self.assertIn("task-1", statuses[0]["content"])
         self.assertEqual(statuses[0]["working_on"], [])
@@ -207,7 +209,7 @@ class TestSubagentStop(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
         self.assertIn("subagent", statuses[0]["content"])
 
@@ -217,7 +219,7 @@ class TestSubagentStop(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
 
     def test_conflict_detection_runs(self):
@@ -237,7 +239,7 @@ class TestSubagentStop(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
     def test_clears_coordination_entry(self):
@@ -297,7 +299,7 @@ class TestSubagentStop(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(len(concerns), 0)
 
 
@@ -335,7 +337,7 @@ class TestSubagentStopPlanGate(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 2)
         actions = {event_action(e) for e in statuses}
         self.assertEqual(
@@ -442,7 +444,7 @@ class TestHousekeepingDone(_HookTestCase):
         """A generic subagent_complete event is appended for housekeeper."""
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 2)
         sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
         self.assertEqual(len(sc), 1)
@@ -467,7 +469,8 @@ class TestPlanReviewerDone(_HookTestCase):
         gate_events = [
             e
             for e in events
-            if e.get("type") == "status" and "assign_pending" in e.get("content", "")
+            if e.get("type") == EVENT_TYPE_STATUS
+            and "assign_pending" in e.get("content", "")
         ]
         self.assertEqual(len(gate_events), 1)
         self.assertEqual(event_action(gate_events[0]), STATUS_ACTION_PLAN_REVIEWED)
@@ -476,7 +479,7 @@ class TestPlanReviewerDone(_HookTestCase):
         """A generic subagent_complete event accompanies the assign_pending event."""
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 2)
         sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
         self.assertEqual(len(sc), 1)
