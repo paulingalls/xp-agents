@@ -95,6 +95,11 @@ from _hook_inputs import (  # noqa: E402, F401
     _make_write_input,
 )
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing a
+# make_event(...) call's behavior.
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Sprint fixtures — kept inline; single consumer set across tests, no need
 # for a separate module.
@@ -219,7 +224,7 @@ class _ProbeTestHelpers:
     smm_dir: Path
 
     def _seed_auth_concern(self, content: str = "Auth middleware leaks tokens") -> str:
-        c = make_event("concern", content=content, files=["scripts/auth.py"])
+        c = make_event(EVENT_TYPE_CONCERN, content=content, files=["scripts/auth.py"])
         _common.append_safe(self.smm_dir, c)
         return c["id"]
 
@@ -227,7 +232,7 @@ class _ProbeTestHelpers:
         return [
             e
             for e in _common.read_events_raw(self.smm_dir)
-            if e.get("type") == "status"
+            if e.get("type") == EVENT_TYPE_STATUS
             and e.get("content", "").startswith("resolves_probe_shown:")
         ]
 

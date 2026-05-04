@@ -13,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 
+# Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
+# fails at test collection (NameError) instead of silently changing behavior.
+from event_schema import EVENT_TYPE_CUSTOMER_INPUT
+
 
 class TestValidateEvent(unittest.TestCase):
     """Tests for _append_impl.validate_event (unit tests, no subprocess)."""
@@ -21,7 +25,7 @@ class TestValidateEvent(unittest.TestCase):
         event = {
             "id": "12345678-1234-4123-8123-123456789abc",
             "ts": "2026-03-12T00:00:00+00:00",
-            "type": "customer_input",
+            "type": EVENT_TYPE_CUSTOMER_INPUT,
             "agent_id": "main",
             "content": "test",
             "schema_version": 1,
