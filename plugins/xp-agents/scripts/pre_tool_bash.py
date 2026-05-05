@@ -15,6 +15,7 @@ import commits
 import coordination
 import git_commits
 import identity
+import lint_check
 import markers
 import resolves_probe
 import security_patterns
@@ -139,6 +140,37 @@ def _decision_metadata_has_resolves(metadata_value: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Staged ruff gate (story-007)
+# ---------------------------------------------------------------------------
+
+
+def _staged_ruff_findings(
+    staged_files: list[str], cwd: str
+) -> list[tuple[str, list[str]]]:
+    """Run staging-context ruff over each staged .py file.
+
+    Returns [(path, codes), ...] for files with non-empty findings, narrowed
+    to lint_check.EDIT_DEFERRED_CODES (F401/F811). Other ruff codes already
+    surface as concerns at edit time and are not in this story's scope —
+    don't broaden the commit-time block beyond the deferral policy.
+
+    ``staged_files`` is passed in (never re-derived) so the caller's single
+    `git diff --cached --name-only` invocation is reused — pinned by
+    test_common_path_at_most_one_name_only_call. Single source of truth
+    for the ruff command line is lint_check.run_ruff.
+    """
+    findings: list[tuple[str, list[str]]] = []
+    for path in staged_files:
+        if not path.endswith(".py"):
+            continue
+        codes, _text = lint_check.run_ruff(path, context="staging", cwd=cwd)
+        deferred = [c for c in codes if c in lint_check.EDIT_DEFERRED_CODES]
+        if deferred:
+            findings.append((path, deferred))
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
 
@@ -191,6 +223,26 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Tier 1 security pattern detected.",
                 )
 
+        # Single name-only call shared by the staged ruff gate, the probe,
+        # and the trailer reminder. Pinned by
+        # test_common_path_at_most_one_name_only_call.
+        staged = commits.get_staged_files(cwd)
+
+        # Staging-time ruff gate (story-007); see _staged_ruff_findings.
+        ruff_findings = _staged_ruff_findings(staged, cwd)
+        if ruff_findings:
+            raise _common.BlockedError(
+                "\n".join(
+                    [
+                        "Staged ruff check blocked this commit:",
+                        *(f"  - {p}: {', '.join(codes)}" for p, codes in ruff_findings),
+                        "",
+                        "Fix the flagged imports/redefinitions, or unstage the file.",
+                    ]
+                ),
+                "Ruff F401/F811 detected on staged files.",
+            )
+
         cycle = markers.read_review_cycle(smm_dir, agent_id)
         code_files = commits.get_code_files_for_review(
             cwd,
@@ -232,7 +284,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"for legitimate post-merge work."
                 )
 
-        staged = commits.get_staged_files(cwd)
         if staged:
             msg = commits.extract_commit_message(command)
             already_resolved: list[str] = []

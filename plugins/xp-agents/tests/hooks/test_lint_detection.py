@@ -59,14 +59,17 @@ class TestLintConcernContent(_HookTestCase):
         tmpdir = Path(tempfile.mkdtemp())
         (tmpdir / "ruff.toml").touch()
         target = tmpdir / "app.py"
-        target.write_text("import os\n")
+        target.write_text("def f():\n    pass\n")
+        # Use E302 (non-deferred) — story-007 defers F401/F811 to staging,
+        # so F401 alone produces no concern at edit time. This test exercises
+        # the summary-vs-full-output contract, not F401 specifically.
         full_output = (
-            "F401 [*] `os` imported but unused\n"
-            " --> app.py:1:8\n"
+            "app.py:1:1: E302 expected 2 blank lines, found 0\n"
+            " --> app.py:1:1\n"
             "  |\n"
-            "1 | import os\n"
-            "  |        ^^\n"
-            "help: Remove unused import\n"
+            "1 | def f():\n"
+            "  | ^^^\n"
+            "help: Add blank lines\n"
             "\n"
             "Found 1 error.\n"
         )
@@ -95,7 +98,7 @@ class TestLintConcernContent(_HookTestCase):
             self.assertIn("app.py", content)
             self.assertNotIn("-->", content)
             self.assertNotIn("help:", content)
-            self.assertIn("F401", content)
+            self.assertIn("E302", content)
         finally:
             import shutil as sh
 
@@ -145,6 +148,23 @@ class TestSummarizeLintOutput(unittest.TestCase):
         output = "\n".join(f"E{i:03d} error" for i in range(100, 108))
         result = lint_check._summarize_lint_output(output)
         self.assertIn("+3 more", result)
+
+    def test_4plus_letter_ruff_prefixes(self):
+        """Code-reuse simplify finding: _summarize_lint_output had the same
+        [A-Z]{1,3}\\d{3,4} bug as run_ruff (concern 56a0e138ef8e). 4+ letter
+        ruff plugin prefixes (PERF, FURB, FAST, ASYNC) were silently dropped
+        from the summary the user sees, even when run_ruff parsed them
+        correctly."""
+        output = (
+            "PERF401 use list comprehension\n"
+            "FURB169 use isinstance not type comparison\n"
+            "ASYNC100 unnecessary trio.fail_after\n"
+        )
+        result = lint_check._summarize_lint_output(output)
+        self.assertIn("PERF401", result)
+        self.assertIn("FURB169", result)
+        self.assertIn("ASYNC100", result)
+        self.assertIn("3 errors", result)
 
 
 import bash_failure  # noqa: E402

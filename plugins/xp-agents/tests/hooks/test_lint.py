@@ -346,7 +346,11 @@ class TestLintCheck(_HookTestCase):
                 mock_run.return_value = type(
                     "R",
                     (),
-                    {"returncode": 1, "stdout": "unused import", "stderr": ""},
+                    {
+                        "returncode": 1,
+                        "stdout": "app.py:1:1: F841 unused variable",
+                        "stderr": "",
+                    },
                 )()
                 result = lint_check.run(
                     _make_write_input(
@@ -357,7 +361,7 @@ class TestLintCheck(_HookTestCase):
                 )
             assert result is not None
             self.assertIn("Lint errors", result)
-            self.assertIn("unused import", result)
+            self.assertIn("F841", result)
         finally:
             import shutil as sh
 
@@ -388,6 +392,233 @@ class TestLintCheck(_HookTestCase):
                     smm_dir=self.smm_dir,
                 )
             self.assertIsNone(result)
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+
+# ===========================================================================
+# Story-007: ruff F401/F811 deferred from edit-time to staging-time
+# ===========================================================================
+
+
+class TestRunRuffContext(_HookTestCase):
+    """run_ruff is the single source of truth for ruff invocation.
+
+    'edit' context drops F401/F811 (defer to staging — they false-positive
+    mid-edit during multi-step replace_all migrations); 'staging' preserves
+    them so the commit gate catches truly-unused imports.
+    """
+
+    def _ruff_stdout(self, body: str) -> object:
+        return type("R", (), {"returncode": 1, "stdout": body, "stderr": ""})()
+
+    def test_run_ruff_filters_F401_in_edit_context(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:1:1: F401 [*] `os` imported but unused\n"
+                "app.py:3:5: E302 expected 2 blank lines\n"
+                "Found 2 errors.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
+        self.assertNotIn("F401", codes)
+        self.assertIn("E302", codes)
+
+    def test_run_ruff_filters_F811_in_edit_context(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
+        self.assertEqual(codes, [])
+
+    def test_run_ruff_preserves_F401_in_staging_context(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:1:1: F401 [*] `os` imported but unused\nFound 1 error.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
+        self.assertIn("F401", codes)
+
+    def test_run_ruff_preserves_F811_in_staging_context(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
+        self.assertIn("F811", codes)
+
+    def test_run_ruff_filtered_text_excludes_filtered_lines(self):
+        """In 'edit' context, filtered output text should NOT mention F401."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:1:1: F401 [*] `os` imported but unused\n"
+                "app.py:3:5: E302 expected 2 blank lines\n"
+                "Found 2 errors.\n"
+            )
+            _codes, text = lint_check.run_ruff(Path("app.py"), context="edit")
+        self.assertNotIn("F401", text)
+        self.assertIn("E302", text)
+
+    def test_run_ruff_returns_empty_when_ruff_clean(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type(
+                "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+            )()
+            codes, text = lint_check.run_ruff(Path("app.py"), context="staging")
+        self.assertEqual(codes, [])
+        self.assertEqual(text, "")
+
+    def test_run_ruff_returns_empty_when_binary_missing(self):
+        with patch("lint_check.shutil.which", return_value=None):
+            codes, text = lint_check.run_ruff(Path("app.py"), context="staging")
+        self.assertEqual(codes, [])
+        self.assertEqual(text, "")
+
+    def test_run_ruff_parses_multi_letter_codes(self):
+        """Ruff plugin namespaces (RUF, PLR, ANN, UP, ...) use 2-3 letter
+        prefixes. A single-letter regex would silently drop them — codes=[]
+        flips has_errors to False and the lint error never surfaces."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:1:1: RUF059 unpacked variable\n"
+                "app.py:2:1: PLR0915 too many statements\n"
+                "app.py:3:1: UP007 use X | Y\n"
+                "Found 3 errors.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
+        self.assertIn("RUF059", codes)
+        self.assertIn("PLR0915", codes)
+        self.assertIn("UP007", codes)
+
+    def test_run_ruff_parses_4plus_letter_prefixes(self):
+        """Block-fix (concern 56a0e138ef8e): the {1,3}-letter regex bound still
+        silently drops 4+ letter ruff plugin codes (PERF, FURB, FAST, ASYNC).
+        When the regex misses, codes=[] flips has_errors=False and the lint
+        error vanishes at edit time — same failure class as the single-letter
+        bug that was previously fixed but not widely enough."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:1:1: PERF401 use list comprehension\n"
+                "app.py:2:1: FURB169 use isinstance not type comparison\n"
+                "app.py:3:1: ASYNC100 unnecessary trio.fail_after\n"
+                "Found 3 errors.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
+        self.assertIn("PERF401", codes)
+        self.assertIn("FURB169", codes)
+        self.assertIn("ASYNC100", codes)
+
+
+class TestLintEditContextFilters(_HookTestCase):
+    """End-to-end: lint_check.run() is the 'edit' context entry point.
+
+    A file whose only ruff finding is F401 must NOT raise a concern and
+    must NOT return additionalContext — F401 enforcement is deferred to
+    the commit-gate staging check in pre_tool_bash.
+    """
+
+    def test_F401_only_returns_no_concern_at_edit_time(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        target = tmpdir / "app.py"
+        target.write_text("import os\n")
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+            ):
+                mock_run.return_value = type(
+                    "R",
+                    (),
+                    {
+                        "returncode": 1,
+                        "stdout": (
+                            "app.py:1:1: F401 [*] `os` imported but unused\n"
+                            "Found 1 error.\n"
+                        ),
+                        "stderr": "",
+                    },
+                )()
+                result = lint_check.run(
+                    _make_write_input(
+                        tool_input={"file_path": str(target), "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            self.assertIsNone(result, "F401 must not surface at edit time")
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+            self.assertEqual(
+                len(concerns), 0, "F401 must not raise concern at edit time"
+            )
+        finally:
+            import shutil as sh
+
+            sh.rmtree(tmpdir)
+
+    def test_non_F401_still_surfaces_at_edit_time(self):
+        """E302 (non-deferred code) still creates a concern at edit time."""
+        tmpdir = Path(tempfile.mkdtemp())
+        (tmpdir / "ruff.toml").touch()
+        target = tmpdir / "app.py"
+        target.write_text("def f():\n    pass\n")
+        try:
+            with (
+                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+                patch("lint_check.subprocess.run") as mock_run,
+                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+            ):
+                mock_run.return_value = type(
+                    "R",
+                    (),
+                    {
+                        "returncode": 1,
+                        "stdout": (
+                            "app.py:1:1: E302 expected 2 blank lines\nFound 1 error.\n"
+                        ),
+                        "stderr": "",
+                    },
+                )()
+                result = lint_check.run(
+                    _make_write_input(
+                        tool_input={"file_path": str(target), "content": "x"},
+                        cwd=str(tmpdir),
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            assert result is not None
+            self.assertIn("E302", result)
+            events = _common.read_events_raw(self.smm_dir)
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+            self.assertEqual(len(concerns), 1)
         finally:
             import shutil as sh
 
