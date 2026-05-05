@@ -206,6 +206,18 @@ SELECTION_REASON_CLOSE_MODE = "close_mode"
 # file or keyword tie to the current commit.
 SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
 
+# Divert-reason vocabulary written by retro_metrics._classify_divert_reason
+# into probe_divert_details[i]["reason"]. Each value names the cause class
+# of an agent's resolves choice falling outside the probe candidate set,
+# so retros can act on cause not just count. UNKNOWN is the catch-all so
+# no divert is silently uncategorized. Order matches first-match precedence
+# in the classifier.
+DIVERT_REASON_NEWER_THAN_SNAPSHOT = "newer-than-snapshot"
+DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
+DIVERT_REASON_CROSS_STORY = "cross-story"
+DIVERT_REASON_WRONG_TYPE = "wrong-type"
+DIVERT_REASON_UNKNOWN = "unknown"
+
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
 # subagent_start. Centralized to prevent producer/consumer drift.
