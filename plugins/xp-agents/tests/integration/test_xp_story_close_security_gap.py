@@ -13,7 +13,7 @@ for orphan story branches and for story-close runs without an active sprint
 deterministic scans.
 
 These tests pin the conditional wiring:
-  - The `_Step4_5SecurityIncludeTests` mixin guarantees the standard Step 4.5
+  - The `_Step4SecurityIncludeTests` mixin guarantees the standard Step 4.5
     contract (heading position, substitution placeholders, append.sh
     metadata shape, clean-separation from the close-reviewer prompt).
   - The negative-pin tests below assert the prior blanket skip prose is
@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _close_fixtures import _Step4_5SecurityIncludeTests
+from _close_fixtures import _Step4SecurityIncludeTests
 from conftest import _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -56,14 +56,14 @@ def _split_frontmatter_body(text: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-class TestStoryCloseStep4_5(_Step4_5SecurityIncludeTests, _IntegrationTestCase):
-    """Story-close inherits the standard Step 4.5 contract.
+class TestStoryCloseStep4(_Step4SecurityIncludeTests, _IntegrationTestCase):
+    """Story-close inherits the standard Step 4 (Security Review) contract.
 
-    The mixin's assertions (heading present, between Step 4 and Steps 5/6,
-    substitutions named, close-reviewer prompt clean of `security`,
-    append.sh emits kind=security at high/medium severity) all apply to
-    the conditional wiring just the same — gating the block on a shell
-    `if` does not change its prose contract.
+    The mixin's assertions (heading present, ordered before Step 4.5 fork
+    and Steps 5/6, substitutions named, close-reviewer prompt clean of
+    `security`, append.sh emits kind=security at high/medium severity)
+    all apply to the conditional wiring just the same — gating the block
+    on a shell `if` does not change its prose contract.
     """
 
     _SKILL_MD = _SKILL_MD
@@ -75,9 +75,9 @@ class TestStoryCloseStep4Conditional(unittest.TestCase):
     """Story-close-specific assertions: conditional clause + blanket-skip removal.
 
     Class name reflects the post-M-2 numbering: Security Review is Step 4
-    (was Step 4.5 pre-M-2). The peer mixin `_Step4_5SecurityIncludeTests`
-    still uses the legacy number — see concern 1a654cea95b3 for the
-    cross-file mixin/sibling rename follow-up.
+    (was Step 4.5 pre-M-2). Peer mixin `_Step4SecurityIncludeTests` and
+    sibling `TestXxxCloseStep4` classes were aligned to the same numbering
+    in story-013 (resolves concern 1a654cea95b3).
     """
 
     @classmethod

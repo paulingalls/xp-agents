@@ -13,7 +13,7 @@ jointly establish:
    gate (the desired sidestep).
 
 Sprint AC #4 (per-skill ordering pin) is satisfied by the existing
-``_Step4_5SecurityIncludeTests`` mixin in ``tests/_close_fixtures.py``
+``_Step4SecurityIncludeTests`` mixin in ``tests/_close_fixtures.py``
 which the four close-skill test classes already inherit — restating
 it here would add a third place to update when heading conventions
 evolve.
