@@ -358,6 +358,22 @@ class TestClassifyDivertReason(unittest.TestCase):
         )
         self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
 
+    def test_absent_event_returns_unknown(self):
+        """Block-fix (concern f23270ea5b70): when the rejected ID has no
+        backing event in events_by_id (`events_by_id.get(...) or {}` yields
+        `{}`), classifier must return UNKNOWN — NOT WRONG_TYPE. The empty
+        dict has no `type`, but "missing event" is genuinely unknown, not
+        a vocabulary violation."""
+        import retro_metrics
+
+        reason = retro_metrics._classify_divert_reason(
+            {},
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id="story-006",
+        )
+        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+
     def test_cross_story_dormant_when_story_id_missing(self):
         """Spike (decision 4f62e2ada08d): metadata.story_id absent on real
         concern events today. When the rejected event lacks story_id, the
@@ -436,6 +452,50 @@ class TestProbeDivertDetailsReason(unittest.TestCase):
         ]
         result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         self.assertEqual(result["probe_divert"], 1)
+        details = result["probe_divert_details"]
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["reason"], DIVERT_REASON_OUTSIDE_FILE_DOMAIN)
+
+    def test_multi_id_divert_picks_latest_by_ts(self):
+        """Concern 2a6cccba21d9: when multiple resolves IDs are not in the
+        candidate set, attribute the divert to the LATEST rejected event by
+        ts (most recent context the agent had), not min(id) which is
+        alphabetic over hex IDs and semantically meaningless. The earlier
+        rejected event sits in the file domain (would classify as
+        UNKNOWN); the LATER rejected event is outside the file domain
+        (classifies as OUTSIDE_FILE_DOMAIN). The reason that surfaces
+        must be OUTSIDE_FILE_DOMAIN — the agent's most-recent pick."""
+        import retro_metrics
+
+        # IDs forced so alphabetic min() picks the EARLY event (in-domain
+        # → UNKNOWN); switching to latest-by-ts must pick the LATE event
+        # (out-of-domain → OUTSIDE_FILE_DOMAIN). Without forcing IDs the
+        # test passes by random-hex luck.
+        early_rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            id="aaaaaaaaaaaa",
+            content="Early concern in domain",
+            ts="2026-04-05T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        late_rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            id="bbbbbbbbbbbb",
+            content="Late concern outside domain",
+            ts="2026-04-05T09:30:00+00:00",
+            files=["scripts/auth.py"],
+        )
+        events = [
+            early_rejected,
+            late_rejected,
+            self._probe(["other-id"], "2026-04-05T10:00:00+00:00"),
+            self._commit(
+                [early_rejected["id"], late_rejected["id"]],
+                "2026-04-05T11:00:00+00:00",
+                files=["scripts/x.py"],
+            ),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["reason"], DIVERT_REASON_OUTSIDE_FILE_DOMAIN)

@@ -350,6 +350,8 @@ def _classify_divert_reason(
     keep the rule for forward-compat — once teammates start tagging, it
     lights up without a code change.
     """
+    if not rejected_event:
+        return DIVERT_REASON_UNKNOWN
     rejected_ts = rejected_event.get("ts") or ""
     if probe_ts and rejected_ts and rejected_ts > probe_ts:
         return DIVERT_REASON_NEWER_THAN_SNAPSHOT
@@ -467,9 +469,14 @@ def _compute_probe_adoption(
             commit_story_id = (commit.get("metadata") or {}).get("story_id")
             # Single dominant reason per divert: multi-id diverts cluster on
             # one root cause in practice (almost all diverts are 1-id anyway).
-            # min() picks deterministically; absent events return DIVERT_REASON_UNKNOWN.
-            first_rejected_id = min(resolves)
-            rejected_event = events_by_id.get(first_rejected_id) or {}
+            # Pick the latest-by-ts rejected event — semantically "the agent's
+            # most recent context" — over alphabetic min() which is meaningless
+            # for hex IDs. Missing events sort to the front (empty ts).
+            picked_id = max(
+                resolves,
+                key=lambda rid: (events_by_id.get(rid) or {}).get("ts") or "",
+            )
+            rejected_event = events_by_id.get(picked_id) or {}
             reason = _classify_divert_reason(
                 rejected_event,
                 probe_ts=probe_ts,
