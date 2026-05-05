@@ -52,34 +52,65 @@ _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 
 
-class TestV316Release(unittest.TestCase):
-    """v3.1.6 ships M-8 workflow plumbing — multi-AC schema +
-    worktree-aware trailer extraction + cd-pattern warning + git -C
-    doctrine + capstone (sprint-062).
+_VERSION_HEADING_RE = re.compile(r"^## v(\d+\.\d+\.\d+)\b")
 
-    Pins both the manifest version bump AND the CHANGELOG top-entry so a
-    later doc-only or manifest-only edit can't quietly desynchronize them.
+
+class TestReleaseSync(unittest.TestCase):
+    """Structural checks that catch desynchronized release artifacts.
+
+    Replaces the old per-version pin classes (TestV3xxRelease) — those
+    needed a rename + constant update on every release and added noise
+    to release diffs without catching what actually matters. These two
+    checks work for every version forever.
     """
 
-    def test_plugin_version_is_3_1_6(self):
-        manifest = json.loads(_PLUGIN_JSON.read_text())
-        self.assertEqual(
-            manifest["version"],
-            "3.1.6",
-            "plugin.json version must be bumped to 3.1.6 for sprint-062 / M-8",
-        )
+    def test_plugin_version_matches_changelog_top_entry(self):
+        """plugin.json `version` must equal the version in the topmost
+        `## vX.Y.Z` heading of CHANGELOG.md. Catches the case where a
+        manifest bump shipped without a CHANGELOG entry, or vice versa.
+        """
+        manifest_version = json.loads(_PLUGIN_JSON.read_text())["version"]
+        for line in _CHANGELOG.read_text().splitlines():
+            match = _VERSION_HEADING_RE.match(line)
+            if match:
+                changelog_version = match.group(1)
+                self.assertEqual(
+                    manifest_version,
+                    changelog_version,
+                    f"plugin.json version {manifest_version!r} doesn't match "
+                    f"CHANGELOG top entry vX.Y.Z {changelog_version!r}. "
+                    "Bump both together.",
+                )
+                return
+        self.fail("CHANGELOG.md has no `## vX.Y.Z` heading — the file shape changed.")
 
-    def test_changelog_top_entry_is_v3_1_6(self):
-        content = _CHANGELOG.read_text()
-        # First "## " heading line — `## v3.1.6 — ...`
-        first_heading = next(
-            (line for line in content.splitlines() if line.startswith("## ")),
-            "",
-        )
-        self.assertTrue(
-            first_heading.startswith("## v3.1.6"),
-            f"CHANGELOG top entry must be v3.1.6; got: {first_heading!r}",
-        )
+    def test_changelog_top_entry_format(self):
+        """Top entry must follow `## vX.Y.Z — <title>` (em-dash, then
+        prose). Catches malformed headings that would break the version
+        match above.
+        """
+        for line in _CHANGELOG.read_text().splitlines():
+            if line.startswith("## "):
+                # First non-empty heading must be a version entry.
+                self.assertRegex(
+                    line,
+                    r"^## v\d+\.\d+\.\d+ — .+$",
+                    f"CHANGELOG top entry must match `## vX.Y.Z — <title>` "
+                    f"(em-dash); got: {line!r}",
+                )
+                return
+        self.fail("CHANGELOG.md has no `## ` headings at all.")
+
+
+class TestChangelogFactsPins(unittest.TestCase):
+    """Per-release fact pins for entries with load-bearing content.
+
+    Additive — each test pins specific facts in a specific historical
+    entry that a future edit must not silently drop. Adding a new
+    test here is opt-in (only when an entry's facts are load-bearing
+    enough to warrant it); release commits don't need to touch this
+    class unless the release itself has such facts.
+    """
 
     def test_changelog_v3_1_0_names_security_migration(self):
         # Pin the load-bearing M-8 facts so a future edit can't quietly
