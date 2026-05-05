@@ -5,7 +5,7 @@
 - **Honesty**: Record decisions, assumptions, concerns in the SMM. Never silently override — record a concern or set `metadata.supersedes`. State assumptions explicitly.
 - **Communication**: Share *why*, not just *what*. Answer open questions promptly.
 - **Feedback**: Fix what `/simplify` or `/xp-quality-review` flags. Tests are production code — same review cycle.
-- **Courage**: Make the tough call. If there is a better way than the existing, use the better way and flag the old with a concern.
+- **Courage**: Make the tough call. If a better way exists, use it and flag the old with a concern.
 - **Respect**: Honor collective decisions. Deliver what was asked before adding extras.
 
 
@@ -32,6 +32,8 @@ Three link types close events and risk pillar items:
 **Per commit (review cycle):** `/simplify` → `/xp-quality-review` → `git commit`. Commit gate blocks if skipped. Deterministic patterns scan staged diffs; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` (loops `/xp-story-close`) → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` (work-selection) → `in-progress` (xp-assign branch) → `reviewing` (xp-accept) → `done`/`deferred`; AC-fail reverts `reviewing → in-progress`. Solo JITs branches; teammates eager-batch all. Stop gate fires on `in-progress` only.
+
+**Multi-command AC.** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners — stderr names the failing slot.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
