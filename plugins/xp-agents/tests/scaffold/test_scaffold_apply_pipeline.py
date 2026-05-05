@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -255,7 +256,7 @@ class TestApplyPlanRevertOnWriteFailure(_RevertTestBase):
         original_write = scaffold_apply.write_text_atomic
         call_count = {"n": 0}
 
-        def fake_write(path: Path, content: str, **kw: str) -> None:
+        def fake_write(path: Path, content: str, **kw: Any) -> None:
             call_count["n"] += 1
             if "x.spec.ts" in str(path):
                 raise OSError("simulated write failure")
@@ -274,7 +275,7 @@ class TestApplyPlanRevertOnWriteFailure(_RevertTestBase):
 
         original_write = scaffold_apply.write_text_atomic
 
-        def fake_write(path: Path, content: str, **kw: str) -> None:
+        def fake_write(path: Path, content: str, **kw: Any) -> None:
             if "x.spec.ts" in str(path):
                 raise OSError("simulated write failure")
             original_write(path, content, **kw)
