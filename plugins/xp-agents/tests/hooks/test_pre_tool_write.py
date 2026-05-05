@@ -19,6 +19,7 @@ from conftest import (
     _make_write_input,
     make_event,
 )
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION, EVENT_TYPE_STATUS
 
 # ===========================================================================
@@ -339,7 +340,7 @@ class TestPreToolWriteRun(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0]["severity"], "high")
         self.assertIn("CONFLICT", concerns[0]["content"])

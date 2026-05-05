@@ -23,6 +23,7 @@ import bash_post_tool
 import markers
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
@@ -114,9 +115,7 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
     def test_xp_agent_type_does_not_block_commit_event(self):
         with self._patch_commit_lookups():
             self._run_leaked_commit()
-        commit_events = [
-            e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT
-        ]
+        commit_events = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         self.assertEqual(len(commit_events), 1)
 
     def test_xp_agent_type_still_skips_non_commit_bash(self):
@@ -618,7 +617,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
             head_sha="bbbbbbb2222222", body="second commit", files=["scripts/b.py"]
         )
 
-        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
+        commits = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         hashes = [(e.get("metadata") or {}).get("commit_hash") for e in commits]
         self.assertEqual(
             len(commits),
@@ -666,7 +665,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
         )
 
         # The second commit event should carry both IDs in metadata.resolves.
-        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
+        commits = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         fixture_commits = [
             e
             for e in commits
@@ -714,7 +713,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
+        commits = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         self.assertEqual(
             len(commits),
             1,
@@ -779,7 +778,7 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-        commits = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT]
+        commits = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         self.assertEqual(
             len(commits),
             1,

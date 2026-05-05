@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
+from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -150,7 +151,7 @@ class TestPostToolUseIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         self.assertIn("src/app.ts", statuses[0]["working_on"][0])
         self.assertEqual(statuses[0]["agent_id"], "main")
@@ -179,7 +180,7 @@ class TestPostToolUseIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
 
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
 
@@ -218,7 +219,7 @@ class TestLintCheckIntegration(_IntegrationTestCase):
         self.assertIn("linter", result.stdout.lower())
         # No question events — nudge only
         events = self._read_events()
-        questions = [e for e in events if e.get("type") == EVENT_TYPE_QUESTION]
+        questions = events_of_type(events, EVENT_TYPE_QUESTION)
         self.assertEqual(len(questions), 0)
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
 
@@ -279,7 +280,7 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
         self.assertEqual(result.stdout, "")
 
         events = self._read_events()
-        commit_events = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
+        commit_events = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commit_events), 1)
         self.assertIn("Add feature module", commit_events[0]["content"])
 
@@ -298,8 +299,8 @@ class TestBashPostToolIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(statuses) >= 1)
         self.assertTrue(any("3 passed" in s["content"] for s in statuses))
         self.assertTrue(len(concerns) >= 1)
@@ -335,7 +336,7 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
             self.assertIn("goals", json.dumps(output).lower())
 
         events = self._read_events()
-        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
+        ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci), 1)
         self.assertEqual(ci[0]["content"], "hello world")
         self.assertEqual(ci[0]["agent_id"], "customer")
@@ -355,7 +356,7 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
             "user_prompt_log.py", {"session_id": "int-test", "prompt": long}
         )
         events = self._read_events()
-        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
+        ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci[0]["content"]), 10000)
 
     def test_empty_prompt_skips(self):
@@ -364,7 +365,7 @@ class TestUserPromptLogIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
+        ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci), 0)
 
     def test_xp_agent_skips(self):
@@ -403,7 +404,7 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
         self.assertEqual(result.stdout.strip(), "")
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         self.assertIn("task-1", statuses[0]["content"])
         self.assertEqual(statuses[0]["working_on"], [])
@@ -414,7 +415,7 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
             {"session_id": "int-test", "last_assistant_message": "Done"},
         )
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertIn("subagent", statuses[0]["content"])
         self.assertEqual(statuses[0]["agent_id"], "subagent")
 
@@ -434,7 +435,7 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
             },
         )
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
     def test_xp_agent_skips(self):
@@ -458,7 +459,7 @@ class TestSubagentStopIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
 
     def test_invalid_json_exits_zero(self):

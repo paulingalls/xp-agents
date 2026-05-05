@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
+from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -95,7 +96,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         self.assertEqual(result.stdout, "")
 
         events = self._read_events()
-        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(se), 1)
         self.assertIn("user_logout", se[0]["content"])
         self.assertEqual(se[0]["event_count"], 2)
@@ -115,7 +116,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
             },
         )
         events = self._read_events()
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn(q["id"], se["unresolved_items"])
 
     def test_xp_agent_creates_no_events(self):
@@ -130,7 +131,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(se), 0)
 
 

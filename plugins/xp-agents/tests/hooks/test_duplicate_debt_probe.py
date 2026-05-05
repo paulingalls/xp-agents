@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import duplicate_debt_probe as ddp
 from conftest import _HookTestCase, make_event
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
@@ -276,7 +277,7 @@ class TestDuplicateDebtProbeIntegration(_HookTestCase):
         new_debt = make_event(EVENT_TYPE_DEBT, content="auth middleware broken")
         _common.append_safe(self.smm_dir, new_debt)
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         advisories = [c for c in concerns if c.get("metadata", {}).get("duplicate_of")]
         self.assertEqual(len(advisories), 1)
         self.assertEqual(advisories[0]["metadata"]["duplicate_of"], "prior1")
@@ -288,14 +289,14 @@ class TestDuplicateDebtProbeIntegration(_HookTestCase):
         new_debt = make_event(EVENT_TYPE_DEBT, content="deploy pipeline misconfigured")
         _common.append_safe(self.smm_dir, new_debt)
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         advisories = [c for c in concerns if c.get("metadata", {}).get("duplicate_of")]
         self.assertEqual(len(advisories), 0)
 
     def test_append_non_debt_no_probe(self):
         _common.append_safe(self.smm_dir, make_event(EVENT_TYPE_STATUS))
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
     def test_bulk_append_duplicate_debt_creates_advisory(self):

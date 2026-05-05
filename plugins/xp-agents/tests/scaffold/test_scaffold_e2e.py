@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _helpers import init_git_with_seed, run_git, valid_system_context
 from conftest import run_cli
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_DECISION
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -171,7 +172,7 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
             .read_text(encoding="utf-8")
             .splitlines()
         ]
-        decisions = [e for e in events if e.get("type") == EVENT_TYPE_DECISION]
+        decisions = events_of_type(events, EVENT_TYPE_DECISION)
         self.assertTrue(decisions, "no decision event recorded")
         decision_meta = decisions[-1].get("metadata", {})
         self.assertIn("abc123def456", decision_meta.get("resolves"))

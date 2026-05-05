@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import lint_check
 from conftest import _HookTestCase, _make_write_input
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION
 
 # ===========================================================================
@@ -64,7 +65,7 @@ class TestLintCheck(_HookTestCase):
         self.assertIn("linter", result.lower())
         # No question events written
         events = _common.read_events_raw(self.smm_dir)
-        questions = [e for e in events if e.get("type") == EVENT_TYPE_QUESTION]
+        questions = events_of_type(events, EVENT_TYPE_QUESTION)
         self.assertEqual(len(questions), 0)
         # Flag file should exist
         self.assertTrue((self.smm_dir / ".lint-warned").exists())
@@ -77,7 +78,7 @@ class TestLintCheck(_HookTestCase):
         )
         self.assertIsNone(result)
         events = _common.read_events_raw(self.smm_dir)
-        questions = [e for e in events if e.get("type") == EVENT_TYPE_QUESTION]
+        questions = events_of_type(events, EVENT_TYPE_QUESTION)
         self.assertEqual(len(questions), 0)
 
     def test_linter_binary_missing(self):
@@ -94,7 +95,7 @@ class TestLintCheck(_HookTestCase):
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
             self.assertEqual(len(concerns), 0)
         finally:
             import shutil as sh
@@ -120,7 +121,7 @@ class TestLintCheck(_HookTestCase):
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
             self.assertEqual(len(concerns), 0)
         finally:
             import shutil as sh
@@ -152,7 +153,7 @@ class TestLintCheck(_HookTestCase):
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
             self.assertEqual(len(concerns), 1)
             self.assertEqual(concerns[0].get("severity"), "medium")
         finally:
@@ -185,7 +186,7 @@ class TestLintCheck(_HookTestCase):
                 lint_check.run(inp, smm_dir=self.smm_dir)
                 lint_check.run(inp, smm_dir=self.smm_dir)
             events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
             self.assertEqual(len(concerns), 1, "Duplicate lint concern appended")
         finally:
             import shutil as sh
@@ -208,7 +209,7 @@ class TestLintCheck(_HookTestCase):
                     smm_dir=self.smm_dir,
                 )
             events = _common.read_events_raw(self.smm_dir)
-            concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
             self.assertEqual(len(concerns), 0)
         finally:
             import shutil as sh

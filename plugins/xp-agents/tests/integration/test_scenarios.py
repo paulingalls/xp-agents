@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
+from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -75,8 +76,8 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertEqual(r3.returncode, 0)
 
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
-        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(statuses), 1)
         self.assertEqual(len(se), 1)
 
@@ -137,11 +138,11 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         self.assertIn(EVENT_TYPE_STATUS, types)
         self.assertIn(EVENT_TYPE_SESSION_END, types)
 
-        ci = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
+        ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(ci[0]["content"], "Please refactor auth")
         self.assertEqual(ci[0]["agent_id"], "customer")
 
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         task_status = [s for s in statuses if s.get("agent_id") == "task-1"]
         self.assertTrue(len(task_status) >= 1)
         self.assertIn("task-1", task_status[0]["content"])
@@ -358,7 +359,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertIn("RETRO_FILE=", result.stdout)
 
         events = self._read_events()
-        retros = [e for e in events if e.get("type") == EVENT_TYPE_RETROSPECTIVE]
+        retros = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(len(retros), 1)
         self.assertIn("1 keeps, 1 fixes, 1 tries", retros[0]["content"])
 
@@ -372,7 +373,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
 
     def test_cleans_up_input_file(self):
