@@ -546,9 +546,8 @@ class TestWorktreeCommitDoctrine(unittest.TestCase):
         """`git -C` doctrine appears in the three close-related surfaces.
 
         Pinned: shared close-pipeline template (raw read), xp-accept body
-        (frontmatter-stripped — body grep would otherwise match the
-        `Bash(*/append.sh *)` allowed-tools entry, not the new doctrine),
-        and TEAMMATE_GUIDE.md.
+        (frontmatter-stripped — skill .md body and frontmatter are separate
+        concerns; doctrine lives in body), and TEAMMATE_GUIDE.md.
         """
         shared = self.plugin_root / "scripts" / "_close_pipeline_shared.md"
         accept = self.plugin_root / "skills" / "xp-accept" / "SKILL.md"
