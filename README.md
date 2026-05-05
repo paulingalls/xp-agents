@@ -1,3 +1,16 @@
+```
+██╗  ██╗██████╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗
+╚██╗██╔╝██╔══██╗      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔════╝
+ ╚███╔╝ ██████╔╝══════███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████╗
+ ██╔██╗ ██╔═══╝       ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ╚════██║
+██╔╝ ██╗██║           ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ███████║
+╚═╝  ╚═╝╚═╝           ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝
+```
+
+### _An Extreme Programming Team in a Box_
+
+---
+
 # xp-agents: Extreme Programming for Claude Code
 
 A Claude Code plugin that makes your agents — solo or in teams — write better software through XP practices. Command hooks enforce deterministic rules. Plugin subagents provide judgment-based guidance. A broadcast event log keeps every agent aligned. Zero config. Install and go.
