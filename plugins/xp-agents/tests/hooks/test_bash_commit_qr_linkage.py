@@ -22,6 +22,7 @@ import _common
 import bash_post_tool
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
@@ -204,7 +205,7 @@ class TestM2CommitSuccessAction(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = _common.read_events_raw(self.smm_dir)
-        commits = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
+        commits = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commits), 1)
         metadata = commits[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "commit_success")

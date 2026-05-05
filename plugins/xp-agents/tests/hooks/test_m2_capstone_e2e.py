@@ -35,6 +35,7 @@ from conftest import (
     _make_bash_input,
     _make_write_input,
 )
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_STATUS, event_action
 
 
@@ -50,7 +51,7 @@ class TestM2CapstoneActionVocabulary(_HookTestCase):
 
     def _commits(self) -> list[dict]:
         events = _common.read_events_raw(self.smm_dir)
-        return [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
+        return events_of_type(events, EVENT_TYPE_COMMIT)
 
     def test_post_tool_use_emits_file_write_action(self):
         post_tool_use.run(
