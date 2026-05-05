@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.1.5 — pyright cleanup of tests/ + M-6b pin-coverage extension (M-7)
+
+Sprint-061 closes M-7 — clears 25 pyright errors + 372 warnings out of `tests/` so the directory can be re-included in `pyrightconfig.json`'s `include` list. Six stories shipped via 5 parallel CLI teammates plus a solo capstone (story-005) that absorbed 55 residual errors after the parallel batch landed. Net effect: `tests/` is back in pyright's strict-check scope, and the M-6b vocabulary pin gained three coverage extensions that close gaps the original walker missed.
+
+### M-6b vocab pin: kwarg form + `_*.py` helpers + Attribute matching
+
+Story-001 extended the pin walker added in M-6a with three coverage gaps the original missed:
+- **Gap 1** — `make_event(event_type='concern', ...)` kwarg form. Original pin only walked positional args.
+- **Gap 2** — `_*.py` helper modules (`_event_fixtures.py`, etc.) were excluded from the walk; sweep + re-include.
+- **Gap 3** — `ast.Attribute` matching (e.g., `helper.make_event(...)`) tightened to known fixture modules so non-fixture aliases don't false-trigger.
+
+Plus per-file ALLOWLIST mechanism for legitimate bare literals (e.g., SMM intent dicts where `'goal'` is data, not vocabulary).
+
+### tests/ pyright cleanup (Optional narrowing)
+
+Stories 002/003/004 swept `tests/` directory-by-directory — 80+ Optional-narrowing assertions added (`assert x is not None`), pyright errors cleared in scaffold/integration/smm/hooks subtrees. Story-005 capstone re-included `tests/` in `pyrightconfig.json` and absorbed 55 residual errors the parallel batch missed. Pure refactor-mode work; no behavior changes; test count unchanged.
+
+### RHS sweep on test fixture literals
+
+Stories 002/003 also swept the right-hand side of comparisons — `e['type'] == 'concern'` style — for the same EVENT_TYPE_* substitution treatment. Concrete coverage across small-dirs cleanup (story-002) and the hooks-batch-A subagent/lifecycle clusters (story-003).
+
 ## v3.1.4 — event-type vocabulary sweep + Pillars doctrine (M-6a)
 
 Sprint-060 closes M-6a — the test-suite vocabulary sweep that replaces bare event-type string literals (`'concern'`, `'status'`, `'goal'`, etc.) with `EVENT_TYPE_*` named constants across the entire `tests/` tree, plus a doctrinal pin test that forbids future regressions. Seven stories; final coverage spans 22+ files. Story-006 added a `## Pillars` section to PROCESS_GUIDE.md so the four-pillar SMM (Intent / Constraints / Risks / Wisdom) has a single canonical reference inside the shipped guide.

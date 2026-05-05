@@ -52,32 +52,32 @@ _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 
 
-class TestV314Release(unittest.TestCase):
-    """v3.1.4 ships M-6a event-type vocabulary sweep + Pillars doctrine
-    (sprint-060).
+class TestV315Release(unittest.TestCase):
+    """v3.1.5 ships M-7 pyright cleanup of tests/ + M-6b pin extension
+    (sprint-061).
 
     Pins both the manifest version bump AND the CHANGELOG top-entry so a
     later doc-only or manifest-only edit can't quietly desynchronize them.
     """
 
-    def test_plugin_version_is_3_1_4(self):
+    def test_plugin_version_is_3_1_5(self):
         manifest = json.loads(_PLUGIN_JSON.read_text())
         self.assertEqual(
             manifest["version"],
-            "3.1.4",
-            "plugin.json version must be bumped to 3.1.4 for sprint-060 / M-6a",
+            "3.1.5",
+            "plugin.json version must be bumped to 3.1.5 for sprint-061 / M-7",
         )
 
-    def test_changelog_top_entry_is_v3_1_4(self):
+    def test_changelog_top_entry_is_v3_1_5(self):
         content = _CHANGELOG.read_text()
-        # First "## " heading line — `## v3.1.4 — ...`
+        # First "## " heading line — `## v3.1.5 — ...`
         first_heading = next(
             (line for line in content.splitlines() if line.startswith("## ")),
             "",
         )
         self.assertTrue(
-            first_heading.startswith("## v3.1.4"),
-            f"CHANGELOG top entry must be v3.1.4; got: {first_heading!r}",
+            first_heading.startswith("## v3.1.5"),
+            f"CHANGELOG top entry must be v3.1.5; got: {first_heading!r}",
         )
 
     def test_changelog_v3_1_0_names_security_migration(self):
