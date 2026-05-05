@@ -138,26 +138,69 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "Step 6 must NOT keep the prose-match fallback",
         )
 
-    def test_emits_step4_5_security_review_skill_invocation(self):
-        # Pin the heading + the exact Skill-tool invocation shape — args
-        # MUST name "cumulative diff" so /security-review scopes correctly
-        # (matches the convention used previously in the migrated tiers).
+    def test_emits_step4_security_review_skill_invocation(self):
+        # M-2 step-order swap: Security Review is now Step 4 (was 4.5),
+        # close-reviewer fork is now Step 4.5 (was 4). Pin the new
+        # heading + the exact Skill-tool invocation shape — args MUST
+        # name "cumulative diff" so /security-review scopes correctly.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
+            "### Step 4: Security Review",
+            result.stdout,
+            "preload must emit the shared Step 4 (Security Review) heading "
+            "(M-2 step-order swap)",
+        )
+        self.assertNotIn(
             "### Step 4.5: Security Review",
             result.stdout,
-            "preload must emit the shared Step 4.5 (Security Review) heading",
+            "shared file must NOT carry the old `### Step 4.5: Security Review` "
+            "heading post-swap",
         )
         self.assertIn(
             'Skill(skill: "security-review"',
             result.stdout,
-            "Step 4.5 must invoke Skill(skill: 'security-review', args: ...)",
+            "Step 4 must invoke Skill(skill: 'security-review', args: ...)",
         )
         self.assertIn(
             "cumulative diff",
             result.stdout,
-            "Step 4.5 args must scope to the cumulative diff",
+            "Step 4 args must scope to the cumulative diff",
+        )
+
+    def test_emits_step4_close_cycle_active_marker_write(self):
+        # M-2: before invoking /security-review, the close skill writes
+        # the CLOSE_CYCLE_ACTIVE marker via the markers.py CLI from
+        # story-001. The new Stop hook reads this marker to gate the
+        # agent in the close cycle until close-reviewer's SubagentStop
+        # consumes it. Pin both the marker name and the CLI invocation.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        step4_idx = result.stdout.find("### Step 4: Security Review")
+        self.assertGreater(step4_idx, -1)
+        next_step_idx = result.stdout.find("\n### Step", step4_idx + 1)
+        section = result.stdout[
+            step4_idx : next_step_idx if next_step_idx != -1 else None
+        ]
+        self.assertIn(
+            "CLOSE_CYCLE_ACTIVE",
+            section,
+            "Step 4 (Security Review) must name the CLOSE_CYCLE_ACTIVE marker "
+            "(M-2 marker-gated Stop)",
+        )
+        self.assertIn(
+            "markers.py",
+            section,
+            "Step 4 (Security Review) must invoke scripts/markers.py to write "
+            "the marker",
+        )
+        marker_idx = section.find("markers.py")
+        security_idx = section.find("/security-review")
+        self.assertGreater(security_idx, -1)
+        self.assertLess(
+            marker_idx,
+            security_idx,
+            "markers.py write must precede /security-review invocation",
         )
 
     def test_emits_step4_5_security_concern_metadata_kind(self):

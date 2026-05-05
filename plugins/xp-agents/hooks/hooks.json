@@ -239,6 +239,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_cycle_stop_gate.py",
+            "statusMessage": "Checking close-cycle gate..."
+          },
+          {
+            "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/housekeeping_stop_gate.py",
             "statusMessage": "Checking housekeeping gate..."
           },

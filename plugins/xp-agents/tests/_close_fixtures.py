@@ -584,25 +584,37 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
             ),
         )
 
-    def test_step_4_5_reference_appears_between_step4_and_steps5_6(self):
-        # Order matters: Step 4 (Fork close-reviewer) -> Step 4.5
-        # (Security Review) -> Steps 5/6 (shared findings + merge).
-        step4_idx = self.skill_text.find("## Step 4: Fork the close-reviewer")
-        step4_5_idx = self.skill_text.find("Step 4.5")
+    def test_step_4_security_before_step_4_5_fork_before_steps_5_6(self):
+        # M-2 step-order swap: Step 4 (Security Review) -> Step 4.5
+        # (Fork close-reviewer) -> Steps 5/6 (shared findings + merge).
+        # Pin the reference to the shared Security block at Step 4 sits
+        # before the Fork close-reviewer at Step 4.5, which sits before
+        # Steps 5/6.
+        step4_security_idx = self.skill_text.find("### Step 4: Security Review")
+        step4_5_fork_idx = self.skill_text.find("## Step 4.5: Fork the close-reviewer")
         # Substring chosen to avoid the EN DASH in the actual heading.
         step5_6_idx = self.skill_text.find("Apply shared close-pipeline reference")
-        self.assertGreater(step4_idx, -1, "Step 4 heading must exist")
-        self.assertGreater(step4_5_idx, -1, "Step 4.5 reference must exist")
+        self.assertGreater(
+            step4_security_idx,
+            -1,
+            "Step 4 reference to shared `### Step 4: Security Review` must exist",
+        )
+        self.assertGreater(
+            step4_5_fork_idx,
+            -1,
+            "Step 4.5 (Fork the close-reviewer) heading must exist",
+        )
         self.assertGreater(step5_6_idx, -1, "Steps 5/6 heading must exist")
         self.assertLess(
-            step4_idx,
-            step4_5_idx,
-            "Step 4.5 reference must appear after Step 4 (Fork close-reviewer)",
+            step4_security_idx,
+            step4_5_fork_idx,
+            "Step 4 (shared Security reference) must appear before Step 4.5 "
+            "(Fork close-reviewer) — M-2 step-order swap",
         )
         self.assertLess(
-            step4_5_idx,
+            step4_5_fork_idx,
             step5_6_idx,
-            "Step 4.5 reference must appear before Steps 5/6 (shared)",
+            "Step 4.5 (Fork close-reviewer) must appear before Steps 5/6 (shared)",
         )
 
     def test_close_reviewer_prompt_does_not_mention_security(self):

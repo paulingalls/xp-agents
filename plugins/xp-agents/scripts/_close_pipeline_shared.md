@@ -3,20 +3,27 @@
 The following steps are shared across the close skills; each step lists
 its applicable skills inline (most apply to all four — story, sprint,
 plan, free — but a few are scoped). Apply them in order after the close
-skill's Step 4 (Fork the close-reviewer), then continue with the close
-skill's mode-specific tail (Step 7+).
+skill's Step 3 (PR creation), then continue with the close skill's
+mode-specific tail (Step 7+).
 
-### Step 4.5: Security Review
+### Step 4: Security Review
 
 Skills that apply this step: **free, sprint, plan** close unconditionally, plus **story (when no sprint envelope wraps)**.
 Story-close defers to sprint-close's cumulative diff when an active
 sprint wraps the story; otherwise (no sprint, or orphan story branch)
-Step 4.5 fires from story-close itself. See xp-story-close/SKILL.md
-Step 4.5 for the gating clause.
+Step 4 fires from story-close itself. See xp-story-close/SKILL.md
+Step 4 for the gating clause.
 
-Invoke `/security-review` against the cumulative close diff. The close
-skill is main-agent context, so the PostToolUse:Skill hook fires and
-emits the SECURITY_COMPLETE event automatically.
+First, write the close-cycle marker so the Stop hook holds the agent
+in this cycle until the close-reviewer fork (Step 4.5) runs:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py --smm-dir <SMM_DIR> write CLOSE_CYCLE_ACTIVE
+```
+
+Then invoke the security review against the cumulative close diff.
+The close skill is main-agent context, so the PostToolUse:Skill hook
+fires and emits the SECURITY_COMPLETE event automatically.
 
 ```
 Skill(skill: "security-review",
@@ -47,7 +54,7 @@ from the preload values at the top of this context.
 The shared Step 6 abort-default reads severity=high concerns filtered
 by `close_cycle_id` + `since-ts` (deterministic event count) — Block
 findings here automatically Recommend-Abort. **Do not pass these
-findings to xp-close-reviewer in Step 4 — clean separation.** The
+findings to xp-close-reviewer in Step 4.5 — clean separation.** The
 reviewer is quality-only; security and quality are independent
 review streams that converge only at the Step 6 abort-default count.
 
@@ -57,7 +64,7 @@ Skill tool result is not visible to them — output the Block / Concern
 is reacting to. (Step 5 will surface the close-reviewer prose
 separately; both streams arrive at Step 6 independently.)
 
-Step 4.5 concerns bypass Step 5c (the fix-or-ask classifier scopes
+Step 4 concerns bypass Step 5c (the fix-or-ask classifier scopes
 to close-reviewer findings only — security findings flow directly to
 the Step 6 count).
 
@@ -92,7 +99,7 @@ reviewer findings before asking the user to confirm the merge.
 
 ### Step 5c: Classify and act on reviewer findings
 
-For each NEW concern or block xp-close-reviewer just filed in Step 4
+For each NEW concern or block xp-close-reviewer just filed in Step 4.5
 (severity high "Block" or severity medium "Concern" — both apply),
 decide whether it's code-fixable. **Default to ASK if unsure** —
 better to surface a fixable item to the user than to mis-classify a
@@ -172,8 +179,8 @@ Use `AskUserQuestion` to ask whether to proceed with the merge. Two
 options: "Merge into ${TARGET_BRANCH}" or "Abort — fix concerns first".
 
 **Compute the abort-default flag deterministically.** Every Block from
-the close-reviewer (Step 4 quality review) AND every Block from the
-Step 4.5 security review is recorded as a `severity=high` concern
+the close-reviewer (Step 4.5 quality review) AND every Block from the
+Step 4 security review is recorded as a `severity=high` concern
 within this close cycle. Count them via the structured filter:
 
 ```bash

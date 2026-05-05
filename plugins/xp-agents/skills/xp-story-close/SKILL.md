@@ -15,6 +15,7 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
+  - Bash(python3 */scripts/markers.py *)
   - Bash(python3 */smm/sprint_cli.py *)
   - Bash(python3 */scripts/cleanup_teammate.py *)
   - Bash(git push *)
@@ -104,7 +105,47 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 `PR_OUTPUT` is a PR number or `skipped: no gh on PATH`.
 
-## Step 4: Fork the close-reviewer
+## Step 4: Conditional Security Review
+
+Story-close normally relies on sprint-close's cumulative
+`/security-review` to cover each merged story. That assumption fails
+when **no sprint envelope wraps this close** — either (a) no sprint
+exists at all, or (b) `<CURRENT_BRANCH>` is an orphan story branch
+(not referenced by any active `ready` / `in-progress` / `reviewing`
+story in `sprint.json`). Without the conditional below, the
+cumulative `/security-review` would never fire for the story's diff
+and only commit-time deterministic scans would cover it.
+
+Determine whether Step 4 applies — the gate prints exactly one of
+two literal strings on stdout that the LLM matches verbatim
+(`STEP_4_5` is preserved as the LLM-match token to avoid forcing a
+separate prose churn through the gate's literal strings):
+
+```bash
+if ! python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+       --smm-dir <SMM_DIR> exists; then
+  echo "STEP_4_5: APPLIES (no sprint at all)"
+elif python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
+       --smm-dir <SMM_DIR> list-story-orphans \
+       --cwd ${TEAMMATE_CWD:-.} \
+     | grep -qx "<CURRENT_BRANCH>"; then
+  echo "STEP_4_5: APPLIES (orphan story branch)"
+else
+  echo "STEP_4_5: SKIP (sprint envelope wraps this story)"
+fi
+```
+
+If stdout starts with `STEP_4_5: APPLIES`, apply the shared
+`### Step 4: Security Review` block above with `<close-mode>` →
+`story` and `<close-skill-name>` → `xp-story-close`. Step 4 concerns
+recorded here flow into the shared Step 6 abort-default count exactly
+the same way they do for free/sprint/plan close.
+
+If stdout starts with `STEP_4_5: SKIP`, skip Step 4 — sprint-close's
+cumulative diff already covers each story. Fall through directly to
+Step 4.5 (Fork the close-reviewer) below.
+
+## Step 4.5: Fork the close-reviewer
 
 Compute the diff command:
 
@@ -121,43 +162,6 @@ Agent(
   prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nstory\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Close Cycle ID\n<CLOSE_CYCLE_ID>\n\n## Context\nClosing story branch <CURRENT_BRANCH> for story <story-id> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with story-mode focus (AC alignment, file_domain enforcement against sprint.json, story-bounded scope creep, regression risk in unmodified stories). Return Keep / Concern / Block summary."
 )
 ```
-
-## Step 4.5: Conditional Security Review
-
-Story-close normally relies on sprint-close's cumulative
-`/security-review` to cover each merged story. That assumption fails
-when **no sprint envelope wraps this close** — either (a) no sprint
-exists at all, or (b) `<CURRENT_BRANCH>` is an orphan story branch
-(not referenced by any active `ready` / `in-progress` / `reviewing`
-story in `sprint.json`). Without the conditional below, the
-cumulative `/security-review` would never fire for the story's diff
-and only commit-time deterministic scans would cover it.
-
-Determine whether Step 4.5 applies — the gate prints exactly one of
-two literal strings on stdout that the LLM matches verbatim:
-
-```bash
-if ! python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-       --smm-dir <SMM_DIR> exists; then
-  echo "STEP_4_5: APPLIES (no sprint at all)"
-elif python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
-       --smm-dir <SMM_DIR> list-story-orphans \
-       --cwd ${TEAMMATE_CWD:-.} \
-     | grep -qx "<CURRENT_BRANCH>"; then
-  echo "STEP_4_5: APPLIES (orphan story branch)"
-else
-  echo "STEP_4_5: SKIP (sprint envelope wraps this story)"
-fi
-```
-
-If stdout starts with `STEP_4_5: APPLIES`, apply the shared `### Step
-4.5: Security Review` block above with `<close-mode>` → `story` and
-`<close-skill-name>` → `xp-story-close`. Step 4.5 concerns recorded
-here flow into the shared Step 6 abort-default count exactly the
-same way they do for free/sprint/plan close.
-
-If stdout starts with `STEP_4_5: SKIP`, skip Step 4.5 — sprint-close's
-cumulative diff already covers each story.
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
@@ -187,7 +191,7 @@ to Step 7:
    + `ts >= CLOSE_START_TS` — structured fields, not regex. Test
    numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared
    Step 6 prompt.
-2. No Block-severity finding survived in Step 4's reviewer summary.
+2. No Block-severity finding survived in Step 4.5's reviewer summary.
 3. The preload above emitted a non-empty `TEST_COMMAND=...` line
    (sourced from `system_context.stack.test_command`) AND running
    that command AFTER all Step 5c fixes landed exits 0. Any non-zero

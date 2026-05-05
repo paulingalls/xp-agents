@@ -14,6 +14,7 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
+  - Bash(python3 */scripts/markers.py *)
   - Bash(python3 */smm/plan_cli.py *)
   - Bash(git push *)
   - Bash(gh pr *)
@@ -59,7 +60,12 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 `PR_OUTPUT` is a PR number or `skipped: no gh on PATH`.
 
-## Step 4: Fork the close-reviewer
+## Step 4: Apply shared Security Review
+
+Apply the shared `### Step 4: Security Review` block above with
+`<close-mode>` → `plan` and `<close-skill-name>` → `xp-plan-close`.
+
+## Step 4.5: Fork the close-reviewer
 
 Compute the diff command:
 
@@ -76,11 +82,6 @@ Agent(
   prompt: "SMM_DIR=<SMM_DIR>\n\n## Mode\nplan\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Close Cycle ID\n<CLOSE_CYCLE_ID>\n\n## Context\nClosing plan branch <CURRENT_BRANCH> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with plan-mode focus (architectural coherence across the whole plan, accumulated debt, decisions whose rationale weakened). Return Keep / Concern / Block summary."
 )
 ```
-
-## Step 4.5: Apply shared Security Review
-
-Apply the shared `### Step 4.5: Security Review` block above with
-`<close-mode>` → `plan` and `<close-skill-name>` → `xp-plan-close`.
 
 ## Steps 5–6: Apply shared close-pipeline reference
 

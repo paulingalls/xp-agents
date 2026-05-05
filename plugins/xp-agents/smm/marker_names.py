@@ -23,6 +23,7 @@ NEEDS_EXECUTION_PLAN = ".needs-execution-plan"
 NEEDS_SYSTEM_CONTEXT = ".needs-system-context"
 ASSIGN_PENDING = ".assign-pending"
 NEEDS_HOUSEKEEPING = ".needs-housekeeping"
+CLOSE_CYCLE_ACTIVE = ".close-cycle-active"
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
 
 SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."

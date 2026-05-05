@@ -59,6 +59,7 @@ QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
 ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
+CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
@@ -200,3 +201,49 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
         path = marker_path(smm_dir, marker, agent_id)
         with contextlib.suppress(OSError):
             path.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Generic CLI: write|consume <NAME>
+# ---------------------------------------------------------------------------
+
+
+# Allowlist of markers writable/consumable via the CLI. Every other
+# non-agent-scoped marker (KICKOFF, ASSIGN_PENDING, ACCEPT_ACTIVE,
+# PLAN_AWAITING_REVIEW, etc.) has its own deterministic writer in a hook
+# or skill — the CLI is intentionally NOT a back door for those flows.
+# Add a marker here only when a skill prose step needs to drive it.
+_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE"})
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Lazy import: markers.py loads on every hook invocation; argparse is
+    # CLI-only and pulls in textwrap/gettext/re.
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Marker file CLI")
+    parser.add_argument("--smm-dir", required=True)
+    parser.add_argument("action", choices=("write", "consume"))
+    parser.add_argument(
+        "name",
+        choices=sorted(_CLI_ALLOWLIST),
+        help="MarkerDef constant name (CLI-allowlisted markers only)",
+    )
+    args = parser.parse_args(argv)
+
+    # argparse choices=_CLI_ALLOWLIST has already rejected unknown
+    # names — getattr is guaranteed to resolve a MarkerDef constant
+    # since the allowlist names mirror module attributes.
+    marker = getattr(sys.modules[__name__], args.name)
+
+    smm_dir = Path(args.smm_dir)
+    match args.action:
+        case "write":
+            marker_write(smm_dir, marker, "")
+        case "consume":
+            marker_consume(smm_dir, marker)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
