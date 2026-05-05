@@ -157,3 +157,7 @@ These came up during sprint-061 but don't fit this sprint's "workflow plumbing" 
 - Discussion captured in session 2026-05-04, after sprint-061 close.
 - All 4 stories drafted by main agent; user requested save to `docs/ideas/` for next planning cycle.
 - Reuses sprint-061's Story-006 pattern of bundling small doc + test edits + CLI work in one story when scope allows.
+
+## Sprint-062 result (2026-05-04)
+
+Sprint-062 shipped all 4 planned stories plus a capstone (5/5, 1.00 velocity). Frictions **#1 (auto-link)** and **#2 (multi-AC schema)** addressed end-to-end. Frictions **#3 (preload misses `reviewing`)** and **#4 (`.accept` re-arm)** were named in "Why this sprint" but never had corresponding stories — both hit during sprint-062 execution and were worked around manually. Captured for follow-up at `docs/ideas/preload-reviewing-and-accept-marker.md`.
