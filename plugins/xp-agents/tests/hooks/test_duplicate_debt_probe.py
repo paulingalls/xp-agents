@@ -205,7 +205,7 @@ class TestBuildAdvisoryConcern(unittest.TestCase):
     def test_builds_valid_concern(self):
         matches = [{"debt_id": "abc123", "similarity": 0.85}]
         result = ddp.build_advisory_concern(matches, "new789", "main")
-        self.assertEqual(result["type"], "concern")
+        self.assertEqual(result["type"], EVENT_TYPE_CONCERN)
         self.assertEqual(result["severity"], "low")
         self.assertEqual(result["agent_id"], "main")
         self.assertIn("abc123", result["content"])

@@ -43,7 +43,7 @@ class TestFindUnresolved(unittest.TestCase):
         d = make_event(EVENT_TYPE_DEBT, content="Some debt")
         result = triage.find_unresolved([c, d], "concern", set())
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["type"], "concern")
+        self.assertEqual(result[0]["type"], EVENT_TYPE_CONCERN)
 
     def test_empty_events(self):
         result = triage.find_unresolved([], "concern", set())

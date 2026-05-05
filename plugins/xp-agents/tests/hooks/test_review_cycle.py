@@ -17,7 +17,7 @@ import markers
 import review_cycle_done
 import subagent_stop
 from conftest import _HookTestCase, _make_agent_input, _make_skill_input
-from event_schema import event_action
+from event_schema import EVENT_TYPE_STATUS, event_action
 
 
 class TestReviewCycleDone(_HookTestCase):
@@ -44,7 +44,7 @@ class TestReviewCycleDone(_HookTestCase):
         review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
         emitted = self._action_events("simplify_complete")
         self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]["type"], "status")
+        self.assertEqual(emitted[0]["type"], EVENT_TYPE_STATUS)
 
     def test_quality_review_emits_action_event(self):
         """/xp-quality-review completion appends action=qr_complete."""
@@ -53,7 +53,7 @@ class TestReviewCycleDone(_HookTestCase):
         )
         emitted = self._action_events("qr_complete")
         self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]["type"], "status")
+        self.assertEqual(emitted[0]["type"], EVENT_TYPE_STATUS)
 
     def test_security_review_emits_action_event(self):
         """/security-review records exactly one event with action=security_complete."""
@@ -178,7 +178,7 @@ class TestReviewCycleDone(_HookTestCase):
         review_cycle_done.run(_make_skill_input("xp-assign"), smm_dir=self.smm_dir)
         emitted = self._action_events("assign_complete")
         self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]["type"], "status")
+        self.assertEqual(emitted[0]["type"], EVENT_TYPE_STATUS)
 
     def test_assign_does_not_set_review_flags(self):
         """Assign is not part of the commit review cycle."""

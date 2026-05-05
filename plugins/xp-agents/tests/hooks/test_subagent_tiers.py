@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_event, write_smm_fixture
+from event_schema import EVENT_TYPE_STATUS
 
 # ===========================================================================
 # subagent_start.py core tests (moved from test_subagent.py)
@@ -112,7 +113,7 @@ class TestSubagentStartEvent(_HookTestCase):
         events = self._read_events()
         self.assertEqual(len(events), 2)
         start_ev = events[1]
-        self.assertEqual(start_ev["type"], "status")
+        self.assertEqual(start_ev["type"], EVENT_TYPE_STATUS)
         self.assertEqual(start_ev["agent_id"], "explorer-1")
         self.assertEqual(start_ev["content"], "Subagent explorer-1 started")
 
