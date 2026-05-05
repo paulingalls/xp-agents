@@ -30,7 +30,7 @@ def _run_commands(commands: list[str]) -> int:
         # shell=True: AC commands are shell strings (pytest, grep, bash
         # one-liners with pipes/redirects). Stories declare them; the SMM
         # is trusted local state, not external input.
-        result = subprocess.run(cmd, shell=True, check=False)  # noqa: secret
+        result = subprocess.run(cmd, shell=True, check=False)
         if result.returncode != 0:
             print(
                 f"verify_acceptance: command failed (exit {result.returncode}): {cmd}",
