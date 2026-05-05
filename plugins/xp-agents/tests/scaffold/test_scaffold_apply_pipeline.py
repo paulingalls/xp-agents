@@ -15,9 +15,11 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import scaffold_apply
+from _helpers import make_fake_copy_failing_on_backup_restore
 from scaffold_apply import (
     ApplyResult,
     apply_plan,
@@ -292,13 +294,7 @@ class TestApplyPlanRevertOfRevertFailure(_RevertTestBase):
 
     def _force_revert_break(self) -> None:
         """Patch shutil.copy2 to raise PermissionError when restoring backup→target."""
-        original_copy = shutil.copy2
-
-        def fake_copy(src, dst, *args, **kw):  # type: ignore[no-untyped-def]
-            if "scaffold-snap-" in str(src) and "/backup/" in str(src):
-                raise PermissionError("simulated restore failure")
-            return original_copy(src, dst, *args, **kw)
-
+        fake_copy = make_fake_copy_failing_on_backup_restore(shutil.copy2)
         patcher = mock.patch.object(shutil, "copy2", side_effect=fake_copy)
         patcher.start()
         self.addCleanup(patcher.stop)
