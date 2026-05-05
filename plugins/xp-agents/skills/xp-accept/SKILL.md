@@ -65,10 +65,15 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
 
 1. Present the story title and acceptance criteria.
 2. If `acceptance_execution.setup` is present, run it first via Bash.
-3. Run `acceptance_execution.command` via Bash. If the story's
-   `story-id` appears in TEAMMATE_WORKTREES, wrap the command in a
-   subshell so the parent shell's cwd does NOT persist into
-   subsequent Bash calls: `(cd <abs-path> && <command>)`. Otherwise
+3. Run the story's acceptance command(s) via Bash. The schema accepts
+   either `acceptance_execution.command: str` (single command) OR
+   `acceptance_execution.commands: list[str]` (run each in order, fail
+   on first non-zero). For multi-command stories, prefer
+   `verify_acceptance.py --story <story-id> --smm-dir <SMM_DIR>` which
+   handles the iteration + first-red exit + failing-command stderr for
+   you. If the story's `story-id` appears in TEAMMATE_WORKTREES, wrap
+   the command in a subshell so the parent shell's cwd does NOT persist
+   into subsequent Bash calls: `(cd <abs-path> && <command>)`. Otherwise
    run the bare command from the main repo. The subshell isolates
    the cwd change to that one invocation — without it, a later Bash
    call inherits the worktree cwd and can mislead about branch
@@ -76,7 +81,7 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
    (pytest, jest, go test, cargo test).
 4. **Exit code 0 = pass. Auto-proceed to Step 2 (update sprint.json) without calling `AskUserQuestion`.** The green exit code IS the confirmation. Do **not** insert an extra "mark story-NNN done?" prompt for automated acceptance — `/xp-story-close` owns merge confirmation (per Step 2b), so the user still gets a gate before the merge lands. This rule applies only to the automated-acceptance branch; manual acceptance below still prompts for `done | deferred` because there's no objective signal.
 5. **Non-zero exit = fail.** Show the output and ask via `AskUserQuestion`:
-   - **Debug and re-run** — revert the story to `in-progress` (per Step 1.0's revert command), investigate the failure, fix the cause, then re-run the command. The revert lets `pre_tool_write` re-arm the `.accept` marker on subsequent fix-cycle Edits.
+   - **Debug and re-run** — revert the story to `in-progress` (per Step 1.0's revert command), investigate the failure, fix the cause, then re-run the command. The revert lets `pre_tool_write` re-arm the `.accept` marker on subsequent fix-cycle Edits. When the fix lands inside a teammate worktree (story-id present in TEAMMATE_WORKTREES), commit it from the orchestrator with `git -C <worktree-path> commit ...` — never `cd <worktree> && git commit && cd -`. The cd-back returns the shell to the orchestrator's cwd before the PostToolUse trailer-extract hook fires, so the hook reads the wrong HEAD and the `Resolves-Event:` auto-link silently breaks.
    - **Override with concern** — mark as passing despite failure. Requires a reason string. Records a `concern` event:
      ```bash
      ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \

@@ -80,7 +80,8 @@ Then the enriched sections:
   **BDD runner recommendation**: if the project's `system_context.json` lists a BDD harness (Cucumber, behave, SpecFlow, etc.) under `acceptance_surfaces`, write the criteria as executable `.feature` Gherkin and point `acceptance_execution.type` at that runner. Otherwise prose Given/When/Then plus the project's native test runner is the default.
 - **Acceptance Execution** (optional): How `/xp-accept` runs this story's acceptance test. Only include when the project has an automated acceptance surface (test runner, CLI, HTTP endpoint). Omit for stories without automated acceptance — `/xp-accept` defaults to manual walkthrough.
   - `type`: Runner name (e.g., `pytest`, `playwright`, `bash`, `bats`, `cargo`).
-  - `command`: Exact invocation. Exit code 0 = pass.
+  - `command`: Exact invocation (single command). Exit code 0 = pass.
+  - `commands`: List of invocations run in order, fail on first non-zero (xor with `command`). Use when one AC needs multiple distinct verifications (e.g., `pytest` + a separate `grep`); `verify_acceptance.py --story <id>` handles the iteration and names the failing command in stderr.
   - `setup` (optional): Prerequisite commands (e.g., `docker compose up -d`).
   - `notes` (optional): Anything the agent needs to know before running.
 

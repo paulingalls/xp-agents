@@ -35,6 +35,33 @@ _FILE_MODIFY_PATTERNS = [
     re.compile(r"cp\s+\S+\s+(\S+)"),  # cp src dest
 ]
 
+# ---------------------------------------------------------------------------
+# cd-into-worktree-then-git advisory
+# ---------------------------------------------------------------------------
+
+# Re-export for back-compat with story-002's contract — the canonical
+# home is identity.WORKTREE_PATH_FRAGMENT (worktree.py also re-exports).
+# pre_tool_bash is a hook module, not a natural home for shared constants.
+WORKTREE_PATH_FRAGMENT = identity.WORKTREE_PATH_FRAGMENT
+
+_CD_WORKTREE_GIT_PATTERN = re.compile(
+    r"cd\s+\S*"
+    + re.escape(WORKTREE_PATH_FRAGMENT)
+    + r"\S+"
+    # Single non-greedy `[^\n]*?` allows arbitrary intervening text on the
+    # same logical line (catches `cd <wt> && pytest && git commit`). Bounded
+    # by `[^\n]` to scope to one statement; one quantifier (no nesting)
+    # avoids catastrophic backtracking when the trailing `git` never appears.
+    + r"[^\n]*?\bgit\s+(?:commit|add|merge|push)\b"
+)
+
+_CD_WORKTREE_GIT_WARNING = (
+    "Avoid `cd <worktree> && git ...` — it poisons the orchestrator's cwd, "
+    "so the PostToolUse trailer-extract reads the wrong HEAD and "
+    "Resolves-Event auto-link silently breaks. Use "
+    "`git -C <worktree> ...` instead."
+)
+
 
 def detect_bash_target_files(command: str) -> list[str]:
     """Best-effort extraction of files a Bash command might modify."""
@@ -269,6 +296,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             nudge = _open_questions_context(smm_dir, agent_id)
             if nudge:
                 parts.append(nudge)
+
+    # cd-into-worktree-then-git — advisory only, never blocks
+    if _CD_WORKTREE_GIT_PATTERN.search(command):
+        parts.append(_CD_WORKTREE_GIT_WARNING)
 
     # File-modification heuristic — advisory only, never blocks
     if smm_dir is not None:

@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from scaffold._helpers import frontmatter_body
+
 _SUBAGENT_NAMES = (
     "xp-code-reviewer",
     "xp-housekeeper",
@@ -524,6 +526,80 @@ class TestPluginIntegrity(unittest.TestCase):
         self.assertTrue(process.is_file(), "Missing PROCESS_GUIDE.md")
         combined = values.read_text() + process.read_text()
         self.assertGreater(len(combined), 1000, "Guide files too short combined")
+
+
+# ===========================================================================
+# Sprint-062 / M-8: worktree-commit doctrine pins
+# ===========================================================================
+
+
+class TestWorktreeCommitDoctrine(unittest.TestCase):
+    """M-8: close skills + TEAMMATE_GUIDE document the `git -C <worktree>`
+    pattern (belt-and-suspenders for stories 002 + 003 hook-level
+    enforcement) and the verify_acceptance.py before-reviewing timing.
+    """
+
+    def setUp(self):
+        self.plugin_root = _PLUGIN_ROOT
+
+    def test_close_skills_have_git_dash_C_guidance(self):
+        """`git -C` doctrine appears in the three close-related surfaces.
+
+        Pinned: shared close-pipeline template (raw read), xp-accept body
+        (frontmatter-stripped — skill .md body and frontmatter are separate
+        concerns; doctrine lives in body), and TEAMMATE_GUIDE.md.
+        """
+        shared = self.plugin_root / "scripts" / "_close_pipeline_shared.md"
+        accept = self.plugin_root / "skills" / "xp-accept" / "SKILL.md"
+        guide = self.plugin_root / "TEAMMATE_GUIDE.md"
+
+        self.assertIn(
+            "git -C",
+            shared.read_text(),
+            "_close_pipeline_shared.md missing `git -C` worktree-commit guidance",
+        )
+        _, accept_body = frontmatter_body(accept.read_text())
+        self.assertIn(
+            "git -C",
+            accept_body,
+            "xp-accept/SKILL.md body missing `git -C` worktree-commit guidance "
+            "(frontmatter stripped before grep)",
+        )
+        self.assertIn(
+            "git -C",
+            guide.read_text(),
+            "TEAMMATE_GUIDE.md missing `git -C` worktree-commit guidance",
+        )
+
+    def test_teammate_guide_mentions_verify_acceptance(self):
+        """TEAMMATE_GUIDE.md tells teammates to run verify_acceptance.py
+        before flipping a story to `reviewing`.
+
+        Co-located test: the timing phrase ("before flipping … reviewing")
+        must appear in the same paragraph/bullet as the CLI mention so a
+        future edit can't drop the timing while keeping the reference.
+        """
+        guide_text = (self.plugin_root / "TEAMMATE_GUIDE.md").read_text()
+        self.assertIn(
+            "verify_acceptance.py",
+            guide_text,
+            "TEAMMATE_GUIDE.md missing verify_acceptance.py reference",
+        )
+        # Find the line/bullet mentioning the CLI; assert the timing
+        # phrase ("before flipping ... reviewing") sits within ±2 lines
+        # of it so the two facts cannot drift apart.
+        lines = guide_text.splitlines()
+        cli_idxs = [i for i, ln in enumerate(lines) if "verify_acceptance.py" in ln]
+        self.assertTrue(cli_idxs, "expected at least one verify_acceptance.py line")
+        timing_re = re.compile(r"before\s+flipping.*reviewing", re.IGNORECASE)
+        found_nearby = any(
+            timing_re.search(" ".join(lines[max(0, i - 2) : i + 3])) for i in cli_idxs
+        )
+        self.assertTrue(
+            found_nearby,
+            "TEAMMATE_GUIDE.md missing 'before flipping … reviewing' timing "
+            "near the verify_acceptance.py mention",
+        )
 
 
 if __name__ == "__main__":

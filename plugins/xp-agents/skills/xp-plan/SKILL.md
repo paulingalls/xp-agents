@@ -71,14 +71,14 @@ For each milestone:
 - **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
-- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when the project has an automated acceptance surface in `system_context.json`. Format: `{"type": "<harness>", "command": "<run command>"}`. Optional `setup` and `notes` fields.
+- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when the project has an automated acceptance surface in `system_context.json`. Format: `{"type": "<harness>", "command": "<run command>"}` for a single command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple commands run in order (fail on first non-zero). Optional `setup` and `notes` fields.
 
 Guidelines:
 - Milestones are ordered — each builds on the previous.
 - Flag milestones with >8 change zone files as "consider splitting".
 - Every milestone gets `[planned]` status.
 - Keep design details specific enough that sprint planning can decompose into stories.
-- **Acceptance execution**: check `system_context.json` for `acceptance_surfaces` with `status: "covered"`. If a milestone's `done` condition is verifiable by a covered surface's harness, populate `acceptance_execution` with the type and command. Leave null when no harness matches or the milestone is purely structural (docs, config, refactor).
+- **Acceptance execution**: check `system_context.json` for `acceptance_surfaces` with `status: "covered"`. If a milestone's `done` condition is verifiable by a covered surface's harness, populate `acceptance_execution` with the type and a `command` (single) or `commands` (list, run in order). Leave null when no harness matches or the milestone is purely structural (docs, config, refactor).
 
 ### Step 4: User Confirmation
 

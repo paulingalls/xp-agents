@@ -19,6 +19,13 @@ import sprint_store
 
 _WORKTREE_PREFIX = "worktree-"
 
+# Re-export the shared worktree-path constant from identity.py (its lower
+# position in the import chain avoids a worktree↔identity cycle). The
+# canonical home is identity.py; this re-export keeps callers like
+# `worktree.WORKTREE_PATH_FRAGMENT` working when the natural module is
+# the one named after the concept.
+WORKTREE_PATH_FRAGMENT = identity.WORKTREE_PATH_FRAGMENT
+
 _git_root_cache: dict[str, str | None] = {}
 
 
@@ -45,11 +52,11 @@ def _clear_git_root_cache() -> None:
 
 
 def worktree_path(name: str, cwd: str) -> Path:
-    """Return the path to a worktree: {git_root}/.claude/worktrees/{name}."""
+    """Return the path to a worktree: {git_root}/{WORKTREE_PATH_FRAGMENT}{name}."""
     root = resolve_git_root(cwd)
     if not root:
         raise RuntimeError(f"Not a git repository: {cwd}")
-    return Path(root) / ".claude" / "worktrees" / name
+    return Path(root) / WORKTREE_PATH_FRAGMENT / name
 
 
 def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
@@ -117,7 +124,7 @@ def _iter_live_teammate_worktrees(cwd: str):
         )
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
         return
-    wt_marker = f"/.claude/worktrees/{_WORKTREE_PREFIX}story-"
+    wt_marker = f"/{WORKTREE_PATH_FRAGMENT}{_WORKTREE_PREFIX}story-"
     for block in out.split("\n\n"):
         if "prunable" in block:
             continue

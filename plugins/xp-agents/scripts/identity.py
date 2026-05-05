@@ -9,7 +9,15 @@ import os
 import re
 import subprocess
 
-_WORKTREE_PATH_MARKER = "/.claude/worktrees/"
+# Single source of truth for the worktree directory under each project root.
+# Consumed by hooks (pre_tool_bash matcher), worktree path resolution
+# (worktree.py re-exports this), test fixtures (capstone E2E), and the
+# private path-marker derived below. Trailing slash disambiguates
+# `.claude/worktrees/` from any future sibling that starts the same way.
+# Lives in identity.py (not worktree.py) because worktree.py imports
+# identity — putting it in identity avoids a circular dependency.
+WORKTREE_PATH_FRAGMENT = ".claude/worktrees/"
+_WORKTREE_PATH_MARKER = f"/{WORKTREE_PATH_FRAGMENT}"
 _TEAMMATE_PREFIX = "worktree-story-"
 _XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 

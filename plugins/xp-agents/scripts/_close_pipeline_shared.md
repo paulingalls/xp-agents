@@ -102,6 +102,13 @@ non-code item as "fix" and silently get it wrong.
 `Resolves-Event: <event-id>` in the fix commit body** (the auto-link
 hook closes the concern when the trailer matches):
 
+> When the fix lands in a teammate worktree, run git from the
+> orchestrator with `git -C <worktree-path> commit ...` — never
+> `cd <worktree> && git commit && cd -`. The cd-back returns the
+> shell to the orchestrator's cwd before the PostToolUse trailer-
+> extract hook fires, so the hook reads the wrong HEAD and the
+> `Resolves-Event:` auto-link silently breaks.
+
 - `lint` (ruff/format errors) → `ruff format && ruff check --fix`, re-test
 - `test_failure` (failing tests) → read the test runner output, edit
   code at the named file:line, re-run the failing test
