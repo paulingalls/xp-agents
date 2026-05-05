@@ -111,8 +111,6 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
         )
 
-        self._seed_events([_security_complete_event("sec0000000099")])
-
         result = close_cycle_stop_gate.run(
             {"agent_id": "main", "agent_type": "main"},
             self.smm_dir,
