@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.1.7 — close-cycle security-review stall fix (M-2)
+
+Sprint-063 ships M-2 of the 3-milestone plan from `docs/ideas/2-security-review-swap.md` — eliminates the close-cycle stall where `/security-review` would complete and the agent would forget to invoke `xp-close-reviewer` next, leaving the close cycle hung until the user typed "continue". Resolves Risks-pillar concern `633d3082139d` (recurring across 3+ sessions). Three stories shipped via two parallel CLI teammates plus a solo capstone, with a [sprint-direct] cleanup landing the close-reviewer's quality findings before merge.
+
+### Marker-gated Stop hook (`close_cycle_stop_gate.py`)
+
+New presence-only marker `CLOSE_CYCLE_ACTIVE` (`smm/marker_names.py` + `scripts/markers.py`) plus a new Stop hook `scripts/close_cycle_stop_gate.py` registered in `hooks/hooks.json` between `sprint_stop_gate` and `housekeeping_stop_gate`. While the marker is present, the hook blocks Stop with the message *"Close cycle mid-flight. Run /security-review then invoke xp-close-reviewer (Agent tool); then continue Steps 5-7."* Defers on `ASKING_USER` so `AskUserQuestion` dialogues complete cleanly. Review-cycle/teammate deferrals are intentionally omitted — the close cycle wants to block mid-cycle by design (the whole point is to keep attention in the close pipeline until close-reviewer runs).
+
+### Marker consumption: `subagent_stop._handle_close_reviewer_done`
+
+New helper in `scripts/subagent_stop.py` consumes `CLOSE_CYCLE_ACTIVE` when an `xp-close-reviewer` subagent completes (matches both bare `xp-close-reviewer` and the namespaced `xp-agents:xp-close-reviewer` agent_type). **Wired into `run()` BEFORE the `is_xp_agent` early-exit** — xp-close-reviewer is xp-* and would otherwise be silently bypassed, leaving the Stop gate blocking forever. Comment at the call site documents the trap so a future re-order surfaces a deliberate review.
+
+### Step-order swap across 4 close skills
+
+`/security-review` now runs FIRST in the close pipeline (Step 4, was 4.5) and `xp-close-reviewer` runs LAST (Step 4.5, was 4) across `xp-{free,sprint,plan,story}-close/SKILL.md` and the shared `scripts/_close_pipeline_shared.md`. The new Step 4 prose instructs the LLM to write the `CLOSE_CYCLE_ACTIVE` marker via the generic `markers.py` CLI before invoking `/security-review`, so the Stop hook holds the agent in the close cycle until close-reviewer completes. Why the swap: PostToolUse:Skill nudge fires at skill-LOAD time, not skill-COMPLETION — by the time SECURITY_COMPLETE arrives, the resume nudge has scrolled out of attention. Inverting the order pairs with the marker-gated Stop so attention naturally lands on close-reviewer last, then proceeds to merge. Used Option A (keep step numbers, swap content) to minimize diff churn through cross-references. Story-close preserves the literal `STEP_4_5: APPLIES`/`STEP_4_5: SKIP` LLM-match tokens unchanged in its conditional gate's bash echo lines.
+
+### Generic `markers.py` CLI (allowlisted)
+
+`python3 scripts/markers.py --smm-dir <DIR> write|consume <NAME>` gives close skills (and any future caller) a uniform way to drive marker state without per-marker CLI proliferation. The CLI is intentionally restricted by `_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE"})` via `argparse choices=sorted(_CLI_ALLOWLIST)` — every other non-agent-scoped MarkerDef (KICKOFF, ASSIGN_PENDING, ACCEPT_ACTIVE, PLAN_AWAITING_REVIEW) has its own deterministic writer in a hook or skill; the CLI is NOT a back door for those flows. Pattern mirrors `smm/event_schema.py:VALID_SEVERITIES`. argparse imported lazily inside `main()` because `markers.py` is loaded by every Stop / PreToolUse / PostToolUse / SubagentStop hook on every tool invocation.
+
+### E2E integration capstone
+
+`tests/integration/test_close_cycle.py` exercises the full marker lifecycle in two tests: (1) positive flow — write marker → close_cycle_stop_gate blocks → seed SECURITY_COMPLETE event → STILL blocks (the gate watches markers, not events — the load-bearing architectural invariant) → drive `subagent_stop.py` with `agent_type=xp-close-reviewer` → marker consumed → gate releases (no stall demonstrated). (2) negative sidestep — bare `/security-review` outside a close cycle never trips the gate (manual invocations stay cheap). AC #4 (per-skill ordering pin) was deliberately not duplicated here — `_Step4_5SecurityIncludeTests` mixin in `tests/_close_fixtures.py` already covers it across all four close-skill test classes; restating in the capstone would add a third place to update.
+
+### Sprint-close polish
+
+Two close-reviewer findings landed in the same release via [sprint-direct]: `markers.py` CLI was originally permissive (any non-agent-scoped MarkerDef via getattr), tightened to `_CLI_ALLOWLIST`; `close_cycle_stop_gate.py` block message originally claimed `/security-review just completed` but the marker is written BEFORE the security review fires, so the wording was misleading on early-stop edge cases — reworded to *"Run /security-review then invoke xp-close-reviewer..."*. Dead `if marker.agent_scoped` check removed (now unreachable since the allowlist contains only non-agent-scoped markers).
+
+### Carry-forwards
+
+12 ad-hoc stories were adopted into sprint-063 from retro Tries + open debts/concerns/questions but not scheduled in the M-2 wave: probe-snapshot at commit time, two aged-debt vocab refactors (164-site `_events_of_type` helper + 44-site `assertEqual` pin), multi-command AC dogfood, six pyright/type-narrowing cleanups, fake_write narrowing, Phase 6 capstone real-vector test. All deferred — they carry forward to the next sprint via `/xp-sprint-start`'s "Deferred Stories from Previous Sprint" mechanism with full design context preserved.
+
 ## v3.1.6 — workflow plumbing: multi-AC schema + worktree-aware trailer (M-8)
 
 Sprint-062 closes M-8 — addresses the four close-cycle frictions surfaced by sprint-061's retro: worktree commits silently broke `Resolves-Event:` auto-link, single-string acceptance schemas couldn't enforce multi-command verification, plus two friction points (xp-accept preload missing `reviewing` stories + `.accept` marker re-arm whack-a-mole) deferred to a follow-up sprint. Five stories shipped via four parallel CLI teammates plus a solo capstone composing the behavioral changes end-to-end.
