@@ -488,5 +488,58 @@ class TestPlanReviewerDone(_HookTestCase):
         )
 
 
+class TestCloseReviewerDone(_HookTestCase):
+    """subagent_stop._handle_close_reviewer_done consumes CLOSE_CYCLE_ACTIVE.
+
+    Must run BEFORE the is_xp_agent skip — xp-close-reviewer is xp-* and
+    would otherwise be silently skipped.
+    """
+
+    def _reviewer_input(self, agent_type: str = "xp-close-reviewer") -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "close-reviewer-1",
+            "agent_type": agent_type,
+            "last_assistant_message": "Close review complete.",
+        }
+
+    def test_close_reviewer_consumes_close_cycle_marker(self):
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertFalse((self.smm_dir / ".close-cycle-active").exists())
+
+    def test_close_reviewer_marker_consume_idempotent_when_absent(self):
+        # No marker present — must not crash
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        self.assertFalse((self.smm_dir / ".close-cycle-active").exists())
+
+    def test_other_agent_does_not_consume_close_cycle_marker(self):
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        other_input = {
+            "session_id": "t",
+            "agent_id": "some-teammate",
+            "agent_type": "some-teammate",
+            "last_assistant_message": "ok",
+        }
+        subagent_stop.run(other_input, smm_dir=self.smm_dir)
+        self.assertTrue((self.smm_dir / ".close-cycle-active").exists())
+
+    def test_matches_qualified_agent_type(self):
+        """Should match agent_type 'xp-agents:xp-close-reviewer' too."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        subagent_stop.run(
+            self._reviewer_input(agent_type="xp-agents:xp-close-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".close-cycle-active").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

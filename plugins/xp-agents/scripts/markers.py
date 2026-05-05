@@ -59,6 +59,7 @@ QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
 ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
+CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
@@ -200,3 +201,43 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
         path = marker_path(smm_dir, marker, agent_id)
         with contextlib.suppress(OSError):
             path.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Generic CLI: write|consume <NAME>
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Lazy import: markers.py loads on every hook invocation; argparse is
+    # CLI-only and pulls in textwrap/gettext/re.
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Marker file CLI")
+    parser.add_argument("--smm-dir", required=True)
+    parser.add_argument("action", choices=("write", "consume"))
+    parser.add_argument("name", help="MarkerDef constant name in markers.py")
+    args = parser.parse_args(argv)
+
+    marker = getattr(sys.modules[__name__], args.name, None)
+    if not isinstance(marker, MarkerDef):
+        print(f"Unknown marker: {args.name}", file=sys.stderr)
+        return 1
+    if marker.agent_scoped:
+        print(
+            f"Marker {args.name} is agent-scoped; CLI does not support it",
+            file=sys.stderr,
+        )
+        return 1
+
+    smm_dir = Path(args.smm_dir)
+    match args.action:
+        case "write":
+            marker_write(smm_dir, marker, "")
+        case "consume":
+            marker_consume(smm_dir, marker)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

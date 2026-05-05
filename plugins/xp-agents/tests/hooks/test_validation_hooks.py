@@ -35,19 +35,20 @@ class TestHooksJsonM54(HooksJsonTestCase):
             "tdd_stop_gate.py command hook missing from Stop",
         )
 
-    def test_stop_has_five_hooks(self):
+    def test_stop_has_six_hooks(self):
         entries = self.data["hooks"]["Stop"]
         all_hooks = []
         for entry in entries:
             all_hooks.extend(entry.get("hooks", []))
         self.assertEqual(
             len(all_hooks),
-            5,
-            "Expected 5 Stop hooks (TDD + sprint + housekeeping + warning"
-            f" + teammate), got {len(all_hooks)}",
+            6,
+            "Expected 6 Stop hooks (TDD + sprint + close-cycle + housekeeping"
+            f" + warning + teammate), got {len(all_hooks)}",
         )
         commands = [h["command"] for h in all_hooks if "command" in h]
         self.assertTrue(any("sprint_stop_gate.py" in c for c in commands))
+        self.assertTrue(any("close_cycle_stop_gate.py" in c for c in commands))
         self.assertTrue(any("housekeeping_stop_gate.py" in c for c in commands))
         self.assertTrue(any("session_end_warning.py" in c for c in commands))
         self.assertTrue(any("teammate_stop_gate.py" in c for c in commands))
