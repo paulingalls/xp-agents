@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _hooks_json import HooksJsonTestCase
 from conftest import _HookTestCase, _make_stop_input
 
 
@@ -77,6 +78,25 @@ class TestCloseCycleStopGate(_HookTestCase):
             _make_stop_input(), smm_dir=Path("/nonexistent/smm")
         )
         self.assertIsNone(result)
+
+
+class TestCloseCycleStopGateRegistration(HooksJsonTestCase):
+    """Hook is registered in hooks.json Stop array between sprint_stop_gate
+    and housekeeping_stop_gate."""
+
+    def test_registered_in_hooks_json(self):
+        stop_entries = self.data["hooks"].get("Stop", [])
+        self.assertEqual(len(stop_entries), 1, "Single Stop entry expected")
+        commands = [h.get("command", "") for h in stop_entries[0].get("hooks", [])]
+        names = [
+            Path(next(t for t in c.split() if t.endswith(".py"))).name for c in commands
+        ]
+        self.assertIn("close_cycle_stop_gate.py", names)
+        i_close = names.index("close_cycle_stop_gate.py")
+        i_sprint = names.index("sprint_stop_gate.py")
+        i_housekeeping = names.index("housekeeping_stop_gate.py")
+        self.assertLess(i_sprint, i_close)
+        self.assertLess(i_close, i_housekeeping)
 
 
 if __name__ == "__main__":
