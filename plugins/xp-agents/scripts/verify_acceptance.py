@@ -26,13 +26,14 @@ from sprint_store import get_story
 
 def _run_commands(commands: list[str]) -> int:
     """Run each command in order; return 0 on all-green, else first non-zero exit."""
+    multi = len(commands) > 1
     for i, cmd in enumerate(commands):
         # shell=True: AC commands are shell strings (pytest, grep, bash
         # one-liners with pipes/redirects). Stories declare them; the SMM
         # is trusted local state, not external input.
         result = subprocess.run(cmd, shell=True, check=False)
         if result.returncode != 0:
-            label = f"commands[{i}]" if len(commands) > 1 else "command"
+            label = f"commands[{i}]" if multi else "command"
             print(
                 f"verify_acceptance: {label} failed (exit {result.returncode}): {cmd}",
                 file=sys.stderr,
