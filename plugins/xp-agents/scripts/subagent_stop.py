@@ -31,6 +31,7 @@ from event_schema import (
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
 _PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
+_CLOSE_REVIEWER_AGENT_TYPES = {"xp-close-reviewer", "xp-agents:xp-close-reviewer"}
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
@@ -153,6 +154,18 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
     return None
 
 
+def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
+    """Consume CLOSE_CYCLE_ACTIVE marker after xp-close-reviewer completes.
+
+    Must run BEFORE the is_xp_agent skip in run() — xp-close-reviewer is
+    xp-* and would otherwise be silently bypassed, leaving the close-cycle
+    Stop gate blocking forever.
+    """
+    if input_data.get("agent_type") not in _CLOSE_REVIEWER_AGENT_TYPES:
+        return
+    markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+
+
 def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     """Handle xp-plan-reviewer completion — nudge /xp-assign.
 
@@ -209,6 +222,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         # Sprint reviewer is also xp-* — its completion records sprint end.
         _handle_sprint_review_done(smm_dir, input_data)
+
+        # Close reviewer is also xp-* — its completion clears the close-cycle gate.
+        _handle_close_reviewer_done(smm_dir, input_data)
 
         # Plan reviewer completion nudges /xp-assign for execution mode.
         assign_result = _handle_plan_review_done(smm_dir, input_data)
