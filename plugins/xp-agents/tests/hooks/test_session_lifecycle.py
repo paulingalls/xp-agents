@@ -73,7 +73,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["event_count"], 2)
 
     def test_unresolved_questions(self):
@@ -86,7 +86,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn(q["id"], se["unresolved_items"])
 
     def test_answered_question_not_unresolved(self):
@@ -100,7 +100,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertNotIn(q["id"], se["unresolved_items"])
 
     def test_unresolved_concerns(self):
@@ -113,7 +113,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn(c["id"], se["unresolved_items"])
 
     def test_resolved_concern_not_unresolved(self):
@@ -132,7 +132,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertNotIn(c["id"], se["unresolved_items"])
 
     def test_active_working_on(self):
@@ -145,7 +145,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn("src/app.ts", se["working_on"])
 
     def test_empty_events(self):
@@ -156,7 +156,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["event_count"], 0)
         self.assertEqual(se["unresolved_items"], [])
 
@@ -173,7 +173,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn("duration_seconds", se)
         self.assertIsInstance(se["duration_seconds"], (int, float))
         self.assertGreater(se["duration_seconds"], 0)
@@ -211,7 +211,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn("user_logout", se["content"])
 
     def test_clears_lint_warned(self):
@@ -259,7 +259,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         budget = CONTENT_BUDGETS[EVENT_TYPE_SESSION_END]
         assert budget is not None
         self.assertLessEqual(
@@ -283,7 +283,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(g1["id"], resolves)
         self.assertIn(g2["id"], resolves)
@@ -339,7 +339,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(main_goal["id"], resolves)
         self.assertNotIn(teammate_goal["id"], resolves)
@@ -370,7 +370,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(own_goal["id"], resolves)
         self.assertNotIn(main_goal["id"], resolves)
@@ -387,7 +387,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         meta = se.get("metadata") or {}
         self.assertNotIn("resolves", meta)
 
@@ -412,7 +412,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["agent_id"], "worktree-story-001")
 
     def test_non_teammate_uses_main(self):
@@ -425,7 +425,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["agent_id"], "main")
 
     def test_cleanup_uses_resolved_agent_id(self):

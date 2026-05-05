@@ -373,7 +373,7 @@ class TestSaveRetrospectiveIntegration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
 
     def test_cleans_up_input_file(self):

@@ -320,7 +320,7 @@ class TestRecordScaffoldCommitShaGate(_RecordTestBase):
         )
         self.assertTrue(result.ok, result.reason)
         events = _events(self.smm_dir)
-        decision = next(e for e in events if e.get("type") == EVENT_TYPE_DECISION)
+        decision = events_of_type(events, EVENT_TYPE_DECISION)[0]
         self.assertEqual(decision["metadata"]["snapshot_id"], "testid")
         self.assertEqual(decision["metadata"]["commit_sha"], head)
 

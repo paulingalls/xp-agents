@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, make_event
+from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -88,7 +89,7 @@ class TestFullSessionLifecycle(_IntegrationTestCase):
         self.assertIn("session_end", types)
 
         # session_end should capture working_on from the status event
-        se = next(e for e in events if e["type"] == "session_end")
+        se = events_of_type(events, "session_end")[0]
         self.assertTrue(
             any("src/feature.ts" in w for w in se["working_on"]),
             f"working_on should include feature.ts: {se['working_on']}",
@@ -167,7 +168,7 @@ class TestPlanReviewFlow(_IntegrationTestCase):
 
         # Should also have recorded a status event
         events = self._read_events()
-        statuses = [e for e in events if e["type"] == "status"]
+        statuses = events_of_type(events, "status")
         self.assertTrue(len(statuses) >= 1)
         self.assertIn("task-2", statuses[0]["content"])
 

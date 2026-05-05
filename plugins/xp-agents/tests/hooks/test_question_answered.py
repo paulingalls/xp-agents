@@ -62,9 +62,7 @@ class TestQuestionAnswered(_HookTestCase):
 
         question_answered.run(self._make_ask_input(), smm_dir=self.smm_dir)
 
-        inputs = [
-            e for e in self._read_events() if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT
-        ]
+        inputs = events_of_type(self._read_events(), EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(inputs), 0)
 
     def test_no_gate_logs_customer_input(self):
@@ -139,9 +137,7 @@ class TestQuestionAnswered(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
-        inputs = [
-            e for e in self._read_events() if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT
-        ]
+        inputs = events_of_type(self._read_events(), EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(inputs), 1)
         self.assertIn("Blue", inputs[0]["content"])
 
@@ -165,7 +161,7 @@ class TestQuestionAnswered(_HookTestCase):
 
         question_answered.run(self._make_failure_input(), smm_dir=self.smm_dir)
 
-        answers = [e for e in self._read_events() if e.get("type") == EVENT_TYPE_ANSWER]
+        answers = events_of_type(self._read_events(), EVENT_TYPE_ANSWER)
         self.assertEqual(len(answers), 0)
 
     def _read_events(self):

@@ -116,7 +116,7 @@ class TestSessionEndIntegration(_IntegrationTestCase):
             },
         )
         events = self._read_events()
-        se = next(e for e in events if e.get("type") == EVENT_TYPE_SESSION_END)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn(q["id"], se["unresolved_items"])
 
     def test_xp_agent_creates_no_events(self):
