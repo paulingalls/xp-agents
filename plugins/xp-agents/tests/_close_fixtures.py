@@ -584,7 +584,7 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
             ),
         )
 
-    def test_step_4_5_reference_appears_between_step4_and_steps5_6(self):
+    def test_step_4_security_before_step_4_5_fork_before_steps_5_6(self):
         # M-2 step-order swap: Step 4 (Security Review) -> Step 4.5
         # (Fork close-reviewer) -> Steps 5/6 (shared findings + merge).
         # Pin the reference to the shared Security block at Step 4 sits
