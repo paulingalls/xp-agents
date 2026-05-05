@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""M-8 capstone: composes stories 001-004 into one cross-cutting acceptance test.
+"""M-8 capstone: cross-cutting acceptance test for stories 001-003.
 
-Sprint-062 / M-8 fixes close-cycle frictions from sprint-061. Four stories ship
-the underlying changes; this capstone confirms they compose end-to-end:
+Sprint-062 / M-8 fixes close-cycle frictions from sprint-061. Four stories
+ship the underlying changes; this capstone exercises the three behavioral
+ones end-to-end:
 
   - story-001: verify_acceptance.py CLI runs multi-command sprint AC
   - story-002: pre_tool_bash warns on `cd <wt> && git ...` patterns
   - story-003: trailer-extract resolves HEAD from worktree path, not orchestrator
-  - story-004: doctrine bullets in skills + TEAMMATE_GUIDE (covered by integrity tests)
+
+Story-004 (doctrine bullets in skills + TEAMMATE_GUIDE) is doc-only and
+verified by the pin tests in test_plugin_integrity.py — not exercised here
+because there's no behavior to drive through hooks.
 
 The capstone fixtures a real git worktree under tmpdir/.claude/worktrees/
-(reusing pre_tool_bash.WORKTREE_PATH_FRAGMENT so matcher and fixture share the
-same convention), opens a concern with a known event id, drives the bash hook
-pipeline for both commit shapes (cd-then-git AND git -C), and asserts the full
-chain — warning emission, trailer extraction, concern auto-resolution, and the
-verify_acceptance CLI exit-code semantics.
+(reusing pre_tool_bash.WORKTREE_PATH_FRAGMENT so matcher and fixture share
+the same convention), opens a concern with a known event id, drives the
+bash hook pipeline for both commit shapes (cd-then-git AND git -C), and
+asserts the full chain — warning emission, trailer extraction, concern
+auto-resolution, and the verify_acceptance CLI exit-code semantics.
 """
 
 import json
