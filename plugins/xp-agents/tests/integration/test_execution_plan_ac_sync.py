@@ -79,6 +79,9 @@ class TestExecutionPlanACSync(unittest.TestCase):
             if tok == "-n":
                 skip_next = True
                 continue
+            if tok.startswith("-n") and len(tok) > 2:
+                # `-nauto` / `-n4` no-space form (pytest-xdist accepts both)
+                continue
             out.append(tok)
         return out
 
