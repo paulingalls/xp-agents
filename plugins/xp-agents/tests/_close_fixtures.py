@@ -46,6 +46,34 @@ else:
     _MixinBase = object
 
 
+def _assert_text_ordering(
+    test: unittest.TestCase, text: str, *markers: str, msg: str | None = None
+) -> list[int]:
+    """Assert each marker appears in `text` in the given order.
+
+    Each marker must be present (text.find > -1) and each must appear
+    before the next. On failure the error message names the offending
+    marker (missing) or pair (out of order) so the diagnostic points
+    at the actual contract that broke. Returns the per-marker indices
+    so callers can reuse them for slicing without a second `text.find`.
+    """
+    if len(markers) < 2:
+        raise ValueError("_assert_text_ordering needs at least 2 markers")
+    suffix = f" ({msg})" if msg else ""
+    indices: list[int] = []
+    for marker in markers:
+        idx = text.find(marker)
+        test.assertGreater(idx, -1, f"marker {marker!r} not found in text{suffix}")
+        indices.append(idx)
+    for i in range(len(markers) - 1):
+        test.assertLess(
+            indices[i],
+            indices[i + 1],
+            f"marker {markers[i]!r} must appear before {markers[i + 1]!r}{suffix}",
+        )
+    return indices
+
+
 def _quality_meta(
     cycle_id: str,
     *,
@@ -592,34 +620,14 @@ class _Step4SecurityIncludeTests(_MixinBase):
     def test_step_4_security_before_step_4_5_fork_before_steps_5_6(self):
         # M-2 step-order swap: Step 4 (Security Review) -> Step 4.5
         # (Fork close-reviewer) -> Steps 5/6 (shared findings + merge).
-        # Pin the reference to the shared Security block at Step 4 sits
-        # before the Fork close-reviewer at Step 4.5, which sits before
-        # Steps 5/6.
-        step4_security_idx = self.skill_text.find("### Step 4: Security Review")
-        step4_5_fork_idx = self.skill_text.find("## Step 4.5: Fork the close-reviewer")
-        # Substring chosen to avoid the EN DASH in the actual heading.
-        step5_6_idx = self.skill_text.find("Apply shared close-pipeline reference")
-        self.assertGreater(
-            step4_security_idx,
-            -1,
-            "Step 4 reference to shared `### Step 4: Security Review` must exist",
-        )
-        self.assertGreater(
-            step4_5_fork_idx,
-            -1,
-            "Step 4.5 (Fork the close-reviewer) heading must exist",
-        )
-        self.assertGreater(step5_6_idx, -1, "Steps 5/6 heading must exist")
-        self.assertLess(
-            step4_security_idx,
-            step4_5_fork_idx,
-            "Step 4 (shared Security reference) must appear before Step 4.5 "
-            "(Fork close-reviewer) — M-2 step-order swap",
-        )
-        self.assertLess(
-            step4_5_fork_idx,
-            step5_6_idx,
-            "Step 4.5 (Fork close-reviewer) must appear before Steps 5/6 (shared)",
+        # Substring for Steps 5/6 chosen to avoid the EN DASH in the heading.
+        _assert_text_ordering(
+            self,
+            self.skill_text,
+            "### Step 4: Security Review",
+            "## Step 4.5: Fork the close-reviewer",
+            "Apply shared close-pipeline reference",
+            msg="M-2 step-order swap: Step 4 (Security) → Step 4.5 (Fork) → Steps 5/6",
         )
 
     def test_close_reviewer_prompt_does_not_mention_security(self):

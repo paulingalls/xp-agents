@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _close_fixtures import (
+    _assert_text_ordering,
     _ClosePreloadCommonTests,
     _record_quality_block,
     _record_security_block,
@@ -195,13 +196,12 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "Step 4 (Security Review) must invoke scripts/markers.py to write "
             "the marker",
         )
-        marker_idx = section.find("markers.py")
-        security_idx = section.find("/security-review")
-        self.assertGreater(security_idx, -1)
-        self.assertLess(
-            marker_idx,
-            security_idx,
-            "markers.py write must precede /security-review invocation",
+        _assert_text_ordering(
+            self,
+            section,
+            "markers.py",
+            "/security-review",
+            msg="markers.py write must precede /security-review invocation",
         )
 
     def test_emits_step4_5_security_concern_metadata_kind(self):

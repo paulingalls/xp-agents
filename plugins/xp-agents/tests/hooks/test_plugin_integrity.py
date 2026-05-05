@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _close_fixtures import _assert_text_ordering
 from scaffold._helpers import frontmatter_body
 
 _SUBAGENT_NAMES = (
@@ -668,23 +669,12 @@ class TestCloseSkillStepOrdering(unittest.TestCase):
         for mode, path in _CLOSE_SKILL_MDS.items():
             with self.subTest(mode=mode):
                 _, body = frontmatter_body(path.read_text())
-                step4_idx = body.find("## Step 4: ")
-                step4_5_idx = body.find("## Step 4.5: ")
-                self.assertGreater(
-                    step4_idx,
-                    -1,
-                    f"{mode}-close SKILL.md missing `## Step 4: ` heading",
-                )
-                self.assertGreater(
-                    step4_5_idx,
-                    -1,
-                    f"{mode}-close SKILL.md missing `## Step 4.5: ` heading",
-                )
-                self.assertLess(
-                    step4_idx,
-                    step4_5_idx,
-                    f"{mode}-close SKILL.md must place `## Step 4: ` BEFORE "
-                    f"`## Step 4.5: ` (M-2 step-order swap)",
+                step4_idx, step4_5_idx = _assert_text_ordering(
+                    self,
+                    body,
+                    "## Step 4: ",
+                    "## Step 4.5: ",
+                    msg=f"{mode}-close SKILL.md M-2 step-order swap",
                 )
                 # Pin the content under each header — Step 4 must be the
                 # security-review step, Step 4.5 must be the close-reviewer
@@ -767,14 +757,13 @@ class TestCloseSkillStepOrdering(unittest.TestCase):
         )
         # Marker write must precede the /security-review invocation within
         # the section so the Stop hook is armed in time.
-        marker_idx = section.find("markers.py")
-        security_idx = section.find("/security-review")
-        self.assertGreater(security_idx, -1)
-        self.assertLess(
-            marker_idx,
-            security_idx,
-            "markers.py write must appear BEFORE /security-review invocation "
-            "in the Step 4 section",
+        _assert_text_ordering(
+            self,
+            section,
+            "markers.py",
+            "/security-review",
+            msg="markers.py write must appear BEFORE /security-review "
+            "invocation in the Step 4 section",
         )
 
 
