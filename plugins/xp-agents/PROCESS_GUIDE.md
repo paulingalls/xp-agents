@@ -33,6 +33,8 @@ Three link types close events and risk pillar items:
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` (loops `/xp-story-close`) → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` (work-selection) → `in-progress` (xp-assign branch) → `reviewing` (xp-accept) → `done`/`deferred`; AC-fail reverts `reviewing → in-progress`. Solo JITs branches; teammates eager-batch all. Stop gate fires on `in-progress` only.
 
+**Multi-command acceptance.** `commands: list[str]` reports failures as `commands[N] failed (exit RC): CMD`; single-command keeps the legacy `command failed`.
+
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
 
 **Forked skills:** `/xp-review-plan`, `/xp-sprint-review`, `/xp-{sprint,plan,free,story}-close`, `/xp-system-context` — preload + cleanup.

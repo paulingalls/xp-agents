@@ -82,6 +82,21 @@ class TestVerifyAcceptance(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("false", result.stderr)
 
+    def test_multi_command_failure_names_index_and_command(self):
+        self._save_sprint_with_story({"type": "bash", "commands": ["true", "false"]})
+        result = self._verify("story-001")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("commands[1]", result.stderr)
+        self.assertIn("false", result.stderr)
+
+    def test_single_command_failure_keeps_legacy_format(self):
+        # Pinned bit-for-bit: downstream tooling greps for `command failed`.
+        self._save_sprint_with_story({"type": "bash", "commands": ["false"]})
+        result = self._verify("story-001")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("command failed", result.stderr)
+        self.assertNotIn("commands[", result.stderr)
+
     def test_no_sprint_exits_nonzero(self):
         result = self._verify("story-001")
         self.assertNotEqual(result.returncode, 0)
