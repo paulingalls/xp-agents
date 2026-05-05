@@ -185,6 +185,7 @@ def _handle_commit(
     smm_dir: Path,
     agent_id: str,
     cwd: str,
+    command: str,
     response_text: str,
     *,
     is_xp_agent_leak: bool = False,
@@ -200,17 +201,23 @@ def _handle_commit(
     resolution, security-marker consumption, review-cycle reset, and the
     QR-warning return so a leaked subagent agent_type can't mutate state
     under a wrong identity (e.g. consume main's security marker).
+
+    `command` is parsed for `cd <wt>` / `git -C <wt>` segments so the
+    HEAD/files/body lookups target the repo the commit actually ran in,
+    not the orchestrator cwd left after a `cd -` cleanup.
     """
     msg = commits.parse_commit_message(response_text)
     if not msg:
         return None
 
-    committed_files = commits.get_committed_files(cwd)
-    commit_hash = commits.get_head_commit_hash(cwd)
+    effective_cwd = commits.parse_effective_cwd(command, cwd)
+
+    committed_files = commits.get_committed_files(effective_cwd)
+    commit_hash = commits.get_head_commit_hash(effective_cwd)
     code_file_count = sum(1 for f in committed_files if code_files.is_code_file(f))
     has_code = code_file_count > 0
 
-    raw_body = commits.get_commit_message_body(cwd) or msg
+    raw_body = commits.get_commit_message_body(effective_cwd) or msg
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
@@ -231,7 +238,7 @@ def _handle_commit(
     sprint = sprint_store.load_sprint(smm_dir)
 
     story_id = _resolve_story_id(
-        smm_dir, cwd, committed_files, sprint=sprint, message=body
+        smm_dir, effective_cwd, committed_files, sprint=sprint, message=body
     )
     if story_id:
         metadata["story_id"] = story_id
@@ -268,10 +275,20 @@ def _handle_commit(
         return None
 
     lint_resolution.resolve_lint_on_commit(
-        smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
+        smm_dir,
+        effective_cwd,
+        agent_id,
+        committed_files,
+        events=events,
+        resolutions=resolutions,
     )
     lint_resolution.sweep_orphan_lint_concerns(
-        smm_dir, cwd, agent_id, committed_files, events=events, resolutions=resolutions
+        smm_dir,
+        effective_cwd,
+        agent_id,
+        committed_files,
+        events=events,
+        resolutions=resolutions,
     )
 
     if commit_hash:
@@ -313,6 +330,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             smm_dir,
             agent_id,
             cwd,
+            command,
             response_text,
             is_xp_agent_leak=is_xp_agent_leak,
         )

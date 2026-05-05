@@ -7,7 +7,9 @@ live in test_bash_commit_qr_linkage.py.
 """
 
 import contextlib
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -173,6 +175,163 @@ class TestCommitRecordingDespiteXpAgentType(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertEqual(self._read_events(), [])
+
+
+class TestPostCommitEffectiveCwd(_HookTestCase):
+    """The trailer-extraction trio (get_committed_files / get_head_commit_hash
+    / get_commit_message_body) must run against the *effective* cwd parsed
+    from the bash command, not input_data.cwd.
+
+    Bug source: an agent does ``cd <wt> && git commit && cd -`` to keep
+    Stop hooks unpoisoned (per feedback memory cd_persists_in_bash). The
+    PostToolUse:Bash hook fires AFTER the cd-back, so input_data.cwd is the
+    orchestrator path, and reading HEAD from it returns the wrong commit
+    (or nothing). The Resolves-Event auto-link to concerns then breaks.
+    """
+
+    def _run_with_command(self, command: str, *, cwd: str):
+        """Drive bash_post_tool.run with the command, return the three
+        commits.* mocks so the test can assert the cwd they were called with."""
+        with (
+            patch(
+                "commits.get_head_commit_hash", return_value="abc1234567890"
+            ) as head_spy,
+            patch("commits.get_committed_files", return_value=["a.py"]) as files_spy,
+            patch("commits.get_commit_message_body", return_value="msg") as body_spy,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command=command,
+                    stdout="[main abc1234] msg\n 1 file changed",
+                    cwd=cwd,
+                ),
+                smm_dir=self.smm_dir,
+            )
+        return head_spy, files_spy, body_spy
+
+    def test_bare_git_commit_uses_input_cwd(self):
+        """No cd, no -C — fall back to input_data.cwd (existing behavior)."""
+        head_spy, files_spy, body_spy = self._run_with_command(
+            "git commit -m 'x'", cwd="/orig/cwd"
+        )
+        head_spy.assert_called_with("/orig/cwd")
+        files_spy.assert_called_with("/orig/cwd")
+        body_spy.assert_called_with("/orig/cwd")
+
+    def test_cd_then_git_commit_uses_worktree_cwd(self):
+        """cd <wt> && git commit [&& cd -] — effective cwd is the worktree."""
+        wt = Path(tempfile.mkdtemp())
+        try:
+            head_spy, files_spy, body_spy = self._run_with_command(
+                f"cd {wt} && git commit -m 'x' && cd -",
+                cwd="/orig/cwd",
+            )
+            head_spy.assert_called_with(str(wt))
+            files_spy.assert_called_with(str(wt))
+            body_spy.assert_called_with(str(wt))
+        finally:
+            shutil.rmtree(wt)
+
+    def test_git_dash_C_uses_dash_C_path(self):
+        """git -C <wt> commit ... — effective cwd is the -C path."""
+        wt = Path(tempfile.mkdtemp())
+        try:
+            head_spy, files_spy, body_spy = self._run_with_command(
+                f"git -C {wt} commit -m 'x'",
+                cwd="/orig/cwd",
+            )
+            head_spy.assert_called_with(str(wt))
+            files_spy.assert_called_with(str(wt))
+            body_spy.assert_called_with(str(wt))
+        finally:
+            shutil.rmtree(wt)
+
+    def test_cd_to_nonexistent_dir_falls_back(self):
+        """Parsed cd path that doesn't exist on disk — fall back, no error."""
+        head_spy, files_spy, body_spy = self._run_with_command(
+            "cd /surely/does/not/exist/xyz && git commit -m 'x'",
+            cwd="/orig/cwd",
+        )
+        head_spy.assert_called_with("/orig/cwd")
+        files_spy.assert_called_with("/orig/cwd")
+        body_spy.assert_called_with("/orig/cwd")
+
+    def test_effective_cwd_propagates_to_lint_resolution(self):
+        """Same root cause that breaks the trailer trio also breaks lint
+        auto-resolution (`lint_resolution.resolve_lint_on_commit` /
+        `sweep_orphan_lint_concerns` shell `git -C cwd` for diffs and
+        `worktree.normalize_path(file, cwd)` for matching). Both must
+        receive the parsed effective_cwd, not input_data.cwd. xp-code-reviewer
+        flagged this as concern fa4eb693f334 — same fixture, same fix.
+        """
+        wt = Path(tempfile.mkdtemp())
+        try:
+            with (
+                patch("commits.get_head_commit_hash", return_value="abc"),
+                patch("commits.get_committed_files", return_value=["a.py"]),
+                patch("commits.get_commit_message_body", return_value="msg"),
+                patch("lint_resolution.resolve_lint_on_commit") as resolve_spy,
+                patch("lint_resolution.sweep_orphan_lint_concerns") as sweep_spy,
+            ):
+                bash_post_tool.run(
+                    _make_bash_input(
+                        command=f"cd {wt} && git commit -m 'x' && cd -",
+                        stdout="[main abc] msg\n 1 file changed",
+                        cwd="/orig/cwd",
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            self.assertEqual(resolve_spy.call_args.args[1], str(wt))
+            self.assertEqual(sweep_spy.call_args.args[1], str(wt))
+        finally:
+            shutil.rmtree(wt)
+
+    def test_effective_cwd_propagates_to_story_resolution(self):
+        """`_resolve_story_id`'s Tier-1 worktree-assignment lookup also
+        depends on cwd — a chained `cd <wt> && commit && cd -` would
+        otherwise miss the assignment file and silently fall through to
+        the file-domain heuristic. Spy on the helper to confirm the
+        parsed worktree path reaches it."""
+        wt = Path(tempfile.mkdtemp())
+        try:
+            with (
+                patch("commits.get_head_commit_hash", return_value="abc"),
+                patch("commits.get_committed_files", return_value=["a.py"]),
+                patch("commits.get_commit_message_body", return_value="msg"),
+                patch(
+                    "bash_post_tool._resolve_story_id", return_value=None
+                ) as story_spy,
+            ):
+                bash_post_tool.run(
+                    _make_bash_input(
+                        command=f"cd {wt} && git commit -m 'x' && cd -",
+                        stdout="[main abc] msg\n 1 file changed",
+                        cwd="/orig/cwd",
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            self.assertEqual(story_spy.call_args.args[1], str(wt))
+        finally:
+            shutil.rmtree(wt)
+
+    def test_relative_cd_resolves_against_input_cwd(self):
+        """`cd subdir && git commit` with a relative `subdir` resolves
+        against input_data.cwd. Mirrors the real worktree shape:
+        `cd .claude/worktrees/teammate-X && git commit ...` from a repo root.
+        """
+        repo = Path(tempfile.mkdtemp())
+        sub = repo / "sub"
+        sub.mkdir()
+        try:
+            head_spy, files_spy, body_spy = self._run_with_command(
+                "cd sub && git commit -m 'x' && cd -",
+                cwd=str(repo),
+            )
+            head_spy.assert_called_with(str(sub))
+            files_spy.assert_called_with(str(sub))
+            body_spy.assert_called_with(str(sub))
+        finally:
+            shutil.rmtree(repo)
 
 
 class TestBashPostToolReviewCycle(_HookTestCase):
