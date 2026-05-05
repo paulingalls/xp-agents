@@ -1,5 +1,47 @@
 # Changelog
 
+## v3.1.8 — sprint-064 deferral burndown + type-quality cleanup
+
+Sprint-064 burns down 10 of 15 deferred stories from sprint-063 plus retro-Try aged debt. No new milestone — explicit "deferred-only sweep" carrying 5 stories forward to sprint-065. Two long-standing 7+ session aged debts close (`events_of_type` 184-site consolidation; `assertEqual` vocab pin 36-site migration). Mix of solo-mode (story-002, story-003) and 7-teammate parallel execution (story-004/005/006/007/013/014/015) with full close-cycle review per story.
+
+### `events_of_type` helper (story-002)
+
+NEW `smm/event_helpers.py` exposes `events_of_type(events, type_name) -> list[dict]` with defensive `.get("type") == type_name` matching the prevailing call-site pattern. Migrated ~120 sites across 24 test files from `[e for e in events if e.get("type") == X]` (and `next(...)` generator-fetch variants converted to `events_of_type(events, X)[0]` for full pattern uniformity). Docstring documents intentional exclusions (chained filters, content-based filters, non-event iterables in test_validation*). Resolves aged debt `0de25f1600df` (7+ sessions stale; re-proposed across 3 retros).
+
+### `assertEqual` vocab pin (story-003)
+
+NEW `tests/hooks/test_assertequal_vocabulary_pin.py` is the sister to `test_event_vocabulary_pin.py`. Walks AST for `assertEqual(event["type"], "literal")` / `assertEqual(event.get("type"), "literal")` (and reversed-arg + assertNotEqual variants) where the literal is a bare string in `event_schema.VALID_TYPES`. Migrated 36 event-domain sites across 11 test files; ALLOWLIST mirrors the sister pin's SMM-domain exclusions (`test_smm_store.py`, `test_smm_cli.py`) since the SMM pillar `type` field uses `smm_schema.VALID_INTENT_TYPES`, a vocabulary distinct from event_schema. Resolves aged debt `04393723d6f5`.
+
+### Shared pin helpers (sprint-direct cleanup)
+
+NEW `tests/_pin_helpers.py` extracts `files_to_scan(root, exclude_self)` + `rel(path, repo_root)` from the two AST vocab pins. Each pin keeps its own `_scan_file` walker (different violation shapes) but shares the file-discovery boilerplate. Helper at `tests/` root matches sibling `_*.py` modules.
+
+### Type-quality cleanups (stories 004/005/007)
+
+- `pre_tool_write.check_tdd_order` widened from `file_path: str` to `str | None` — body always handled None; signature now matches runtime contract; drops `# type: ignore[arg-type]` in tests.
+- `_LintTmpDirMixin` adopted the `_MixinBase = TestCase if TYPE_CHECKING else object` pattern already used in 2 sibling files. Pyright sees TestCase, runtime sees object (so pytest doesn't auto-collect the empty mixin surface). Drops `# type: ignore[misc]` from `super().setUp/tearDown`.
+- `fake_write **kw` relaxed from `str` to `Any` so the test double doesn't silently shadow future non-str kwargs added to `write_text_atomic`.
+
+### Drift guards (stories 006/014/015)
+
+- NEW `tests/integration/test_pyrightconfig_extrapaths.py` reconciles `pyrightconfig.json:extraPaths` against `skills/*/scripts/` in both directions (dead entries + missing entries).
+- NEW `tests/integration/test_execution_plan_ac_sync.py` walks `execution_plan.json:milestones[*].acceptance_execution` and asserts every delivered-milestone command resolves to >0 collectable tests via `pytest --collect-only`. Closes a real false-green hole — M-2's AC referenced `test_stop_close_marker.py` which never existed; pytest exits 0 when no tests collect, so the milestone gate silently passed. Pin skips planned milestones (verified at ship time).
+- NEW `tests/hooks/test_hooks_json_strict.py` asserts `hooks/hooks.json` parses with strict `json.load` (no trailing commas). Paired with `ruff.toml` `extend-exclude = ["**/hooks.json"]` + `force-exclude = true` — the latter is required so the exclude fires when `ruff format <file>` is invoked explicitly (verified empirically: ruff DOES corrupt hooks.json without the exclude).
+
+### `STEP_4_5` → `STEP_4_SECURITY` token rename + cross-file sweep (story-013 + sprint-direct)
+
+M-2 (sprint-063) reordered `/security-review` from Step 4.5 to Step 4 in close-skill prose but kept the literal `STEP_4_5` LLM-match token to avoid prose churn. Story-013 closes the loop: token renamed to `STEP_4_SECURITY` ("Step 4 IS the security review") in `xp-story-close/SKILL.md` (6 occurrences) + `tests/integration/test_xp_story_close_security_gap.py`. Cross-file follow-up renamed `_Step4_5SecurityIncludeTests` mixin + 4 sibling `TestXxxCloseStep4_5` classes to drop the `_5`. Sprint-direct sweep of "Step 4.5" prose drift across 7 more files (`TEAMMATE_GUIDE.md`, `PROCESS_GUIDE.md`, `agents/xp-retrospective.md`, `scripts/pre_tool_bash.py` comment, 3 test files) — doctrine now consistent across shipped guides, agent docs, production code, and test scaffolding.
+
+### Carry forward to sprint-065
+
+5 deferred stories: `story-008` (verify_acceptance multi-cmd failure naming), `story-009` (`_assert_not_none` helper), `story-010` (`_required` loader variants), `story-011` (`get_required_budget` — also fixes a real None-deref at `concerns.py:271`), `story-012` (Phase 6 capstone real stranding-vector test). Plus one new follow-up concern from story-014 close-reviewer: fixture-based AC-sync pin that always runs (today's pin skips when SMM unresolvable).
+
+### Process discoveries
+
+- Probe candidate snapshot story (originally story-001) was DROPPED mid-plan after exploration revealed the probe already runs live at commit time in `pre_tool_bash.py:251` — no work-selection-time snapshot exists. Recorded as discovery for next sprint to characterize the actual divert root cause.
+- Two `validate-domain` false positives this sprint (story-002, story-003) reported `tests/**/*.py` glob expansions as drift. The script doesn't expand globs; file_domain glob entries should match prefix or be enumerated.
+- `ruff format` does corrupt `.json` files (verified MD5 change); `force-exclude = true` is required alongside `extend-exclude` for the exclude to fire on explicit file args.
+
 ## v3.1.7 — close-cycle security-review stall fix (M-2)
 
 Sprint-063 ships M-2 of the 3-milestone plan from `docs/ideas/2-security-review-swap.md` — eliminates the close-cycle stall where `/security-review` would complete and the agent would forget to invoke `xp-close-reviewer` next, leaving the close cycle hung until the user typed "continue". Resolves Risks-pillar concern `633d3082139d` (recurring across 3+ sessions). Three stories shipped via two parallel CLI teammates plus a solo capstone, with a [sprint-direct] cleanup landing the close-reviewer's quality findings before merge.
