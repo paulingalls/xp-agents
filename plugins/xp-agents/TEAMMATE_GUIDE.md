@@ -29,6 +29,8 @@ Security review is layered: deterministic secret/pattern scan runs automatically
 - Run `ruff format` before staging
 - Write commit messages that explain *why*, not *what*
 - When a commit closes a recorded SMM item (most commonly `debt`, `concern`, `question`, or `goal` — also works for `assumption` and `decision`), add a `Resolves-Event: <12-hex-id>[, <id>...]` trailer at the bottom of the commit body (same mechanism as `Co-Authored-By:`). The commit hook extracts the IDs into `metadata.resolves` on the commit event.
+- Use `git -C <worktree>` to commit from a worktree — never `cd <wt> && git commit && cd -` (the cd-back fires before the PostToolUse trailer-extract hook, so it reads the wrong HEAD and the `Resolves-Event:` auto-link silently breaks).
+- Run `verify_acceptance.py --story <id>` before flipping a story to `reviewing` — it executes every `acceptance_execution` command in order and exits non-zero on the first red, so you confirm acceptance is green before handoff.
 
 ## File Domain
 
