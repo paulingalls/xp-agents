@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase, _s, _sprint_json, make_event
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_SPRINT
 
 
@@ -93,7 +94,7 @@ class TestCascadeAndTieE2E(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
         events = self._read_events()
-        commits = [e for e in events if e.get("type") == EVENT_TYPE_COMMIT]
+        commits = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commits), 1)
         commit_meta = commits[0].get("metadata") or {}
         self.assertNotIn(

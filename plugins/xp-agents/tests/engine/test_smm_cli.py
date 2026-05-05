@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _SMMTestCase, make_event, run_cli
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DECISION,
@@ -148,9 +149,7 @@ class TestQuestionCloseWontFix(_SMMTestCase):
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        status_events = [
-            e for e in self._read_events() if e.get("type") == EVENT_TYPE_STATUS
-        ]
+        status_events = events_of_type(self._read_events(), EVENT_TYPE_STATUS)
         self.assertEqual(len(status_events), 1)
         meta = status_events[0].get("metadata", {})
         self.assertEqual(meta.get("action"), "question_close")

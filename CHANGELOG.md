@@ -22,7 +22,7 @@ New helper in `scripts/subagent_stop.py` consumes `CLOSE_CYCLE_ACTIVE` when an `
 
 ### E2E integration capstone
 
-`tests/integration/test_close_cycle.py` exercises the full marker lifecycle in two tests: (1) positive flow — write marker → close_cycle_stop_gate blocks → seed SECURITY_COMPLETE event → STILL blocks (the gate watches markers, not events — the load-bearing architectural invariant) → drive `subagent_stop.py` with `agent_type=xp-close-reviewer` → marker consumed → gate releases (no stall demonstrated). (2) negative sidestep — bare `/security-review` outside a close cycle never trips the gate (manual invocations stay cheap). AC #4 (per-skill ordering pin) was deliberately not duplicated here — `_Step4_5SecurityIncludeTests` mixin in `tests/_close_fixtures.py` already covers it across all four close-skill test classes; restating in the capstone would add a third place to update.
+`tests/integration/test_close_cycle.py` exercises the full marker lifecycle in two tests: (1) positive flow — write marker → close_cycle_stop_gate blocks → seed SECURITY_COMPLETE event → STILL blocks (the gate watches markers, not events — the load-bearing architectural invariant) → drive `subagent_stop.py` with `agent_type=xp-close-reviewer` → marker consumed → gate releases (no stall demonstrated). (2) negative sidestep — bare `/security-review` outside a close cycle never trips the gate (manual invocations stay cheap). AC #4 (per-skill ordering pin) was deliberately not duplicated here — `_Step4SecurityIncludeTests` mixin in `tests/_close_fixtures.py` already covers it across all four close-skill test classes; restating in the capstone would add a third place to update.
 
 ### Sprint-close polish
 

@@ -118,32 +118,32 @@ and only commit-time deterministic scans would cover it.
 
 Determine whether Step 4 applies — the gate prints exactly one of
 two literal strings on stdout that the LLM matches verbatim
-(`STEP_4_5` is preserved as the LLM-match token to avoid forcing a
-separate prose churn through the gate's literal strings):
+(`STEP_4_SECURITY` reflects the semantic intent: Step 4 IS the
+security review, matching the heading above):
 
 ```bash
 if ! python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
        --smm-dir <SMM_DIR> exists; then
-  echo "STEP_4_5: APPLIES (no sprint at all)"
+  echo "STEP_4_SECURITY: APPLIES (no sprint at all)"
 elif python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
        --smm-dir <SMM_DIR> list-story-orphans \
        --cwd ${TEAMMATE_CWD:-.} \
      | grep -qx "<CURRENT_BRANCH>"; then
-  echo "STEP_4_5: APPLIES (orphan story branch)"
+  echo "STEP_4_SECURITY: APPLIES (orphan story branch)"
 else
-  echo "STEP_4_5: SKIP (sprint envelope wraps this story)"
+  echo "STEP_4_SECURITY: SKIP (sprint envelope wraps this story)"
 fi
 ```
 
-If stdout starts with `STEP_4_5: APPLIES`, apply the shared
+If stdout starts with `STEP_4_SECURITY: APPLIES`, apply the shared
 `### Step 4: Security Review` block above with `<close-mode>` →
 `story` and `<close-skill-name>` → `xp-story-close`. Step 4 concerns
 recorded here flow into the shared Step 6 abort-default count exactly
 the same way they do for free/sprint/plan close.
 
-If stdout starts with `STEP_4_5: SKIP`, skip Step 4 — sprint-close's
-cumulative diff already covers each story. Fall through directly to
-Step 4.5 (Fork the close-reviewer) below.
+If stdout starts with `STEP_4_SECURITY: SKIP`, skip Step 4 —
+sprint-close's cumulative diff already covers each story. Fall
+through directly to Step 4.5 (Fork the close-reviewer) below.
 
 ## Step 4.5: Fork the close-reviewer
 

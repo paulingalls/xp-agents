@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, file_write_status, make_event, tests_run_status
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_CUSTOMER_INPUT,
@@ -202,7 +203,7 @@ class TestSaveRetrospective(_HookTestCase):
 
         # Verify event in events.jsonl
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
+        retro_events = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(len(retro_events), 1)
         ev = retro_events[0]
         self.assertEqual(len(ev["keep"]), 1)
@@ -230,7 +231,7 @@ class TestSaveRetrospective(_HookTestCase):
         self.assertIsNone(result)
         # No event should be written
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
+        retro_events = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(len(retro_events), 0)
 
     def test_empty_arrays_succeeds(self):
@@ -241,7 +242,7 @@ class TestSaveRetrospective(_HookTestCase):
         self.assertIsNotNone(result)
 
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
+        retro_events = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(len(retro_events), 1)
         self.assertIn("0 keeps, 0 fixes, 0 tries", retro_events[0]["content"])
 
@@ -292,7 +293,7 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro["agent_id"], "xp-sprint-retro")
 
     def test_custom_prefix(self):
@@ -305,7 +306,7 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertIn("Sprint retrospective", retro["content"])
 
     def test_custom_cleanup_file(self):
@@ -328,7 +329,7 @@ class TestSaveRetrospectiveParams(_HookTestCase):
         result = save_retrospective.run(self._valid_kft(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro["agent_id"], "xp-retrospective")
         self.assertIn("Session retrospective", retro["content"])
         self.assertFalse((self.smm_dir / ".retro-input.json").exists())
@@ -359,7 +360,7 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
 
     def test_retro_kind_sprint_writes_sprint_action(self):
@@ -373,7 +374,7 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro.get("metadata", {}).get("action"), "sprint_retro_done")
 
     def test_retro_kind_default_is_session(self):
@@ -386,7 +387,7 @@ class TestSaveRetrospectiveRetroKind(_HookTestCase):
         )
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro = next(e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE)
+        retro = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)[0]
         self.assertEqual(retro.get("metadata", {}).get("action"), "session_retro_done")
 
     def test_retro_kind_constants_exist(self):
@@ -415,7 +416,7 @@ class TestSaveRetrospectiveSchemaEnforcement(_HookTestCase):
         result = save_retrospective.run(kft, smm_dir=self.smm_dir)
         self.assertIsNone(result)
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
+        retro_events = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(len(retro_events), 0)
 
     def test_over_budget_keep_rejected(self):
@@ -436,7 +437,7 @@ class TestSaveRetrospectiveSchemaEnforcement(_HookTestCase):
         result = save_retrospective.run(kft, smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         events = self._read_events()
-        retro_events = [e for e in events if e["type"] == EVENT_TYPE_RETROSPECTIVE]
+        retro_events = events_of_type(events, EVENT_TYPE_RETROSPECTIVE)
         self.assertEqual(len(retro_events), 1)
 
 

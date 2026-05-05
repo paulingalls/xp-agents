@@ -1,5 +1,12 @@
 target-version = "py310"
 
+# Defense-in-depth against ad-hoc `ruff format .` or `ruff format <file>`
+# corrupting strict-JSON hook manifests. lefthook already restricts
+# pre-commit ruff to *.py. `force-exclude` is required so the exclude
+# applies even when hooks.json is passed explicitly on the command line.
+extend-exclude = ["**/hooks.json"]
+force-exclude = true
+
 [lint]
 select = [
     "E",     # pycodestyle errors

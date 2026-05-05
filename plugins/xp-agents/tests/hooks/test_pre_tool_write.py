@@ -19,6 +19,7 @@ from conftest import (
     _make_write_input,
     make_event,
 )
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION, EVENT_TYPE_STATUS
 
 # ===========================================================================
@@ -250,7 +251,7 @@ class TestCheckTddOrder(_HookTestCase):
         self.assertIsNone(result)
 
     def test_none_file_path(self):
-        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")  # type: ignore[arg-type]
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")
         self.assertIsNone(result)
 
     def test_markdown_no_tracking(self):
@@ -339,7 +340,7 @@ class TestPreToolWriteRun(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0]["severity"], "high")
         self.assertIn("CONFLICT", concerns[0]["content"])

@@ -165,7 +165,7 @@ def check_working_on_overlap(
 
 
 def check_tdd_order(
-    smm_dir: Path, agent_id: str, file_path: str, tool_name: str
+    smm_dir: Path, agent_id: str, file_path: str | None, tool_name: str
 ) -> str | None:
     """Track writes and nudge if tests are missing. Returns nudge or None."""
     if tool_name not in _WRITE_TOOLS:

@@ -23,6 +23,7 @@ import bash_post_tool
 from _commit_helpers import patch_commits
 from _lock_helpers import briefly_held_lock
 from conftest import _HookTestCase, _make_bash_input
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT
 
 
@@ -61,9 +62,7 @@ class TestAttributionRegression(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-        commit_events = [
-            e for e in self._read_events() if e.get("type") == EVENT_TYPE_COMMIT
-        ]
+        commit_events = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         self.assertEqual(
             len(commit_events),
             1,

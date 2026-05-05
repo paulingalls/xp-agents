@@ -140,7 +140,7 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         resolutions = data["digest"]["resolutions"]
         self.assertIn(debt["id"], resolutions)
         entry = resolutions[debt["id"]]
-        self.assertEqual(entry["type"], "debt")
+        self.assertEqual(entry["type"], EVENT_TYPE_DEBT)
         self.assertEqual(entry["resolver_id"], resolver["id"])
         self.assertIn("Debt closed", entry["resolver_content"])
 
@@ -156,7 +156,9 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             [q, resolver] + [make_event(content=f"e{i}") for i in range(4)]
         )
         self.assertIn(q["id"], data["digest"]["resolutions"])
-        self.assertEqual(data["digest"]["resolutions"][q["id"]]["type"], "question")
+        self.assertEqual(
+            data["digest"]["resolutions"][q["id"]]["type"], EVENT_TYPE_QUESTION
+        )
 
     def test_digest_includes_all_resolution_types(self):
         goal = make_event(EVENT_TYPE_GOAL, content="Ship feature X")
@@ -183,10 +185,10 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
             + [make_event(content=f"e{i}") for i in range(4)]
         )
         resolutions = data["digest"]["resolutions"]
-        self.assertEqual(resolutions[goal["id"]]["type"], "goal")
-        self.assertEqual(resolutions[assumption["id"]]["type"], "assumption")
-        self.assertEqual(resolutions[concern["id"]]["type"], "concern")
-        self.assertEqual(resolutions[decision["id"]]["type"], "decision")
+        self.assertEqual(resolutions[goal["id"]]["type"], EVENT_TYPE_GOAL)
+        self.assertEqual(resolutions[assumption["id"]]["type"], EVENT_TYPE_ASSUMPTION)
+        self.assertEqual(resolutions[concern["id"]]["type"], EVENT_TYPE_CONCERN)
+        self.assertEqual(resolutions[decision["id"]]["type"], EVENT_TYPE_DECISION)
 
     def test_resolutions_resolver_content_truncated_to_200(self):
         debt = make_event(EVENT_TYPE_DEBT, content="Thing")
@@ -233,8 +235,8 @@ class TestRetrospectiveDigestResolutions(_HookTestCase):
         )
         resolutions = data["digest"]["resolutions"]
         self.assertEqual(len(resolutions), 2)
-        self.assertEqual(resolutions[debt["id"]]["type"], "debt")
-        self.assertEqual(resolutions[goal["id"]]["type"], "goal")
+        self.assertEqual(resolutions[debt["id"]]["type"], EVENT_TYPE_DEBT)
+        self.assertEqual(resolutions[goal["id"]]["type"], EVENT_TYPE_GOAL)
 
 
 class TestGatherRetroHistoryTryShape(_HookTestCase):

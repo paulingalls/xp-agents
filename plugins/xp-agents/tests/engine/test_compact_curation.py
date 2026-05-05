@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import _append_impl
 import materialize
 from conftest import _SMMTestCase, make_event
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_ASSUMPTION,
     EVENT_TYPE_CONCERN,
@@ -85,7 +86,7 @@ class TestCompactAfterCuration(_SMMTestCase):
 
         compact.compact_after_curation(self.smm_dir)
         retained = self._read_events()
-        session_ends = [e for e in retained if e.get("type") == EVENT_TYPE_SESSION_END]
+        session_ends = events_of_type(retained, EVENT_TYPE_SESSION_END)
         pre_wm_ends = [
             e for e in session_ends if e.get("content", "") != "end session 6"
         ]

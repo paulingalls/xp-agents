@@ -27,6 +27,7 @@ import execution_plan_store
 from _branching_fixtures import write_system_context
 from _system_context_fixtures import valid_doc
 from conftest import _SMMTestCase
+from event_schema import EVENT_TYPE_DECISION
 
 
 class TestBranchName(unittest.TestCase):
@@ -300,7 +301,7 @@ class TestAutoPromote(_SMMTestCase):
         branching.get_branching_stage(self.smm_dir)
         events = self._promote_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "decision")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_DECISION)
         self.assertEqual(events[0]["agent_id"], "branching")
 
     def test_idempotent_no_duplicate_event(self):

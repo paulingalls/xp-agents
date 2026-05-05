@@ -525,8 +525,13 @@ class _CloseSkillTextCommonTests(_MixinBase):
 _FAKE_CLOSE_CYCLE_ID = "abcd1234abcd"
 
 
-class _Step4_5SecurityIncludeTests(_MixinBase):
-    """Mixin asserting Step 4.5 (Security Review) is wired into a close skill.
+class _Step4SecurityIncludeTests(_MixinBase):
+    """Mixin asserting Step 4 (Security Review) is wired into a close skill.
+
+    Post-M-2 (sprint-063) the Security Review runs at Step 4 (was Step 4.5
+    pre-M-2). Mixin name reflects the current numbering; the in-prose
+    `Step 4.5` references that remain in this file refer to the *Fork
+    close-reviewer* step that now lives at 4.5.
 
     The shared template lives in scripts/_close_pipeline_shared.md (covered
     by test_close_preloads_emit_shared.py). Each close skill that runs

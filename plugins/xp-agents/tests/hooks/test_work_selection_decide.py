@@ -22,7 +22,7 @@ sys.path.insert(
 
 import work_selection_decide
 from conftest import _HookTestCase
-from event_schema import EVENT_TYPE_STATUS
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
 
 
 class _DecideTestCase(_HookTestCase):
@@ -67,7 +67,7 @@ class TestAdopt(_DecideTestCase):
             topic="retro-try-commit-after-green",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "decision")
+        self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["topic"], "retro-try-commit-after-green")
         self.assertEqual(
             event["metadata"]["resolves"],
@@ -92,7 +92,7 @@ class TestAdopt(_DecideTestCase):
             topic="retro-try-refactor-first",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "decision")
+        self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["topic"], "retro-try-refactor-first")
         self.assertNotIn("resolves", event.get("metadata", {}))
         self.assertEqual(event["content"], "Refactor prep before add")
@@ -104,7 +104,7 @@ class TestAdopt(_DecideTestCase):
             content="A try",
             topic="retro-try-foo",
         )
-        self.assertEqual(self._last_event()["type"], "decision")
+        self.assertEqual(self._last_event()["type"], EVENT_TYPE_DECISION)
 
     def test_adopt_agent_id_is_resolved(self):
         """agent_id is teammate-resolved attribution per the agent-id-semantics
@@ -128,7 +128,7 @@ class TestDefer(_DecideTestCase):
             content="Defer this [refs: abc123def456, 7df84bb18a49]",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["working_on"], [])
         self.assertEqual(
             event["metadata"],
@@ -145,7 +145,7 @@ class TestDefer(_DecideTestCase):
             content="Defer this with no refs",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"], {"disposition": "deferred"})
         self.assertEqual(event["working_on"], [])
         self.assertEqual(event["content"], "Defer this with no refs")
@@ -169,7 +169,7 @@ class TestDrop(_DecideTestCase):
             content="Drop this forever",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"], {"disposition": "dropped"})
         self.assertEqual(event["working_on"], [])
         self.assertNotIn("resolves", event["metadata"])
@@ -181,7 +181,7 @@ class TestDrop(_DecideTestCase):
             content="Drop it [refs: abc123def456]",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(
             event["metadata"],
             {"resolves": ["abc123def456"], "disposition": "dropped"},
@@ -321,7 +321,7 @@ class TestCliArgparse(_DecideTestCase):
         )
         self.assertEqual(code, 0)
         event = self._last_event()
-        self.assertEqual(event["type"], "decision")
+        self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
 
     def test_main_defer_persists_event(self):
@@ -336,7 +336,7 @@ class TestCliArgparse(_DecideTestCase):
         )
         self.assertEqual(code, 0)
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(
             event["metadata"],
             {"resolves": ["abc123def456"], "disposition": "deferred"},
@@ -359,7 +359,7 @@ class TestTriageAdopt(_DecideTestCase):
             event_id="abc123def456",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
         self.assertEqual(event["metadata"]["disposition"], "adopted")
         self.assertEqual(event["working_on"], [])
@@ -386,7 +386,7 @@ class TestTriageDefer(_DecideTestCase):
             event_id="abc123def456",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["disposition"], "deferred")
         self.assertNotIn("resolves", event["metadata"])
         self.assertEqual(event["working_on"], [])
@@ -403,7 +403,7 @@ class TestTriageDrop(_DecideTestCase):
             event_id="abc123def456",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
         self.assertEqual(event["metadata"]["disposition"], "dropped")
 
@@ -529,7 +529,7 @@ class TestForceAdoptBreaksGate(_ForceCloseTestCase):
             force_adopt_topic="retro-try-finally-adopted",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "decision")
+        self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["topic"], "retro-try-finally-adopted")
         self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
         self.assertEqual(event["content"], "Adopt now")
@@ -547,7 +547,7 @@ class TestForceDropBreaksGate(_ForceCloseTestCase):
             force_drop=True,
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["disposition"], "dropped")
         self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
 
@@ -564,7 +564,7 @@ class TestForceDeferWithDateBreaksGate(_ForceCloseTestCase):
             force_defer_until="2026-09-01",
         )
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["disposition"], "deferred")
         self.assertEqual(event["metadata"]["defer_until"], "2026-09-01")
         self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
@@ -637,7 +637,7 @@ class TestForceCloseCli(_ForceCloseTestCase):
             ]
         )
         self.assertEqual(code, 0)
-        self.assertEqual(self._last_event()["type"], "decision")
+        self.assertEqual(self._last_event()["type"], EVENT_TYPE_DECISION)
 
     def test_cli_force_drop_at_threshold_persists_drop(self):
         self._seed_prior_defers("aaaaaaaaaaaa", 3)
@@ -703,7 +703,7 @@ class TestTriageCliArgparse(_DecideTestCase):
         )
         self.assertEqual(code, 0)
         event = self._last_event()
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
 
     def test_triage_defer_persists_event(self):

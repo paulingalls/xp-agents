@@ -159,7 +159,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Commit gate: review cycle enforcement
     # Above threshold (3+ code files): simplify → quality review.
-    # Below threshold: no per-commit security gate (close-skill Step 4.5
+    # Below threshold: no per-commit security gate (close-skill Step 4
     # covers the cumulative diff at sprint/plan/free close).
     if smm_dir is not None and git_commits.is_git_commit(command):
         # Tier 1 fires before the review-cycle gate so deterministic patterns

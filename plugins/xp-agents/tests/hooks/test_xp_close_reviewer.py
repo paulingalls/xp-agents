@@ -48,7 +48,8 @@ class TestCloseReviewerHasNoTier3(unittest.TestCase):
                     needle,
                     self.body,
                     f"xp-close-reviewer body must not reference {needle!r} "
-                    "(security migrated to close-skill Step 4.5 in M-8)",
+                    "(security migrated to close-skill Step 4 in M-8; "
+                    "post-M-2 reorder kept Step 4 for /security-review)",
                 )
 
     def test_body_has_no_skill_invocation(self):
@@ -226,9 +227,9 @@ class TestModeFocusSections(unittest.TestCase):
 
     def test_plan_mode_security_posture_bullet_removed(self):
         # The plan-mode focus list must not mention security posture.
-        # Per M-8: security review fires from the close skill's Step 4.5
-        # (sprint/plan/free), not from the close-reviewer agent — the
-        # reviewer is quality-only.
+        # Per M-8 (post-M-2 reorder): security review fires from the close
+        # skill's Step 4 (sprint/plan/free), not from the close-reviewer
+        # agent — the reviewer is quality-only and runs at Step 4.5.
         self.assertNotIn(
             "Security posture of the cumulative diff",
             self.text,
