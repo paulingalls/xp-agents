@@ -51,6 +51,7 @@ class TestMidChainNudge(_HookTestCase):
         (self.smm_dir / "sprint.json").write_text(_two_in_progress_sprint())
         result = self._run_commit()
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Multiple stories in-progress", result)
 
     def test_solo_one_in_progress_no_nudge(self):
@@ -90,6 +91,7 @@ class TestMidChainNudge(_HookTestCase):
         (self.smm_dir / "sprint.json").write_text(_two_in_progress_sprint())
         result = self._run_commit()
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn(bash_post_tool.MID_CHAIN_NUDGE, result)
 
 

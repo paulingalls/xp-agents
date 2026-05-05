@@ -20,7 +20,12 @@ from conftest import (
     _s,
     _sprint_json,
 )
-from event_schema import STATUS_ACTION_SUBAGENT_COMPLETE, event_action
+from event_schema import (
+    EVENT_TYPE_SPRINT,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_SUBAGENT_COMPLETE,
+    event_action,
+)
 
 _SRI = marker_names.SPRINT_REVIEW_INPUT_PREFIX
 
@@ -67,7 +72,7 @@ class TestSprintReviewerDone(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        sprint_events = [e for e in events if e.get("type") == EVENT_TYPE_SPRINT]
         self.assertEqual(len(sprint_events), 1)
 
     def test_logs_sprint_end_event(self):
@@ -75,7 +80,7 @@ class TestSprintReviewerDone(_HookTestCase):
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        sprint_events = [e for e in events if e.get("type") == EVENT_TYPE_SPRINT]
         self.assertEqual(len(sprint_events), 1)
         meta = sprint_events[0].get("metadata", {})
         self.assertEqual(meta["action"], "end")
@@ -89,7 +94,7 @@ class TestSprintReviewerDone(_HookTestCase):
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        sprint_events = [e for e in events if e.get("type") == EVENT_TYPE_SPRINT]
         meta = sprint_events[0]["metadata"]
         self.assertEqual(meta["stories_planned"], 4)
         self.assertEqual(meta["stories_delivered"], 2)
@@ -116,9 +121,9 @@ class TestSprintReviewerDone(_HookTestCase):
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        sprint_events = [e for e in events if e.get("type") == "sprint"]
+        sprint_events = [e for e in events if e.get("type") == EVENT_TYPE_SPRINT]
         self.assertEqual(len(sprint_events), 1)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
         self.assertEqual(len(sc), 1)
         self.assertEqual(

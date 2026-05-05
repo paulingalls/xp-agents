@@ -78,12 +78,12 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
     def test_no_qr_event_since_previous_commit_warns(self):
         self._seed_commit_event()
         result = self._run_commit()
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("quality review", result.lower())
 
     def test_no_marker_no_qr_event_warns(self):
         result = self._run_commit()
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("quality review", result.lower())
 
     def test_back_to_back_commits_second_warns(self):
@@ -91,7 +91,7 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
         self._seed_qr_status()
         self._seed_commit_event()
         result = self._run_commit()
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("quality review", result.lower())
 
     def test_qr_from_different_agent_still_suppresses(self):
@@ -122,7 +122,7 @@ class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
         # Even one code file in a multi-file commit should preserve the nudge.
         self._seed_commit_event()
         result = self._run_commit(committed_files=["DEMO.md", "src/app.py"])
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("quality review", result.lower())
 
 

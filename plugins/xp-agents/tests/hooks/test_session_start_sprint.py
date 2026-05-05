@@ -191,7 +191,7 @@ class TestSessionStartCompactSprint(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Ship v1", result)
 
     def test_compact_does_not_inject_sprint(self):
@@ -202,7 +202,7 @@ class TestSessionStartCompactSprint(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertNotIn("sprint-001", result)
 
     def test_compact_no_sprint_still_works(self):
@@ -214,7 +214,7 @@ class TestSessionStartCompactSprint(_HookTestCase):
             {"session_id": "test", "source": "compact"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Ship v1", result)
         self.assertNotIn("sprint-001", result)
 

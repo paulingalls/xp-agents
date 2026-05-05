@@ -102,7 +102,7 @@ class TestLoadSprintGrandfathersBudget(_SMMTestCase):
         sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         loaded = sprint_store.load_sprint(self.smm_dir)
-        self.assertIsNotNone(loaded)
+        assert loaded is not None
         self.assertEqual(len(loaded["stories"][0]["context"]), 800)
 
     def test_save_over_budget_sprint_rejected(self):
@@ -124,6 +124,7 @@ class TestStatusUpdateGrandfathersBudget(_SMMTestCase):
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         sprint_store.update_story_status(self.smm_dir, "story-001", "done")
         loaded = sprint_store.load_sprint(self.smm_dir)
+        assert loaded is not None
         self.assertEqual(loaded["stories"][0]["status"], "done")
 
 

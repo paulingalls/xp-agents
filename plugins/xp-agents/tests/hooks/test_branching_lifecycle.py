@@ -359,7 +359,7 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
             patch.object(sys, "argv", argv),
         ):
             branching_cli.main()
-        self.assertIsNone(captured["ns"].target)
+        self.assertIsNone(captured["ns"].target)  # type: ignore[attr-defined]
 
     def test_cli_merge_branch_routes_through_get_merge_target_when_omitted(self):
         """CLI without --target uses get_merge_target (not literal 'main')."""

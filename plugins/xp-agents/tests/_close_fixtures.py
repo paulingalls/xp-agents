@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from conftest import _extract_preload_var
+from event_schema import EVENT_TYPE_CONCERN
 
 # Static-only base for the mixin classes below: pyright sees
 # unittest.TestCase (so self.assertEqual / self.smm_dir / etc are known
@@ -671,7 +672,7 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
         highs = [
             e
             for e in events
-            if e.get("type") == "concern" and e.get("severity") == "high"
+            if e.get("type") == EVENT_TYPE_CONCERN and e.get("severity") == "high"
         ]
         self.assertEqual(len(highs), 1)
         meta = highs[0]["metadata"]
@@ -689,7 +690,7 @@ class _Step4_5SecurityIncludeTests(_MixinBase):
         mediums = [
             e
             for e in events
-            if e.get("type") == "concern" and e.get("severity") == "medium"
+            if e.get("type") == EVENT_TYPE_CONCERN and e.get("severity") == "medium"
         ]
         self.assertEqual(len(mediums), 1)
         self.assertEqual(mediums[0]["metadata"].get("kind"), "security")

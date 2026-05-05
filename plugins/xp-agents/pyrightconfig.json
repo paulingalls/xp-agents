@@ -1,6 +1,15 @@
 {
-  "include": ["scripts", "smm"],
-  "extraPaths": ["scripts", "smm", "tests"],
+  "include": ["scripts", "smm", "tests"],
+  "extraPaths": [
+    "scripts",
+    "smm",
+    "tests",
+    "skills/xp-accept/scripts",
+    "skills/xp-quality-review/scripts",
+    "skills/xp-sprint-review/scripts",
+    "skills/xp-sprint-start/scripts",
+    "skills/xp-work-selection/scripts"
+  ],
   "exclude": ["**/__pycache__", "**/.pytest_cache"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "basic",

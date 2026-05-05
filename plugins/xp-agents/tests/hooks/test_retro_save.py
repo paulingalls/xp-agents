@@ -196,7 +196,7 @@ class TestSaveRetrospective(_HookTestCase):
         import save_retrospective
 
         result = save_retrospective.run(self._valid_kft(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("event_id", result)
         self.assertIn("retro_file", result)
 
@@ -258,7 +258,7 @@ class TestSaveRetrospective(_HookTestCase):
         kft = self._valid_kft()
         kft["analysis_notes"] = "Cross-session trend: housekeeping silent for 4 retros"
         result = save_retrospective.run(kft, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
 
         retro_file = Path(result["retro_file"])
         retro_data = json.loads(retro_file.read_text())

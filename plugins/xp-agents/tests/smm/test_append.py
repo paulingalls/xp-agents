@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _TempRepoTestCase
+from event_schema import EVENT_TYPE_STATUS
 
 
 class TestAppendIntegration(_TempRepoTestCase):
@@ -176,7 +177,7 @@ class TestAppendIntegration(_TempRepoTestCase):
         r = self._run_append("--type", "status", "--agent", "main", "--content", "x")
         self.assertEqual(r.returncode, 0)
         events = self._read_events()
-        status = [e for e in events if e.get("type") == "status"]
+        status = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(status[-1]["working_on"], [])
 
     def test_reject_missing_topic(self):

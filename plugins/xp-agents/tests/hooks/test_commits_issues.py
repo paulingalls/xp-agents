@@ -7,6 +7,7 @@ Split from test_commits.py -- issue-matching and file-listing helpers.
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -39,7 +40,7 @@ class TestGetCodeFilesForReview(unittest.TestCase):
     @patch(_SUBPROCESS)
     def test_combines_staged_and_since_review(self, mock_run):
         def side_effect(cmd, **_kwargs):
-            r = type("R", (), {"returncode": 0, "stdout": ""})()
+            r = SimpleNamespace(returncode=0, stdout="")
             if "--cached" in cmd:
                 r.stdout = "src/a.py\nsrc/b.py\n"
             elif ".." in cmd[-1]:
@@ -89,7 +90,7 @@ class TestGetCodeFilesForReview(unittest.TestCase):
         def side_effect(cmd, **_kwargs):
             nonlocal call_count
             call_count += 1
-            r = type("R", (), {"returncode": 0, "stdout": ""})()
+            r = SimpleNamespace(returncode=0, stdout="")
             if "--cached" in cmd:
                 r.stdout = "src/a.py\n"
             elif "--name-only" in cmd and ".." not in cmd[-1]:

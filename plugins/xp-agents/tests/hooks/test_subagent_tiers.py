@@ -34,7 +34,7 @@ class TestSubagentStart(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
 
     def test_missing_smm_dir_still_gets_values(self):
@@ -45,7 +45,7 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "exp-1"},
             smm_dir=fake_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
 
     def test_returns_values_without_smm_file(self):
@@ -57,7 +57,7 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
 
     def test_reads_curated_smm_from_disk(self):
@@ -69,7 +69,7 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Ship v1", result)
 
     def test_empty_events_still_gets_values(self):
@@ -79,7 +79,7 @@ class TestSubagentStart(_HookTestCase):
             {"session_id": "test", "agent_id": "explorer-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
 
     def test_default_agent_id(self):
@@ -164,7 +164,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Intent", result)
         self.assertIn("Ship v1", result)
         self.assertIn("Constraints", result)
@@ -184,7 +184,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertNotIn("BEHAVIORAL_GUIDE", result)
 
     def test_general_agent_gets_full_smm_and_values(self):
@@ -193,7 +193,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Intent", result)
         self.assertIn("Constraints", result)
         self.assertIn("Risks", result)
@@ -211,7 +211,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Intent", result)
         self.assertIn("Extreme Programming", result)
         self.assertNotIn("EnterPlanMode", result)
@@ -229,7 +229,7 @@ class TestSubagentStartTieredInjection(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("<smm-context>", result)
         self.assertIn("</smm-context>", result)
 

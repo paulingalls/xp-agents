@@ -31,6 +31,7 @@ from _close_fixtures import (
     _record_security_block,
 )
 from conftest import _IntegrationTestCase, run_cli
+from event_schema import EVENT_TYPE_CONCERN
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SMM_CLI = _PLUGIN_ROOT / "smm" / "smm_cli.py"
@@ -1084,7 +1085,7 @@ class TestStep6CountConcernsRealisticE2E(_IntegrationTestCase):
         # the metadata we synthesized — guards against a silent append.sh
         # contract change masking a real bug.
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(
             len(concerns), 4, f"expected 4 concern events; got {len(concerns)}"
         )

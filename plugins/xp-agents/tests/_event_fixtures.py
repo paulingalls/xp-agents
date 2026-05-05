@@ -9,7 +9,14 @@ import secrets
 from collections.abc import Sequence
 from pathlib import Path
 
-from event_schema import STATUS_ACTION_FILE_WRITE, STATUS_ACTION_TEST_RUN_COMPLETE
+from event_schema import (
+    EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_FILE_WRITE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+)
 
 
 def write_events(events_file: Path, events: list[dict]) -> None:
@@ -61,7 +68,7 @@ def make_retrospective_with_try(
     given id. Helper for tests that exercise the
     compute_resolutions/annotate_try_status pipeline."""
     return make_event(
-        "retrospective",
+        EVENT_TYPE_RETROSPECTIVE,
         content="Session retrospective",
         **{"try": [{"id": try_id, "content": try_content, "event_refs": []}]},
     )
@@ -74,7 +81,7 @@ def file_write_status(path: str, **kwargs) -> dict:
     Used by retro_metrics / honesty_signals consumer tests.
     """
     return make_event(
-        "status",
+        EVENT_TYPE_STATUS,
         content=f"Wrote to {path}",
         working_on=[path],
         metadata={"action": STATUS_ACTION_FILE_WRITE, "files": [path]},
@@ -113,7 +120,7 @@ def tests_run_status(
         content = f"Tests ran ({framework}) — counts not extracted"
         metadata["parser_status"] = parser_status
     return make_event(
-        "status",
+        EVENT_TYPE_STATUS,
         content=content,
         working_on=[],
         metadata=metadata,
@@ -127,7 +134,7 @@ def tests_run_status(
 def failing_tests_concern(**kwargs) -> dict:
     """Concern event that find_last_test_signal classifies as 'fail'."""
     return make_event(
-        "concern",
+        EVENT_TYPE_CONCERN,
         content="Test failures detected: 2 failed (pytest)",
         severity="high",
         **kwargs,
@@ -137,7 +144,7 @@ def failing_tests_concern(**kwargs) -> dict:
 def passing_tests_status(**kwargs) -> dict:
     """Status event that find_last_test_signal classifies as 'pass'."""
     return make_event(
-        "status",
+        EVENT_TYPE_STATUS,
         content="Tests: 5 passed, 0 failed (pytest)",
         working_on=[],
         **kwargs,
@@ -156,7 +163,7 @@ def commit_event(
     if sprint_id:
         metadata["sprint_id"] = sprint_id
     return make_event(
-        "commit",
+        EVENT_TYPE_COMMIT,
         content="Committed: test change",
         files=files,
         ts=ts,

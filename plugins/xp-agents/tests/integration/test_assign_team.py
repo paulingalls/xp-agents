@@ -65,17 +65,17 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         inp = self._stop_input()
 
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/simplify", result)
 
         markers.set_review_flag(self.smm_dir, "worktree-story-1", "simplify_done")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/xp-quality-review", result)
 
         markers.set_review_flag(self.smm_dir, "worktree-story-1", "quality_review_done")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("commit", result.lower())
 
         result = teammate_stop_gate.run(

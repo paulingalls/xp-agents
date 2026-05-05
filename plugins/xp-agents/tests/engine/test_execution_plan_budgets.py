@@ -183,7 +183,7 @@ class TestLoadPlanGrandfathersBudget(unittest.TestCase):
         plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         loaded = store.load_plan(self.smm_dir)
-        self.assertIsNotNone(loaded)
+        assert loaded is not None
         self.assertEqual(len(loaded["milestones"][0]["design_details"]), 700)
 
     def test_save_over_budget_plan_rejected(self):
@@ -219,6 +219,7 @@ class TestStatusUpdateGrandfathersBudget(unittest.TestCase):
             self.smm_dir, 1, "delivered", delivered_sprint="sprint-017"
         )
         plan = store.load_plan(self.smm_dir)
+        assert plan is not None
         self.assertEqual(plan["milestones"][0]["status"], "delivered")
         self.assertEqual(plan["milestones"][0]["delivered_sprint"], "sprint-017")
 

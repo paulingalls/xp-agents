@@ -39,6 +39,7 @@ class TestLoadSprint(_SMMTestCase):
 
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
         loaded = sprint_store.load_sprint(self.smm_dir)
+        assert loaded is not None
         self.assertEqual(loaded["sprint_id"], "sprint-001")
 
     def test_load_missing_returns_none(self):

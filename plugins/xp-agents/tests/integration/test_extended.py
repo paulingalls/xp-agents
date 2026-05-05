@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _IntegrationTestCase
+from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 
 class TestBashFailureIntegration(_IntegrationTestCase):
@@ -29,8 +30,8 @@ class TestBashFailureIntegration(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
-        concerns = [e for e in events if e.get("type") == "concern"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(len(statuses), 1)
         self.assertIn("pytest", statuses[0]["content"])
         self.assertEqual(len(concerns), 1)
@@ -98,7 +99,7 @@ class TestLintCheckIntegrationExtended(_IntegrationTestCase):
         no_linter_concerns = [
             e
             for e in events
-            if e.get("type") == "concern"
+            if e.get("type") == EVENT_TYPE_CONCERN
             and "no linter" in e.get("content", "").lower()
         ]
         self.assertEqual(len(no_linter_concerns), 0)
@@ -162,8 +163,8 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
-        concerns = [e for e in events if e.get("type") == "concern"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(statuses) >= 1)
         self.assertTrue(any("4 passed" in s["content"] for s in statuses))
         self.assertTrue(len(concerns) >= 1)
@@ -188,7 +189,7 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
         self.assertTrue(any("2 passed" in s["content"] for s in statuses))
 
@@ -209,7 +210,7 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(concerns) >= 1)
 
     def test_unittest_results_create_events(self):
@@ -227,7 +228,7 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
         self.assertTrue(any("50 passed" in s["content"] for s in statuses))
 
@@ -246,7 +247,7 @@ class TestBashPostToolIntegrationExtended(_IntegrationTestCase):
         )
         self.assertEqual(result.returncode, 0)
         events = self._read_events()
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
 
 

@@ -46,7 +46,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
     def test_teammate_gets_teammate_guide_and_values(self):
         """Teammate gets TEAMMATE_GUIDE + XP values, not process guide."""
         result = self._run_teammate()
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Teammate Guide", result)
         self.assertIn("Extreme Programming", result)
         self.assertNotIn("EnterPlanMode", result)
@@ -54,6 +54,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
     def test_teammate_guide_has_tdd_and_domain(self):
         """Teammate guide includes TDD, small steps, file domain."""
         result = self._run_teammate()
+        assert result is not None
         self.assertIn("TDD", result)
         self.assertIn("small steps", result.lower())
         self.assertIn("file domain", result.lower())
@@ -62,12 +63,14 @@ class TestTeammateGuideSessionStart(_HookTestCase):
     def test_teammate_guide_has_quality_items(self):
         """Teammate guide has quality-focused items."""
         result = self._run_teammate()
+        assert result is not None
         self.assertIn("code smells", result.lower())
         self.assertIn("500 lines", result)
 
     def test_teammate_guide_has_review_cycle(self):
         """Teammate guide has review cycle commands (security at close-skill Step 4.5)."""  # noqa: E501
         result = self._run_teammate()
+        assert result is not None
         self.assertIn("/simplify", result)
         self.assertIn("/xp-quality-review", result)
         self.assertNotIn("/xp-security-triage", result)
@@ -76,11 +79,13 @@ class TestTeammateGuideSessionStart(_HookTestCase):
     def test_teammate_guide_has_event_recording(self):
         """Teammate guide shows how to record events."""
         result = self._run_teammate()
+        assert result is not None
         self.assertIn("append.sh", result)
 
     def test_teammate_no_kickoff(self):
         """Teammate does NOT get kickoff prompt."""
         result = self._run_teammate()
+        assert result is not None
         self.assertNotIn("xp-kickoff", result)
 
     def test_non_teammate_worktree_gets_normal_path(self):
@@ -89,7 +94,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         result = self._run_teammate(
             cwd="/home/user/project/.claude/worktrees/explore-abc/src"
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-kickoff", result)
         self.assertNotIn("Teammate Guide", result)
 

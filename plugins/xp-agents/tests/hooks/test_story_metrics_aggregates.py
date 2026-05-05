@@ -59,7 +59,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
             events,
         )
 
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["sprint_id"], "sprint-001")
         self.assertEqual(result["goal"], "Build auth system")
         self.assertEqual(
@@ -91,6 +91,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
             self.smm_dir,
             events,
         )
+        assert result is not None
         story_001 = next(s for s in result["per_story"] if s["id"] == "story-001")
         self.assertEqual(story_001["commits"], 0)
 
@@ -116,6 +117,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
             self.smm_dir,
             events,
         )
+        assert result is not None
         self.assertNotIn("per_size", result)
         for story in result["per_story"]:
             self.assertNotIn("size", story)
@@ -158,6 +160,7 @@ class TestComputeSizingAnalysis(_HookTestCase):
                 )
 
                 result = story_metrics.compute_story_analysis(self.smm_dir, events)
+                assert result is not None
                 self.assertIs(result["per_story"][0]["attribution_anomaly"], expected)
 
 
@@ -205,6 +208,7 @@ class TestPerAgentAggregates(_HookTestCase):
             events[-1]["agent_id"] = agent_id
 
         result = story_metrics.compute_story_analysis(self.smm_dir, events)
+        assert result is not None
         self.assertIn("per_agent", result)
         pa = result["per_agent"]
         self.assertEqual(len(pa), 3)
@@ -225,6 +229,7 @@ class TestPerAgentAggregates(_HookTestCase):
             ),
         ]
         result = story_metrics.compute_story_analysis(self.smm_dir, events)
+        assert result is not None
         self.assertIn("per_agent", result)
         self.assertIsInstance(result["per_agent"], dict)
 

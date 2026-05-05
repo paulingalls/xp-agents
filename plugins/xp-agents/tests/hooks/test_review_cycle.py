@@ -74,7 +74,7 @@ class TestReviewCycleDone(_HookTestCase):
         result = review_cycle_done.run(
             _make_skill_input("security-review"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("orchestrated", result.lower())
 
     def test_security_review_for_xp_agent_emits_event_and_returns_nudge(self):
@@ -87,7 +87,7 @@ class TestReviewCycleDone(_HookTestCase):
             "security-review", agent_type="xp-close-reviewer"
         )
         result = review_cycle_done.run(input_data, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("orchestrated", result.lower())
         emitted = self._action_events("security_complete")
         self.assertEqual(len(emitted), 1)
@@ -135,7 +135,7 @@ class TestReviewCycleDone(_HookTestCase):
         result = review_cycle_done.run(
             _make_skill_input("simplify"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/xp-quality-review", result)
 
     def test_plan_review_does_not_nudge_task_creation(self):
@@ -164,7 +164,7 @@ class TestReviewCycleDone(_HookTestCase):
         result = review_cycle_done.run(
             _make_skill_input("xp-assign"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("TaskCreate", result)
         lower = result.lower()
         self.assertIn("solo", lower)
@@ -192,7 +192,7 @@ class TestReviewCycleDone(_HookTestCase):
         result = review_cycle_done.run(
             _make_skill_input("xp-agents:xp-assign"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("TaskCreate", result)
 
     def test_housekeeper_agent_returns_process_guide(self):
@@ -200,7 +200,7 @@ class TestReviewCycleDone(_HookTestCase):
         result = review_cycle_done.run(
             _make_agent_input("xp-housekeeper"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Practicing the Values", result)
 
     def test_housekeeper_qualified_name(self):
@@ -208,7 +208,7 @@ class TestReviewCycleDone(_HookTestCase):
         result = review_cycle_done.run(
             _make_agent_input("xp-agents:xp-housekeeper"), smm_dir=self.smm_dir
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Practicing the Values", result)
 
     def test_housekeeper_does_not_set_review_flags(self):
@@ -350,7 +350,7 @@ class TestPlanReviewerSetsAssignPending(_HookTestCase):
             self._stop_input("review-1", agent_type="xp-plan-reviewer"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-assign", result)
 
     def test_non_reviewer_no_assign_marker(self):

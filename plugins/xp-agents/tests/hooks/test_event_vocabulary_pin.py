@@ -36,6 +36,21 @@ ALLOWLIST: dict[str, str] = {
     "plugins/xp-agents/tests/smm/test_event_schema.py": (
         "VALID_TYPES string assertions intentionally pin the literals"
     ),
+    # SMM pillar 'type' field uses smm_schema.VALID_INTENT_TYPES,
+    # a vocabulary disjoint from event_schema.VALID_TYPES that happens
+    # to share the literal 'goal'. Bare 'goal' values for intent items
+    # in this file are smm_schema-domain, not event_schema-domain — the
+    # pin should not flag them if they ever appear in a Call/Dict shape.
+    "plugins/xp-agents/tests/smm/test_smm_cli.py": (
+        "smm_schema.VALID_INTENT_TYPES is a distinct vocabulary from "
+        "event_schema.VALID_TYPES; bare 'goal' for SMM pillar 'type' "
+        "is intentionally domain-specific"
+    ),
+    "plugins/xp-agents/tests/smm/test_smm_store.py": (
+        "smm_schema.VALID_INTENT_TYPES is a distinct vocabulary from "
+        "event_schema.VALID_TYPES; bare 'goal' for SMM pillar 'type' "
+        "in test_roundtrip_preserves_all_fields is intentionally domain-specific"
+    ),
 }
 
 
@@ -55,6 +70,26 @@ def _make_event_call_aliases(tree: ast.AST) -> set[str]:
     return aliases
 
 
+def _fixture_module_names(tree: ast.AST) -> set[str]:
+    """Find every local name bound to a fixture module via import.
+
+    A fixture module is any module whose name ends with `_fixtures`
+    (e.g., `_event_fixtures`, `_close_fixtures`). Returns the set of
+    local names — the alias if used, otherwise the bare module name.
+
+    Used to tighten Attribute matching: `h.make_event(...)` is only a
+    pin violation when `h` is a fixture-module reference, not just any
+    object with a `.make_event` method (e.g., mocks or self).
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            for alias in node.names:
+                if alias.name.endswith("_fixtures"):
+                    names.add(alias.asname or alias.name)
+    return names
+
+
 def _scan_file(path: Path) -> list[tuple[int, str, str]]:
     """Return (lineno, value, kind) violations for one file.
 
@@ -68,6 +103,7 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
         return []
 
     aliases = _make_event_call_aliases(tree)
+    fixture_modules = _fixture_module_names(tree)
     violations: list[tuple[int, str, str]] = []
 
     for node in ast.walk(tree):
@@ -76,18 +112,29 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
             match node.func:
                 case ast.Name(id=name) if name in aliases:
                     func_name = name
-                case ast.Attribute(attr="make_event"):
+                case ast.Attribute(attr="make_event", value=ast.Name(id=mod)) if (
+                    mod in fixture_modules
+                ):
                     func_name = "make_event"
                 case _:
                     pass
-            if func_name and node.args:
-                first = node.args[0]
+            if func_name:
+                type_arg: ast.expr | None = None
+                if node.args:
+                    type_arg = node.args[0]
+                else:
+                    for kw in node.keywords:
+                        if kw.arg == "event_type":
+                            type_arg = kw.value
+                            break
                 if (
-                    isinstance(first, ast.Constant)
-                    and isinstance(first.value, str)
-                    and first.value in VALID_TYPES_SET
+                    isinstance(type_arg, ast.Constant)
+                    and isinstance(type_arg.value, str)
+                    and type_arg.value in VALID_TYPES_SET
                 ):
-                    violations.append((first.lineno, first.value, "make_event-call"))
+                    violations.append(
+                        (type_arg.lineno, type_arg.value, "make_event-call")
+                    )
 
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values, strict=True):
@@ -108,6 +155,26 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(REPO_ROOT)).replace("\\", "/")
 
 
+def _files_to_scan(root: Path) -> list[Path]:
+    """Files the pin walks: `test_*.py` + `_*.py` helpers + `conftest.py` (any depth).
+
+    Excludes `__init__.py` (no event literals; package marker only) and
+    the pin file itself (it asserts other files, not itself). Helper
+    modules like `_event_fixtures.py` were the sprint-060 escape route —
+    glob extension closes that gap. Nested conftests are scanned via
+    rglob so a future `tests/hooks/conftest.py` with bare literals is
+    caught automatically.
+    """
+    self_path = Path(__file__).resolve()
+    paths: list[Path] = []
+    for p in root.rglob("*.py"):
+        if p.name == "__init__.py" or p.resolve() == self_path:
+            continue
+        if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
+            paths.append(p)
+    return paths
+
+
 class TestEventVocabularyPin(unittest.TestCase):
     """No test_*.py file under tests/ may contain a bare event-type
     literal in a make_event call or `{"type": ...}` dict literal.
@@ -118,12 +185,7 @@ class TestEventVocabularyPin(unittest.TestCase):
 
     def test_no_bare_event_type_literals_in_tests(self) -> None:
         violations: dict[str, list[tuple[int, str, str]]] = {}
-        scanned: list[Path] = list(TESTS_ROOT.rglob("test_*.py"))
-        conftest = TESTS_ROOT / "conftest.py"
-        if conftest.exists():
-            scanned.append(conftest)
-
-        for py_file in scanned:
+        for py_file in _files_to_scan(TESTS_ROOT):
             rel = _rel(py_file)
             if rel in ALLOWLIST:
                 continue
@@ -210,6 +272,79 @@ class TestEventVocabularyPin(unittest.TestCase):
             self.assertEqual(len(violations), 1)
             self.assertEqual(violations[0][1], "goal")
 
+    def test_walker_attribute_match_only_for_fixture_modules(self) -> None:
+        """`some_other_object.make_event(...)` is NOT flagged when
+        `some_other_object` is not imported from a *_fixtures module —
+        the bare-`Attribute(attr="make_event")` match would over-flag
+        unrelated `.make_event` methods (mock.make_event, self.make_event,
+        etc.) that happen to share the name.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_unrelated_attr.py"
+            tmp.write_text(
+                "class Helper:\n"
+                "    def make_event(self, t, **kw):\n"
+                "        return {}\n"
+                "\n"
+                "def test_unrelated():\n"
+                "    h = Helper()\n"
+                '    h.make_event("concern", content="x")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(violations, [])
+
+    def test_walker_attribute_match_for_imported_fixture_module(self) -> None:
+        """`_event_fixtures.make_event(...)` IS flagged when the bare
+        module name is imported (no alias). The pin must recognize the
+        module by name, not just by alias.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_bare_fixture_import.py"
+            tmp.write_text(
+                "import _event_fixtures\n"
+                "\n"
+                "def test_bare():\n"
+                '    _event_fixtures.make_event("concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0][1], "concern")
+            self.assertEqual(violations[0][2], "make_event-call")
+
+    def test_walker_attribute_match_ignores_non_fixture_aliased_import(self) -> None:
+        """`import some_lib as foo` does NOT add `foo` to fixture_modules
+        because the source name doesn't end in `_fixtures`. A subsequent
+        `foo.make_event("concern", ...)` is therefore NOT flagged —
+        third-party libs with a `.make_event` method are correctly ignored.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_third_party.py"
+            tmp.write_text(
+                "import some_third_party_lib as foo\n"
+                "\n"
+                "def test_third_party():\n"
+                '    foo.make_event("concern", content="x")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(violations, [])
+
+    def test_walker_attribute_match_for_from_imported_fixture_module(self) -> None:
+        """`from package import _event_fixtures` then
+        `_event_fixtures.make_event(...)` is flagged — covers the
+        from-import binding form.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_from_fixture.py"
+            tmp.write_text(
+                "from somewhere import _close_fixtures\n"
+                "\n"
+                "def test_from():\n"
+                '    _close_fixtures.make_event("concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0][1], "concern")
+
     def test_walker_ignores_non_type_dict_keys(self) -> None:
         """A dict literal where the bare string is the value of some
         other key (not "type") is NOT a violation — false-positive guard.
@@ -234,6 +369,97 @@ class TestEventVocabularyPin(unittest.TestCase):
                 justification.strip(),
                 msg=f"ALLOWLIST['{path}'] has empty justification",
             )
+
+    def test_files_to_scan_includes_underscore_helpers(self) -> None:
+        """`_*.py` helper modules (e.g., `_event_fixtures.py`) must be
+        scanned — they're test-tree code that imports `make_event` and
+        was the escape route for pre-sweep regressions in sprint-060.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_a.py").write_text("# test\n")
+            (root / "_event_fixtures.py").write_text("# helper\n")
+            (root / "_close_fixtures.py").write_text("# helper\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertIn("_event_fixtures.py", scanned)
+            self.assertIn("_close_fixtures.py", scanned)
+            self.assertIn("test_a.py", scanned)
+
+    def test_files_to_scan_excludes_dunder_init(self) -> None:
+        """`__init__.py` is excluded from the `_*.py` glob — package
+        markers don't carry event-type literals and would create noise.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "__init__.py").write_text("")
+            (root / "_helper.py").write_text("# helper\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertNotIn("__init__.py", scanned)
+            self.assertIn("_helper.py", scanned)
+
+    def test_files_to_scan_includes_conftest_at_any_depth(self) -> None:
+        """`conftest.py` files must be included at any depth — pytest
+        loads nested conftests (e.g., `tests/hooks/conftest.py`) and a
+        future addition there with bare event-type literals must trip
+        the pin.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "conftest.py").write_text("# root conftest\n")
+            (root / "test_a.py").write_text("# test\n")
+            nested = root / "hooks"
+            nested.mkdir()
+            (nested / "conftest.py").write_text("# nested conftest\n")
+            scanned = {p.relative_to(root).as_posix() for p in _files_to_scan(root)}
+            self.assertIn("conftest.py", scanned)
+            self.assertIn("hooks/conftest.py", scanned)
+
+    def test_files_to_scan_excludes_pin_file_itself(self) -> None:
+        """The pin file is in `tests/hooks/test_*.py` and would otherwise
+        match the glob. Excluding it keeps the pin self-isolating —
+        the pin asserts other files, not itself.
+        """
+        scanned = _files_to_scan(TESTS_ROOT)
+        scanned_resolved = {p.resolve() for p in scanned}
+        self.assertNotIn(Path(__file__).resolve(), scanned_resolved)
+
+    def test_helper_file_violation_surfaces(self) -> None:
+        """An `_event_fixtures.py`-style helper with a bare literal
+        produces a `make_event-call` violation — pin coverage extends
+        beyond `test_*.py` to the fixture helpers themselves.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "_event_fixtures.py"
+            tmp.write_text(
+                "from event_schema import EVENT_TYPE_CONCERN\n"
+                "\n"
+                "def make_concern():\n"
+                '    return make_event("concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0][1], "concern")
+            self.assertEqual(violations[0][2], "make_event-call")
+
+    def test_walker_catches_kwarg_event_type(self) -> None:
+        """`make_event(event_type="concern", ...)` is a violation just like
+        the positional form. The keyword spelling escaped sprint-060 because
+        the walker only inspected `node.args[0]`; this pins the kwarg path.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_kwarg.py"
+            tmp.write_text(
+                "from _event_fixtures import make_event\n"
+                "\n"
+                "def test_kwarg():\n"
+                '    e = make_event(event_type="concern", content="bug")\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            lineno, value, kind = violations[0]
+            self.assertEqual(value, "concern")
+            self.assertEqual(kind, "make_event-call")
+            self.assertEqual(lineno, 4)
 
     def test_walker_ignores_non_event_type_strings(self) -> None:
         """`make_event("not_an_event_type", ...)` is NOT flagged — only

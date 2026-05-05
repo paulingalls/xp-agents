@@ -34,7 +34,7 @@ class TestKickoffGate(_HookTestCase):
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert isinstance(result, dict)
         self.assertEqual(result["decision"], "block")
 
     def test_allows_session_review_command(self):
@@ -162,7 +162,7 @@ class TestKickoffGate(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
+        assert isinstance(result, dict)
         self.assertEqual(result["decision"], "block")
 
     def test_worktree_teammate_skips_via_env_var(self):
@@ -199,8 +199,7 @@ class TestKickoffGate(_HookTestCase):
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)
         self.assertEqual(result["decision"], "block")
 
     def test_second_prompt_passes_after_block(self):
@@ -212,6 +211,7 @@ class TestKickoffGate(_HookTestCase):
             {"session_id": "test", "prompt": "do some work"},
             smm_dir=self.smm_dir,
         )
+        assert isinstance(result1, dict)
         self.assertEqual(result1["decision"], "block")
 
         result2 = kickoff_gate.run(
@@ -268,7 +268,7 @@ class TestKickoffGateSprintInfo(_HookTestCase):
             {"session_id": "test", "prompt": "do work"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)
         self.assertIn("xp-plan", result["reason"].lower())
 
     def test_block_includes_sprint_info(self):
@@ -280,7 +280,7 @@ class TestKickoffGateSprintInfo(_HookTestCase):
             {"session_id": "test", "prompt": "do work"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)
         self.assertIn("sprint", result["reason"].lower())
 
     def test_block_includes_both(self):
@@ -293,7 +293,7 @@ class TestKickoffGateSprintInfo(_HookTestCase):
             {"session_id": "test", "prompt": "do work"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)
         self.assertIn("xp-plan", result["reason"].lower())
         self.assertIn("sprint", result["reason"].lower())
 
@@ -305,7 +305,7 @@ class TestKickoffGateSprintInfo(_HookTestCase):
             {"session_id": "test", "prompt": "do work"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsInstance(result, dict)
+        assert isinstance(result, dict)
         self.assertNotIn("product", result["reason"].lower())
 
     def test_nudge_still_works_with_sprint_markers(self):

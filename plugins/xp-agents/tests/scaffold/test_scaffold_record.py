@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import scaffold_apply
 from _branching_fixtures import GIT_ENV
 from _helpers import valid_system_context
+from event_schema import EVENT_TYPE_DECISION
 from scaffold_post import record_scaffold
 
 
@@ -235,7 +236,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
         self.assertTrue(result.ok, result.reason)
         self.assertIsNotNone(result.decision_event_id)
         events = _events(self.smm_dir)
-        decisions = [e for e in events if e.get("type") == "decision"]
+        decisions = [e for e in events if e.get("type") == EVENT_TYPE_DECISION]
         self.assertEqual(len(decisions), 1)
         decision = decisions[0]
         self.assertEqual(decision["id"], result.decision_event_id)
@@ -256,7 +257,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
         self.assertTrue(result.ok)
         self.assertIsNone(result.decision_event_id)
         events = _events(self.smm_dir)
-        decisions = [e for e in events if e.get("type") == "decision"]
+        decisions = [e for e in events if e.get("type") == EVENT_TYPE_DECISION]
         self.assertEqual(decisions, [])
 
     def test_no_decision_event_when_concern_id_is_literal_none_string(self) -> None:
@@ -273,7 +274,7 @@ class TestRecordScaffoldDecisionEvent(_RecordTestBase):
         self.assertTrue(result.ok)
         self.assertIsNone(result.decision_event_id)
         events = _events(self.smm_dir)
-        decisions = [e for e in events if e.get("type") == "decision"]
+        decisions = [e for e in events if e.get("type") == EVENT_TYPE_DECISION]
         self.assertEqual(decisions, [])
 
 
@@ -318,7 +319,7 @@ class TestRecordScaffoldCommitShaGate(_RecordTestBase):
         )
         self.assertTrue(result.ok, result.reason)
         events = _events(self.smm_dir)
-        decision = next(e for e in events if e.get("type") == "decision")
+        decision = next(e for e in events if e.get("type") == EVENT_TYPE_DECISION)
         self.assertEqual(decision["metadata"]["snapshot_id"], "testid")
         self.assertEqual(decision["metadata"]["commit_sha"], head)
 
@@ -377,7 +378,7 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
         self.assertEqual(browser["status"], "gap")
         events = _events(self.smm_dir)
-        self.assertFalse([e for e in events if e.get("type") == "decision"])
+        self.assertFalse([e for e in events if e.get("type") == EVENT_TYPE_DECISION])
 
     def test_head_mismatch_reason_uses_git_short_sha(self) -> None:
         """The HEAD-mismatch diagnostic should use 7-char (git short) SHAs.

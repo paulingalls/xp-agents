@@ -194,6 +194,7 @@ class TestHooksJsonM4(HooksJsonTestCase):
     def test_posttooluse_no_agent_hooks(self):
         """Quality reviewer agent hook removed in M6.5."""
         entry = self._find_matcher_entry("PostToolUse", "Write|Edit|MultiEdit")
+        assert entry is not None
         agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
         self.assertEqual(len(agents), 0, "No agent hooks should remain in PostToolUse")
 
@@ -286,6 +287,7 @@ class TestHooksJsonM5(HooksJsonTestCase):
 
     def test_session_start_has_retrospective_command(self):
         entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
+        assert entry is not None
         commands = [h for h in entry["hooks"] if h.get("type") == "command"]
         self.assertTrue(
             any("retrospective.py" in h["command"] for h in commands),
@@ -297,6 +299,7 @@ class TestHooksJsonM5(HooksJsonTestCase):
     def test_session_start_no_agent_hooks(self):
         """Retro analyst and customer proxy agent hooks removed in M6.5."""
         entry = self._find_matcher_entry("SessionStart", "startup|resume|compact|clear")
+        assert entry is not None
         agents = [h for h in entry["hooks"] if h.get("type") == "agent"]
         self.assertEqual(len(agents), 0, "No agent hooks should remain in SessionStart")
 

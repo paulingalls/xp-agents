@@ -168,8 +168,8 @@ class TestProbeAdoptionRate(unittest.TestCase):
         result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         self.assertEqual(result["probe_divert"], 1)
         details = result.get("probe_divert_details")
-        self.assertIsNotNone(
-            details, "divert classification must surface details for the retro"
+        assert details is not None, (
+            "divert classification must surface details for the retro"
         )
         self.assertEqual(len(details), 1)
         d = details[0]

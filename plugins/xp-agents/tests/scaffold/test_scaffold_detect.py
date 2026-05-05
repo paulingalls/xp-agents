@@ -258,7 +258,7 @@ class TestFindIntroducingCommit(unittest.TestCase):
         result = find_introducing_commit(
             self.repo, [self.repo / "playwright.config.ts"]
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["subject"], "add playwright")
         self.assertTrue(len(result["sha"]) >= 7)
         self.assertIn("date", result)
@@ -273,7 +273,7 @@ class TestFindIntroducingCommit(unittest.TestCase):
         result = find_introducing_commit(
             self.repo, [self.repo / "a.config.ts", self.repo / "b.config.ts"]
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["subject"], "add a")
 
     def test_untracked_file_returns_none(self) -> None:

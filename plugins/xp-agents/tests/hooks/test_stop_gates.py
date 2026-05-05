@@ -81,7 +81,7 @@ class TestTddStopGate(_HookTestCase):
         )
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("failing", result.lower())
 
     def test_failed_test_run_blocks_stop(self):
@@ -96,7 +96,7 @@ class TestTddStopGate(_HookTestCase):
         )
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_pass_after_fail_allows_stop(self):
         self._write_events(
@@ -132,7 +132,7 @@ class TestTddStopGate(_HookTestCase):
         )
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_no_test_events_allows_stop(self):
         self._write_events(
@@ -219,7 +219,7 @@ class TestTddStopGate(_HookTestCase):
         coordination.update_coordination(self.smm_dir, "main", [])
         inp = _make_stop_input(agent_id="main")
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_no_coordination_file_still_blocked(self):
         """Without coordination file, failing tests still block (solo mode)."""
@@ -234,7 +234,7 @@ class TestTddStopGate(_HookTestCase):
         )
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_stale_teammates_still_blocked(self):
         """Stale teammate entries (>30min) should not defer the block."""
@@ -265,7 +265,7 @@ class TestTddStopGate(_HookTestCase):
         )
         inp = _make_stop_input(agent_id="main")
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_ambiguous_test_result_allows_stop(self):
         """Neutral test status (counts not extracted) should not block stop."""
@@ -323,7 +323,7 @@ class TestSessionEndWarning(_HookTestCase):
         )
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("2", result)
         self.assertIn("concern", result.lower())
 
@@ -340,7 +340,7 @@ class TestSessionEndWarning(_HookTestCase):
         self._write_events([concern, resolve])
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertNotIn("concern", result.lower())
         self.assertIn("summarize", result.lower())
 
@@ -349,7 +349,7 @@ class TestSessionEndWarning(_HookTestCase):
         self._write_events([make_event(EVENT_TYPE_STATUS, content="Did work")])
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("summarize", result.lower())
 
     def test_both_issues_combined(self):
@@ -362,7 +362,7 @@ class TestSessionEndWarning(_HookTestCase):
         )
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("concern", result.lower())
         self.assertIn("summarize", result.lower())
 
@@ -457,7 +457,7 @@ class TestHousekeepingStopGate(_HookTestCase):
         markers.marker_write(self.smm_dir, markers.NEEDS_HOUSEKEEPING, "kickoff")
         inp = _make_stop_input()
         result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("housekeeping", result.lower())
 
     def test_marker_with_asking_user_defers(self):

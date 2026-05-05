@@ -42,7 +42,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
         # Path is normalized against cwd
         self.assertIn("/tmp/src/app.ts", statuses[0]["working_on"])
@@ -60,7 +60,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
 
     def test_auto_status_from_multiedit(self):
@@ -76,7 +76,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
 
     def test_normalizes_relative_path(self):
@@ -85,7 +85,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(statuses[0]["working_on"], ["/home/user/src/app.ts"])
 
     def test_xp_agent_skips(self):
@@ -113,7 +113,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertEqual(len(statuses), 1)
         metadata = statuses[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "file_write")
@@ -127,7 +127,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         normalized = "/home/user/src/app.ts"
         self.assertEqual(statuses[0]["working_on"], [normalized])
         metadata = statuses[0].get("metadata") or {}
@@ -148,7 +148,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
 
@@ -161,7 +161,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(any("stale" in c["content"].lower() for c in concerns))
 
     def test_conflict_superseded_decision(self):
@@ -176,7 +176,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
 
     def test_conflict_assumption_contradicted(self):
@@ -190,7 +190,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
     def test_conflict_convention_violation(self):
@@ -209,7 +209,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
 
     def test_no_false_positive_conflicts(self):
@@ -225,7 +225,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == "concern"]
+        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
         self.assertEqual(len(concerns), 0)
 
     def test_semantic_references(self):
@@ -242,7 +242,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         self.assertTrue(len(statuses) >= 1)
         refs = statuses[0].get("references", [])
         self.assertIn(d["id"], refs)
@@ -260,7 +260,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == "status"]
+        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
         refs = statuses[0].get("references", [])
         self.assertNotIn(d["id"], refs)
 
@@ -293,6 +293,7 @@ class TestPostToolUseHooksConfig(unittest.TestCase):
 
 
 import post_tool_exit_plan  # noqa: E402
+from event_schema import EVENT_TYPE_CONCERN  # noqa: E402
 
 
 class TestPostToolExitPlan(_HookTestCase):
@@ -305,6 +306,7 @@ class TestPostToolExitPlan(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-review-plan", result)
 
     def test_writes_marker_file(self):

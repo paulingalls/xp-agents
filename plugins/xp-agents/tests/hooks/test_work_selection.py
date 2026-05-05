@@ -5,6 +5,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -39,7 +40,7 @@ SPRINT_IN_PROGRESS = _sprint_json(
     started="2026-04-01",
 )
 
-_SMM_WITH_RISKS = dict(
+_SMM_WITH_RISKS: dict[str, Any] = dict(
     intent=[("Ship v2", "goal")],
     constraints=[("TDD always", "convention")],
     risks=[
@@ -49,7 +50,7 @@ _SMM_WITH_RISKS = dict(
     wisdom=["Commit after green"],
 )
 
-_SMM_WITH_INTENT = dict(
+_SMM_WITH_INTENT: dict[str, Any] = dict(
     intent=[
         ("Build auth system", "goal"),
         ("Add role-based access", "goal"),

@@ -181,6 +181,7 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
             self.smm_dir, "main", "src/app.ts", "/project"
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("other", result)
 
     def test_self_overlap_ignored(self):
@@ -229,6 +230,7 @@ class TestCheckTddOrder(_HookTestCase):
             self.smm_dir, "main", "src/utils.ts", "Write"
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("TDD", result)
 
     def test_test_file_clears_nudge(self):
@@ -248,7 +250,7 @@ class TestCheckTddOrder(_HookTestCase):
         self.assertIsNone(result)
 
     def test_none_file_path(self):
-        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")  # type: ignore[arg-type]
         self.assertIsNone(result)
 
     def test_markdown_no_tracking(self):
@@ -277,6 +279,7 @@ class TestCheckTddOrder(_HookTestCase):
             self.smm_dir, "main", "src/utils.py", "Write"
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("TDD", result)
 
 

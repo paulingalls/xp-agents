@@ -427,10 +427,9 @@ class TestEventTypeMatchCompleteness(unittest.TestCase):
                     )
                     continue
 
-                self.assertIsNotNone(
-                    spec.allowlist_name,
+                assert spec.allowlist_name is not None, (
                     f"{where} has no `case _:` wildcard and no allowlist — "
-                    f"silently drops {sorted(valid_types - handled)}",
+                    f"silently drops {sorted(valid_types - handled)}"
                 )
 
                 self.assertTrue(

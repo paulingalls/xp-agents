@@ -38,7 +38,7 @@ class TestTeammateIdle(_HookTestCase):
             ]
         )
         result = teammate_idle.run(_make_teammate_idle_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("failing", result.lower())
 
     def test_allows_on_passing_tests(self):
@@ -127,7 +127,7 @@ class TestTaskCompleted(_HookTestCase):
             ]
         )
         result = task_completed.run(_make_task_completed_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("failing", result.lower())
 
     def test_allows_on_passing_tests(self):
@@ -256,7 +256,7 @@ class TestTeammateStopGate(_HookTestCase):
             smm_dir=self.smm_dir,
             has_uncommitted=True,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/simplify", result)
 
     def test_simplify_done_blocks_quality(self):
@@ -269,7 +269,7 @@ class TestTeammateStopGate(_HookTestCase):
             smm_dir=self.smm_dir,
             has_uncommitted=True,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/xp-quality-review", result)
 
     def test_full_review_blocks_commit(self):
@@ -285,7 +285,7 @@ class TestTeammateStopGate(_HookTestCase):
             smm_dir=self.smm_dir,
             has_uncommitted=True,
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(
             result, "Review cycle complete. Commit your changes before stopping."
         )
@@ -299,7 +299,7 @@ class TestTeammateStopGate(_HookTestCase):
             "cwd": "/proj/.claude/worktrees/worktree-story-abc12345",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/simplify", result)
 
     def test_worktree_cwd_resolves_agent_id(self):
@@ -315,7 +315,7 @@ class TestTeammateStopGate(_HookTestCase):
             "cwd": "/proj/.claude/worktrees/worktree-story-abc12345",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/xp-quality-review", result)
 
     def test_worktree_cwd_no_marker_blocks_simplify(self):
@@ -327,7 +327,7 @@ class TestTeammateStopGate(_HookTestCase):
             "cwd": "/proj/.claude/worktrees/worktree-story-ffffffff",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/simplify", result)
 
     def test_cli_teammate_worktree_detected(self):
@@ -339,7 +339,7 @@ class TestTeammateStopGate(_HookTestCase):
             "cwd": "/proj/.claude/worktrees/worktree-story-001",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/simplify", result)
 
     def test_cli_teammate_resolves_agent_id_for_markers(self):
@@ -353,7 +353,7 @@ class TestTeammateStopGate(_HookTestCase):
             "cwd": "/proj/.claude/worktrees/worktree-story-001",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("/xp-quality-review", result)
 
     def test_no_smm_dir_graceful(self):

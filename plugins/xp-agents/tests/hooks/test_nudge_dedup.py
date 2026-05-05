@@ -48,10 +48,12 @@ class TestNudgeDedupCache(_HookTestCase):
 
         result1 = self._run_decision()
         self.assertIsNotNone(result1)
+        assert result1 is not None
         self.assertIn("aaaaaaaaaaaa", result1)
 
         result2 = self._run_decision()
         self.assertIsNotNone(result2)
+        assert result2 is not None
         self.assertIn("aaaaaaaaaaaa", result2)
 
     def test_third_fire_mutes_question(self):
@@ -73,6 +75,7 @@ class TestNudgeDedupCache(_HookTestCase):
 
         result_b = self._run_decision(agent_id="agent-b")
         self.assertIsNotNone(result_b)
+        assert result_b is not None
         self.assertIn("aaaaaaaaaaaa", result_b)
 
         result_a = self._run_decision(agent_id="agent-a")

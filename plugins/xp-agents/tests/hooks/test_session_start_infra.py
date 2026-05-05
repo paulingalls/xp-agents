@@ -250,19 +250,21 @@ class TestTeammateSessionStart(_HookTestCase):
     def test_teammate_gets_values_and_guide(self):
         """Teammate gets XP Values + Teammate Guide."""
         result = self._run_teammate()
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
         self.assertIn("Teammate Guide", result)
 
     def test_teammate_gets_smm(self):
         """Teammate gets rendered SMM content."""
         result = self._run_teammate()
+        assert result is not None
         self.assertIn("Ship v1", result)
         self.assertIn("Intent", result)
 
     def test_teammate_no_gupp(self):
         """Teammate does NOT get kickoff prompt."""
         result = self._run_teammate()
+        assert result is not None
         self.assertNotIn("xp-kickoff", result)
 
     def test_teammate_no_markers(self):
@@ -284,14 +286,14 @@ class TestTeammateSessionStart(_HookTestCase):
         result = self._run_teammate(
             cwd="/home/user/project/.claude/worktrees/explore-abc/src"
         )
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("xp-kickoff", result)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.KICKOFF))
 
     def test_teammate_compact_reinjects(self):
         """Compact source for teammates reinjects full context."""
         result = self._run_teammate(source="compact")
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Extreme Programming", result)
         self.assertIn("Teammate Guide", result)
         self.assertIn("Ship v1", result)
@@ -310,12 +312,14 @@ class TestTeammateSessionStart(_HookTestCase):
         }
         (self.smm_dir / "system_context.json").write_text(json.dumps(ctx))
         result = self._run_teammate()
+        assert result is not None
         self.assertIn("System Context", result)
         self.assertIn("Microservices arch.", result)
 
     def test_teammate_no_system_context_ok(self):
         """Teammate works without system_context.json."""
         result = self._run_teammate()
+        assert result is not None
         self.assertNotIn("System Context", result)
         self.assertIn("Extreme Programming", result)
 
