@@ -24,6 +24,7 @@ from _common import (
     DISCOVERY,
     PRIORITY_BLOCKING,
     QUESTION,
+    SESSION_END,
     STATUS,
     bulk_append_safe,
     make_event,
@@ -95,6 +96,29 @@ def _find_unresolved(
         if e.get("type") == CONCERN
         and e.get("id", "") not in resolved_ids
         and matcher(e.get("content", ""))
+    ]
+
+
+def filter_by_session_age(events: list[dict], min_session_ends: int) -> list[dict]:
+    """Return open concerns whose first appearance is >= min_session_ends
+    SESSION_END markers ago.
+
+    Used by session_end's stale-concern sweep to flag long-lived concerns
+    for human triage at the next /xp-kickoff retro. Resolved concerns
+    (per resolution.compute_resolutions) are excluded.
+    """
+    resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
+    session_end_positions = [
+        i for i, e in enumerate(events) if e.get("type") == SESSION_END
+    ]
+    total_ends = len(session_end_positions)
+    return [
+        e
+        for i, e in enumerate(events)
+        if e.get("type") == CONCERN
+        and e.get("id", "") not in resolved_ids
+        and total_ends - bisect.bisect_right(session_end_positions, i)
+        >= min_session_ends
     ]
 
 
