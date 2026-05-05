@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase, make_milestone_dict
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, event_action
 
 # ===========================================================================
@@ -289,7 +290,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
             for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
             if line.strip()
         ]
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(
             any("milestone" in e.get("content", "").lower() for e in concerns),
             f"expected a milestone-related concern; got {concerns}",
@@ -305,7 +306,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
             for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
             if line.strip()
         ]
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(
             any("execution plan" in e.get("content", "").lower() for e in concerns),
             f"expected execution-plan concern; got {concerns}",
@@ -338,7 +339,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
             for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
             if line.strip()
         ]
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(
             any(
                 "another milestone" in e.get("content", "").lower()

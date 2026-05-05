@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 from conftest import _HookTestCase, make_event
+from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_ANSWER,
     EVENT_TYPE_CONCERN,
@@ -60,7 +61,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        session_ends = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
+        session_ends = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(session_ends), 1)
 
     def test_event_count_in_session_end(self):
@@ -195,7 +196,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se_events = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END]
+        se_events = events_of_type(events, EVENT_TYPE_SESSION_END)
         se = se_events[-1]  # Get the one we just appended
         # Duration based on current session (10:00 to now), not 08:00
         # At minimum it should be > 0 (since now > 10:30)
@@ -316,7 +317,7 @@ class TestSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        se = [e for e in events if e.get("type") == EVENT_TYPE_SESSION_END][-1]
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[-1]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(current_goal["id"], resolves)
         self.assertNotIn(prior_goal["id"], resolves)

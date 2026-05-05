@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_ANSWER, EVENT_TYPE_CUSTOMER_INPUT
 
 
@@ -48,7 +49,7 @@ class TestQuestionAnswered(_HookTestCase):
 
         self.assertFalse(gate.exists())
         events = self._read_events()
-        answers = [e for e in events if e.get("type") == EVENT_TYPE_ANSWER]
+        answers = events_of_type(events, EVENT_TYPE_ANSWER)
         self.assertEqual(len(answers), 1)
         self.assertIn("original-question-id", answers[0].get("references", []))
 
@@ -76,9 +77,9 @@ class TestQuestionAnswered(_HookTestCase):
         )
 
         events = self._read_events()
-        answers = [e for e in events if e.get("type") == EVENT_TYPE_ANSWER]
+        answers = events_of_type(events, EVENT_TYPE_ANSWER)
         self.assertEqual(len(answers), 0)
-        inputs = [e for e in events if e.get("type") == EVENT_TYPE_CUSTOMER_INPUT]
+        inputs = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(inputs), 1)
         self.assertIn("option B", inputs[0]["content"])
 
