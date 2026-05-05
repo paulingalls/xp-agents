@@ -103,6 +103,7 @@ def filter_by_session_age(
     events: list[dict],
     min_session_ends: int,
     resolutions: dict | None = None,
+    session_end_positions: list[int] | None = None,
 ) -> list[dict]:
     """Return open concerns whose first appearance is >= min_session_ends
     SESSION_END markers ago.
@@ -110,14 +111,16 @@ def filter_by_session_age(
     Used by session_end's stale-concern sweep to flag long-lived concerns
     for human triage at the next /xp-kickoff retro. Resolved concerns
     (per resolution.compute_resolutions) are excluded. Pass `resolutions`
-    when the caller already computed it to avoid recomputation.
+    AND/OR `session_end_positions` when the caller already computed them
+    to avoid the redundant pass over events.
     """
     if resolutions is None:
         resolutions = resolution.compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
-    session_end_positions = [
-        i for i, e in enumerate(events) if e.get("type") == SESSION_END
-    ]
+    if session_end_positions is None:
+        session_end_positions = [
+            i for i, e in enumerate(events) if e.get("type") == SESSION_END
+        ]
     total_ends = len(session_end_positions)
     return [
         e

@@ -127,11 +127,6 @@ def _sweep_stale_concerns(
     pointing back to it (metadata.flagged_stale=True, references=[orig_id])
     is skipped to prevent every session_end from appending another flag.
     """
-    stale = concerns.filter_by_session_age(
-        events, STALE_CONCERN_SESSION_THRESHOLD, resolutions=resolutions
-    )
-    if not stale:
-        return
     resolved_ids = resolutions["resolved_concern_ids"]
     already_flagged: set[str] = set()
     session_end_positions: list[int] = []
@@ -149,6 +144,14 @@ def _sweep_stale_concerns(
                     and (e.get("metadata") or {}).get("flagged_stale") is True
                 ):
                     already_flagged.update(e.get("references") or [])
+    stale = concerns.filter_by_session_age(
+        events,
+        STALE_CONCERN_SESSION_THRESHOLD,
+        resolutions=resolutions,
+        session_end_positions=session_end_positions,
+    )
+    if not stale:
+        return
     total_ends = len(session_end_positions)
     flag_events: list[dict] = []
     for orig in stale:

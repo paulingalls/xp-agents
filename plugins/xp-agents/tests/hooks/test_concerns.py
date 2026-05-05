@@ -27,6 +27,30 @@ class TestFilterBySessionAge(_HookTestCase):
         ]
         self.assertEqual(concerns.filter_by_session_age(events, 4), [])
 
+    def test_precomputed_session_end_positions_skips_internal_walk(self):
+        """Concern 637b7fb61f30: caller (session_end._sweep_stale_concerns)
+        already walks events to compute session_end_positions for its own
+        use; passing it back to filter_by_session_age avoids the redundant
+        second pass. Behavior must be identical with or without the param."""
+        import concerns
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Old concern")
+        events = [
+            c,
+            make_event(EVENT_TYPE_SESSION_END, content="s1"),
+            make_event(EVENT_TYPE_SESSION_END, content="s2"),
+            make_event(EVENT_TYPE_SESSION_END, content="s3"),
+            make_event(EVENT_TYPE_SESSION_END, content="s4"),
+        ]
+        positions = [
+            i for i, e in enumerate(events) if e.get("type") == EVENT_TYPE_SESSION_END
+        ]
+        stale = concerns.filter_by_session_age(
+            events, 4, session_end_positions=positions
+        )
+        self.assertEqual(len(stale), 1)
+        self.assertEqual(stale[0]["id"], c["id"])
+
     def test_concern_with_four_session_ends_is_stale(self):
         import concerns
 
