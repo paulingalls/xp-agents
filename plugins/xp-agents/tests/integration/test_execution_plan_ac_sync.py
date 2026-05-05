@@ -86,6 +86,7 @@ class TestExecutionPlanACSync(unittest.TestCase):
         return out
 
     def test_delivered_milestone_ac_points_at_collectable_tests(self):
+        assert self.plan is not None  # narrowing for pyright; setUpClass enforces
         for m in self.plan.get("milestones", []):
             if m.get("status") != "delivered":
                 continue

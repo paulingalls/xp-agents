@@ -68,7 +68,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         self.assertIn("500 lines", result)
 
     def test_teammate_guide_has_review_cycle(self):
-        """Teammate guide has review cycle commands (security at close-skill Step 4.5)."""  # noqa: E501
+        """Teammate guide has review cycle commands (security at close-skill Step 4)."""
         result = self._run_teammate()
         assert result is not None
         self.assertIn("/simplify", result)

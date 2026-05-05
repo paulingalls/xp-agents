@@ -165,10 +165,10 @@ Include plugin health observations in Keep/Fix/Try when anomalies are found.
 
 ## Security Practices (Courage Lens)
 
-Layered model (v3.1+): deterministic patterns at commit time; LLM `/security-review` at `/xp-{free,sprint,plan}-close` Step 4.5 against the cumulative close diff. `STATUS_ACTION_SECURITY_COMPLETE` events are folded into `digest.status_summary.security_checks` as an aggregate count — per-window (per-close) correlation is not yet exposed in the digest:
+Layered model (v3.1+): deterministic patterns at commit time; LLM `/security-review` at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff (close-reviewer follows at Step 4.5, quality-only). `STATUS_ACTION_SECURITY_COMPLETE` events are folded into `digest.status_summary.security_checks` as an aggregate count — per-window (per-close) correlation is not yet exposed in the digest:
 
 - **Close-skill security activity** — `digest.status_summary.security_checks` counts all SECURITY_COMPLETE events this session. Zero with close commits present is a Fix under Courage; non-zero is Keep context.
-- **Proactive security** — voluntary `/security-review` outside the close-skill Step 4.5 windows. Mention in Keep under Courage when commit messages show it.
+- **Proactive security** — voluntary `/security-review` outside the close-skill Step 4 windows. Mention in Keep under Courage when commit messages show it.
 - **Commit-time pattern hits** — directional only; the digest has no dedicated field. Look for security-pattern mentions in commit messages or blocked-action narrative.
 
 ## Actions
