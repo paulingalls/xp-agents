@@ -1,5 +1,5 @@
 {
-  "include": ["scripts", "smm"],
+  "include": ["scripts", "smm", "tests"],
   "extraPaths": [
     "scripts",
     "smm",

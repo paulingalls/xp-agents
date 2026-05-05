@@ -61,6 +61,7 @@ class TestStoryBranchPushes(_BasePushTest):
         td, smm = self._setup_repo()
         name = branching.create_story_branch(td, "story-001", "demo", smm)
         self.assertIsNotNone(name)
+        assert name is not None
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_silent_when_no_remote(self):
@@ -71,6 +72,7 @@ class TestStoryBranchPushes(_BasePushTest):
     def test_does_not_push_on_resume(self):
         td, smm = self._setup_repo()
         first = branching.create_story_branch(td, "story-001", "demo", smm)
+        assert first is not None
         self.assertTrue(_remote_has_branch(td, first))
         _checkout_main(td)
         # Patch at source — branching.py calls via `git_remote.push_branch`
@@ -94,6 +96,7 @@ class TestSprintBranchPushes(_BasePushTest):
         _seed_plan(smm)
         name = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
         self.assertIsNotNone(name)
+        assert name is not None
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
@@ -114,6 +117,7 @@ class TestScaffoldBranchPushes(_BasePushTest):
         td, smm = self._setup_repo()
         name = branching.create_scaffold_branch(td, "cli", smm)
         self.assertIsNotNone(name)
+        assert name is not None
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
@@ -133,6 +137,7 @@ class TestFreeBranchPushes(_BasePushTest):
         td, smm = self._setup_repo()
         name = branching.create_free_branch(td, "demo", smm)
         self.assertIsNotNone(name)
+        assert name is not None
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
@@ -150,6 +155,7 @@ class TestPlanBranchPushes(_BasePushTest):
         td, smm = self._setup_repo()
         name = branching.create_plan_branch(td, "demo", smm)
         self.assertIsNotNone(name)
+        assert name is not None
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):

@@ -157,13 +157,13 @@ class _LintTmpDirMixin:
     """Shared setUp/tearDown for tests needing a tmpdir with ruff.toml."""
 
     def setUp(self):
-        super().setUp()
+        super().setUp()  # type: ignore[misc]
         self._lint_tmpdir = Path(tempfile.mkdtemp())
         (self._lint_tmpdir / "ruff.toml").touch()
 
     def tearDown(self):
         shutil.rmtree(self._lint_tmpdir, ignore_errors=True)
-        super().tearDown()
+        super().tearDown()  # type: ignore[misc]
 
 
 class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):

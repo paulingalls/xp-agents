@@ -51,7 +51,7 @@ class TestMarkerDef(unittest.TestCase):
     def test_frozen(self):
         m = markers.MarkerDef(".test", "text")
         with self.assertRaises(AttributeError):
-            m.name = "changed"
+            m.name = "changed"  # type: ignore[misc]  # frozen — assignment expected to raise
 
 
 # ---------------------------------------------------------------------------

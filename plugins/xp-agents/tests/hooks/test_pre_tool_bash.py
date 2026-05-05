@@ -214,6 +214,7 @@ class TestResolvesTrailerReminder(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertIn("Resolves-Event:", result)
 
     @patch("commits.get_staged_files", return_value=["src/app.py"])
