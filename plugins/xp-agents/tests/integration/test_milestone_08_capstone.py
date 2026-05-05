@@ -14,11 +14,11 @@ verified by the pin tests in test_plugin_integrity.py — not exercised here
 because there's no behavior to drive through hooks.
 
 The capstone fixtures a real git worktree under tmpdir/.claude/worktrees/
-(reusing pre_tool_bash.WORKTREE_PATH_FRAGMENT so matcher and fixture share
-the same convention), opens a concern with a known event id, drives the
-bash hook pipeline for both commit shapes (cd-then-git AND git -C), and
-asserts the full chain — warning emission, trailer extraction, concern
-auto-resolution, and the verify_acceptance CLI exit-code semantics.
+(reusing identity.WORKTREE_PATH_FRAGMENT — the canonical home — so matcher
+and fixture share the same convention), opens a concern with a known event
+id, drives the bash hook pipeline for both commit shapes (cd-then-git AND
+git -C), and asserts the full chain — warning emission, trailer extraction,
+concern auto-resolution, and the verify_acceptance CLI exit-code semantics.
 """
 
 import json
@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import pre_tool_bash  # for WORKTREE_PATH_FRAGMENT — story-002 export
+import identity  # canonical home for WORKTREE_PATH_FRAGMENT
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -50,10 +50,10 @@ class TestMilestone08Capstone(_IntegrationTestCase):
     def _make_capstone_worktree(self, name: str = "worktree-cap") -> Path:
         """Create a worktree at <tmpdir>/<WORKTREE_PATH_FRAGMENT>/<name>.
 
-        Reuses story-002's WORKTREE_PATH_FRAGMENT so the matcher's path
-        convention and this fixture cannot drift apart.
+        Reuses identity.WORKTREE_PATH_FRAGMENT (the canonical home) so the
+        matcher's path convention and this fixture cannot drift apart.
         """
-        wt_root = self.tmpdir / pre_tool_bash.WORKTREE_PATH_FRAGMENT
+        wt_root = self.tmpdir / identity.WORKTREE_PATH_FRAGMENT
         wt_root.mkdir(parents=True, exist_ok=True)
         wt_path = wt_root / name
         branch = f"capstone/{name}"

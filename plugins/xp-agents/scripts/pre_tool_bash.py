@@ -39,9 +39,10 @@ _FILE_MODIFY_PATTERNS = [
 # cd-into-worktree-then-git advisory
 # ---------------------------------------------------------------------------
 
-# Public so other matchers/capstone hooks reuse the same fragment and the
-# `cd <worktree> && git ...` convention stays in lockstep across modules.
-WORKTREE_PATH_FRAGMENT = ".claude/worktrees/"
+# Re-export for back-compat with story-002's contract — the canonical
+# home is identity.WORKTREE_PATH_FRAGMENT (worktree.py also re-exports).
+# pre_tool_bash is a hook module, not a natural home for shared constants.
+WORKTREE_PATH_FRAGMENT = identity.WORKTREE_PATH_FRAGMENT
 
 _CD_WORKTREE_GIT_PATTERN = re.compile(
     r"cd\s+\S*"

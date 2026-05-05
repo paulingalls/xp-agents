@@ -65,10 +65,15 @@ When `acceptance_execution` is present and `type` is not `"manual"`:
 
 1. Present the story title and acceptance criteria.
 2. If `acceptance_execution.setup` is present, run it first via Bash.
-3. Run `acceptance_execution.command` via Bash. If the story's
-   `story-id` appears in TEAMMATE_WORKTREES, wrap the command in a
-   subshell so the parent shell's cwd does NOT persist into
-   subsequent Bash calls: `(cd <abs-path> && <command>)`. Otherwise
+3. Run the story's acceptance command(s) via Bash. The schema accepts
+   either `acceptance_execution.command: str` (single command) OR
+   `acceptance_execution.commands: list[str]` (run each in order, fail
+   on first non-zero). For multi-command stories, prefer
+   `verify_acceptance.py --story <story-id> --smm-dir <SMM_DIR>` which
+   handles the iteration + first-red exit + failing-command stderr for
+   you. If the story's `story-id` appears in TEAMMATE_WORKTREES, wrap
+   the command in a subshell so the parent shell's cwd does NOT persist
+   into subsequent Bash calls: `(cd <abs-path> && <command>)`. Otherwise
    run the bare command from the main repo. The subshell isolates
    the cwd change to that one invocation — without it, a later Bash
    call inherits the worktree cwd and can mislead about branch
