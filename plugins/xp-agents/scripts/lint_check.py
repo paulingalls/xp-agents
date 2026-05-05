@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -205,6 +206,19 @@ def detect_linter_config(
 # Linter execution
 # ---------------------------------------------------------------------------
 
+# Codes deferred until the file is staged for commit. F401 (unused import) and
+# F811 (redefinition of unused) false-positive routinely during multi-step
+# replace_all migrations: an import added in one Edit and consumed in the next
+# fires F401 mid-stream. The commit-gate check in pre_tool_bash.run_ruff
+# (context="staging") catches truly-unused imports before they ship.
+EDIT_DEFERRED_CODES: frozenset[str] = frozenset({"F401", "F811"})
+
+# Matches the leading code on a ruff line: "path:line:col: F401 [*] message"
+# Ruff plugin namespaces use 1-3 uppercase letters (F, E, RUF, PLR, ANN, UP, ...).
+# Single-letter [A-Z] would silently drop RUF059/PLR0915/etc. — causing
+# has_errors=False and a missed lint error at edit time.
+_RUFF_LINE_CODE = re.compile(r"^\s*[^:\s]+:\d+:\d+:\s+([A-Z]{1,3}\d{3,4})\b")
+
 
 def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
     """Run linter on file. Returns error output or None if clean/unavailable.
@@ -243,6 +257,43 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
         return None
 
     return None
+
+
+def run_ruff(
+    file_path: str | Path,
+    *,
+    context: Literal["edit", "staging"],
+    cwd: str | None = None,
+) -> tuple[list[str], str]:
+    """Single source of truth for ruff invocation.
+
+    Runs ruff once, returns (codes, filtered_text). In ``edit`` context,
+    codes in EDIT_DEFERRED_CODES (F401, F811) are stripped from both
+    outputs — they belong at staging time. In ``staging`` context, all
+    codes are reported.
+
+    Returns ([], "") when ruff is unavailable, the file extension is wrong,
+    or ruff exits clean. Used by lint_check.run() (edit) and
+    pre_tool_bash (staging).
+    """
+    raw = run_linter("ruff", str(file_path), cwd=cwd)
+    if raw is None:
+        return ([], "")
+
+    kept_lines: list[str] = []
+    codes: list[str] = []
+    deferred = EDIT_DEFERRED_CODES if context == "edit" else frozenset()
+    for line in raw.splitlines():
+        m = _RUFF_LINE_CODE.match(line)
+        code = m.group(1) if m else None
+        if code and code in deferred:
+            continue
+        kept_lines.append(line)
+        if code:
+            codes.append(code)
+    text = "\n".join(kept_lines).strip()
+    # dedupe preserving order
+    return (list(dict.fromkeys(codes)), text)
 
 
 def _summarize_lint_output(lint_output: str) -> str:
@@ -342,9 +393,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not binary or not shutil.which(binary):
         return None
 
-    # Run linter
-    lint_output = run_linter(linter_name, normalized, cwd=git_root)
-    if lint_output:
+    # Route ruff through run_ruff so the edit-time filter (F401/F811 deferred
+    # to staging) is the single source of truth for the ruff command line.
+    # Gate on parsed codes for ruff: filtered output may retain ruff's
+    # "Found N errors." footer even when every individual code was filtered.
+    if linter_name == "ruff":
+        codes, lint_output = run_ruff(normalized, context="edit", cwd=git_root)
+        has_errors = bool(codes)
+    else:
+        lint_output = run_linter(linter_name, normalized, cwd=git_root) or ""
+        has_errors = bool(lint_output)
+    if has_errors:
         if not _has_unresolved_lint_concern(smm_dir, normalized):
             summary = _summarize_lint_output(lint_output)
             concern = _common.make_event(

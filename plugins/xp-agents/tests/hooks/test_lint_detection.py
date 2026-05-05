@@ -59,14 +59,17 @@ class TestLintConcernContent(_HookTestCase):
         tmpdir = Path(tempfile.mkdtemp())
         (tmpdir / "ruff.toml").touch()
         target = tmpdir / "app.py"
-        target.write_text("import os\n")
+        target.write_text("def f():\n    pass\n")
+        # Use E302 (non-deferred) — story-007 defers F401/F811 to staging,
+        # so F401 alone produces no concern at edit time. This test exercises
+        # the summary-vs-full-output contract, not F401 specifically.
         full_output = (
-            "F401 [*] `os` imported but unused\n"
-            " --> app.py:1:8\n"
+            "app.py:1:1: E302 expected 2 blank lines, found 0\n"
+            " --> app.py:1:1\n"
             "  |\n"
-            "1 | import os\n"
-            "  |        ^^\n"
-            "help: Remove unused import\n"
+            "1 | def f():\n"
+            "  | ^^^\n"
+            "help: Add blank lines\n"
             "\n"
             "Found 1 error.\n"
         )
@@ -95,7 +98,7 @@ class TestLintConcernContent(_HookTestCase):
             self.assertIn("app.py", content)
             self.assertNotIn("-->", content)
             self.assertNotIn("help:", content)
-            self.assertIn("F401", content)
+            self.assertIn("E302", content)
         finally:
             import shutil as sh
 
