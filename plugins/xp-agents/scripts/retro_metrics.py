@@ -14,6 +14,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 from event_schema import (
+    DIVERT_REASON_CROSS_STORY,
+    DIVERT_REASON_NEWER_THAN_SNAPSHOT,
+    DIVERT_REASON_OUTSIDE_FILE_DOMAIN,
+    DIVERT_REASON_UNKNOWN,
+    DIVERT_REASON_WRONG_TYPE,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
     STATUS_ACTION_FILE_WRITE,
@@ -46,6 +51,11 @@ _SIGNAL_TYPES = frozenset(
         _common.CONVENTION,
     }
 )
+
+# Resolves-eligible event types per the resolves probe contract: agents
+# tag commits with concern/debt/discovery IDs. Used by
+# _classify_divert_reason to flag wrong-type diverts.
+_VALID_RESOLVES_TYPES = frozenset({_common.CONCERN, _common.DEBT, _common.DISCOVERY})
 
 # ---------------------------------------------------------------------------
 # Status classification
@@ -322,6 +332,50 @@ def _compute_resolves_link_rate(
     }
 
 
+def _classify_divert_reason(
+    rejected_event: dict,
+    probe_ts: str,
+    commit_files: list[str],
+    story_id: str | None,
+) -> str:
+    """Reason an agent's resolves choice fell outside the probe candidate set.
+
+    First-match precedence per story-006 reason table. The rule order is the
+    contract — callers pin via test fixtures, so reordering here breaks them.
+    DIVERT_REASON_UNKNOWN is the catch-all so no divert is silently
+    uncategorized.
+
+    cross-story is dormant in practice today (spike decision 4f62e2ada08d:
+    0/84 concern/debt/discovery events carried metadata.story_id) but we
+    keep the rule for forward-compat — once teammates start tagging, it
+    lights up without a code change.
+    """
+    rejected_ts = rejected_event.get("ts") or ""
+    if probe_ts and rejected_ts and rejected_ts > probe_ts:
+        return DIVERT_REASON_NEWER_THAN_SNAPSHOT
+
+    rejected_files = rejected_event.get("files") or []
+    if (
+        isinstance(rejected_files, list)
+        and rejected_files
+        and commit_files
+        and not (set(rejected_files) & set(commit_files))
+    ):
+        return DIVERT_REASON_OUTSIDE_FILE_DOMAIN
+
+    rejected_meta = rejected_event.get("metadata") or {}
+    rejected_story = (
+        rejected_meta.get("story_id") if isinstance(rejected_meta, dict) else None
+    )
+    if story_id and rejected_story and rejected_story != story_id:
+        return DIVERT_REASON_CROSS_STORY
+
+    if rejected_event.get("type") not in _VALID_RESOLVES_TYPES:
+        return DIVERT_REASON_WRONG_TYPE
+
+    return DIVERT_REASON_UNKNOWN
+
+
 def _compute_probe_adoption(
     events: list[dict],
     code_commits: list[dict],
@@ -366,6 +420,10 @@ def _compute_probe_adoption(
     sorted_commits = sorted(code_commits, key=lambda c: c.get("ts") or "")
     consumed: set[int] = set()
 
+    # Lookup map for divert reason classification: rejected resolves IDs
+    # are looked up to inspect ts / files / metadata.story_id / type.
+    events_by_id: dict[str, dict] = {eid: e for e in events if (eid := e.get("id"))}
+
     hits = 0
     escape = 0
     divert = 0
@@ -405,6 +463,19 @@ def _compute_probe_adoption(
                 METADATA_KEY_PROBE_SELECTION_REASONS
             ) or {}
             sorted_candidates = sorted(candidate_ids)
+            commit_files = commit.get("files") or []
+            commit_story_id = (commit.get("metadata") or {}).get("story_id")
+            # Single dominant reason per divert: multi-id diverts cluster on
+            # one root cause in practice (almost all diverts are 1-id anyway).
+            # min() picks deterministically; absent events return DIVERT_REASON_UNKNOWN.
+            first_rejected_id = min(resolves)
+            rejected_event = events_by_id.get(first_rejected_id) or {}
+            reason = _classify_divert_reason(
+                rejected_event,
+                probe_ts=probe_ts,
+                commit_files=commit_files,
+                story_id=commit_story_id,
+            )
             divert_details.append(
                 {
                     "agent_id": agent_id,
@@ -415,6 +486,7 @@ def _compute_probe_adoption(
                     "selection_reasons": {
                         cid: reasons_map.get(cid, []) for cid in sorted_candidates
                     },
+                    "reason": reason,
                 }
             )
 

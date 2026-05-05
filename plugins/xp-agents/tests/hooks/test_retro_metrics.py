@@ -14,14 +14,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import make_event
 from event_schema import (
+    DIVERT_REASON_CROSS_STORY,
+    DIVERT_REASON_NEWER_THAN_SNAPSHOT,
+    DIVERT_REASON_OUTSIDE_FILE_DOMAIN,
+    DIVERT_REASON_UNKNOWN,
+    DIVERT_REASON_WRONG_TYPE,
     EVENT_TYPE_COMMIT,
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_STATUS,
+    METADATA_KEY_PROBE_CANDIDATES,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_SECURITY_COMPLETE,
     STATUS_ACTION_SIMPLIFY_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
+    STATUS_CONTENT_RESOLVES_PROBE,
 )
 
 
@@ -228,6 +239,231 @@ class TestClassifyM2ToolActions(unittest.TestCase):
         ]
         counts = retro_metrics._classify_lifecycle_events(events)
         self.assertEqual(counts["commits"], 2)
+
+
+class TestClassifyDivertReason(unittest.TestCase):
+    """_classify_divert_reason picks first-match reason for an agent's
+    rejected resolves choice (divert), so retros can act on cause not count.
+
+    Precedence: newer-than-snapshot, outside-file-domain, cross-story,
+    wrong-type, unknown. Cross-story rarely fires today — spike (decision
+    4f62e2ada08d) confirmed 0/84 concern/debt/discovery events carry
+    metadata.story_id — kept for forward-compat as teammates start tagging.
+    """
+
+    def test_newer_than_snapshot_wins(self):
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Late concern",
+            ts="2026-05-01T12:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id=None,
+        )
+        self.assertEqual(reason, DIVERT_REASON_NEWER_THAN_SNAPSHOT)
+
+    def test_outside_file_domain(self):
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Auth concern",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["scripts/auth.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/billing.py"],
+            story_id=None,
+        )
+        self.assertEqual(reason, DIVERT_REASON_OUTSIDE_FILE_DOMAIN)
+
+    def test_cross_story_when_story_ids_differ(self):
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Other story concern",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={"story_id": "story-099"},
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id="story-006",
+        )
+        self.assertEqual(reason, DIVERT_REASON_CROSS_STORY)
+
+    def test_wrong_type_when_not_concern_debt_discovery(self):
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_DECISION,
+            content="Some decision",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id=None,
+        )
+        self.assertEqual(reason, DIVERT_REASON_WRONG_TYPE)
+
+    def test_unknown_fallback(self):
+        """Concern/debt with file overlap, older than probe, no cross-story
+        signal — none of the precedence rules fire so reason is unknown.
+        Guarantees no divert is silently uncategorized."""
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_DEBT,
+            content="In-domain debt",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id="story-006",
+        )
+        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_discovery_is_valid_type(self):
+        """post sprint-064 widening — discovery events are not wrong-type."""
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Discovery in domain",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id=None,
+        )
+        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_cross_story_dormant_when_story_id_missing(self):
+        """Spike (decision 4f62e2ada08d): metadata.story_id absent on real
+        concern events today. When the rejected event lacks story_id, the
+        cross-story rule must NOT fire — fall through to wrong-type / unknown."""
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="No story tag",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id="story-006",
+        )
+        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+
+
+class TestProbeDivertDetailsReason(unittest.TestCase):
+    """Integration: probe_divert_details[i]['reason'] is set per divert tuple.
+    Wires _classify_divert_reason into _compute_probe_adoption."""
+
+    def _probe(self, candidates: list[str], ts: str, agent_id: str = "main") -> dict:
+        return make_event(
+            EVENT_TYPE_STATUS,
+            content=f"{STATUS_CONTENT_RESOLVES_PROBE}: {len(candidates)} candidates",
+            ts=ts,
+            agent_id=agent_id,
+            metadata={METADATA_KEY_PROBE_CANDIDATES: candidates},
+        )
+
+    def _commit(
+        self,
+        resolves: list[str],
+        ts: str,
+        files: list[str],
+        agent_id: str = "main",
+        story_id: str | None = None,
+    ) -> dict:
+        meta: dict = {
+            "code_commit": True,
+            "commit_hash": "abc",
+            "resolves": resolves,
+        }
+        if story_id is not None:
+            meta["story_id"] = story_id
+        return make_event(
+            EVENT_TYPE_COMMIT,
+            content="Work",
+            ts=ts,
+            files=files,
+            agent_id=agent_id,
+            metadata=meta,
+        )
+
+    def test_divert_records_outside_file_domain_reason(self):
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Auth concern",
+            ts="2026-04-05T09:00:00+00:00",
+            files=["scripts/auth.py"],
+        )
+        events = [
+            rejected,
+            self._probe(["other-id"], "2026-04-05T10:00:00+00:00"),
+            self._commit(
+                [rejected["id"]],
+                "2026-04-05T11:00:00+00:00",
+                files=["scripts/billing.py"],
+            ),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["probe_divert"], 1)
+        details = result["probe_divert_details"]
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["reason"], DIVERT_REASON_OUTSIDE_FILE_DOMAIN)
+
+    def test_divert_records_newer_than_snapshot_reason(self):
+        import retro_metrics
+
+        # Rejected concern is created AFTER the probe fired — agent picked
+        # something the probe never saw.
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Late concern",
+            ts="2026-04-05T10:30:00+00:00",
+            files=["scripts/x.py"],
+        )
+        events = [
+            self._probe(["other-id"], "2026-04-05T10:00:00+00:00"),
+            rejected,
+            self._commit(
+                [rejected["id"]],
+                "2026-04-05T11:00:00+00:00",
+                files=["scripts/x.py"],
+            ),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        details = result["probe_divert_details"]
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["reason"], DIVERT_REASON_NEWER_THAN_SNAPSHOT)
 
 
 if __name__ == "__main__":
