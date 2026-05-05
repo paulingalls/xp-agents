@@ -46,7 +46,12 @@ WORKTREE_PATH_FRAGMENT = ".claude/worktrees/"
 _CD_WORKTREE_GIT_PATTERN = re.compile(
     r"cd\s+\S*"
     + re.escape(WORKTREE_PATH_FRAGMENT)
-    + r"\S+\s*&&\s*git\s+(?:commit|add|merge|push)\b"
+    + r"\S+"
+    # Single non-greedy `[^\n]*?` allows arbitrary intervening text on the
+    # same logical line (catches `cd <wt> && pytest && git commit`). Bounded
+    # by `[^\n]` to scope to one statement; one quantifier (no nesting)
+    # avoids catastrophic backtracking when the trailing `git` never appears.
+    + r"[^\n]*?\bgit\s+(?:commit|add|merge|push)\b"
 )
 
 _CD_WORKTREE_GIT_WARNING = (

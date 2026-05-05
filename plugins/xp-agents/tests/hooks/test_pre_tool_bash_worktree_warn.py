@@ -69,6 +69,22 @@ class TestCdWorktreeGitWarn(_HookTestCase):
             "cd .claude/worktrees/worktree-story-004 && git push origin HEAD"
         )
 
+    # ----- Chained intervening segments — common agent shape ---------------
+
+    def test_cd_worktree_then_intervening_then_git_warns(self):
+        """`cd <wt> && pytest && git commit` — common run-checks-then-commit shape."""
+        self._assert_warns(
+            "cd .claude/worktrees/worktree-story-001 && pytest && git commit -m 'fix'",
+            must_contain=("trailer",),
+        )
+
+    def test_cd_worktree_with_multiple_intervening_warns(self):
+        """Multiple intervening `&&` segments before the git op."""
+        self._assert_warns(
+            "cd .claude/worktrees/worktree-story-002 && pytest -n auto "
+            "&& ruff check && git add ."
+        )
+
     # ----- Critical: warn-only — never raises BlockedError ------------------
 
     def test_warn_only_does_not_block(self):
@@ -98,6 +114,16 @@ class TestCdWorktreeGitWarn(_HookTestCase):
     def test_bare_git_commit_does_not_warn(self):
         """Bare `git commit` (no cd) must NOT trigger this matcher."""
         result = self._run("git commit -m 'fix'")
+        if result is not None:
+            self.assertNotIn("git -C", result)
+
+    def test_long_chain_without_terminal_git_does_not_warn(self):
+        """20 && segments after cd-into-worktree, no terminal git op — must NOT
+        match AND must complete promptly (guards against pathological regex
+        backtracking on long agent-generated bash commands)."""
+        chain = " && ".join(f"cmd{i}" for i in range(20))
+        command = f"cd .claude/worktrees/worktree-x && {chain}"
+        result = self._run(command)
         if result is not None:
             self.assertNotIn("git -C", result)
 
