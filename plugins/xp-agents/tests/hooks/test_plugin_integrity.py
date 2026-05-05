@@ -634,5 +634,149 @@ class TestWorktreeCommitDoctrine(unittest.TestCase):
         )
 
 
+# ===========================================================================
+# Sprint-063 / M-2 / story-002: close-cycle step ordering swap
+# ===========================================================================
+
+
+_CLOSE_SKILL_MDS = {
+    "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
+    "sprint": _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md",
+    "plan": _PLUGIN_ROOT / "skills" / "xp-plan-close" / "SKILL.md",
+    "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md",
+}
+
+
+class TestCloseSkillStepOrdering(unittest.TestCase):
+    """M-2 step-order swap: `/security-review` runs FIRST (Step 4), then
+    close-reviewer fork runs LAST (Step 4.5). The reorder solves the
+    close-cycle stall — security review's SECURITY_COMPLETE event lands
+    while the agent is still gated by the CLOSE_CYCLE_ACTIVE marker, so
+    when the close-reviewer's SubagentStop consumes the marker, the
+    agent's next attention is on the merge.
+
+    Pins the ordering invariant across all four close-skill SKILL.md
+    files so a future edit can't silently revert to the old order.
+    """
+
+    def test_close_skills_security_before_close_reviewer(self):
+        """`## Step 4: ` (Security) precedes `## Step 4.5: ` (Fork
+        close-reviewer) in each of the 4 close-skill SKILL.md files.
+        Use frontmatter_body() so frontmatter `name:` literals can't
+        false-positive on header-substring searches.
+        """
+        for mode, path in _CLOSE_SKILL_MDS.items():
+            with self.subTest(mode=mode):
+                _, body = frontmatter_body(path.read_text())
+                step4_idx = body.find("## Step 4: ")
+                step4_5_idx = body.find("## Step 4.5: ")
+                self.assertGreater(
+                    step4_idx,
+                    -1,
+                    f"{mode}-close SKILL.md missing `## Step 4: ` heading",
+                )
+                self.assertGreater(
+                    step4_5_idx,
+                    -1,
+                    f"{mode}-close SKILL.md missing `## Step 4.5: ` heading",
+                )
+                self.assertLess(
+                    step4_idx,
+                    step4_5_idx,
+                    f"{mode}-close SKILL.md must place `## Step 4: ` BEFORE "
+                    f"`## Step 4.5: ` (M-2 step-order swap)",
+                )
+                # Pin the content under each header — Step 4 must be the
+                # security-review step, Step 4.5 must be the close-reviewer
+                # fork. Look only at the heading line itself.
+                step4_eol = body.find("\n", step4_idx)
+                step4_heading = body[step4_idx:step4_eol]
+                self.assertIn(
+                    "Security",
+                    step4_heading,
+                    f"{mode}-close SKILL.md `## Step 4: ` heading must name "
+                    f"Security (got: {step4_heading!r})",
+                )
+                step4_5_eol = body.find("\n", step4_5_idx)
+                step4_5_heading = body[step4_5_idx:step4_5_eol]
+                # free/sprint/plan use "Fork the close-reviewer"; story-close
+                # has the same Fork content under Step 4.5 too.
+                fork_or_reviewer = (
+                    "Fork" in step4_5_heading or "close-reviewer" in step4_5_heading
+                )
+                self.assertTrue(
+                    fork_or_reviewer,
+                    f"{mode}-close SKILL.md `## Step 4.5: ` heading must name "
+                    f"Fork or close-reviewer (got: {step4_5_heading!r})",
+                )
+
+    def test_close_skills_write_close_cycle_marker_before_security(self):
+        """Each close skill must write the CLOSE_CYCLE_ACTIVE marker
+        before invoking `/security-review`. The marker gates the new
+        Stop hook (story-001) so the agent stays in the close cycle
+        until close-reviewer's SubagentStop consumes the marker.
+
+        Pin both halves: the markers.py invocation is present, AND it
+        lands inside the Step 4 (Security) section (not later).
+        """
+        for mode, path in _CLOSE_SKILL_MDS.items():
+            with self.subTest(mode=mode):
+                # The marker write lives in the shared Step 4 block (the
+                # SKILL.md instructs the LLM to "Apply the shared block")
+                # — the per-skill SKILL.md proper need not duplicate it.
+                # What the SKILL.md MUST carry is the markers.py CLI in
+                # its allowed-tools frontmatter (asserted below).
+                fm, _ = frontmatter_body(path.read_text())
+                self.assertIn(
+                    "markers.py",
+                    fm,
+                    f"{mode}-close SKILL.md must list a markers.py Bash "
+                    f"permission in allowed-tools (Step 4 writes the "
+                    f"CLOSE_CYCLE_ACTIVE marker before /security-review)",
+                )
+
+    def test_shared_close_pipeline_step_4_security_writes_marker(self):
+        """The shared close-pipeline reference's new Step 4 (Security
+        Review) must instruct the LLM to write the CLOSE_CYCLE_ACTIVE
+        marker via markers.py BEFORE invoking `/security-review`. Pin
+        both the marker name and the CLI invocation so a future edit
+        can't drop one half silently.
+        """
+        shared = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
+        text = shared.read_text()
+        step4_idx = text.find("### Step 4: Security Review")
+        self.assertGreater(
+            step4_idx,
+            -1,
+            "shared close-pipeline file must have `### Step 4: Security Review`",
+        )
+        # Scope to the Step 4 section only — find the next `### Step` heading.
+        next_step_idx = text.find("\n### Step", step4_idx + 1)
+        section = text[step4_idx : next_step_idx if next_step_idx != -1 else None]
+        self.assertIn(
+            "CLOSE_CYCLE_ACTIVE",
+            section,
+            "Step 4 (Security Review) must name the CLOSE_CYCLE_ACTIVE marker "
+            "(M-2 marker-gated Stop)",
+        )
+        self.assertIn(
+            "markers.py",
+            section,
+            "Step 4 (Security Review) must invoke scripts/markers.py to write "
+            "the marker before /security-review",
+        )
+        # Marker write must precede the /security-review invocation within
+        # the section so the Stop hook is armed in time.
+        marker_idx = section.find("markers.py")
+        security_idx = section.find("/security-review")
+        self.assertGreater(security_idx, -1)
+        self.assertLess(
+            marker_idx,
+            security_idx,
+            "markers.py write must appear BEFORE /security-review invocation "
+            "in the Step 4 section",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

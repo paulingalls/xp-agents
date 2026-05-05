@@ -187,23 +187,22 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
             "literal-match protocol",
         )
 
-    def test_step_4_5_section_appears_with_conditional_marker(self):
-        # The Step 4.5 section in story-close must be marked as conditional
+    def test_step_4_security_section_appears_with_conditional_marker(self):
+        # M-2 step-order swap: Security Review is now Step 4 in story-close
+        # (was 4.5). The Step 4 section must still be marked as conditional
         # — a future reader skimming the headings should see immediately
         # that this is NOT the unconditional invocation that free/sprint/
         # plan-close use. A literal "Conditional" / "conditional" marker
-        # near the Step 4.5 heading is the structural signal.
-        step_4_5_idx = self.body.find("Step 4.5")
-        self.assertGreater(step_4_5_idx, -1, "Step 4.5 reference must exist in body")
+        # at the Step 4 heading is the structural signal.
+        step_4_idx = self.body.find("## Step 4: ")
+        self.assertGreater(step_4_idx, -1, "Step 4 heading must exist in body")
         # Look at the heading line itself (up to the next newline).
-        eol = self.body.find("\n", step_4_5_idx)
-        heading_line = (
-            self.body[step_4_5_idx:eol] if eol > -1 else self.body[step_4_5_idx:]
-        )
+        eol = self.body.find("\n", step_4_idx)
+        heading_line = self.body[step_4_idx:eol] if eol > -1 else self.body[step_4_idx:]
         self.assertRegex(
             heading_line,
             r"(?i)conditional",
-            "Step 4.5 heading in story-close must mark the section as "
+            "Step 4 heading in story-close must mark the section as "
             "Conditional so a reader sees the gating immediately",
         )
 
