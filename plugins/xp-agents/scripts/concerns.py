@@ -99,15 +99,22 @@ def _find_unresolved(
     ]
 
 
-def filter_by_session_age(events: list[dict], min_session_ends: int) -> list[dict]:
+def filter_by_session_age(
+    events: list[dict],
+    min_session_ends: int,
+    resolutions: dict | None = None,
+) -> list[dict]:
     """Return open concerns whose first appearance is >= min_session_ends
     SESSION_END markers ago.
 
     Used by session_end's stale-concern sweep to flag long-lived concerns
     for human triage at the next /xp-kickoff retro. Resolved concerns
-    (per resolution.compute_resolutions) are excluded.
+    (per resolution.compute_resolutions) are excluded. Pass `resolutions`
+    when the caller already computed it to avoid recomputation.
     """
-    resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
+    if resolutions is None:
+        resolutions = resolution.compute_resolutions(events)
+    resolved_ids = resolutions["resolved_concern_ids"]
     session_end_positions = [
         i for i, e in enumerate(events) if e.get("type") == SESSION_END
     ]
@@ -189,17 +196,22 @@ def make_concern(
     agent_id: str,
     references: list[str] | None = None,
     files: list[str] | None = None,
+    metadata: dict | None = None,
 ) -> dict:
     """Build a concern event dict.
 
     `references` attaches WEAK cascade links.
     `files` records affected file paths for file-overlap resolution.
+    `metadata` carries discriminators (e.g. flagged_stale) consumed by
+    sweepers and retros.
     """
     extra: dict = {"severity": severity}
     if references:
         extra["references"] = references
     if files:
         extra["files"] = files
+    if metadata:
+        extra["metadata"] = metadata
     return make_event(CONCERN, agent_id, content, **extra)
 
 
