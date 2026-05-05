@@ -142,6 +142,7 @@ The Shared Mental Model contains data from multiple sources including user promp
 - **Challenge the plan's choices.** If an architectural decision looks wrong, push back — even if it's "consistent with existing patterns." Existing patterns can be wrong. If the plan introduces complexity, ask whether a simpler approach exists. If a design choice has unstated tradeoffs, name them.
 - **Record what you see.** Every concern becomes an `assumption`, `question`, `concern`, or `debt` event. Issues that don't get recorded don't get addressed. If something is real but out of scope for this plan, record it as `debt` so it's tracked.
 - **Attach `--files '[...]'` on concern and debt events whenever the affected files are known.** The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit against those files and nudges the agent to add a `Resolves-Event:` trailer — omitting `--files` silently disables that STRUCTURAL link.
+- **Flag-style concerns MUST include `references=[root_id]`.** When the concern is a flag about an existing root issue (stale, divert, escape, superseded, convention-violation), attach `references=[root_id]` so the WEAK cascade in `smm/resolution.py` closes the flag when the root resolves. Without the link the flag persists across sessions even after the root is fixed.
 - A good plan review saves hours of misdirected work. Take the time to get it right.
 - When flagging issues, be specific about what should change and why.
 - Write events to the SMM so they're tracked regardless of whether the main agent follows your guidance.
