@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.1.4 — event-type vocabulary sweep + Pillars doctrine (M-6a)
+
+Sprint-060 closes M-6a — the test-suite vocabulary sweep that replaces bare event-type string literals (`'concern'`, `'status'`, `'goal'`, etc.) with `EVENT_TYPE_*` named constants across the entire `tests/` tree, plus a doctrinal pin test that forbids future regressions. Seven stories; final coverage spans 22+ files. Story-006 added a `## Pillars` section to PROCESS_GUIDE.md so the four-pillar SMM (Intent / Constraints / Risks / Wisdom) has a single canonical reference inside the shipped guide.
+
+### Vocabulary sweep across tests/
+
+Stories 001/004/005 swept the SMM, common, and Bash-hook test clusters; story-003 added the doctrinal pin test that fails CI if a bare event-type literal lands in `tests/` going forward. Each batch was a refactor-mode commit (no behavior changes) — `make_event('concern', ...)` → `make_event(EVENT_TYPE_CONCERN, ...)`. The sweep removes the entire class of typo bugs where a literal like `'concren'` would silently pass tests because no static check caught the typo.
+
+### `## Pillars` section in PROCESS_GUIDE.md
+
+Story-006 added a canonical four-pillar reference (Intent / Constraints / Risks / Wisdom) directly to the shipped process guide. Curator agents (`xp-housekeeper`) and consumers (anyone reading the guide) now have a single source of truth for what each pillar holds. Story-007 added a pin test asserting the section's presence so a future trim can't silently drop it.
+
+### Doctrinal pin: no bare event-type literals in tests/
+
+Story-003 added an AST-based test (`tests/hooks/test_event_vocabulary_pin.py`) that walks every `make_event(...)` call site in `tests/` and fails on bare string literals. Allowlist mechanism for legitimate cases (e.g., SMM intent dicts where the literal is data, not a vocabulary marker). The pin closes the loop on the sweep — the codebase can't drift back to the pre-sweep state without a test failure.
+
 ## v3.1.3 — branching.py coherence + retro-link integrity (M-4)
 
 Sprint-059 closes M-4 (branching.py coherence + xp-kickoff Step 2.4 prose) and adds two stretch stories addressing retro-link integrity. Five stories, all delivered solo (story-002's branching.py touch made parallel teammates unsafe). Net effect: every stage-aware entry point now goes through the auto-promote chokepoint, the `_log_hook_error` cross-module symbol drops its private prefix, the high-zero-decision-rate signal finally fires in production, and `metadata.resolves` malformations get caught at write time instead of silently iterating string characters.
