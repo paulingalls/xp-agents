@@ -140,7 +140,7 @@ class TestStoryCloseStep4Conditional(unittest.TestCase):
             "story-close does not run",
             body_lower,
             "blanket 'story-close does not run /security-review' must be "
-            "removed — replaced by the conditional Step 4.5",
+            "removed — replaced by the conditional Step 4 (Security Review)",
         )
 
     def test_step_1b_wires_validate_domain(self):

@@ -20,6 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _pin_helpers import files_to_scan as _files_to_scan_impl
+from _pin_helpers import rel as _rel_impl
 from event_schema import VALID_TYPES
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
@@ -151,28 +153,11 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
 
 
 def _rel(path: Path) -> str:
-    """Repo-relative path with forward slashes — stable across platforms."""
-    return str(path.relative_to(REPO_ROOT)).replace("\\", "/")
+    return _rel_impl(path, REPO_ROOT)
 
 
 def _files_to_scan(root: Path) -> list[Path]:
-    """Files the pin walks: `test_*.py` + `_*.py` helpers + `conftest.py` (any depth).
-
-    Excludes `__init__.py` (no event literals; package marker only) and
-    the pin file itself (it asserts other files, not itself). Helper
-    modules like `_event_fixtures.py` were the sprint-060 escape route —
-    glob extension closes that gap. Nested conftests are scanned via
-    rglob so a future `tests/hooks/conftest.py` with bare literals is
-    caught automatically.
-    """
-    self_path = Path(__file__).resolve()
-    paths: list[Path] = []
-    for p in root.rglob("*.py"):
-        if p.name == "__init__.py" or p.resolve() == self_path:
-            continue
-        if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
-            paths.append(p)
-    return paths
+    return _files_to_scan_impl(root, Path(__file__))
 
 
 class TestEventVocabularyPin(unittest.TestCase):
