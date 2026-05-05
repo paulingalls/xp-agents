@@ -486,41 +486,21 @@ branches ready for review and merge appear on the remote. Without
 
 ---
 
-## Open Questions (Deferred)
+## Implementation References
 
-- **Release cut automation.** Stage 3 only. Deferred.
-- **Escape-hatch interaction with acceptance testing.** Non-issue:
-  acceptance is story-level (`/xp-accept`), not commit-level.
-  `[release]` commits don't interact with story acceptance.
-- **Branch cleanup policy.** Story branches: delete local on accept
-  (implemented). Sprint/plan branch cleanup: see
-  `docs/ideas/BRANCH_LIFECYCLE.md`.
+| Concern | File |
+|---------|------|
+| Branch lifecycle + divergence check | `plugins/xp-agents/scripts/branching.py` (`get_branching_stage` auto-promotes Stage 1 → 2) |
+| CLI dispatch (`created:` / `resumed:` output) | `plugins/xp-agents/scripts/branching_cli.py` |
+| `main` / sprint commit gates | `plugins/xp-agents/scripts/pre_tool_bash.py` |
+| User namespace derivation | `plugins/xp-agents/scripts/identity.py` |
+| `branching_strategy` schema validation | `plugins/xp-agents/smm/system_context_schema.py` |
+| Stage declaration surface | `plugins/xp-agents/smm/system_context_cli.py` (`edit-branching`) |
+| Stage detection | `plugins/xp-agents/agents/xp-system-analyzer.md` (Step 3.5) |
+| Sprint + story branch creation | `plugins/xp-agents/skills/xp-sprint-start/SKILL.md` |
+| Plan branch creation + pre-existing detection | `plugins/xp-agents/skills/xp-plan/SKILL.md` |
+| Story branch merge / delete | `plugins/xp-agents/skills/xp-accept/SKILL.md` |
 
-Resolved in Team Scenarios (M-5):
-- ~~Remote push policy~~ → see §Remote Push Timing
-- ~~Force-push and rebase discipline~~ → see §Rebase Discipline
-- ~~Handling pre-existing branches~~ → see §Pre-Existing Branch Detection
-
----
-
-## Status
-
-Implemented. Core branching doctrine is integrated into:
-
-- `scripts/branching.py` — branch lifecycle operations + divergence
-  check; `get_branching_stage` auto-promotes Stage 1 → 2 (M-7)
-- `scripts/branching_cli.py` — CLI dispatch (created/resumed output)
-- `scripts/pre_tool_bash.py` — main/sprint branch commit gates
-- `scripts/identity.py` — user namespace derivation
-- `smm/system_context_schema.py` — branching_strategy validation
-- `smm/system_context_cli.py` — `edit-branching` surface used by
-  `/xp-system-context` to record explicit stage declarations
-- `agents/xp-system-analyzer.md` — stage detection (Step 3.5)
-- `skills/xp-sprint-start/SKILL.md` — sprint/story branch creation +
-  divergence check
-- `skills/xp-plan/SKILL.md` — plan branch creation + pre-existing
-  detection
-- `skills/xp-accept/SKILL.md` — story branch merge/delete
-
-Post-sprint branch lifecycle is designed separately in
+Post-sprint branch lifecycle (sprint/plan branch cleanup beyond the
+per-story delete-on-accept) is designed separately in
 `docs/ideas/BRANCH_LIFECYCLE.md`.

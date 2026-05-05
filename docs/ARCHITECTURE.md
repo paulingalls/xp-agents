@@ -4,6 +4,16 @@
 
 Hooks-driven Claude Code plugin. XP practices enforced through command hooks (deterministic) and plugin subagents (judgment). Broadcast event log (SMM) replaces point-to-point mailboxes.
 
+## Subsystem Doctrines
+
+This document covers the plugin's runtime architecture (hooks, SMM, injection, lifecycle). Three subsystems have their own declarative doctrine docs that describe how each works in detail:
+
+- **[`ACCEPTANCE_TESTING_DOCTRINE.md`](ACCEPTANCE_TESTING_DOCTRINE.md)** — what "done" means, the two-loops model (commit + story), `acceptance_execution` schema, surface-coverage policy, capstone stories for milestone-level acceptance.
+- **[`BRANCHING_DOCTRINE.md`](BRANCHING_DOCTRINE.md)** — branch / sprint / story / free / plan branch shapes, the Stage 0/1/2/3 model, gate + auto-create discipline, user namespacing, `[release]` / `[chore]` / `[sprint-direct]` commit-prefix escape hatches.
+- **[`SECURITY_REVIEW_DOCTRINE.md`](SECURITY_REVIEW_DOCTRINE.md)** — three-tier security review (deterministic per-commit + per-story for orphans + cumulative per-close), separation from quality review, findings recording shape.
+
+Each doctrine doc is the authoritative reference for its subsystem; design-history / migration narratives live in `docs/completed/`.
+
 ## SMM Storage
 
 ```

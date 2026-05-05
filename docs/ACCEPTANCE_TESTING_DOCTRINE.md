@@ -31,11 +31,13 @@ These are two loops on two clocks. They do not block each other.
 ### Commit loop (TDD)
 
 ```
-red → green → /simplify → /xp-quality-review → /xp-security-triage → commit
+red → green → /simplify → /xp-quality-review → commit
 ```
 
 Runs constantly during implementation. Fast. Enforces correctness of the
-code we just wrote. Unchanged by this doctrine.
+code we just wrote. (Security review is no longer a per-commit gate — it
+fires at the close boundary; see `SECURITY_REVIEW_DOCTRINE.md` for the
+tier model.)
 
 ### Story loop (acceptance)
 
@@ -132,7 +134,13 @@ invoke:
 ```
 
 - `type` — which runner the story's acceptance test uses.
-- `command` — the exact invocation `/xp-accept` runs. Exit code 0 = pass.
+- `command` — the exact invocation `/xp-accept` runs (single command).
+  Exit code 0 = pass.
+- `commands` — list of invocations run in order, fail on first non-zero
+  (xor with `command`). Use when one AC needs multiple distinct
+  verifications (e.g., `pytest` + a separate `grep`); the
+  `verify_acceptance.py --story <id>` CLI handles the iteration and
+  names the failing command in stderr.
 - `setup` — optional prerequisite commands (compose up, seed DB, etc.).
 - `notes` — anything the agent or human needs to know before running.
 
