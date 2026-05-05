@@ -149,6 +149,23 @@ class TestSummarizeLintOutput(unittest.TestCase):
         result = lint_check._summarize_lint_output(output)
         self.assertIn("+3 more", result)
 
+    def test_4plus_letter_ruff_prefixes(self):
+        """Code-reuse simplify finding: _summarize_lint_output had the same
+        [A-Z]{1,3}\\d{3,4} bug as run_ruff (concern 56a0e138ef8e). 4+ letter
+        ruff plugin prefixes (PERF, FURB, FAST, ASYNC) were silently dropped
+        from the summary the user sees, even when run_ruff parsed them
+        correctly."""
+        output = (
+            "PERF401 use list comprehension\n"
+            "FURB169 use isinstance not type comparison\n"
+            "ASYNC100 unnecessary trio.fail_after\n"
+        )
+        result = lint_check._summarize_lint_output(output)
+        self.assertIn("PERF401", result)
+        self.assertIn("FURB169", result)
+        self.assertIn("ASYNC100", result)
+        self.assertIn("3 errors", result)
+
 
 import bash_failure  # noqa: E402
 from event_helpers import events_of_type  # noqa: E402

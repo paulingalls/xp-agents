@@ -213,11 +213,15 @@ def detect_linter_config(
 # (context="staging") catches truly-unused imports before they ship.
 EDIT_DEFERRED_CODES: frozenset[str] = frozenset({"F401", "F811"})
 
+# Code shape shared by all pyflakes-family linters (ruff/pylint/flake8): one or
+# more uppercase letters followed by 3-4 digits. Ruff plugin namespaces keep
+# growing (F=1, RUF=3, PERF=4, ASYNC=5, ...), so the prefix is unbounded. Single
+# source of truth — both the per-line ruff parser (run_ruff) and the summary
+# extractor (_summarize_lint_output) consume it.
+_PYFLAKES_CODE_SHAPE = r"[A-Z]+\d{3,4}"
+
 # Matches the leading code on a ruff line: "path:line:col: F401 [*] message"
-# Ruff plugin namespaces use 1-3 uppercase letters (F, E, RUF, PLR, ANN, UP, ...).
-# Single-letter [A-Z] would silently drop RUF059/PLR0915/etc. — causing
-# has_errors=False and a missed lint error at edit time.
-_RUFF_LINE_CODE = re.compile(r"^\s*[^:\s]+:\d+:\d+:\s+([A-Z]{1,3}\d{3,4})\b")
+_RUFF_LINE_CODE = re.compile(rf"^\s*[^:\s]+:\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
 
 
 def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
@@ -307,8 +311,8 @@ def _summarize_lint_output(lint_output: str) -> str:
     - eslint: kebab-case rules at end of line (no-unused-vars, no-console)
     - eslint plugins: scoped rules (@typescript-eslint/no-explicit-any)
     """
-    # ruff/pylint/flake8 codes: F401, I001, C0114, W0611, RUF059
-    codes = re.findall(r"\b([A-Z]{1,3}\d{3,4})\b", lint_output)
+    # ruff/pylint/flake8 codes: F401, I001, C0114, W0611, RUF059, PERF401
+    codes = re.findall(rf"\b({_PYFLAKES_CODE_SHAPE})\b", lint_output)
     # eslint rules: "  error  'x' is unused  no-unused-vars" or "(no-unused-vars)"
     eslint_rules = re.findall(
         r"[\s(]((?:@[\w-]+/)?[a-z][\w-]*(?:/[a-z][\w-]*)*)[)\s]*$",

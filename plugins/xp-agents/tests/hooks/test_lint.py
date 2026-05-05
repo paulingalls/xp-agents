@@ -513,6 +513,27 @@ class TestRunRuffContext(_HookTestCase):
         self.assertIn("PLR0915", codes)
         self.assertIn("UP007", codes)
 
+    def test_run_ruff_parses_4plus_letter_prefixes(self):
+        """Block-fix (concern 56a0e138ef8e): the {1,3}-letter regex bound still
+        silently drops 4+ letter ruff plugin codes (PERF, FURB, FAST, ASYNC).
+        When the regex misses, codes=[] flips has_errors=False and the lint
+        error vanishes at edit time — same failure class as the single-letter
+        bug that was previously fixed but not widely enough."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = self._ruff_stdout(
+                "app.py:1:1: PERF401 use list comprehension\n"
+                "app.py:2:1: FURB169 use isinstance not type comparison\n"
+                "app.py:3:1: ASYNC100 unnecessary trio.fail_after\n"
+                "Found 3 errors.\n"
+            )
+            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
+        self.assertIn("PERF401", codes)
+        self.assertIn("FURB169", codes)
+        self.assertIn("ASYNC100", codes)
+
 
 class TestLintEditContextFilters(_HookTestCase):
     """End-to-end: lint_check.run() is the 'edit' context entry point.
