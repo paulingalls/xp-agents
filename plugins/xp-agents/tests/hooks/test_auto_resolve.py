@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -153,17 +154,28 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         self.assertIsNone(result)
 
 
-class _LintTmpDirMixin:
+# Static-only base for the mixin below: pyright sees unittest.TestCase
+# (so super().setUp/tearDown and inherited TestCase attrs type-check),
+# but at runtime the mixin is plain `object` so pytest doesn't auto-
+# collect the mixin's test methods in isolation. Mirrors
+# _close_fixtures._MixinBase.
+if TYPE_CHECKING:
+    _MixinBase = unittest.TestCase
+else:
+    _MixinBase = object
+
+
+class _LintTmpDirMixin(_MixinBase):
     """Shared setUp/tearDown for tests needing a tmpdir with ruff.toml."""
 
     def setUp(self):
-        super().setUp()  # type: ignore[misc]
+        super().setUp()
         self._lint_tmpdir = Path(tempfile.mkdtemp())
         (self._lint_tmpdir / "ruff.toml").touch()
 
     def tearDown(self):
         shutil.rmtree(self._lint_tmpdir, ignore_errors=True)
-        super().tearDown()  # type: ignore[misc]
+        super().tearDown()
 
 
 class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
