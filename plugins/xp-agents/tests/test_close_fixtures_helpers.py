@@ -52,6 +52,16 @@ class TestAssertTextOrdering(unittest.TestCase):
             _assert_text_ordering(self, text, "first", "second", msg="step-order pin")
         self.assertIn("step-order pin", str(cm.exception))
 
+    def test_fewer_than_two_markers_raises_value_error(self):
+        """Concern dd7d1811d4b1: defensive guard at len(markers)<2 had no
+        coverage. The helper is meaningless with 0 or 1 markers — fail loud.
+        Both boundaries pinned (0 and 1) so the `<` predicate can't mutate
+        to `==` undetected."""
+        with self.assertRaises(ValueError):
+            _assert_text_ordering(self, "alpha")
+        with self.assertRaises(ValueError):
+            _assert_text_ordering(self, "alpha", "alpha")
+
 
 class TestNoInlineTextOrderingTriplets(unittest.TestCase):
     """Vocab pin: no `assertLess(<a>_idx, <b>_idx, ...)` shape remains
