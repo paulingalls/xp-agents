@@ -49,7 +49,7 @@ class TestAppendIntegration(_TempRepoTestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         events = self._read_events()
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["type"], "status")
+        self.assertEqual(events[0]["type"], EVENT_TYPE_STATUS)
         self.assertEqual(events[0]["working_on"], ["f.py"])
 
     def test_append_prints_event_id_on_success(self):

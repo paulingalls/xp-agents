@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
 from conftest import _HookTestCase
+from event_schema import EVENT_TYPE_STATUS
 
 
 class TestStoryProbeConstants(unittest.TestCase):
@@ -181,7 +182,7 @@ class TestEmitProbeStatus(_HookTestCase):
         events = self._read_events()
         self.assertEqual(len(events), 1)
         e = events[0]
-        self.assertEqual(e["type"], "status")
+        self.assertEqual(e["type"], EVENT_TYPE_STATUS)
         self.assertTrue(e["content"].startswith(STATUS_CONTENT_STORY_PROBE))
         self.assertIn("story-007", e["content"])
         self.assertEqual(e["metadata"][METADATA_KEY_STORY_CANDIDATE], "story-007")

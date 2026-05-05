@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase
+from event_schema import EVENT_TYPE_STATUS
 
 _SYSTEM_LINE = json.dumps(
     {
@@ -128,7 +129,7 @@ class TestRecordCompletion(_HookTestCase):
         events = self._read_events()
         self.assertEqual(len(events), 1)
         event = events[0]
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertIn("0.32", event["content"])
         self.assertIn("45", event["content"])
         meta = event.get("metadata", {})

@@ -150,7 +150,7 @@ class TestBuildEvent(_SMMTestCase):
 
     def test_basic_fields(self):
         event = _append_impl.build_event(self._namespace())
-        self.assertEqual(event["type"], "status")
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["agent_id"], "main")
         self.assertEqual(event["content"], "test")
         self.assertIn("id", event)
