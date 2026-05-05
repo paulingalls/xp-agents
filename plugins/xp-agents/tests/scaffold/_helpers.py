@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 
 def frontmatter_body(text: str) -> tuple[str, str]:
@@ -60,6 +62,26 @@ def init_git_with_seed(repo: Path, seed_path: str, seed_body: str) -> None:
     (repo / seed_path).write_text(seed_body, encoding="utf-8")
     run_git(["git", "add", seed_path], repo)
     run_git(["git", "commit", "-m", "[chore] seed"], repo)
+
+
+def make_fake_copy_failing_on_backup_restore(
+    original_copy: Callable[..., Any],
+) -> Callable[..., str | Path]:
+    """Build a `shutil.copy2` test double that raises PermissionError when
+    restoring a backup→target path (matched by `scaffold-snap-` + `/backup/`
+    in the source). All other copies delegate to `original_copy`.
+
+    Used by both apply_pipeline and apply_validation suites to drive the
+    snapshot-restore-failure code path. Predicate strings live here so a
+    snapshot-path rename has one update site.
+    """
+
+    def fake_copy(src: Path, dst: Path, *args: Any, **kw: Any) -> str | Path:
+        if "scaffold-snap-" in str(src) and "/backup/" in str(src):
+            raise PermissionError("simulated restore failure")
+        return original_copy(src, dst, *args, **kw)
+
+    return fake_copy
 
 
 def valid_system_context(surfaces: list[dict] | None = None) -> dict:

@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import scaffold_apply
+from _helpers import make_fake_copy_failing_on_backup_restore
 from scaffold_apply import ApplyResult, apply_plan
 from test_scaffold_apply_pipeline import _ApplyTestBase, _plan, _RevertTestBase
 
@@ -292,13 +293,7 @@ class TestApplyPlanCleansUpSnapshot(_ApplyTestBase):
             ],
             install_cmds=["false"],
         )
-        original_copy = shutil.copy2
-
-        def fake_copy(src, dst, *args, **kw):  # type: ignore[no-untyped-def]
-            if "scaffold-snap-" in str(src) and "/backup/" in str(src):
-                raise PermissionError("simulated restore failure")
-            return original_copy(src, dst, *args, **kw)
-
+        fake_copy = make_fake_copy_failing_on_backup_restore(shutil.copy2)
         with mock.patch.object(shutil, "copy2", side_effect=fake_copy):
             result = apply_plan(plan, repo_root=self.repo)
         self._track_snapshot(result)
