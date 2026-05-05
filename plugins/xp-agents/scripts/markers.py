@@ -208,6 +208,14 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Allowlist of markers writable/consumable via the CLI. Every other
+# non-agent-scoped marker (KICKOFF, ASSIGN_PENDING, ACCEPT_ACTIVE,
+# PLAN_AWAITING_REVIEW, etc.) has its own deterministic writer in a hook
+# or skill — the CLI is intentionally NOT a back door for those flows.
+# Add a marker here only when a skill prose step needs to drive it.
+_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE"})
+
+
 def main(argv: list[str] | None = None) -> int:
     # Lazy import: markers.py loads on every hook invocation; argparse is
     # CLI-only and pulls in textwrap/gettext/re.
@@ -216,19 +224,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Marker file CLI")
     parser.add_argument("--smm-dir", required=True)
     parser.add_argument("action", choices=("write", "consume"))
-    parser.add_argument("name", help="MarkerDef constant name in markers.py")
+    parser.add_argument(
+        "name",
+        choices=sorted(_CLI_ALLOWLIST),
+        help="MarkerDef constant name (CLI-allowlisted markers only)",
+    )
     args = parser.parse_args(argv)
 
-    marker = getattr(sys.modules[__name__], args.name, None)
-    if not isinstance(marker, MarkerDef):
-        print(f"Unknown marker: {args.name}", file=sys.stderr)
-        return 1
-    if marker.agent_scoped:
-        print(
-            f"Marker {args.name} is agent-scoped; CLI does not support it",
-            file=sys.stderr,
-        )
-        return 1
+    # argparse choices=_CLI_ALLOWLIST has already rejected unknown
+    # names — getattr is guaranteed to resolve a MarkerDef constant
+    # since the allowlist names mirror module attributes.
+    marker = getattr(sys.modules[__name__], args.name)
 
     smm_dir = Path(args.smm_dir)
     match args.action:

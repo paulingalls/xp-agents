@@ -43,15 +43,20 @@ class TestMarkersCLI(_HookTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_unknown_marker_name_errors(self):
+        """Marker names not in _CLI_ALLOWLIST are rejected by argparse choices."""
         result = run_cli(
             _MARKERS_PY, ["write", "DEFINITELY_NOT_A_MARKER"], self.smm_dir
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("DEFINITELY_NOT_A_MARKER", result.stderr)
 
-    def test_agent_scoped_marker_errors(self):
-        """Agent-scoped markers (e.g. TDD_TRACKER) need agent_id; CLI rejects."""
-        result = run_cli(_MARKERS_PY, ["write", "TDD_TRACKER"], self.smm_dir)
+    def test_non_allowlisted_marker_errors(self):
+        """Even valid MarkerDefs are rejected if not in _CLI_ALLOWLIST.
+
+        ASSIGN_PENDING is a real non-agent-scoped MarkerDef but is
+        intentionally NOT exposed via the CLI — its writer is a hook.
+        """
+        result = run_cli(_MARKERS_PY, ["write", "ASSIGN_PENDING"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
 
 

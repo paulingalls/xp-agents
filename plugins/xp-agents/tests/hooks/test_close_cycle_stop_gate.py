@@ -31,7 +31,7 @@ class TestCloseCycleStopGate(_HookTestCase):
         result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertIn("close-reviewer next", result)
+        self.assertIn("xp-close-reviewer", result)
 
     def test_no_block_when_marker_absent(self):
         import close_cycle_stop_gate

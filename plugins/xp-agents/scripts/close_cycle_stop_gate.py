@@ -21,8 +21,8 @@ import _common
 import markers
 
 _BLOCK_MESSAGE = (
-    "Close cycle mid-flight. /security-review just completed — invoke "
-    "xp-close-reviewer next via the Agent tool, then continue Steps 5-7."
+    "Close cycle mid-flight. Run /security-review then invoke "
+    "xp-close-reviewer (Agent tool); then continue Steps 5-7."
 )
 
 

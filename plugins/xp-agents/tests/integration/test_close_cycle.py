@@ -62,7 +62,7 @@ class TestCloseCycleE2E(_IntegrationTestCase):
         )
         self.assertIsNotNone(block_msg)
         assert block_msg is not None
-        self.assertIn("close-reviewer next", block_msg)
+        self.assertIn("xp-close-reviewer", block_msg)
 
         # Security event arrives. Gate checks marker presence, not
         # events, so it must STILL block — close-reviewer hasn't run.
