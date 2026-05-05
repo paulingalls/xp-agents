@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.1.6 — workflow plumbing: multi-AC schema + worktree-aware trailer (M-8)
+
+Sprint-062 closes M-8 — addresses the four close-cycle frictions surfaced by sprint-061's retro: worktree commits silently broke `Resolves-Event:` auto-link, single-string acceptance schemas couldn't enforce multi-command verification, plus two friction points (xp-accept preload missing `reviewing` stories + `.accept` marker re-arm whack-a-mole) deferred to a follow-up sprint. Five stories shipped via four parallel CLI teammates plus a solo capstone composing the behavioral changes end-to-end.
+
+### Multi-command `acceptance_execution` schema + new `verify_acceptance.py` CLI
+
+`acceptance_execution` now accepts `commands: list[str]` (run in order, fail on first non-zero) xor the back-compat `command: str` (single command). Both shapes validate; existing single-command stories continue to work unchanged. New `scripts/verify_acceptance.py --story <id> --smm-dir <path>` CLI iterates commands, exits non-zero on first failure with the failing command in stderr. Story-001 of sprint-061 had hit this trap — its acceptance gate ran pytest-only while a separate AC grep was unverified.
+
+### Worktree-aware trailer extraction (`commits.parse_effective_cwd`)
+
+The PostToolUse:Bash trailer-extract hook used to read HEAD from `input_data.cwd`, but `cd <wt> && git commit && cd -` caused the hook to fire AFTER the cd-back — wrong repo, wrong HEAD, silent `Resolves-Event:` auto-link break. New `commits.parse_effective_cwd(command, fallback)` parses bash command text for `git -C <path>` (highest precedence) and `cd <path>` segments, validates with `is_dir()`, and feeds the resolved cwd through to `commits.{get_committed_files,get_head_commit_hash,get_commit_message_body}` PLUS `_resolve_story_id` and `lint_resolution.{resolve_lint_on_commit,sweep_orphan_lint_concerns}`. xp-code-reviewer caught the propagation gap mid-story (concern fa4eb693f334) — same root cause, same one-line fix per call site. Heredoc commit-message edge case deferred as debt ac4e50100b34.
+
+### PreToolUse:Bash warn-only matcher for `cd <worktree> && git`
+
+Belt-and-suspenders for the worktree-cd footgun. `pre_tool_bash.py` matches `cd <wt> && git (commit|add|merge|push)` patterns — including chained shapes like `cd <wt> && pytest && git commit` — and emits an `additionalContext` warning suggesting `git -C <wt>`. Warn-only, never blocks. The first-attempt regex used nested non-greedy quantifiers and pathologically backtracked on a 20-segment chain; redesigned to a single non-greedy `[^\n]*?` (linear, no nesting). `WORKTREE_PATH_FRAGMENT` initially exported from `pre_tool_bash.py`, then consolidated to `identity.py` as the canonical home (sprint-close cleanup) — `pre_tool_bash.py` and `worktree.py` now re-export from there.
+
+### `git -C` + `verify_acceptance.py` doctrine in close skills + TEAMMATE_GUIDE
+
+Doc-only Tier-2 reinforcement: `_close_pipeline_shared.md` (Step 5c fix-cycle classify), `xp-accept/SKILL.md` (debug-and-rerun branch), and `TEAMMATE_GUIDE.md` (Commit Conventions) all now document `git -C <worktree>` as the correct pattern + `verify_acceptance.py --story <id>` as the before-flipping-to-reviewing checkpoint. Pin tests in `test_plugin_integrity.py` use the existing frontmatter-stripping helper and co-locate the timing phrase within ±2 lines of the CLI mention so a future edit can't drop the timing.
+
+### Cross-cutting M-8 capstone
+
+`tests/integration/test_milestone_08_capstone.py` exercises stories 001-003 end-to-end: real git worktree fixture under the canonical `WORKTREE_PATH_FRAGMENT`, opens a concern with a known event id, drives the bash hook pipeline for both commit shapes (`cd <wt> && git commit` and `git -C <wt> commit`), and asserts auto-resolution + worktree-SHA in `metadata.commit_hash` + warning-emission asymmetry. AC1+AC2 share a parametrized helper after the simplify+reviewer pass caught duplication.
+
+### Sprint-close polish
+
+Two sprint-coherence gaps caught by the close-reviewer landed in the same release: `xp-accept/SKILL.md`, `xp-plan/SKILL.md`, and `xp-sprint-start/SKILL.md` now teach the `commands: list[str]` shape (not just `command`); `WORKTREE_PATH_FRAGMENT` consolidated to `identity.py` as the single source of truth (was awkwardly housed in `pre_tool_bash.py`).
+
+### Declarative doctrine reorganization
+
+Post-merge cleanup established a clearer convention: `/docs/` holds declarative subsystem references (present-tense "X works like Y"), `/docs/completed/` holds design lineage (migration plans, "before" framings, status histories). `BRANCHING_DOCTRINE.md` lightly trimmed; `ACCEPTANCE_TESTING_DOCTRINE.md` moved from `/completed/` to `/docs/` with stale-reference fixes (commit loop no longer cites the deleted per-commit security step; schema mentions both `command` and `commands`); new `SECURITY_REVIEW_DOCTRINE.md` written as a declarative tier-model description (the original v3.0 cutover narrative preserved at `/docs/completed/SECURITY_REVIEW_MIGRATION.md`). `ARCHITECTURE.md` gains a "Subsystem Doctrines" section linking the three.
+
 ## v3.1.5 — pyright cleanup of tests/ + M-6b pin-coverage extension (M-7)
 
 Sprint-061 closes M-7 — clears 25 pyright errors + 372 warnings out of `tests/` so the directory can be re-included in `pyrightconfig.json`'s `include` list. Six stories shipped via 5 parallel CLI teammates plus a solo capstone (story-005) that absorbed 55 residual errors after the parallel batch landed. Net effect: `tests/` is back in pyright's strict-check scope, and the M-6b vocabulary pin gained three coverage extensions that close gaps the original walker missed.
