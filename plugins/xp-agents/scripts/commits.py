@@ -322,6 +322,61 @@ def get_uncommitted_code_files(cwd: str) -> list[str]:
     ]
 
 
+# Match `cd <path>` and `git -C <path>` only at a shell-statement boundary
+# (start, newline, semicolon, &&, ||) so we don't pick up the literal text
+# of a commit-message heredoc that happens to mention "cd /something". The
+# parsed path is then validated via `is_dir()` — a second filter against
+# false positives. Last match wins so `cd /A && cd -` lands back on /A
+# (the cd-back token doesn't validate).
+#
+# `[^\s;&|]+` excludes statement-boundary chars from the captured path so
+# `cd /tmp;` yields `/tmp` (not `/tmp;`) and `cd /a||true` yields `/a`.
+# `is_dir()` would reject the trailing-punctuation variants anyway, but
+# tightening the capture keeps the helper honest with its docstring.
+_BOUNDARY = r"(?:^|[\n;]|&&|\|\|)\s*"
+_PATH_TOKEN = r"([^\s;&|]+)"
+_GIT_DASH_C_RE = re.compile(_BOUNDARY + r"git\s+-C\s+" + _PATH_TOKEN)
+_CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
+
+
+def parse_effective_cwd(command: str, fallback: str) -> str:
+    """Return the effective cwd a git invocation in `command` ran under.
+
+    `git -C <path>` wins (highest precedence); otherwise the last `cd <path>`
+    segment whose target exists as a directory wins. Relative paths resolve
+    against `fallback`. Returns `fallback` when nothing parses or the parsed
+    path doesn't exist.
+
+    Lets the post-Bash hook read HEAD from the right repo when an agent
+    chained `cd <wt> && git commit && cd -` (the cd-back means input_data.cwd
+    is no longer the worktree by the time the hook fires).
+    """
+    if not command:
+        return fallback
+
+    def _resolve(candidate: str) -> str | None:
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = Path(fallback) / path
+        return str(path) if path.is_dir() else None
+
+    def _last_validated(regex: re.Pattern[str]) -> str | None:
+        for m in reversed(list(regex.finditer(command))):
+            resolved = _resolve(m.group(1))
+            if resolved is not None:
+                return resolved
+        return None
+
+    # Two passes encode precedence: -C beats cd. Within each kind, last
+    # validated match wins so `cd /A && cd -` lands back on /A.
+    for regex in (_GIT_DASH_C_RE, _CD_RE):
+        resolved = _last_validated(regex)
+        if resolved is not None:
+            return resolved
+
+    return fallback
+
+
 _HEREDOC_MSG_RE = re.compile(
     r"-m\s+\"\$\(cat\s+<<'?\w+'?\n(.*?)\n\w+\n\)\"",
     re.DOTALL,
