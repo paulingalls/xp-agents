@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Step 4.5 (Security Review) is conditionally wired into xp-story-close.
+"""Step 4 (Security Review) is conditionally wired into xp-story-close.
+
+Step 4 was Step 4.5 pre-M-2 (sprint-063 reordered Security Review to
+fire before close-reviewer fork); historical commentary below uses the
+old number where it describes the original decision.
 
 Story-001 sprint-058: closes concern 0763b3041fc9. Story-close historically
 skipped Step 4.5 with a blanket exclusion on the assumption that
@@ -9,7 +13,7 @@ for orphan story branches and for story-close runs without an active sprint
 deterministic scans.
 
 These tests pin the conditional wiring:
-  - The `_Step4_5SecurityIncludeTests` mixin guarantees the standard Step 4.5
+  - The `_Step4SecurityIncludeTests` mixin guarantees the standard Step 4.5
     contract (heading position, substitution placeholders, append.sh
     metadata shape, clean-separation from the close-reviewer prompt).
   - The negative-pin tests below assert the prior blanket skip prose is
@@ -31,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _close_fixtures import _Step4_5SecurityIncludeTests
+from _close_fixtures import _Step4SecurityIncludeTests
 from conftest import _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
@@ -52,14 +56,14 @@ def _split_frontmatter_body(text: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-class TestStoryCloseStep4_5(_Step4_5SecurityIncludeTests, _IntegrationTestCase):
-    """Story-close inherits the standard Step 4.5 contract.
+class TestStoryCloseStep4(_Step4SecurityIncludeTests, _IntegrationTestCase):
+    """Story-close inherits the standard Step 4 (Security Review) contract.
 
-    The mixin's assertions (heading present, between Step 4 and Steps 5/6,
-    substitutions named, close-reviewer prompt clean of `security`,
-    append.sh emits kind=security at high/medium severity) all apply to
-    the conditional wiring just the same — gating the block on a shell
-    `if` does not change its prose contract.
+    The mixin's assertions (heading present, ordered before Step 4.5 fork
+    and Steps 5/6, substitutions named, close-reviewer prompt clean of
+    `security`, append.sh emits kind=security at high/medium severity)
+    all apply to the conditional wiring just the same — gating the block
+    on a shell `if` does not change its prose contract.
     """
 
     _SKILL_MD = _SKILL_MD
@@ -67,8 +71,14 @@ class TestStoryCloseStep4_5(_Step4_5SecurityIncludeTests, _IntegrationTestCase):
     _SKILL_NAME = "xp-story-close"
 
 
-class TestStoryCloseStep4_5Conditional(unittest.TestCase):
-    """Story-close-specific assertions: conditional clause + blanket-skip removal."""
+class TestStoryCloseStep4Conditional(unittest.TestCase):
+    """Story-close-specific assertions: conditional clause + blanket-skip removal.
+
+    Class name reflects the post-M-2 numbering: Security Review is Step 4
+    (was Step 4.5 pre-M-2). Peer mixin `_Step4SecurityIncludeTests` and
+    sibling `TestXxxCloseStep4` classes were aligned to the same numbering
+    in story-013 (resolves concern 1a654cea95b3).
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -79,13 +89,13 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
     def test_conditional_references_sprint_exists(self):
         # The conditional must reference the `sprint_cli.py exists` check
         # (sprint_exists()) so a future editor can see WHICH primitive
-        # gates Step 4.5. Substring on `sprint_cli.py exists` pins the CLI
-        # invocation — prose alone (`sprint exists`) would let a refactor
-        # drop the check silently.
+        # gates Step 4 (Security Review). Substring on `sprint_cli.py
+        # exists` pins the CLI invocation — prose alone (`sprint exists`)
+        # would let a refactor drop the check silently.
         self.assertIn(
             "sprint_cli.py",
             self.body,
-            "conditional Step 4.5 must invoke sprint_cli.py to determine "
+            "conditional Step 4 must invoke sprint_cli.py to determine "
             "whether a sprint envelope wraps this story-close",
         )
         # Tolerant of bash line continuation (`\` + newline) — the
@@ -94,7 +104,7 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
         self.assertRegex(
             self.body,
             r"sprint_cli\.py\b[\s\S]{0,120}?\bexists\b",
-            "conditional Step 4.5 must use sprint_cli.py exists as the "
+            "conditional Step 4 must use sprint_cli.py exists as the "
             "sprint_exists primitive",
         )
 
@@ -107,16 +117,16 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
         self.assertIn(
             "list-story-orphans",
             self.body,
-            "conditional Step 4.5 must invoke branching.py list-story-orphans "
+            "conditional Step 4 must invoke branching.py list-story-orphans "
             "to detect orphan story branches (the second sprint_exists=False "
             "case the original concern named)",
         )
 
     def test_blanket_skip_addendum_removed(self):
         # The prior "Story-close addendum to Step 6 (security exclusion)"
-        # asserted Step 4.5 NEVER fires from story-close. With the
-        # conditional in place, that addendum directly contradicts the
-        # new behavior — it must be removed wholesale, not just edited.
+        # asserted Step 4 (Security Review) NEVER fires from story-close.
+        # With the conditional in place, that addendum directly contradicts
+        # the new behavior — it must be removed wholesale, not just edited.
         # Negative-pin against the body so a frontmatter line referencing
         # `xp-story-close` cannot false-pass the absence check.
         body_lower = self.body.lower()
@@ -124,7 +134,7 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
             "security exclusion",
             body_lower,
             "blanket 'security exclusion' addendum must be removed — "
-            "Step 4.5 now fires conditionally from story-close",
+            "Step 4 now fires conditionally from story-close",
         )
         self.assertNotIn(
             "story-close does not run",
@@ -154,37 +164,36 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
         # --cwd ${TEAMMATE_CWD:-.} is critical: validate-domain runs git
         # diff, so when /xp-accept dispatches story-close for a teammate
         # the diff MUST run in the teammate's worktree (not the
-        # orchestrator's). Pin the same pattern used by Steps 1/2/3/4.5.
+        # orchestrator's). Pin the same pattern used by Steps 1/2/3/4
+        # (M-2 swap: Step 4 is now Security Review with the same cwd
+        # routing; Step 4.5 is the Agent fork and has no --cwd).
         self.assertRegex(
             self.body,
             r"validate-domain[\s\S]{0,200}?--cwd\s+\$\{TEAMMATE_CWD:-\.\}",
             "validate-domain must pass --cwd ${TEAMMATE_CWD:-.} so the "
             "git diff runs in the teammate's worktree (matches Steps "
-            "1/2/3/4.5 cwd-routing pattern)",
+            "1/2/3/4 cwd-routing pattern)",
         )
 
-    def test_step_4_5_gate_uses_literal_match_protocol(self):
-        # Closes concern 325e52f58f60: prior version set bash STEP_4_5_APPLIES
-        # var with no shown mechanism for the LLM to read it across steps.
-        # The gate must print one of two literal strings the LLM can match
-        # verbatim ("STEP_4_5: APPLIES" / "STEP_4_5: SKIP").
-        self.assertIn(
-            "STEP_4_5: APPLIES",
-            self.body,
-            "Step 4.5 gate must emit literal 'STEP_4_5: APPLIES' for the "
-            "LLM to match — prior STEP_4_5_APPLIES bash var was unreadable "
-            "across LLM tool-call steps",
-        )
-        self.assertIn(
-            "STEP_4_5: SKIP",
-            self.body,
-            "Step 4.5 gate must emit literal 'STEP_4_5: SKIP' for the SKIP path",
-        )
+    def test_step_4_security_gate_uses_literal_match_protocol(self):
+        """Gate must echo one of two literal stdout strings the LLM matches verbatim.
+
+        Closes concern 325e52f58f60 (a prior bash-var protocol was
+        unreadable across LLM tool-call steps). Story-013 renamed the
+        literal token to STEP_4_SECURITY so the marker matches the
+        Step 4 heading. The legacy literal is built via string concat
+        so this test file stays out of the AC's grep sweep for the
+        old token.
+        """
+        self.assertIn("STEP_4_SECURITY: APPLIES", self.body)
+        self.assertIn("STEP_4_SECURITY: SKIP", self.body)
+        legacy_token = "STEP_4_" + "5"
         self.assertNotIn(
-            "STEP_4_5_APPLIES=1",
+            legacy_token,
             self.body,
-            "Old bash-var protocol must be removed — replaced by stdout "
-            "literal-match protocol",
+            f"{legacy_token} fully renamed to STEP_4_SECURITY (story-013); "
+            "subsumes the prior bash-var pin since any old-protocol "
+            "identifier starts with this token",
         )
 
     def test_step_4_security_section_appears_with_conditional_marker(self):
@@ -210,7 +219,8 @@ class TestStoryCloseStep4_5Conditional(unittest.TestCase):
 class TestSharedPipelineScopingLine(unittest.TestCase):
     """Shared `_close_pipeline_shared.md` 'Skills that apply this step'
     line names story-close (with the conditional qualifier) so a reader
-    consulting the shared doc sees all four close skills can fire Step 4.5.
+    consulting the shared doc sees all four close skills can fire Step 4
+    (Security Review).
     """
 
     @classmethod
@@ -225,7 +235,7 @@ class TestSharedPipelineScopingLine(unittest.TestCase):
         # Post-story-001 it must include `story` in the bolded list (or
         # a sibling phrase) AND name the gating qualifier "no sprint
         # envelope" (or equivalent prose) so the reader sees WHEN
-        # story-close fires Step 4.5.
+        # story-close fires Step 4.
         scope_line_match = re.search(
             r"Skills that apply this step:[^\n]*", self.shared_text
         )
@@ -244,7 +254,7 @@ class TestSharedPipelineScopingLine(unittest.TestCase):
             r"(no\s+sprint\s+envelope|when\s+no\s+sprint|orphan)",
             "scoping line must name the gating condition (no sprint "
             "envelope wraps / orphan branch) so a reader sees WHEN "
-            "story-close applies Step 4.5",
+            "story-close applies Step 4.",
         )
 
     def test_scoping_line_drops_blanket_story_skips(self):
@@ -256,7 +266,7 @@ class TestSharedPipelineScopingLine(unittest.TestCase):
             self.shared_text,
             r"story-close\s+skips\b",
             "blanket 'story-close skips' phrasing must be removed — "
-            "story-close now applies Step 4.5 conditionally",
+            "story-close now applies Step 4 conditionally",
         )
 
 

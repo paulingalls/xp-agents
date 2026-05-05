@@ -20,7 +20,7 @@ from _branching_fixtures import write_system_context
 from _close_fixtures import (
     _ClosePreloadCommonTests,
     _CloseSkillTextCommonTests,
-    _Step4_5SecurityIncludeTests,
+    _Step4SecurityIncludeTests,
 )
 from conftest import _extract_preload_var, _IntegrationTestCase
 
@@ -70,8 +70,8 @@ class TestFreeCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     _MODE = "free"
 
 
-class TestFreeCloseStep4_5(_Step4_5SecurityIncludeTests, _IntegrationTestCase):
-    """Step 4.5 (Security Review) wired into xp-free-close."""
+class TestFreeCloseStep4(_Step4SecurityIncludeTests, _IntegrationTestCase):
+    """Step 4 (Security Review) wired into xp-free-close."""
 
     _SKILL_MD = _SKILL_MD
     _MODE = "free"
