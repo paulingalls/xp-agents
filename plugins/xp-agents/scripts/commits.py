@@ -328,9 +328,15 @@ def get_uncommitted_code_files(cwd: str) -> list[str]:
 # parsed path is then validated via `is_dir()` — a second filter against
 # false positives. Last match wins so `cd /A && cd -` lands back on /A
 # (the cd-back token doesn't validate).
+#
+# `[^\s;&|]+` excludes statement-boundary chars from the captured path so
+# `cd /tmp;` yields `/tmp` (not `/tmp;`) and `cd /a||true` yields `/a`.
+# `is_dir()` would reject the trailing-punctuation variants anyway, but
+# tightening the capture keeps the helper honest with its docstring.
 _BOUNDARY = r"(?:^|[\n;]|&&|\|\|)\s*"
-_GIT_DASH_C_RE = re.compile(_BOUNDARY + r"git\s+-C\s+(\S+)")
-_CD_RE = re.compile(_BOUNDARY + r"cd\s+(\S+)")
+_PATH_TOKEN = r"([^\s;&|]+)"
+_GIT_DASH_C_RE = re.compile(_BOUNDARY + r"git\s+-C\s+" + _PATH_TOKEN)
+_CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
 
 
 def parse_effective_cwd(command: str, fallback: str) -> str:

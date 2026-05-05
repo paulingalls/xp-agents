@@ -256,6 +256,37 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
         files_spy.assert_called_with("/orig/cwd")
         body_spy.assert_called_with("/orig/cwd")
 
+    def test_path_capture_excludes_trailing_semicolon(self):
+        """`cd /tmp; git commit` captures `/tmp`, not `/tmp;` — the path
+        token regex must not absorb statement-boundary chars (`;`, `&`, `|`).
+        Without the tightened capture, is_dir() would still reject `/tmp;`
+        and silently fall back, masking the parser bug. Reviewer concern
+        df69a9faa3c8 — fixed by tightening _PATH_TOKEN to `[^\\s;&|]+`."""
+        wt = Path(tempfile.mkdtemp())
+        try:
+            head_spy, _files_spy, _body_spy = self._run_with_command(
+                f"cd {wt}; git commit -m 'x'",
+                cwd="/orig/cwd",
+            )
+            # If the regex absorbed `;`, the path would not match an existing
+            # directory and we'd fall back to /orig/cwd. The tightened capture
+            # yields the bare worktree path, validated by is_dir().
+            head_spy.assert_called_with(str(wt))
+        finally:
+            shutil.rmtree(wt)
+
+    def test_path_capture_excludes_trailing_pipe(self):
+        """`cd /a||true && git commit` captures `/a` (terminator is `|`)."""
+        wt = Path(tempfile.mkdtemp())
+        try:
+            head_spy, _files_spy, _body_spy = self._run_with_command(
+                f"cd {wt}||true && git commit -m 'x'",
+                cwd="/orig/cwd",
+            )
+            head_spy.assert_called_with(str(wt))
+        finally:
+            shutil.rmtree(wt)
+
     def test_effective_cwd_propagates_to_lint_resolution(self):
         """Same root cause that breaks the trailer trio also breaks lint
         auto-resolution (`lint_resolution.resolve_lint_on_commit` /
