@@ -25,6 +25,7 @@ from conftest import (
     _ProbeTestHelpers,
     make_event,
 )
+from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 
@@ -68,8 +69,8 @@ class TestBashFailure(_HookTestCase):
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(statuses), 1)
         self.assertIn("pytest", statuses[0]["content"])
         self.assertIn("failed", statuses[0]["content"].lower())
@@ -80,7 +81,7 @@ class TestBashFailure(_HookTestCase):
         inp = _make_bash_failure_input(command="npx jest", error="exit code 1")
         self.mod.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertIn("jest", concerns[0]["content"].lower())
 
@@ -88,7 +89,7 @@ class TestBashFailure(_HookTestCase):
         inp = _make_bash_failure_input(command="go test ./...", error="exit 1")
         self.mod.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertIn("go", concerns[0]["content"].lower())
 
@@ -99,7 +100,7 @@ class TestBashFailure(_HookTestCase):
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertIn("non-zero status code 2", statuses[0]["content"])
 
     def test_status_content_within_budget(self):
@@ -111,7 +112,7 @@ class TestBashFailure(_HookTestCase):
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) > 0, "No status event written")
         budget = CONTENT_BUDGETS["status"]
         assert budget is not None
@@ -271,7 +272,7 @@ class TestM2BashFailedAction(_HookTestCase):
         )
         bash_failure.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         metadata = statuses[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "bash_failed")
@@ -285,7 +286,7 @@ class TestM2BashFailedAction(_HookTestCase):
         inp.pop("exit_code", None)
         bash_failure.run(inp, smm_dir=self.smm_dir)
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         metadata = statuses[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "bash_failed")
         self.assertNotIn("exit_code", metadata)
