@@ -251,7 +251,7 @@ class TestCheckTddOrder(_HookTestCase):
         self.assertIsNone(result)
 
     def test_none_file_path(self):
-        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")  # type: ignore[arg-type]
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")
         self.assertIsNone(result)
 
     def test_markdown_no_tracking(self):
