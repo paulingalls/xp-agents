@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Shared base for hooks.json registration tests.
 
-Loaded by test_validation.py and test_validation_hooks.py — both check
-hooks.json structural assertions against milestone-specific registrations.
-Lives next to its consumers (private to tests/hooks/) rather than in
-conftest.py, which is reserved for cross-suite test bases.
+Consumed by tests/hooks/ files that make structural assertions about
+hooks.json (registrations, matchers, strict-JSON parse). Lives next to
+its consumers (private to tests/hooks/) rather than in conftest.py,
+which is reserved for cross-suite test bases.
 """
 
 import json
