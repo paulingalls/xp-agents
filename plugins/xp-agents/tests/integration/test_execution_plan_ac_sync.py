@@ -8,11 +8,20 @@ never existed. pytest exits 0 with "no tests ran" when given a path
 inside a collection root that doesn't resolve, so the AC gate silently
 passed even though M-2 was never actually verified by the listed tests.
 
-This pin walks the live execution_plan.json (resolved via
-_common.resolve_smm_dir()) and, for every milestone whose status is
-"delivered", runs `pytest --collect-only -q <command-args>`. The pin
-fails if pytest collects zero tests for any AC command. Planned
-milestones are skipped — they ship before they're verified.
+Two test methods:
+
+- ``test_fixture_milestone_ac_points_at_collectable_tests`` walks an
+  in-memory synthesized plan and ALWAYS runs (no SMM dependency). One
+  fixture milestone references this very file (must collect); a second
+  references a deliberately missing path (must NOT collect — proves the
+  pin's `returncode == 0` check would catch the M-2-style regression).
+  This is the story-015 fix: a fresh clone / CI runner with no live SMM
+  can no longer silently report `OK(skipped=1)`.
+
+- ``test_live_milestone_ac_points_at_collectable_tests`` walks the live
+  ``execution_plan.json`` (resolved via ``_common.resolve_smm_dir()``)
+  and skips when no live SMM is resolvable. When live SMM IS available,
+  it runs in addition to the fixture method.
 """
 
 import shlex
@@ -31,6 +40,19 @@ from conftest import _PLUGIN_ROOT
 from execution_plan_store import load_plan
 
 _REPO_ROOT = _PLUGIN_ROOT.parent.parent
+
+# Fixture path constants — kept at module scope so the docstring of the
+# fixture test stays grounded in the same identifiers the assertions use.
+# `_FIXTURE_MISSING_PATH` MUST stay non-existent: the regression-vector
+# sub-assertion asserts pytest fails to collect it. If a future
+# contributor creates a file at this path the assertion silently flips to
+# the wrong direction and the M-2 vector is no longer verified.
+_FIXTURE_REAL_PATH = (
+    "plugins/xp-agents/tests/integration/test_execution_plan_ac_sync.py"
+)
+_FIXTURE_MISSING_PATH = (
+    "plugins/xp-agents/tests/integration/test_does_not_exist_story_015.py"
+)
 
 
 class TestExecutionPlanACSync(unittest.TestCase):
@@ -51,14 +73,6 @@ class TestExecutionPlanACSync(unittest.TestCase):
             raise unittest.SkipTest(
                 f"pytest not importable under {sys.executable} — pin requires pytest"
             )
-        smm_dir = _common.resolve_smm_dir()
-        if smm_dir is None or not (smm_dir / "execution_plan.json").exists():
-            raise unittest.SkipTest(
-                "No execution_plan.json in resolved SMM dir — pin skipped"
-            )
-        cls.plan = load_plan(smm_dir)
-        if cls.plan is None:
-            raise unittest.SkipTest("load_plan returned None")
 
     def _pytest_args_from(self, command: str) -> list[str]:
         """Return args after the leading 'pytest' token, with -n auto stripped.
@@ -85,9 +99,79 @@ class TestExecutionPlanACSync(unittest.TestCase):
             out.append(tok)
         return out
 
-    def test_delivered_milestone_ac_points_at_collectable_tests(self):
-        assert self.plan is not None  # narrowing for pyright; setUpClass enforces
-        for m in self.plan.get("milestones", []):
+    def _collect(self, command: str) -> subprocess.CompletedProcess:
+        """Run `pytest --collect-only` for `command`, return the result.
+
+        Raises AssertionError if the command yields no pytest args (caller
+        relies on a non-empty argv to avoid pytest defaulting to `.`, which
+        would mask a fully-malformed AC entry).
+        """
+        args = self._pytest_args_from(command)
+        self.assertTrue(args, f"empty pytest args from {command!r}")
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "--collect-only",
+                "-q",
+                *args,
+            ],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_fixture_milestone_ac_points_at_collectable_tests(self):
+        """In-memory fixture pin: ALWAYS runs, no SMM dependency.
+
+        Two sub-assertions stand in for a synthesized plan with two
+        delivered milestones — one AC points at this very file (must
+        collect, returncode == 0); the other points at a deliberately
+        missing path (must NOT collect, returncode != 0). The second
+        sub-assertion proves the pin's equality check is the live
+        regression vector for the M-2 story-014 bug, so a fresh-clone
+        CI cannot silently skip the verification.
+        """
+        real_cmd = f"pytest {_FIXTURE_REAL_PATH}"
+        real_result = self._collect(real_cmd)
+        self.assertEqual(
+            real_result.returncode,
+            0,
+            f"Fixture real-path AC failed to collect: {real_cmd!r}\n"
+            f"  exit={real_result.returncode}\n"
+            f"  stdout={real_result.stdout}\n"
+            f"  stderr={real_result.stderr}",
+        )
+
+        missing_cmd = f"pytest {_FIXTURE_MISSING_PATH}"
+        missing_result = self._collect(missing_cmd)
+        self.assertNotEqual(
+            missing_result.returncode,
+            0,
+            f"Pin's regression-vector check is broken: pytest collected the "
+            f"deliberately missing path {_FIXTURE_MISSING_PATH!r} (exit 0).\n"
+            f"  stdout={missing_result.stdout}\n"
+            f"  stderr={missing_result.stderr}",
+        )
+
+    def test_live_milestone_ac_points_at_collectable_tests(self):
+        """Live pin: walk the resolved execution_plan.json. Skips when no
+        live SMM is available (e.g., fresh clone, CI runner). The fixture
+        test above is the always-on guarantee.
+
+        pytest exit codes:
+          0 = tests collected
+          4 = usage error (e.g., missing path)
+          5 = no tests collected
+        """
+        smm_dir = _common.resolve_smm_dir()
+        if smm_dir is None or not (smm_dir / "execution_plan.json").exists():
+            self.skipTest("No execution_plan.json in resolved SMM dir")
+        plan = load_plan(smm_dir)
+        if plan is None:
+            self.skipTest("load_plan returned None")
+        for m in plan.get("milestones", []):
             if m.get("status") != "delivered":
                 continue
             label = f"M-{m.get('number')} {m.get('name')}"
@@ -96,28 +180,7 @@ class TestExecutionPlanACSync(unittest.TestCase):
                 continue
             for cmd in extract_commands(ac):
                 with self.subTest(milestone=label, command=cmd):
-                    args = self._pytest_args_from(cmd)
-                    self.assertTrue(
-                        args,
-                        f"{label}: empty pytest args from {cmd!r}",
-                    )
-                    result = subprocess.run(
-                        [
-                            sys.executable,
-                            "-m",
-                            "pytest",
-                            "--collect-only",
-                            "-q",
-                            *args,
-                        ],
-                        cwd=_REPO_ROOT,
-                        capture_output=True,
-                        text=True,
-                    )
-                    # pytest exit codes:
-                    #   0 = tests collected
-                    #   4 = usage error (e.g., missing path)
-                    #   5 = no tests collected
+                    result = self._collect(cmd)
                     self.assertEqual(
                         result.returncode,
                         0,
