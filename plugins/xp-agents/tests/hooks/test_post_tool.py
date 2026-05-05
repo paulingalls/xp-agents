@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import post_tool_use
 from conftest import _HookTestCase, _make_write_input, make_event
+from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -42,7 +43,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         # Path is normalized against cwd
         self.assertIn("/tmp/src/app.ts", statuses[0]["working_on"])
@@ -60,7 +61,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
 
     def test_auto_status_from_multiedit(self):
@@ -76,7 +77,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
 
     def test_normalizes_relative_path(self):
@@ -85,7 +86,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(statuses[0]["working_on"], ["/home/user/src/app.ts"])
 
     def test_xp_agent_skips(self):
@@ -113,7 +114,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         metadata = statuses[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "file_write")
@@ -127,7 +128,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         normalized = "/home/user/src/app.ts"
         self.assertEqual(statuses[0]["working_on"], [normalized])
         metadata = statuses[0].get("metadata") or {}
@@ -148,7 +149,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
 
@@ -161,7 +162,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("stale" in c["content"].lower() for c in concerns))
 
     def test_conflict_superseded_decision(self):
@@ -176,7 +177,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
 
     def test_conflict_assumption_contradicted(self):
@@ -190,7 +191,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
     def test_conflict_convention_violation(self):
@@ -209,7 +210,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
 
     def test_no_false_positive_conflicts(self):
@@ -225,7 +226,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        concerns = [e for e in events if e.get("type") == EVENT_TYPE_CONCERN]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
     def test_semantic_references(self):
@@ -242,7 +243,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) >= 1)
         refs = statuses[0].get("references", [])
         self.assertIn(d["id"], refs)
@@ -260,7 +261,7 @@ class TestPostToolUse(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_raw(self.smm_dir)
-        statuses = [e for e in events if e.get("type") == EVENT_TYPE_STATUS]
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
         refs = statuses[0].get("references", [])
         self.assertNotIn(d["id"], refs)
 
