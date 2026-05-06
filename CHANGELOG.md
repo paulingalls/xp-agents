@@ -38,7 +38,7 @@ Each consolidation has a no-duplication pin in `test_conftest_consolidation_pin.
 
 ### Hook hardening (stories 007/014)
 
-- `parse_effective_cwd` (in `scripts/commits.py`) now strips quoted/heredoc bodies via `git_commits._strip_quoted` before scanning for `cd <path>` / `git -C <path>` tokens. Meta-commit messages quoting `cd /tmp` no longer retarget cwd. Pinned by `TestParseEffectiveCwdHeredoc`.
+- `parse_effective_cwd` (in `scripts/commits.py`) now strips quoted/heredoc bodies via `git_commits.strip_quoted` before scanning for `cd <path>` / `git -C <path>` tokens. Meta-commit messages quoting `cd /tmp` no longer retarget cwd. Pinned by `TestParseEffectiveCwdHeredoc`.
 - ruff F401/F811 hook checks deferred from edit-time to staging-time so multi-file `replace_all` migrations (import added in file A, consumed in file B mid-edit) don't trip stale-F401 false positives.
 
 ### Other

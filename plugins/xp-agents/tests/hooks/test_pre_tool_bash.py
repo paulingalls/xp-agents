@@ -443,6 +443,43 @@ class TestStagedRuffGate(_HookTestCase):
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
         self.assertEqual(paths, ["src/a.py"])
 
+    # --- story-007 caller-side fail-closed ---
+
+    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch("commits.get_staged_files", return_value=["src/app.py"])
+    @patch("lint_check.run_linter_batch", return_value={})
+    def test_empty_batch_with_py_paths_fails_closed(self, _batch, _files, _diff):
+        """Empty batch with non-empty py_paths must block, not silently pass."""
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        msg = str(ctx.exception).lower()
+        self.assertIn("ruff", msg)
+
+    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch(
+        "commits.get_staged_files", return_value=["src/a.py", "src/b.py", "src/c.py"]
+    )
+    @patch("lint_check.run_linter_batch", return_value={"src/a.py": [], "src/b.py": []})
+    def test_partial_batch_coverage_fails_closed(self, _batch, _files, _diff):
+        """Batch returns coverage for 2 of 3 staged .py files — the missing
+        path could harbor F401/F811 the gate never saw. Block, name the
+        missing path so the agent can act."""
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        self.assertIn("src/c.py", str(ctx.exception))
+
+    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch("commits.get_staged_files", return_value=["docs/README.md"])
+    @patch("lint_check.run_linter_batch", return_value={})
+    def test_no_py_paths_does_not_fail_closed(self, mock_batch, _files, _diff):
+        """No .py files staged → no batch call, no fail-closed. The
+        empty-batch sentinel only triggers when py_paths was non-empty."""
+        try:
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        except _common.BlockedError as e:
+            self.fail(f"No-py-paths case must not block; got: {e}")
+        mock_batch.assert_not_called()
+
 
 def _heredoc_commit(prefix: str, body: str) -> str:
     """Build `<prefix> git commit -m "$(cat <<'EOF'\\n<body>\\nEOF\\n)"`."""

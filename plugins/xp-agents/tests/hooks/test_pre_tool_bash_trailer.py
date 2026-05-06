@@ -303,9 +303,12 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
     @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
     @patch("sprint_store.load_sprint")
-    def test_worktree_teammate_silent(self, mock_load, *_mocks):
+    @patch("lint_check.run_linter_batch", return_value={"scripts/auth.py": []})
+    def test_worktree_teammate_silent(self, _batch, mock_load, *_mocks):
         """Worktree teammate has story_assignment file → Tier 1 attributes;
-        story probe stays silent."""
+        story probe stays silent. Ruff batch mocked because the synthetic
+        cwd doesn't exist on disk — the story-007 fail-closed branch would
+        otherwise trip on the subprocess error."""
         import worktree
 
         mock_load.return_value = _multi_story_sprint()
