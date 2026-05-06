@@ -142,6 +142,32 @@ When no extracted path intersects the story's `file_domain`, emit a concern nami
 
 Skip this section for stories whose `file_domain` is empty (no domain to intersect against) or whose `acceptance_execution` is absent.
 
+### 10c. NEW-file Path Enumeration
+
+For each story in `SPRINT_FILE`, scan the `description` (and `context` if present) for verbs that imply a story will create a new file or module:
+
+- `extract` (e.g., "extract REQUIRED_ENV to its own module")
+- `introduce` (e.g., "introduce a new helper for X")
+- `add module` (e.g., "add module for Y")
+- `create helper` (e.g., "create helper at path/Z.py")
+
+When any verb fires, the implied path MUST appear in the story's `file_domain`. If the planner has named a path-like token in the description (`apps/server/src/required-env.ts`, `scripts/foo.py`, etc.) and that exact token is absent from `file_domain`, **reject** the plan — emit a 🔴 `question` event naming the missing path and asking the planner to enumerate it, then halt review. If the description implies a NEW file but no path is named yet, also reject: that's a planning gap (the planner cannot commit to a path means the design isn't complete).
+
+Sprint-012 story-003 said "extract REQUIRED_ENV to its own module" but `file_domain` listed only the existing files; the new file was not enumerated, drift wasn't caught until close-review (concern `73cfb6b97049`). This rule catches that at plan time.
+
+Do NOT raise this rejection when the description has none of the new-file verbs — plans without new files are fine.
+
+### 11. Trace Verifications
+
+When you verify a trace — e.g., a referenced event id, decision tag, or anchor that an earlier review/agent flagged — and you find **no real concern** (the trace is clean, the referenced state is correct), do NOT emit a `type=concern` event with no real content. A null/empty concern inflates the unresolved-concern metric and pollutes future kickoff signal.
+
+Instead, record the verification with:
+
+- `type=decision` (preferred) — when the verification settles a question or confirms an architectural choice. Use `--topic` to tag the trace target.
+- `type=status` with `category=trace` — when the verification is purely observational (no decision was made, just a clean check).
+
+Either form keeps the trace in the event log without polluting the concern stream. Reserve `type=concern` for verifications that actually surface a problem.
+
 ## Output
 
 Complete review (not summary), most actionable first. Blocking questions at top, then plan issues, then "Plan looks good" if sound. Write decision/assumption events tight — before: *"We will use the existing validation infrastructure in event_schema.py's validate_event function which is already called from all append paths"* (143 chars). After: *"Budget check in validate_event() — single enforcement point, all append paths already call it"* (91 chars).
