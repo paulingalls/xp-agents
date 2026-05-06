@@ -106,7 +106,7 @@ def _find_active_cycle_id(events: list[dict], now_ts: str) -> str | None:
     newest_ts = ""
     newest_cycle: str | None = None
     for e in events:
-        if e.get("type") != "concern":
+        if e.get("type") != _common.CONCERN:
             continue
         cycle = _metadata_field(e, METADATA_KEY_CLOSE_CYCLE_ID)
         if not cycle:
@@ -129,6 +129,29 @@ def _ts_sort_key(candidate: dict) -> float:
         return datetime.fromisoformat(ts).timestamp()
     except ValueError:
         return 0.0
+
+
+def _count_file_overlaps(
+    cand_files: object, commit_file_set: set[str], cwd: str
+) -> int:
+    """Count candidate files that intersect commit_file_set.
+
+    Both the per-candidate scorer (where the count contributes to score)
+    and `_matching_open_discoveries` (where >0 selects the candidate)
+    need the same normalize-and-intersect loop; centralized here.
+    """
+    if not isinstance(cand_files, list):
+        return 0
+    n = 0
+    for f in cand_files:
+        if not isinstance(f, str):
+            continue
+        try:
+            if worktree.normalize_path(f, cwd) in commit_file_set:
+                n += 1
+        except (ValueError, OSError):
+            continue
+    return n
 
 
 def _score_candidate(
@@ -174,17 +197,9 @@ def _score_candidate(
     if keyword_score > 0:
         reasons.append(SELECTION_REASON_KEYWORD)
 
-    cand_files = candidate.get("files") or []
-    file_overlap = 0
-    if isinstance(cand_files, list):
-        for f in cand_files:
-            if not isinstance(f, str):
-                continue
-            try:
-                if worktree.normalize_path(f, cwd) in commit_file_set:
-                    file_overlap += 1
-            except (ValueError, OSError):
-                continue
+    file_overlap = _count_file_overlaps(
+        candidate.get("files") or [], commit_file_set, cwd
+    )
     if file_overlap > 0:
         reasons.append(SELECTION_REASON_FILE_OVERLAP)
 
@@ -204,6 +219,33 @@ def _score_candidate(
         keyword_score + file_overlap + recency + provenance + in_sprint_batch,
         reasons,
     )
+
+
+def _matching_open_discoveries(
+    events: list[dict],
+    resolutions: dict,
+    commit_file_set: set[str],
+    cwd: str,
+) -> list[dict]:
+    """Open discoveries whose `files` intersect commit_file_set.
+
+    Mirrors `commits.open_issues_matching_commit`'s intersection semantics
+    for the type='discovery' subset; that helper is fixed at concern+debt
+    and sits outside this story's file_domain (story-007 owns commits.py
+    this sprint). Resolved discoveries fall into the `resolved_other_ids`
+    bucket — gated here so a discovery already closed by a prior
+    Resolves-Event trailer doesn't re-surface.
+    """
+    if not commit_file_set:
+        return []
+    resolved_other = resolutions.get("resolved_other_ids", set())
+    return [
+        e
+        for e in events
+        if e.get("type") == _common.DISCOVERY
+        and e.get("id") not in resolved_other
+        and _count_file_overlaps(e.get("files") or [], commit_file_set, cwd) > 0
+    ]
 
 
 def changed_files(cwd: str) -> list[str]:
@@ -253,17 +295,31 @@ def find_probe_candidates(
     resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
     active_cycle_id = _find_active_cycle_id(events, resolved_now)
 
+    commit_file_set: set[str] = set()
+    for f in commit_files:
+        try:
+            commit_file_set.add(worktree.normalize_path(f, cwd))
+        except (ValueError, OSError):
+            continue
+
     open_matches = commits.open_issues_matching_commit(
         smm_dir, commit_files, cwd, events=events, resolutions=resolutions
     )
     matched_ids = {c["id"] for c in open_matches}
+    discovery_matches = _matching_open_discoveries(
+        events, resolutions, commit_file_set, cwd
+    )
+    matched_ids.update(d["id"] for d in discovery_matches)
     sibling_matches: list[dict] = []
     if active_cycle_id:
         resolved_set = (
-            resolutions["resolved_concern_ids"] | resolutions["resolved_debt_ids"]
+            resolutions["resolved_concern_ids"]
+            | resolutions["resolved_debt_ids"]
+            | resolutions["resolved_other_ids"]
         )
+        sibling_types = (_common.CONCERN, _common.DEBT, _common.DISCOVERY)
         for e in events:
-            if e.get("type") not in ("concern", "debt"):
+            if e.get("type") not in sibling_types:
                 continue
             eid = e.get("id")
             if eid in resolved_set or eid in matched_ids:
@@ -272,16 +328,12 @@ def find_probe_candidates(
                 sibling_matches.append(e)
 
     unresolved = [
-        c for c in (open_matches + sibling_matches) if c["id"] not in resolves
+        c
+        for c in (open_matches + discovery_matches + sibling_matches)
+        if c["id"] not in resolves
     ]
     haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
     haystack_keywords = _extract_keywords(" ".join(haystack_parts))
-    commit_file_set: set[str] = set()
-    for f in commit_files:
-        try:
-            commit_file_set.add(worktree.normalize_path(f, cwd))
-        except (ValueError, OSError):
-            continue
     scored = []
     for c in unresolved:
         score, reasons = _score_candidate(
