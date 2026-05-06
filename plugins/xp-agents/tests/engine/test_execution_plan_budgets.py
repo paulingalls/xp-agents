@@ -218,8 +218,7 @@ class TestStatusUpdateGrandfathersBudget(unittest.TestCase):
         store.update_milestone_status(
             self.smm_dir, 1, "delivered", delivered_sprint="sprint-017"
         )
-        plan = store.load_plan(self.smm_dir)
-        assert plan is not None
+        plan = store.load_plan_required(self.smm_dir)
         self.assertEqual(plan["milestones"][0]["status"], "delivered")
         self.assertEqual(plan["milestones"][0]["delivered_sprint"], "sprint-017")
 
