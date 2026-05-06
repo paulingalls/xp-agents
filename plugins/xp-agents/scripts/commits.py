@@ -358,9 +358,9 @@ def parse_effective_cwd(command: str, fallback: str) -> str:
     if not command:
         return fallback
 
-    # Reuse git_commits' private quote/heredoc stripper so this function and
-    # is_git_commit share one definition of "what counts as the outer command".
-    scan_target = git_commits._strip_quoted(command)
+    # Reuse git_commits.strip_quoted so this function and is_git_commit
+    # share one definition of "what counts as the outer command".
+    scan_target = git_commits.strip_quoted(command)
 
     def _resolve(candidate: str) -> str | None:
         path = Path(candidate)

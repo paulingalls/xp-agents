@@ -18,8 +18,13 @@ import re
 GIT_PREFIX = r"\bgit(?:\s+-\S+(?:\s+\S+)?)*\s+"
 
 
-def _strip_quoted(command: str) -> str:
-    """Remove quoted strings and heredocs to avoid matching inside arguments."""
+def strip_quoted(command: str) -> str:
+    """Remove quoted strings and heredocs to avoid matching inside arguments.
+
+    Public so callers (commits.parse_effective_cwd, bash_post_tool) can
+    share one pre-stripped scan target with `is_git_commit` instead of
+    each re-stripping the command independently.
+    """
     # Strip heredocs first (<<'DELIM'...DELIM or <<DELIM...DELIM)
     s = re.sub(
         r"<<-?\s*'?(\w+)'?.*?\n.*?\1",
@@ -34,10 +39,14 @@ def _strip_quoted(command: str) -> str:
     return s
 
 
-def is_git_commit(command: str) -> bool:
+def is_git_commit(command: str, *, scan_target: str | None = None) -> bool:
     """Detect a commit-producing git command (commit or merge), not inside
     quoted arguments. The `(?!-)` lookahead rejects plumbing subcommands
-    like `commit-tree` / `merge-tree`."""
-    return bool(
-        re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", _strip_quoted(command))
-    )
+    like `commit-tree` / `merge-tree`.
+
+    `scan_target` lets callers pass a pre-stripped command (via
+    `strip_quoted`) so the same Bash invocation isn't quote-stripped
+    twice when downstream functions also need it.
+    """
+    target = strip_quoted(command) if scan_target is None else scan_target
+    return bool(re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", target))
