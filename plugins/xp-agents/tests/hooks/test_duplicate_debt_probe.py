@@ -228,6 +228,48 @@ class TestBuildAdvisoryConcern(unittest.TestCase):
         self.assertIn("schema_version", result)
         self.assertEqual(result["agent_id"], "test-agent")
 
+    def test_advisory_directs_consolidation(self):
+        # Story-003 / M-1 R1: when a near-duplicate debt fires, the advisory
+        # must direct the reviewer to consolidate to a single open debt —
+        # not leave both as separate Risks-pillar entries. Pin a synonym set
+        # broad enough to survive phrasing tweaks but narrow enough that a
+        # missing directive trips the test.
+        matches = [{"debt_id": "abc123", "similarity": 0.92}]
+        result = ddp.build_advisory_concern(matches, "new789", "main")
+        content_lower = result["content"].lower()
+        consolidation_synonyms = (
+            "retire",
+            "relocate",
+            "anchor",
+            "update",
+            "supersede",
+            "consolidate",
+            "in place",
+        )
+        self.assertTrue(
+            any(token in content_lower for token in consolidation_synonyms),
+            "advisory content must direct consolidating to a single open debt "
+            f"(one of {consolidation_synonyms}) — actual content: "
+            f"{result['content']!r}",
+        )
+
+    def test_advisory_names_resolves_link_mechanism(self):
+        # AC1 spirit: the advisory must direct the reviewer to a concrete
+        # mechanism. The story originally cited `smm_cli update-item` and
+        # `metadata.supersedes` — both wrong (verified during /xp-quality-
+        # review). update-item targets shared_mental_model.json pillar
+        # items (not events.jsonl events) and supersedes is consumed only
+        # for DECISION events by concerns.py pattern #5. The honest path
+        # is `metadata.resolves` — the universal resolution link.
+        matches = [{"debt_id": "abc123", "similarity": 0.92}]
+        result = ddp.build_advisory_concern(matches, "new789", "main")
+        self.assertIn(
+            "metadata.resolves",
+            result["content"],
+            "advisory content must name `metadata.resolves` as the mechanism "
+            f"for retiring the older debt — actual content: {result['content']!r}",
+        )
+
 
 class TestRunProbeAndAppendExceptionNarrowing(unittest.TestCase):
     """Unexpected exceptions propagate instead of being silently swallowed."""
