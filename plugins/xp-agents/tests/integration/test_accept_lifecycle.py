@@ -148,20 +148,22 @@ class TestAcceptCloseThenDoneOrdering(unittest.TestCase):
         cls.text = _SKILL_MD.read_text()
 
     def test_close_invocation_precedes_mark_done_in_skill_prose(self):
-        # Pin the Step section ordering via section headers and the
-        # canonical mark-done CLI string. Header-anchored so passing
-        # prose mentions of /xp-story-close in earlier sections don't
-        # cause a false-pass; CLI-anchored on the done end so a future
-        # prose reword can't silently break the regression pin.
+        # Pin the section ordering via section headers and the canonical
+        # mark-done CLI string. Header-anchored so passing prose mentions
+        # of /xp-story-close in earlier sections don't cause a false-pass;
+        # CLI-anchored on the done end so a future prose reword can't
+        # silently break the regression pin. After the renumber, sections
+        # are physically sequential: Step 2 (close) → Step 3 (decisions)
+        # → Step 4 (mark done).
         _assert_text_ordering(
             self,
             self.text,
-            "## Step 2b.ii",
-            "## Step 2:",
+            "## Step 2: Invoke /xp-story-close",
+            "## Step 4: Update sprint.json",
             "update-story story-NNN <done|deferred>",
             msg=(
-                "close-then-done: Step 2b.ii precedes Step 2 "
-                "(which contains the mark-done CLI)"
+                "close-then-done: Step 2 (close) precedes Step 4 (mark done)"
+                " which contains the mark-done CLI"
             ),
         )
 
