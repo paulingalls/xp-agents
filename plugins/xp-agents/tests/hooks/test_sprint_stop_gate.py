@@ -260,6 +260,18 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_empty_stories_sprint_with_id_no_end_event_blocks(self):
+        """Regression pin: empty-stories sprint with sprint_id still falls
+        through to the review nudge — has_active_stories_data(empty list)
+        equals is_complete's empty-stories branch (both treat as complete)."""
+        import sprint_stop_gate
+
+        empty_sprint = _sprint_json([], sprint_id="sprint-empty", started="2026-01-01")
+        (self.smm_dir / "sprint.json").write_text(empty_sprint)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-sprint-review", result)
+
     def test_end_event_for_other_sprint_still_blocks(self):
         """sprint_end for a DIFFERENT sprint_id doesn't satisfy the current sprint."""
         import _common
